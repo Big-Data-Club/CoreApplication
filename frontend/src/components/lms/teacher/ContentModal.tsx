@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import FileUpload from "@/components/lms/teacher/FileUpload";
+import YouTubeVideoUpload from "./YoutubeVideoUpload";
 import lmsService from "@/services/lmsService";
 import { Content, ContentType, FileInfo } from "@/types";
 
@@ -32,6 +33,7 @@ export default function ContentModal({
   const [textContent, setTextContent] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [uploadMethod, setUploadMethod] = useState<'youtube' | 'server' | 'url'>('youtube');
 
   const contentTypes = [
     { value: "TEXT", label: "Văn bản", needsUpload: false },
@@ -48,28 +50,32 @@ export default function ContentModal({
   const handleFileUploaded = (fileInfo: FileInfo) => {
     setUploadedFile(fileInfo);
     
+    // For YouTube uploads, the fileInfo will have video_url and embed_url
+    const metadata: Record<string, any> = {
+      file_path: fileInfo.file_path,
+      file_name: fileInfo.file_name,
+      file_size: fileInfo.file_size,
+      file_id: fileInfo.file_id,
+    };
+
+    // If it's a YouTube upload
+    if ((fileInfo as any).video_type === 'youtube') {
+      metadata.video_type = 'youtube';
+      metadata.video_url = (fileInfo as any).video_url;
+      metadata.embed_url = (fileInfo as any).embed_url;
+      metadata.thumbnail_url = (fileInfo as any).thumbnail_url;
+    }
+
     setFormData({
       ...formData,
-      metadata: {
-        ...formData.metadata,
-        file_path: fileInfo.file_path,
-        file_name: fileInfo.file_name,
-        file_size: fileInfo.file_size,
-        file_id: fileInfo.file_id,
-      },
+      metadata,
     });
 
     if (!formData.title) {
       setFormData(prev => ({
         ...prev,
         title: fileInfo.file_name,
-        metadata: {
-          ...prev.metadata,
-          file_path: fileInfo.file_path,
-          file_name: fileInfo.file_name,
-          file_size: fileInfo.file_size,
-          file_id: fileInfo.file_id,
-        },
+        metadata,
       }));
     }
   };
@@ -79,6 +85,11 @@ export default function ContentModal({
     setTextContent("");
     setVideoUrl("");
     setImageUrl("");
+    
+    // Reset upload method to YouTube for videos
+    if (newType === "VIDEO") {
+      setUploadMethod('youtube');
+    }
     
     setFormData({
       ...formData,
@@ -96,7 +107,8 @@ export default function ContentModal({
       metadata.content = textContent;
     } else if (formData.type === "VIDEO") {
       if (uploadedFile) {
-        metadata.video_type = "uploaded";
+        // Video already uploaded (YouTube or server)
+        // Metadata is already set in handleFileUploaded
       } else if (videoUrl) {
         metadata.video_url = videoUrl;
         metadata.video_type = "external";
@@ -161,8 +173,99 @@ export default function ContentModal({
               </select>
             </div>
 
-            {/* File Upload for VIDEO, DOCUMENT, IMAGE */}
-            {selectedContentType?.needsUpload && (
+            {/* VIDEO Upload Options */}
+            {formData.type === "VIDEO" && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Phương thức upload video</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('youtube')}
+                      className={`flex-1 px-4 py-2 rounded-lg border-2 transition-colors ${
+                        uploadMethod === 'youtube'
+                          ? 'border-red-500 bg-red-50 text-red-700'
+                          : 'border-gray-300 hover:border-red-300'
+                      }`}
+                    >
+                      📺 YouTube
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('server')}
+                      className={`flex-1 px-4 py-2 rounded-lg border-2 transition-colors ${
+                        uploadMethod === 'server'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-300 hover:border-blue-300'
+                      }`}
+                    >
+                      💾 Server
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('url')}
+                      className={`flex-1 px-4 py-2 rounded-lg border-2 transition-colors ${
+                        uploadMethod === 'url'
+                          ? 'border-green-500 bg-green-50 text-green-700'
+                          : 'border-gray-300 hover:border-green-300'
+                      }`}
+                    >
+                      🔗 URL
+                    </button>
+                  </div>
+                </div>
+
+                {/* YouTube Upload */}
+                {uploadMethod === 'youtube' && (
+                  <YouTubeVideoUpload onFileUploaded={handleFileUploaded} />
+                )}
+
+                {/* Server Upload */}
+                {uploadMethod === 'server' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Upload video lên server</label>
+                    <FileUpload
+                      fileType="video"
+                      onFileUploaded={handleFileUploaded}
+                    />
+                  </div>
+                )}
+
+                {/* URL Input */}
+                {uploadMethod === 'url' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Nhập URL video</label>
+                    <input
+                      type="url"
+                      value={videoUrl}
+                      onChange={(e) => setVideoUrl(e.target.value)}
+                      placeholder="https://youtube.com/watch?v=... hoặc https://example.com/video.mp4"
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
+
+                {/* Upload Success */}
+                {uploadedFile && (
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-sm font-medium text-green-700 mb-1">
+                      ✅ Đã upload thành công
+                    </p>
+                    <p className="text-sm text-green-600">
+                      📹 {uploadedFile.file_name}
+                    </p>
+                    {(uploadedFile as any).video_url && (
+                      <p className="text-xs text-green-600 mt-1">
+                        🔗 {(uploadedFile as any).video_url}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* File Upload for DOCUMENT, IMAGE */}
+            {selectedContentType?.needsUpload && formData.type !== "VIDEO" && (
               <div>
                 <label className="block text-sm font-medium mb-2">
                   Upload {selectedContentType.label} *
@@ -177,43 +280,28 @@ export default function ContentModal({
                       ✅ Đã upload thành công
                     </p>
                     <p className="text-sm text-green-600">
-                      📁 {uploadedFile.file_name}
+                      📄 {uploadedFile.file_name}
                     </p>
                     <p className="text-xs text-green-600">
                       📊 {(uploadedFile.file_size / 1024 / 1024).toFixed(2)} MB
                     </p>
-                    <p className="text-xs text-gray-500 mt-1 font-mono">
-                      Path: {uploadedFile.file_path}
-                    </p>
                   </div>
                 )}
 
-                {/* Alternative: External URL for VIDEO and IMAGE */}
-                {(formData.type === "VIDEO" || formData.type === "IMAGE") && (
+                {/* Alternative: External URL for IMAGE */}
+                {formData.type === "IMAGE" && (
                   <div className="mt-3">
                     <label className="block text-sm font-medium mb-2">
-                      Hoặc nhập URL {formData.type === "VIDEO" ? "video" : "ảnh"} từ internet
+                      Hoặc nhập URL ảnh từ internet
                     </label>
                     <input
                       type="url"
-                      value={formData.type === "VIDEO" ? videoUrl : imageUrl}
-                      onChange={(e) => 
-                        formData.type === "VIDEO" 
-                          ? setVideoUrl(e.target.value)
-                          : setImageUrl(e.target.value)
-                      }
-                      placeholder={formData.type === "VIDEO" 
-                        ? "https://youtube.com/watch?v=... hoặc https://example.com/video.mp4"
-                        : "https://example.com/image.jpg"
-                      }
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      placeholder="https://example.com/image.jpg"
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                       disabled={!!uploadedFile}
                     />
-                    {uploadedFile && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Đã có file upload. Xóa file để sử dụng URL
-                      </p>
-                    )}
                   </div>
                 )}
               </div>
@@ -292,7 +380,7 @@ export default function ContentModal({
               <p className="text-sm text-blue-700">
                 <strong>💡 Lưu ý:</strong> {" "}
                 {formData.type === "TEXT" && "Nội dung văn bản sẽ được hiển thị trực tiếp trên trang."}
-                {formData.type === "VIDEO" && "Video có thể upload hoặc nhúng từ YouTube, Vimeo."}
+                {formData.type === "VIDEO" && "Video có thể upload lên YouTube (khuyến nghị), server, hoặc nhúng từ URL."}
                 {formData.type === "DOCUMENT" && "Tài liệu (PDF, Word, Excel) sẽ có thể xem và tải xuống."}
                 {formData.type === "IMAGE" && "Hình ảnh sẽ được hiển thị trong bài học."}
                 {formData.type === "QUIZ" && "Quiz cần được cấu hình thêm sau khi tạo."}

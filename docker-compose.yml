@@ -49,6 +49,7 @@ services:
     
     volumes:
       - ./frontend/logs:/app/logs
+      - ./frontend/data:/app/data
     
     depends_on:
       backend:
