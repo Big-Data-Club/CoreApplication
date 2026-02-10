@@ -1,0 +1,189 @@
+# Application Configuration
+spring:
+  application:
+    name: Club
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${EMAIL}
+    password: ${EMAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+  main:
+    allow-bean-definition-overriding: false
+    banner-mode: off
+
+  # Database Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/club_db
+    username: postgres
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+
+  # JPA / Hibernate Configuration
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          batch_size: 20
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+        generate_statistics: false
+        query:
+          plan_cache_max_size: 2048
+          plan_parameter_metadata_max_size: 128
+  
+  # File Upload Configuration
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 5MB
+      max-request-size: 5MB
+      file-size-threshold: 2KB
+      location: /tmp
+  
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+    default-property-inclusion: non_null
+    
+  # Security Configuration
+  security:
+    filter:
+      dispatcher-types:
+        - REQUEST
+        - ERROR
+        - ASYNC
+
+lms:
+  api:
+    url: ${LMS_API_URL}
+    secret: ${LMS_API_SECRET}
+
+springdoc:
+  swagger-ui:
+    config-url: /apiv1/v3/api-docs/swagger-config
+    url: /apiv1/v3/api-docs
+  api-docs:
+    path: /v3/api-docs
+
+# Server Configuration
+server:
+  port: 8080
+  
+  compression:
+    enabled: true
+    mime-types:
+      - text/html
+      - text/xml
+      - text/plain
+      - text/css
+      - text/javascript
+      - application/javascript
+      - application/json
+    min-response-size: 1024
+  
+  http2:
+    enabled: true
+
+  tomcat:
+    connection-timeout: 20s
+    threads:
+      max: 200
+      min-spare: 10
+    max-connections: 8192
+    accept-count: 100
+  
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET}
+  expirationMs: 3600000
+
+# File Storage Configuration
+file:
+  upload-dir: uploads
+
+app:
+  upload:
+    dir: uploads/profiles/
+  name: BDC System
+  url: ${APP_PUBLIC_URL}
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.example: INFO
+    org.springframework.web: WARN
+    org.springframework.security: WARN
+    org.hibernate: WARN
+    com.zaxxer.hikari: WARN
+  
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include:
+          - health
+          - info
+          - metrics
+          - prometheus
+  
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+  metrics:
+    enable:
+      jvm: true
+      process: true
+      system: true
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true

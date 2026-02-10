@@ -1,0 +1,502 @@
+{
+  "formId": "ai-lms-feature-survey-v2-2026",
+  "formTitle": "Khảo Sát Nhu Cầu Tính Năng AI Hỗ Trợ Học Tập",
+  "formDescription": "Khảo sát này giúp chúng tôi hiểu rõ hơn về cách sinh viên học tập và những khó khăn bạn đang gặp phải, từ đó phát triển các tính năng AI phù hợp nhất với nhu cầu thực tế của bạn. Thời gian ước tính: 8-10 phút.",
+  "formType": "survey",
+  "sheetName": "AI_LMS_Survey_V2_2026",
+  "thankYouMessage": "Cảm ơn bạn đã dành thời gian đóng góp ý kiến! Thông tin của bạn sẽ giúp chúng tôi xây dựng công cụ học tập tốt hơn cho sinh viên.",
+  "allowMultipleSubmissions": false,
+  "questions": [
+    {
+      "id": "section_1_intro",
+      "type": "single",
+      "question": "PHẦN 1: THÔNG TIN CHUNG - Bạn đang là sinh viên năm thứ mấy?",
+      "required": true,
+      "options": ["Năm 1", "Năm 2", "Năm 3", "Năm 4 trở lên"],
+      "note": "Thông tin này giúp chúng tôi hiểu ngữ cảnh học tập của bạn",
+      "constraints": {}
+    },
+    {
+      "id": "major_field",
+      "type": "single",
+      "question": "Ngành học của bạn thuộc lĩnh vực nào?",
+      "required": true,
+      "options": [
+        "Công nghệ thông tin/Khoa học máy tính",
+        "Kỹ thuật (Điện, Cơ khí, Xây dựng,...)",
+        "Kinh tế/Quản trị kinh doanh",
+        "Khoa học tự nhiên (Toán, Lý, Hóa,...)",
+        "Khoa học xã hội & Nhân văn",
+        "Y - Dược",
+        "Khác"
+      ],
+      "note": "Giúp phân tích nhu cầu theo ngành",
+      "constraints": {}
+    },
+    {
+      "id": "current_gpa",
+      "type": "single",
+      "question": "GPA hiện tại của bạn thuộc khoảng nào?",
+      "required": false,
+      "options": [
+        "3.6 - 4.0",
+        "3.2 - 3.6",
+        "2.5 - 3.2",
+        "2.0 - 2.5",
+        "1.0 - 2.0",
+        "Dưới 1.0",
+        "Không muốn chia sẻ"
+      ],
+      "note": "Thông tin này được bảo mật và chỉ dùng để phân tích nhu cầu theo nhóm đối tượng",
+      "constraints": {}
+    },
+    {
+      "id": "lms_frequency",
+      "type": "single",
+      "question": "Tần suất bạn truy cập vào hệ thống LMS/Moodle của trường?",
+      "required": true,
+      "options": [
+        "Hằng ngày",
+        "2-3 lần/tuần",
+        "Chỉ khi có bài tập hoặc deadline",
+        "Chỉ truy cập trước khi thi",
+        "Rất hiếm khi sử dụng"
+      ],
+      "note": "Câu hỏi này giúp xác định mức độ tương tác hiện tại với LMS",
+      "constraints": {}
+    },
+    {
+      "id": "learning_time_self_study",
+      "type": "single",
+      "question": "Trung bình mỗi ngày bạn dành bao nhiêu thời gian để tự học/ôn tập qua tài liệu trên LMS?",
+      "required": true,
+      "options": [
+        "Dưới 30 phút",
+        "30 phút - 1 tiếng",
+        "1 - 2 tiếng",
+        "2 - 4 tiếng",
+        "Trên 4 tiếng"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "biggest_pain_points",
+      "type": "multiple",
+      "question": "Ba khó khăn LỚN NHẤT bạn thường gặp khi học tập qua LMS là gì?",
+      "required": true,
+      "options": [
+        "Tài liệu/slide quá dài, khó lọc được ý chính để học",
+        "Video bài giảng quá dài, khó tìm lại đoạn cần xem",
+        "Không có đủ bài tập/quiz để tự kiểm tra kiến thức",
+        "Quên deadline, lịch thi vì thông báo bị trôi hoặc rải rác nhiều nơi",
+        "Không biết mình đang yếu ở phần kiến thức nào để tập trung ôn",
+        "Không biết nên học gì tiếp theo để đạt mục tiêu điểm số",
+        "Giao diện LMS khó sử dụng, không tìm được tài liệu nhanh",
+        "Thiếu công cụ để tự tạo flashcard/câu hỏi ôn tập"
+      ],
+      "note": "Chọn đúng 3 khó khăn quan trọng nhất với bạn",
+      "constraints": {
+        "minChoices": 3,
+        "maxChoices": 3
+      }
+    },
+    {
+      "id": "section_2_content_processing",
+      "type": "single",
+      "question": "PHẦN 2: TÌNH HUỐNG HỌC TẬP THỰC TẾ - Khi xem lại video bài giảng dài (1-2 tiếng), bạn thường gặp khó khăn gì?",
+      "required": true,
+      "options": [
+        "Muốn tìm lại một ý quan trọng nhưng không nhớ nó ở phút thứ mấy",
+        "Ngại xem lại từ đầu vì mất quá nhiều thời gian",
+        "Video không có phụ đề/tóm tắt nên khó nắm điểm chính",
+        "Không gặp khó khăn, tôi luôn xem hết video",
+        "Tôi không xem video bài giảng, chỉ đọc slide"
+      ],
+      "note": "Câu hỏi này giúp đánh giá nhu cầu về tính năng tóm tắt video",
+      "constraints": {}
+    },
+    {
+      "id": "document_handling",
+      "type": "single",
+      "question": "Đối với slide/tài liệu dài (50-100 trang) mà giảng viên đăng, bạn thường xử lý thế nào?",
+      "required": true,
+      "options": [
+        "Đọc lướt và bỏ qua vì quá dài, không biết đâu là trọng tâm",
+        "Phải tự tóm tắt lại vào sổ tay/file riêng rất mất thời gian",
+        "Chỉ đọc kỹ khi sắp thi, còn lại để đó",
+        "Đọc từng trang nhưng rất khó nhớ và tổng hợp kiến thức",
+        "Tôi sử dụng công cụ AI (ChatGPT, Gemini) để tóm tắt"
+      ],
+      "note": "Đây là câu hỏi scenario-based để hiểu workflow hiện tại",
+      "constraints": {}
+    },
+    {
+      "id": "quiz_after_mistake",
+      "type": "single",
+      "question": "Khi làm sai một câu quiz trên LMS, điều bạn THIẾU NHẤT hiện nay là gì?",
+      "required": true,
+      "options": [
+        "Giải thích chi tiết tại sao đáp án đó sai và đáp án đúng là gì",
+        "Link dẫn đến đúng trang slide/video chứa kiến thức đó để đọc lại",
+        "Các câu hỏi tương tự để luyện tập thêm cho nhớ",
+        "Hệ thống ghi nhận lỗ hổng kiến thức này để nhắc ôn sau",
+        "Chỉ cần biết đáp án đúng là đủ"
+      ],
+      "note": "Câu hỏi này đo lường nhu cầu về tính năng AI giải thích đáp án",
+      "constraints": {}
+    },
+    {
+      "id": "goal_tracking_situation",
+      "type": "single",
+      "question": "Bạn có thường xuyên rơi vào trạng thái 'mông lung' không biết học gì tiếp để đạt điểm mục tiêu không?",
+      "required": true,
+      "options": [
+        "Thường xuyên, tôi học rất tự phát không có kế hoạch",
+        "Có, tôi có mục tiêu điểm nhưng không biết lộ trình cụ thể",
+        "Thỉnh thoảng, khi khối lượng kiến thức quá lớn",
+        "Không, tôi luôn tự lên được lộ trình chi tiết"
+      ],
+      "note": "Đánh giá nhu cầu về tính năng AI đề xuất lộ trình học tập",
+      "constraints": {}
+    },
+    {
+      "id": "notification_overload",
+      "type": "single",
+      "question": "Bạn có thường quên deadline/lịch thi vì thông báo bị trôi giữa hàng chục email không?",
+      "required": true,
+      "options": [
+        "Thường xuyên bỏ lỡ vì thông báo quá nhiều và rải rác",
+        "Thỉnh thoảng quên nếu không chủ động ghi chú lại",
+        "Hiếm khi, tôi tự quản lý lịch tốt",
+        "Không bao giờ quên"
+      ],
+      "note": "Đo lường mức độ nghiêm trọng của vấn đề quản lý thông báo",
+      "constraints": {}
+    },
+    {
+      "id": "section_3_feature_priority",
+      "type": "matrix",
+      "question": "PHẦN 3: ĐÁNH GIÁ MỨC ĐỘ CẦN THIẾT CỦA CÁC TÍNH NĂNG - Với mỗi tính năng dưới đây, hãy đánh giá mức độ cần thiết với việc học của BẠN",
+      "required": true,
+      "note": "Thang điểm: 1 = Hoàn toàn không cần, 5 = Cực kỳ cần thiết",
+      "rowLabel": "Tính năng",
+      "rows": [
+        {
+          "id": "auto_summarize",
+          "text": "AI tự động tóm tắt video bài giảng và slide thành văn bản ngắn gọn, highlight ý chính"
+        },
+        {
+          "id": "speech_to_text",
+          "text": "Chuyển giọng nói trong video thành văn bản có thể tìm kiếm (như subtitle có thể search)"
+        },
+        {
+          "id": "auto_quiz_generation",
+          "text": "AI tự tạo bộ câu hỏi trắc nghiệm từ tài liệu để tự kiểm tra ngay sau khi học"
+        },
+        {
+          "id": "auto_flashcard",
+          "text": "AI tự tạo flashcard (thẻ ghi nhớ) từ khái niệm quan trọng trong bài để ôn tập"
+        },
+        {
+          "id": "ai_explain_answer",
+          "text": "AI giải thích chi tiết tại sao bạn sai và chỉ đúng chỗ cần đọc lại trong slide"
+        },
+        {
+          "id": "learning_path",
+          "text": "AI đề xuất lộ trình học cụ thể dựa trên điểm hiện tại và mục tiêu của bạn"
+        },
+        {
+          "id": "knowledge_gap",
+          "text": "AI phân tích quiz để chỉ ra chính xác bạn đang yếu ở mảng kiến thức nào"
+        },
+        {
+          "id": "smart_notification",
+          "text": "Tóm tắt thông báo từ trường/giảng viên và tự động thêm lịch vào Google Calendar"
+        },
+        {
+          "id": "custom_dashboard",
+          "text": "Dashboard cá nhân hóa cho phép tự sắp xếp giao diện theo ý muốn"
+        },
+        {
+          "id": "short_video",
+          "text": "AI tạo video ngắn 1-2 phút (kiểu TikTok) tóm tắt bài học để ôn nhanh"
+        }
+      ],
+      "columns": [
+        { "label": "1", "value": "1" },
+        { "label": "2", "value": "2" },
+        { "label": "3", "value": "3" },
+        { "label": "4", "value": "4" },
+        { "label": "5", "value": "5" }
+      ],
+      "constraints": {}
+    },
+    {
+      "id": "top_3_features",
+      "type": "multiple",
+      "question": "Nếu chỉ được chọn 3 tính năng để phát triển ĐẦU TIÊN, bạn sẽ chọn gì?",
+      "required": true,
+      "options": [
+        "Tóm tắt thông minh video/slide",
+        "Tự động tạo quiz/flashcard ôn tập",
+        "AI giải thích lỗi sai trong bài làm",
+        "Đề xuất lộ trình học cá nhân hóa",
+        "Phân tích lỗ hổng kiến thức",
+        "Quản lý thông báo và lịch thông minh",
+        "Dashboard tùy biến giao diện",
+        "Video ngắn tóm tắt bài học",
+        "Chuyển giọng nói thành text có thể search"
+      ],
+      "note": "Chọn đúng 3 tính năng quan trọng NHẤT với bạn",
+      "constraints": {
+        "minChoices": 3,
+        "maxChoices": 3
+      }
+    },
+    {
+      "id": "section_4_kano_summary",
+      "type": "single",
+      "question": "PHẦN 4: TÍNH NĂNG TÓM TẮT - Nếu hệ thống CÓ tính năng 'AI tự động tóm tắt mọi tài liệu và tạo điểm nhấn quan trọng', bạn cảm thấy thế nào?",
+      "required": true,
+      "options": [
+        "Tôi rất thích, đây là tính năng tuyệt vời",
+        "Đó là điều hiển nhiên phải có",
+        "Tôi thấy bình thường, có cũng được không cũng được",
+        "Tôi có thể chấp nhận được",
+        "Tôi không thích tính năng này"
+      ],
+      "note": "Câu hỏi Kano giúp phân loại tính năng",
+      "constraints": {}
+    },
+    {
+      "id": "kano_summary_negative",
+      "type": "single",
+      "question": "Nếu hệ thống KHÔNG CÓ tính năng tóm tắt tự động, bạn cảm thấy thế nào?",
+      "required": true,
+      "options": [
+        "Tôi rất thích (không cần tính năng này)",
+        "Đó là điều hiển nhiên",
+        "Tôi thấy bình thường",
+        "Tôi có thể chấp nhận được",
+        "Tôi rất ghét/không thích (cần tính năng này)"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "kano_quiz_positive",
+      "type": "single",
+      "question": "Nếu hệ thống CÓ tính năng 'AI tự tạo quiz và giải thích đáp án chi tiết', bạn cảm thấy thế nào?",
+      "required": true,
+      "options": [
+        "Tôi rất thích, đây là tính năng tuyệt vời",
+        "Đó là điều hiển nhiên phải có",
+        "Tôi thấy bình thường",
+        "Tôi có thể chấp nhận được",
+        "Tôi không thích tính năng này"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "kano_quiz_negative",
+      "type": "single",
+      "question": "Nếu hệ thống KHÔNG CÓ tính năng tạo quiz tự động, bạn cảm thấy thế nào?",
+      "required": true,
+      "options": [
+        "Tôi rất thích (không cần tính năng này)",
+        "Đó là điều hiển nhiên",
+        "Tôi thấy bình thường",
+        "Tôi có thể chấp nhận được",
+        "Tôi rất ghét/không thích (cần tính năng này)"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "kano_learning_path_positive",
+      "type": "single",
+      "question": "Nếu hệ thống CÓ tính năng 'AI đề xuất lộ trình học cụ thể để đạt mục tiêu điểm', bạn cảm thấy thế nào?",
+      "required": true,
+      "options": [
+        "Tôi rất thích, đây là tính năng tuyệt vời",
+        "Đó là điều hiển nhiên phải có",
+        "Tôi thấy bình thường",
+        "Tôi có thể chấp nhận được",
+        "Tôi không thích tính năng này"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "kano_learning_path_negative",
+      "type": "single",
+      "question": "Nếu hệ thống KHÔNG CÓ tính năng đề xuất lộ trình học, bạn cảm thấy thế nào?",
+      "required": true,
+      "options": [
+        "Tôi rất thích (không cần tính năng này)",
+        "Đó là điều hiển nhiên",
+        "Tôi thấy bình thường",
+        "Tôi có thể chấp nhận được",
+        "Tôi rất ghét/không thích (cần tính năng này)"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "section_5_ai_usage",
+      "type": "single",
+      "question": "PHẦN 5: HÀNH VI SỬ DỤNG AI - Bạn có đang sử dụng các công cụ AI (ChatGPT, Gemini, NotebookLM,...) để hỗ trợ học tập không?",
+      "required": true,
+      "options": [
+        "Có, tôi sử dụng hằng ngày",
+        "Có, tôi sử dụng 3-5 lần/tuần",
+        "Thỉnh thoảng khi cần",
+        "Hiếm khi sử dụng",
+        "Không bao giờ sử dụng"
+      ],
+      "note": "Đánh giá mức độ quen thuộc với AI",
+      "constraints": {}
+    },
+    {
+      "id": "ai_usage_purpose",
+      "type": "multiple",
+      "question": "Nếu có dùng AI, bạn chủ yếu dùng để làm gì?",
+      "required": false,
+      "options": [
+        "Tóm tắt tài liệu/slide dài",
+        "Giải thích khái niệm khó hiểu",
+        "Tạo câu hỏi/flashcard ôn tập",
+        "Giải bài tập",
+        "Kiểm tra ngữ pháp/cải thiện văn bản",
+        "Tìm kiếm thông tin",
+        "Khác"
+      ],
+      "note": "Có thể chọn nhiều mục",
+      "constraints": {
+        "minChoices": 0,
+        "maxChoices": 7
+      }
+    },
+    {
+      "id": "ai_trust_level",
+      "type": "single",
+      "question": "Mức độ tin cậy của bạn đối với câu trả lời từ AI hiện nay như thế nào?",
+      "required": true,
+      "options": [
+        "Tin tưởng tuyệt đối, hiếm khi kiểm tra lại",
+        "Tin phần lớn, chỉ kiểm tra thông tin quan trọng",
+        "Chỉ tham khảo, luôn kiểm tra lại bằng nguồn khác",
+        "Hoài nghi, thường thấy AI trả lời sai",
+        "Không tin AI"
+      ],
+      "note": "Đây là thông tin quan trọng về trust level",
+      "constraints": {}
+    },
+    {
+      "id": "section_6_privacy",
+      "type": "single",
+      "question": "PHẦN 6: QUYỀN RIÊNG TƯ VÀ DỮ LIỆU - Để AI cá nhân hóa lộ trình học, bạn có sẵn sàng để hệ thống thu thập dữ liệu học tập của mình không?",
+      "required": true,
+      "options": [
+        "Rất sẵn sàng nếu nó giúp học tốt hơn",
+        "Sẵn sàng nhưng cần biết rõ dữ liệu nào được thu thập",
+        "Sẵn sàng nhưng phải cam kết bảo mật tuyệt đối",
+        "Do dự, lo ngại về quyền riêng tư",
+        "Không sẵn sàng chia sẻ bất kỳ dữ liệu nào"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "data_sharing_acceptance",
+      "type": "multiple",
+      "question": "Bạn chấp nhận chia sẻ dữ liệu nào sau đây để AI cá nhân hóa trải nghiệm?",
+      "required": true,
+      "options": [
+        "Điểm số các môn học",
+        "Thời gian xem video/đọc tài liệu",
+        "Lịch sử tìm kiếm trên LMS",
+        "Kết quả quiz và câu trả lời sai",
+        "Thời gian đăng nhập và tương tác",
+        "Không đồng ý chia sẻ bất kỳ dữ liệu nào"
+      ],
+      "note": "Chọn tất cả các loại dữ liệu bạn chấp nhận chia sẻ",
+      "constraints": {
+        "minChoices": 1,
+        "maxChoices": 6
+      }
+    },
+    {
+      "id": "tab_switching_detection",
+      "type": "single",
+      "question": "Quan điểm của bạn về tính năng 'Phát hiện chuyển tab' khi làm bài thi online để chống gian lận?",
+      "required": true,
+      "options": [
+        "Hoàn toàn ủng hộ để đảm bảo công bằng",
+        "Chỉ nên ghi nhận số lần chuyển tab, không nên chặn",
+        "Cần thông báo rõ ràng trước khi làm bài",
+        "Phản đối vì xâm phạm quyền riêng tư",
+        "Không có ý kiến"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "section_7_behavioral",
+      "type": "single",
+      "question": "PHẦN 7: HÀNH VI HỌC TẬP - Động lực chính để bạn truy cập LMS/công cụ học tập là gì?",
+      "required": true,
+      "options": [
+        "Sắp thi, cần ôn gấp (học kiểu deadline)",
+        "Muốn cải thiện GPA để đạt mục tiêu (học bổng/tốt nghiệp loại giỏi)",
+        "Tò mò kiến thức mới, muốn hiểu sâu hơn",
+        "Bắt buộc phải vào để nộp bài/điểm danh",
+        "Không có động lực rõ ràng"
+      ],
+      "note": "Hiểu động lực giúp thiết kế tính năng phù hợp",
+      "constraints": {}
+    },
+    {
+      "id": "learning_style_preference",
+      "type": "single",
+      "question": "Bạn thích học theo cách nào nhất?",
+      "required": true,
+      "options": [
+        "Đọc tài liệu văn bản chi tiết",
+        "Xem video bài giảng",
+        "Học qua quiz/bài tập thực hành",
+        "Học qua video ngắn (micro-learning)",
+        "Kết hợp nhiều hình thức"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "short_video_opinion",
+      "type": "single",
+      "question": "Bạn nghĩ sao về việc học qua video ngắn 1-2 phút (kiểu TikTok/Reels)?",
+      "required": true,
+      "options": [
+        "Rất thích, dễ tiếp thu và không nhàm chán",
+        "Chỉ nên là tài liệu tham khảo thêm, không thay thế bài giảng chính",
+        "Không thích, làm mất tính học thuật và gây mất tập trung",
+        "Chưa thử nên không biết"
+      ],
+      "note": "Đánh giá tiềm năng của micro-learning",
+      "constraints": {}
+    },
+    {
+      "id": "final_feedback",
+      "type": "long",
+      "question": "PHẦN 8: Ý KIẾN ĐÓNG GÓP - Bạn có ý kiến hoặc đề xuất nào khác cho chúng tôi không?",
+      "required": false,
+      "placeholder": "Chia sẻ ý tưởng, mong muốn hoặc lo ngại của bạn về việc sử dụng AI trong học tập...",
+      "note": "Mọi ý kiến đều rất quý giá với chúng tôi",
+      "constraints": {
+        "maxLength": 1000
+      }
+    }
+  ]
+}

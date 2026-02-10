@@ -1,0 +1,513 @@
+/* eslint-disable @next/next/no-img-element */
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+
+interface ContentViewerProps {
+  content: {
+    id: number;
+    type: string;
+    title: string;
+    description: string;
+    metadata?: Record<string, any>;
+    file_path?: string;
+    file_type?: string;
+  };
+  userRole?: string; // 'TEACHER', 'STUDENT', 'ADMIN'
+}
+
+export default function ContentViewer({ content, userRole = 'STUDENT' }: ContentViewerProps) {
+  const router = useRouter();
+  const [error, setError] = useState<string>("");
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  // Get API base URL
+  const API_URL = process.env.NEXT_PUBLIC_LMS_API_URL || "http://localhost:8081/api/v1";
+
+  // Build file URL from file_path
+  const buildFileUrl = (filePath: string | undefined): string => {
+    if (!filePath) return "";
+    
+    if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+      return filePath;
+    }
+    
+    return `${API_URL}/files/serve/${filePath}`;
+  };
+
+  const renderContent = () => {
+    switch (content.type) {
+      case "TEXT":
+        return (
+          <div className="prose max-w-none">
+            {content.metadata?.content ? (
+              <ReactMarkdown>{content.metadata.content}</ReactMarkdown>
+            ) : (
+              <p className="text-gray-500">Chưa có nội dung</p>
+            )}
+          </div>
+        );
+
+      case "VIDEO":
+        return renderVideo();
+
+      case "IMAGE":
+        return renderImage();
+
+      case "DOCUMENT":
+        return renderDocument();
+
+      case "QUIZ":
+        return renderQuiz();
+
+      case "FORUM":
+        return (
+          <div className="p-6 bg-green-50 border border-green-200 rounded-lg">
+            <h3 className="text-lg font-semibold mb-2">💬 Diễn đàn: {content.title}</h3>
+            <p className="text-gray-700">{content.description}</p>
+            <button className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+              Vào diễn đàn
+            </button>
+          </div>
+        );
+
+      case "ANNOUNCEMENT":
+        return (
+          <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <h3 className="text-lg font-semibold mb-2">📢 Thông báo: {content.title}</h3>
+            <p className="text-gray-700">{content.description}</p>
+            {content.metadata?.content && (
+              <div className="mt-4 prose max-w-none">
+                <ReactMarkdown>{content.metadata.content}</ReactMarkdown>
+              </div>
+            )}
+          </div>
+        );
+
+      default:
+        return (
+          <div className="p-4 bg-gray-100 rounded-lg">
+            <p className="text-gray-600">Loại nội dung không được hỗ trợ</p>
+          </div>
+        );
+    }
+  };
+
+  const renderQuiz = () => {
+    const quizId = content.metadata?.quiz_id;
+    const isTeacher = userRole === 'TEACHER' || userRole === 'ADMIN';
+    const isStudent = userRole === 'STUDENT';
+    
+    return (
+      <div className="space-y-4">
+        {/* Quiz Info Card */}
+        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-16 h-16 bg-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
+              <span className="text-3xl">📝</span>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">{content.title}</h3>
+              <p className="text-gray-700 mb-4">{content.description || "Kiểm tra kiến thức của bạn"}</p>
+              
+              {/* Quiz Stats (if available) */}
+              {content.metadata?.total_points && (
+                <div className="flex gap-4 text-sm mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-600">Tổng điểm:</span>
+                    <span className="px-2 py-1 bg-white rounded font-semibold text-purple-700">
+                      {content.metadata.total_points}
+                    </span>
+                  </div>
+                  {content.metadata?.time_limit_minutes && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-600">Thời gian:</span>
+                      <span className="px-2 py-1 bg-white rounded font-semibold text-purple-700">
+                        {content.metadata.time_limit_minutes} phút
+                      </span>
+                    </div>
+                  )}
+                  {content.metadata?.max_attempts && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-600">Số lần làm:</span>
+                      <span className="px-2 py-1 bg-white rounded font-semibold text-purple-700">
+                        {content.metadata.max_attempts} lần
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          {isTeacher ? (
+            <>
+              {/* Teacher Actions */}
+              {quizId ? (
+                <>
+                  <button
+                    onClick={() => router.push(`/lms/teacher/quiz/${quizId}/manage`)}
+                    className="flex-1 px-6 py-4 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold text-lg transition-all transform hover:scale-[1.02]"
+                  >
+                    ⚙️ Quản lý Quiz
+                  </button>
+                  <button
+                    onClick={() => router.push(`/lms/teacher/quiz/${quizId}/grading`)}
+                    className="flex-1 px-6 py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold text-lg transition-all transform hover:scale-[1.02]"
+                  >
+                    ✓ Chấm bài
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => router.push(`/lms/teacher/content/${content.id}/quiz/create`)}
+                  className="flex-1 px-6 py-4 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-semibold text-lg transition-all transform hover:scale-[1.02]"
+                >
+                  + Tạo Quiz
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Student Actions */}
+              {quizId ? (
+                <>
+                  <button
+                    onClick={() => router.push(`/lms/student/quiz/${quizId}/take`)}
+                    className="flex-1 px-8 py-5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-700 hover:to-indigo-700 font-bold text-xl transition-all transform hover:scale-[1.02] shadow-lg"
+                  >
+                    🚀 Bắt đầu làm bài
+                  </button>
+                  
+                  {/* History Button for Students */}
+                  {isStudent && (
+                    <button
+                      onClick={() => router.push(`/lms/student/quiz/${quizId}/history`)}
+                      className="px-6 py-5 bg-white border-2 border-purple-300 text-purple-700 rounded-xl hover:bg-purple-50 font-semibold text-lg transition-all transform hover:scale-[1.02] flex items-center gap-2"
+                    >
+                      <span className="text-xl">📜</span>
+                      Lịch sử
+                    </button>
+                  )}
+                </>
+              ) : (
+                <div className="flex-1 px-6 py-4 bg-yellow-50 border border-yellow-300 rounded-xl">
+                  <p className="text-yellow-700 text-center">
+                    ⚠️ Quiz chưa được cấu hình. Vui lòng liên hệ giảng viên.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Additional Info */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <p className="text-sm text-blue-800">
+            <strong>💡 Lưu ý:</strong> 
+            {isTeacher ? (
+              " Bạn có thể quản lý câu hỏi, xem kết quả và chấm điểm cho học sinh."
+            ) : (
+              " Đọc kỹ hướng dẫn trước khi làm bài. Bạn có thể xem lại lịch sử các lần làm bài trước đó."
+            )}
+          </p>
+        </div>
+      </div>
+    );
+  };
+
+  const renderVideo = () => {
+    const filePath = content.metadata?.file_path || content.file_path;
+    const videoUrl = filePath 
+      ? buildFileUrl(filePath)
+      : (content.metadata?.file_url || content.metadata?.video_url);
+    
+    if (!videoUrl) {
+      return (
+        <div className="p-4 bg-gray-100 rounded-lg">
+          <p className="text-gray-600">Video chưa được tải lên</p>
+        </div>
+      );
+    }
+
+    const isYouTube = videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be");
+    const isVimeo = videoUrl.includes("vimeo.com");
+
+    if (isYouTube) {
+      const videoId = extractYouTubeId(videoUrl);
+      return (
+        <div className="aspect-video rounded-lg overflow-hidden shadow-lg">
+          <iframe
+            src={`https://www.youtube.com/embed/${videoId}`}
+            className="w-full h-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            title={content.title}
+          />
+        </div>
+      );
+    }
+
+    if (isVimeo) {
+      const videoId = extractVimeoId(videoUrl);
+      return (
+        <div className="aspect-video rounded-lg overflow-hidden shadow-lg">
+          <iframe
+            src={`https://player.vimeo.com/video/${videoId}`}
+            className="w-full h-full"
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+            title={content.title}
+          />
+        </div>
+      );
+    }
+
+    const fileExt = getFileExtension(videoUrl);
+    const videoType = fileExt === "webm" ? "video/webm" : "video/mp4";
+
+    return (
+      <div className="space-y-4">
+        <video
+          controls
+          className="w-full rounded-lg shadow-lg"
+          onError={() => setError("Không thể tải video")}
+        >
+          <source src={videoUrl} type={videoType} />
+          Trình duyệt của bạn không hỗ trợ video.
+        </video>
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            ⚠️ {error}
+            <p className="text-xs mt-1">URL: {videoUrl}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderImage = () => {
+    const filePath = content.metadata?.file_path || content.file_path;
+    const imageUrl = filePath 
+      ? buildFileUrl(filePath)
+      : (content.metadata?.file_url || content.metadata?.image_url);
+    
+    if (!imageUrl) {
+      return (
+        <div className="p-4 bg-gray-100 rounded-lg">
+          <p className="text-gray-600">Hình ảnh chưa được tải lên</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="relative bg-gray-100 rounded-lg overflow-hidden">
+          {!imageLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+          )}
+          <img
+            src={imageUrl}
+            alt={content.title}
+            className={`w-full h-auto rounded-lg shadow-lg transition-opacity duration-300 ${
+              imageLoaded ? "opacity-100" : "opacity-0"
+            }`}
+            onLoad={() => setImageLoaded(true)}
+            onError={() => {
+              setError("Không thể tải hình ảnh");
+              setImageLoaded(true);
+            }}
+          />
+        </div>
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            ⚠️ {error}
+            <p className="text-xs mt-1">URL: {imageUrl}</p>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <a
+            href={imageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            🔍 Xem kích thước đầy đủ
+          </a>
+          <a
+            href={imageUrl.replace("/serve/", "/download/")}
+            download
+            className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+          >
+            📥 Tải xuống
+          </a>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDocument = () => {
+    const filePath = content.metadata?.file_path || content.file_path;
+    const docUrl = filePath 
+      ? buildFileUrl(filePath)
+      : content.metadata?.file_url;
+    
+    if (!docUrl) {
+      return (
+        <div className="p-4 bg-gray-100 rounded-lg">
+          <p className="text-gray-600">Tài liệu chưa được tải lên</p>
+        </div>
+      );
+    }
+
+    const isPdf = docUrl.toLowerCase().includes(".pdf");
+    const fileName = content.metadata?.file_name || content.title;
+    const fileSize = content.metadata?.file_size 
+      ? formatFileSize(content.metadata.file_size) 
+      : "Không rõ";
+
+    const downloadUrl = docUrl.replace("/serve/", "/download/");
+
+    return (
+      <div className="space-y-4">
+        <div className="p-6 bg-gray-50 border border-gray-200 rounded-lg">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0">
+              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <span className="text-2xl">
+                  {isPdf ? "📄" : "📋"}
+                </span>
+              </div>
+            </div>
+            <div className="flex-1">
+              <h4 className="font-semibold text-lg mb-1">{fileName}</h4>
+              <p className="text-sm text-gray-600 mb-3">Kích thước: {fileSize}</p>
+              <div className="flex gap-2 flex-wrap">
+                <a
+                  href={docUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  👁️ Xem tài liệu
+                </a>
+                <a
+                  href={downloadUrl}
+                  download
+                  className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                >
+                  📥 Tải xuống
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {isPdf && (
+          <div className="border border-gray-300 rounded-lg overflow-hidden bg-gray-100">
+            <iframe
+              src={`${docUrl}#view=FitH`}
+              className="w-full h-[600px]"
+              title={fileName}
+              onError={() => setError("Không thể hiển thị PDF. Vui lòng tải xuống để xem.")}
+            />
+            {error && (
+              <div className="p-3 bg-yellow-50 border-t border-yellow-200 text-yellow-700 text-sm">
+                ⚠️ {error}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Helper functions
+  const extractYouTubeId = (url: string): string => {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/,
+      /youtube\.com\/embed\/([^&\n?#]+)/,
+    ];
+    
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) return match[1];
+    }
+    
+    return "";
+  };
+
+  const extractVimeoId = (url: string): string => {
+    const match = url.match(/vimeo\.com\/(\d+)/);
+    return match ? match[1] : "";
+  };
+
+  const getFileExtension = (url: string): string => {
+    const parts = url.split(".");
+    const ext = parts[parts.length - 1].toLowerCase();
+    return ext.split("?")[0];
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
+  };
+
+  return (
+    <>
+      <div className="space-y-4">
+        {/* Content Header */}
+        <div className="border-b pb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+              {content.type}
+            </span>
+            {content.metadata?.is_mandatory && (
+              <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded">
+                Bắt buộc
+              </span>
+            )}
+          </div>
+          <h2 className="text-2xl font-bold mb-2">{content.title}</h2>
+          {content.description && content.type !== 'QUIZ' && (
+            <p className="text-gray-600">{content.description}</p>
+          )}
+        </div>
+
+        {/* Content Body */}
+        {renderContent()}
+        
+        {/* Debug info in development */}
+        {process.env.NODE_ENV === "development" && (
+          <details className="text-xs bg-gray-100 p-3 rounded">
+            <summary className="cursor-pointer font-mono">Debug Info</summary>
+            <pre className="mt-2 overflow-auto">
+              {JSON.stringify(
+                {
+                  type: content.type,
+                  file_path: content.file_path,
+                  metadata: content.metadata,
+                  built_url: content.metadata?.file_path 
+                    ? buildFileUrl(content.metadata.file_path)
+                    : "N/A"
+                },
+                null,
+                2
+              )}
+            </pre>
+          </details>
+        )}
+      </div>
+    </>
+  );
+}

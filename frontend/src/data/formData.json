@@ -1,0 +1,201 @@
+{
+  "formId": "bdc-survey-2024",
+  "formTitle": "Khảo Sát Big Data Club 2024",
+  "formDescription": "Khảo sát dành cho thành viên và người quan tâm đến Big Data Club",
+  "formType": "survey",
+  "sheetName": "Survey_Responses",
+  "thankYouMessage": "Cảm ơn bạn đã tham gia khảo sát!",
+  "allowMultipleSubmissions": true,
+  "questions": [
+    {
+      "id": "q1",
+      "type": "short",
+      "question": "Họ và tên của bạn",
+      "required": true,
+      "placeholder": "Nguyễn Văn A",
+      "note": "",
+      "constraints": {
+        "maxLength": 100
+      }
+    },
+    {
+      "id": "q2",
+      "type": "email",
+      "question": "Email liên hệ",
+      "required": true,
+      "placeholder": "example@email.com",
+      "note": "Email sẽ được sử dụng để liên lạc",
+      "constraints": {}
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "question": "Bạn đang học năm thứ mấy?",
+      "required": true,
+      "options": ["Năm 1", "Năm 2", "Năm 3", "Năm 4", "Năm 5", "Đã tốt nghiệp"],
+      "note": "Chọn năm học hiện tại của bạn",
+      "constraints": {}
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "question": "Bạn quan tâm đến những lĩnh vực nào?",
+      "required": true,
+      "options": [
+        "Data Science",
+        "Machine Learning",
+        "Big Data",
+        "Cloud Computing",
+        "Artificial Intelligence",
+        "Quantum Computing",
+        "Data Engineering",
+        "Business Intelligence"
+      ],
+      "note": "Chọn tối thiểu 1 và tối đa 3 lựa chọn",
+      "constraints": {
+        "minChoices": 1,
+        "maxChoices": 3
+      }
+    },
+    {
+      "id": "q5",
+      "type": "rating",
+      "question": "Đánh giá mức độ hài lòng của bạn với CLB",
+      "required": true,
+      "note": "1 = Rất không hài lòng, 5 = Rất hài lòng",
+      "scale": {
+        "min": 1,
+        "max": 5,
+        "minLabel": "Rất không hài lòng",
+        "maxLabel": "Rất hài lòng"
+      },
+      "constraints": {}
+    },
+    {
+      "id": "q6",
+      "type": "number",
+      "question": "Điểm GPA của bạn (nếu có)",
+      "required": false,
+      "placeholder": "3.50",
+      "note": "Nhập GPA từ 0 đến 4.0",
+      "constraints": {
+        "min": 0,
+        "max": 4,
+        "step": 0.01
+      }
+    },
+    {
+      "id": "q7",
+      "type": "long",
+      "question": "Chia sẻ trải nghiệm của bạn với Big Data Club",
+      "required": false,
+      "placeholder": "Viết suy nghĩ, trải nghiệm của bạn...",
+      "note": "Tối đa 500 ký tự",
+      "constraints": {
+        "maxLength": 500
+      }
+    },
+    {
+      "id": "q8",
+      "type": "date",
+      "question": "Ngày sinh của bạn",
+      "required": false,
+      "dateType": "date",
+      "note": "",
+      "constraints": {
+        "min": "1990-01-01",
+        "max": "2010-12-31"
+      }
+    },
+    {
+      "id": "q9",
+      "type": "single",
+      "question": "Bạn biết đến CLB qua kênh nào?",
+      "required": false,
+      "options": [
+        "Facebook",
+        "Bạn bè giới thiệu",
+        "Sự kiện của trường",
+        "Website CLB",
+        "Email từ trường",
+        "Khác"
+      ],
+      "note": "",
+      "constraints": {}
+    },
+    {
+      "id": "q10",
+      "type": "multiple",
+      "question": "Bạn mong muốn CLB tổ chức những hoạt động nào?",
+      "required": false,
+      "options": [
+        "Workshop kỹ thuật",
+        "Seminar chuyên gia",
+        "Hackathon",
+        "Dự án thực tế",
+        "Networking event",
+        "Study group",
+        "Company visit"
+      ],
+      "note": "Có thể chọn nhiều lựa chọn",
+      "constraints": {
+        "minChoices": 0,
+        "maxChoices": 7
+      }
+    },
+    {
+      "id": "q11",
+      "type": "matrix",
+      "question": "Đánh giá tính hữu ích của các tính năng",
+      "required": true,
+      "note": "Vui lòng đánh giá theo thang điểm từ 1 (Hoàn toàn không hữu ích) đến 5 (Cực kỳ hữu ích)",
+      "rowLabel": "Tình huống sử dụng",
+      "rows": [
+        {
+          "id": "ai_predict",
+          "text": "AI dự đoán điểm số hiện tại và đưa ra lộ trình để đạt mục tiêu (Aim) bạn đặt ra."
+        },
+        {
+          "id": "ai_explain",
+          "text": "AI giải thích tại sao bạn làm sai Quiz và chỉ ra đoạn kiến thức cần đọc lại trong Slide."
+        },
+        {
+          "id": "dashboard",
+          "text": "Dashboard cá nhân hóa cho phép bạn tự sắp xếp giao diện, theo dõi tiến độ học tập."
+        },
+        {
+          "id": "short_video",
+          "text": "Học qua video ngắn (Short-form) 1-2 phút được AI tạo ra từ nội dung bài giảng."
+        }
+      ],
+      "columns": [
+        { "label": "1", "value": "1" },
+        { "label": "2", "value": "2" },
+        { "label": "3", "value": "3" },
+        { "label": "4", "value": "4" },
+        { "label": "5", "value": "5" }
+      ],
+      "constraints": {}
+    },
+    {
+      "id": "q12",
+      "type": "multiple",
+      "question": "Bạn mong muốn CLB tổ chức những hoạt động nào?",
+      "required": false,
+      "options": [
+        "Workshop kỹ thuật",
+        "Seminar chuyên gia",
+        "Hackathon",
+        "Dự án thực tế",
+        "Networking event",
+        "Study group",
+        "Company visit"
+      ],
+      "note": "Có thể chọn nhiều lựa chọn",
+      "constraints": {
+        "minChoices": 0,
+        "maxChoices": 7
+      }
+    }
+  ]
+}

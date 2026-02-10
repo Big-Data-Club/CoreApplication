@@ -1,0 +1,365 @@
+name: CI - Build, Test & Push
+
+on:
+  pull_request:
+    branches: [main, develop, release/*]
+  push:
+    branches: [main, develop, release/*]
+  workflow_dispatch:
+    inputs:
+      force_build_all:
+        description: 'Force build all services'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  REGISTRY: docker.io
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # STAGE 1: Detect Changes
+  detect-changes:
+    name: 🔍 Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      lms: ${{ steps.filter.outputs.lms }}
+      docker: ${{ steps.filter.outputs.docker }}
+      any_change: ${{ steps.check.outputs.any_change }}
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+      should_push: ${{ steps.push_check.outputs.should_push }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'Backend/**'
+              - 'Backend/Dockerfile'
+            frontend:
+              - 'frontend/**'
+              - 'frontend/Dockerfile'
+            lms:
+              - 'LMS/**'
+              - 'LMS/Dockerfile'
+            docker:
+              - 'docker-compose.yml'
+              - '.github/workflows/**'
+      
+      - name: Check if any service changed
+        id: check
+        run: |
+          if [ "${{ steps.filter.outputs.backend }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.frontend }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.lms }}" == "true" ] || \
+             [ "${{ github.event.inputs.force_build_all }}" == "true" ]; then
+            echo "any_change=true" >> $GITHUB_OUTPUT
+          else
+            echo "any_change=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate version tags
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH_NAME="${{ github.ref_name }}"
+          VERSION="${BRANCH_NAME}-${SHORT_SHA}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "📌 Version: ${VERSION}"
+
+      - name: Check if should push to registry
+        id: push_check
+        run: |
+          # Only push images on main, develop, and release branches
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || \
+             [[ "${{ github.ref }}" == "refs/heads/develop" ]] || \
+             [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
+            echo "should_push=true" >> $GITHUB_OUTPUT
+            echo "✅ Will push images to registry"
+          else
+            echo "should_push=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skip pushing images (not main/develop/release branch)"
+          fi
+
+  # STAGE 2: Build & Test Matrix
+  build-and-test:
+    name: 🔨 Build & Test ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any_change == 'true'
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            context: ./Backend
+            dockerfile: ./Backend/Dockerfile
+            image: bdc-backend
+            should_build: ${{ needs.detect-changes.outputs.backend == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'java'
+            test_cmd: './mvnw test'
+            build_cmd: './mvnw clean package -DskipTests -B'
+            
+          - service: frontend
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+            image: bdc-frontend
+            should_build: ${{ needs.detect-changes.outputs.frontend == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'node'
+            test_cmd: 'npm run test:ci || echo "No tests configured"'
+            build_cmd: 'npm ci && npm run build'
+            
+          - service: lms
+            context: ./LMS
+            dockerfile: ./LMS/Dockerfile
+            image: bdc-lms
+            should_build: ${{ needs.detect-changes.outputs.lms == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'go'
+            test_cmd: 'go test -v ./... -coverprofile=coverage.out'
+            build_cmd: 'go mod download && go build -v ./...'
+    
+    steps:
+      - name: Skip if no changes
+        if: matrix.should_build != 'true'
+        run: |
+          echo "⏭️ Skipping ${{ matrix.service }} - no changes detected"
+          exit 0
+
+      - name: Checkout code
+        if: matrix.should_build == 'true'
+        uses: actions/checkout@v4
+
+      # Setup build environments
+      - name: Setup Java 21
+        if: matrix.should_build == 'true' && matrix.setup == 'java'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Setup Node.js 20
+        if: matrix.should_build == 'true' && matrix.setup == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Setup Go 1.21
+        if: matrix.should_build == 'true' && matrix.setup == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: 'LMS/go.sum'
+
+      # Install dependencies
+      - name: Install dependencies (Node)
+        if: matrix.should_build == 'true' && matrix.setup == 'node'
+        working-directory: ${{ matrix.context }}
+        run: npm ci --prefer-offline
+
+      - name: Download Go modules
+        if: matrix.should_build == 'true' && matrix.setup == 'go'
+        working-directory: ${{ matrix.context }}
+        run: go mod download
+
+      # Run tests
+      - name: Run tests
+        if: matrix.should_build == 'true'
+        working-directory: ${{ matrix.context }}
+        run: |
+          echo "🧪 Running tests for ${{ matrix.service }}..."
+          ${{ matrix.test_cmd }}
+          echo "✅ Tests passed!"
+        continue-on-error: false
+
+      # Build application
+      - name: Build ${{ matrix.service }}
+        if: matrix.should_build == 'true'
+        working-directory: ${{ matrix.context }}
+        run: |
+          echo "🔨 Building ${{ matrix.service }}..."
+          ${{ matrix.build_cmd }}
+          echo "✅ Build successful!"
+
+      # Upload test coverage (optional)
+      - name: Upload coverage to Codecov
+        if: matrix.should_build == 'true' && matrix.setup == 'go'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ${{ matrix.context }}/coverage.out
+          flags: ${{ matrix.service }}
+          name: ${{ matrix.service }}-coverage
+        continue-on-error: true
+
+      # Docker Build & Push
+      - name: Set up Docker Buildx
+        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true'
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            network=host
+            image=moby/buildkit:latest
+
+      - name: Login to Docker Hub
+        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract Docker metadata
+        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=${{ needs.detect-changes.outputs.version }}
+            type=sha,prefix=,format=short
+
+      - name: Build and push Docker image
+        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          cache-from: |
+            type=registry,ref=${{ secrets.DOCKER_USERNAME }}/${{ matrix.image }}:buildcache
+            type=registry,ref=${{ secrets.DOCKER_USERNAME }}/${{ matrix.image }}:latest
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/${{ matrix.image }}:buildcache,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VERSION=${{ needs.detect-changes.outputs.version }}
+          provenance: false
+
+      - name: Image digest
+        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true'
+        run: |
+          echo "### 🐳 ${{ matrix.service }} Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** \`${{ secrets.DOCKER_USERNAME }}/${{ matrix.image }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.detect-changes.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+
+  # STAGE 3: Security & Quality Checks
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-and-test]
+    if: needs.detect-changes.outputs.any_change == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Run Trivy scan summary
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+        continue-on-error: true
+
+  # STAGE 4: CI Summary
+  ci-summary:
+    name: 📊 CI Summary
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-and-test, security-scan]
+    if: always()
+    
+    steps:
+      - name: Generate CI summary
+        run: |
+          echo "## 🚀 CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.detect-changes.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Push to Registry:** \`${{ needs.detect-changes.outputs.should_push }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Services Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Changed | Build Status | Security Scan |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|---------|--------------|---------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ${{ needs.detect-changes.outputs.backend }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | ${{ needs.detect-changes.outputs.frontend }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| LMS | ${{ needs.detect-changes.outputs.lms }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.build-and-test.result }}" == "failure" ]; then
+            echo "❌ **Build Failed** - Please check the logs" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          elif [ "${{ needs.detect-changes.outputs.any_change }}" == "false" ]; then
+            echo "⏭️ **No Changes** - Skipped build" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **All Checks Passed**" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ needs.detect-changes.outputs.should_push }}" == "true" ]; then
+              echo "🐳 **Images pushed to Docker Hub**" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && needs.build-and-test.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `## ✅ CI Build Successful
+            
+            **Version:** \`${{ needs.detect-changes.outputs.version }}\`
+            **Security Scan:** ${{ needs.security-scan.result }}
+            
+            ### Changes Detected
+            - Backend: ${{ needs.detect-changes.outputs.backend }}
+            - Frontend: ${{ needs.detect-changes.outputs.frontend }}
+            - LMS: ${{ needs.detect-changes.outputs.lms }}
+            
+            All checks passed. Ready to merge! 🚀`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });

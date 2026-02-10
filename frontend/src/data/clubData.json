@@ -1,0 +1,571 @@
+{
+  "mentors": [
+    {
+      "id": "m1",
+      "name": "PGS.TS Thoại Nam",
+      "role": "Cố vấn chuyên môn",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=MENTOR_THOAI_NAM",
+      "description": "Bảo trợ chuyên môn, dự án và cơ sở vật chất"
+    },
+    {
+      "id": "m2",
+      "name": "Diệp Thanh Đăng",
+      "role": "Cố vấn học thuật",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=MENTOR_DIEP_THANH_DANG",
+      "description": "Giảng viên hướng dẫn nghiên cứu khoa học"
+    },
+    {
+      "id": "m3",
+      "name": "Hoàng Lê Hải Thanh",
+      "role": "Founder, Cố vấn học thuật",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=MENTOR_HOANG_LE_HAI_THANH",
+      "description": "Giảng viên hướng dẫn nghiên cứu khoa học, founder CLB"
+    }
+  ],
+  "members": {
+    "council": [
+      {
+        "id": "g3-11",
+        "name": "Nguyễn Hữu Thanh",
+        "desc": "Gen 3",
+        "team": "Council",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_HUU_THANH"
+      },
+      {
+        "id": "g3-99",
+        "name": "Đặng Kim Nghĩa",
+        "desc": "Gen 3",
+        "team": "Council",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_HUU_THANH"
+      },
+      {
+        "id": "g3-98",
+        "name": "Nguyễn Ngọc Song Thương",
+        "desc": "Gen 3",
+        "team": "Council",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_HUU_THANH"
+      },
+      {
+        "id": "g3-97",
+        "name": "Nguyễn Thành Minh",
+        "desc": "Gen 3",
+        "team": "Council",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_HUU_THANH"
+      },
+      {
+        "id": "g3-96",
+        "name": "Nguyễn Lê Vân Tú",
+        "desc": "Gen 3",
+        "team": "Council",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_HUU_THANH"
+      }
+    ],
+    "media": [
+      {
+        "id": "g3-2",
+        "name": "Nguyễn Phúc Nhân",
+        "desc": "Gen 3",
+        "team": "Media",
+        "imageUrl": "https://lh3.googleusercontent.com/d/1H6EA84joH4fpft7zP33V1xtoU4aG2XED=w1000?authuser=0"
+      },
+      {
+        "id": "g4-13",
+        "name": "Khưu Gia Bảo",
+        "desc": "Gen 4",
+        "team": "Media",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_KHUU_GIA_BAO"
+      },
+      {
+        "id": "g4-14",
+        "name": "Nguyễn Thị Thuỳ Trang",
+        "desc": "Gen 4",
+        "team": "Media",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_NGUYEN_THI_THUY_TRANG"
+      }
+    ],
+    "event": [
+      {
+        "id": "g3-3",
+        "name": "Nguyễn Văn Công Thành",
+        "desc": "Gen 3",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_VAN_CONG_THANH"
+      },
+      {
+        "id": "g3-4",
+        "name": "Huỳnh Lan Phương",
+        "desc": "Gen 3",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_HUYNH_LAN_PHUONG"
+      },
+      {
+        "id": "g3-9",
+        "name": "Kiều Tấn Anh Minh",
+        "desc": "Gen 3",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_KIEU_TAN_ANH_MINH"
+      },
+      {
+        "id": "g3-16",
+        "name": "Nguyễn Trần Phương Mai",
+        "desc": "Gen 3",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_TRAN_PHUONG_MAI"
+      },
+      {
+        "id": "g3-17",
+        "name": "Nguyễn Tiến Khoa",
+        "desc": "Gen 3",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_TIEN_KHOA"
+      },
+      {
+        "id": "g4-9",
+        "name": "Võ Nguyên Tuấn Kiệt",
+        "desc": "Gen 4",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_VO_NGUYEN_TUAN_KIET"
+      },
+      {
+        "id": "g4-10",
+        "name": "Nguyễn Minh Hoàng",
+        "desc": "Gen 4",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_NGUYEN_MINH_HOANG"
+      },
+      {
+        "id": "g4-11",
+        "name": "Trần Hà Uyên Nhi",
+        "desc": "Gen 4",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_TRAN_HA_UYEN_NHI"
+      },
+      {
+        "id": "g4-12",
+        "name": "Trần Minh Huy",
+        "desc": "Gen 4",
+        "team": "Event",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_TRAN_MINH_HUY"
+      }
+    ],
+    "engineer": [
+      {
+        "id": "g3-5",
+        "name": "Phạm Thái An",
+        "desc": "Gen 3",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_PHAM_THAI_AN"
+      },
+      {
+        "id": "g3-6",
+        "name": "Lê Đình Đức",
+        "desc": "Gen 3",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_LE_DINH_DUC"
+      },
+      {
+        "id": "g3-14",
+        "name": "Trần Tuấn Kiệt",
+        "desc": "Gen 3",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_TRAN_TUAN_KIET"
+      },
+      {
+        "id": "g3-12",
+        "name": "Phạm Duy Tường Phước",
+        "desc": "Gen 3",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_PHAM_DUY_TUONG_PHUOC"
+      },
+      {
+        "id": "g3-8",
+        "name": "Nguyễn Quang Linh",
+        "desc": "Gen 3",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_QUANG_LINH"
+      },
+      {
+        "id": "g4-1",
+        "name": "Hoàng Văn Mệnh",
+        "desc": "Gen 4",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_HOANG_VAN_MENH"
+      },
+      {
+        "id": "g4-2",
+        "name": "Nguyễn Trung Nhân",
+        "desc": "Gen 4",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_NGUYEN_TRUNG_NHAN"
+      },
+      {
+        "id": "g4-3",
+        "name": "Nguyễn Hoài Phong",
+        "desc": "Gen 4",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_NGUYEN_HOAI_PHONG"
+      },
+      {
+        "id": "g4-4",
+        "name": "Võ Huy Khánh",
+        "desc": "Gen 4",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/d/1-IXNINTGYk-m7S_4YVURgs3T6uIfCz0n=w1000?authuser=0"
+      },
+      {
+        "id": "g4-5",
+        "name": "Đặng Quốc Cường",
+        "desc": "Gen 4",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_DANG_QUOC_CUONG"
+      },
+      {
+        "id": "g4-6",
+        "name": "Trần Hải Đăng",
+        "desc": "Gen 4",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_TRAN_HAI_DANG"
+      },
+      {
+        "id": "g4-7",
+        "name": "Hồ Minh Nhiên",
+        "desc": "Gen 4",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_HO_MINH_NHIEN"
+      },
+      {
+        "id": "g4-8",
+        "name": "Hà Duy Lộc",
+        "desc": "Gen 4",
+        "team": "Engineer",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_HA_DUY_LOC"
+      }
+    ],
+    "research": [
+      {
+        "id": "g3-27",
+        "name": "Nguyễn Tuấn Huy",
+        "desc": "Gen 3",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_HOANG_MINH_HAI"
+      },
+      {
+        "id": "g3-28",
+        "name": "Trần Đăng Bảo",
+        "desc": "Gen 3",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_PHAN_HAO_LUONG"
+      },
+      {
+        "id": "g3-15",
+        "name": "Nguyễn Đoàn Bảo Kha",
+        "desc": "Gen 3",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_NGUYEN_DOAN_BAO_KHA"
+      },
+      {
+        "id": "g3-1",
+        "name": "Võ Văn Hiếu",
+        "desc": "Gen 3",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_VO_VAN_HIEU"
+      },
+      {
+        "id": "g3-7",
+        "name": "Võ Gia Minh",
+        "desc": "Gen 3",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_VO_GIA_MINH"
+      },
+      {
+        "id": "g3-10",
+        "name": "Hoàng Khang Huy",
+        "desc": "Gen 3",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN3_HOANG_KHANG_HUY"
+      },
+      {
+        "id": "g4-15",
+        "name": "Nguyễn Tiến Nam",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_NGUYEN_TIEN_NAM"
+      },
+      {
+        "id": "g4-16",
+        "name": "Vũ Trí Khải",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/d/1tRn0GZMxCih4E6SdaAe_KZn-SUr4anRx=w1000?authuser=0"
+      },
+      {
+        "id": "g4-17",
+        "name": "Lê Nguyễn Kim Khôi",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_LE_NGUYEN_KIM_KHOI"
+      },
+      {
+        "id": "g4-18",
+        "name": "Nguyễn Anh Quân",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_NGUYEN_ANH_QUAN"
+      },
+      {
+        "id": "g4-19",
+        "name": "Nguyễn Quốc Hiệu",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_NGUYEN_QUOC_HIEU"
+      },
+      {
+        "id": "g4-20",
+        "name": "Phan Nguyễn Duy",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_PHAN_NGUYEN_DUY"
+      },
+      {
+        "id": "g4-21",
+        "name": "Võ Nguyễn Bảo Ngọc",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_VO_NGUYEN_BAO_NGOC"
+      },
+      {
+        "id": "g4-22",
+        "name": "Trần Thiện Nhân",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_TRAN_THIEN_NHAN"
+      },
+      {
+        "id": "g4-23",
+        "name": "Hoàng Hữu Khang",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_HOANG_HUU_KHANG"
+      },
+      {
+        "id": "g4-24",
+        "name": "Trần Đình Nguyên",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_TRAN_DINH_NGUYEN"
+      },
+      {
+        "id": "g4-25",
+        "name": "Thoại Hào",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_THOAI_HAO"
+      },
+      {
+        "id": "g4-26",
+        "name": "Dương Nghiệp Phát",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_DUONG_NGHIEP_PHAT"
+      },
+      {
+        "id": "g4-27",
+        "name": "Hoàng Minh Hải",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_HOANG_MINH_HAI"
+      },
+      {
+        "id": "g4-28",
+        "name": "Phan Hạo Lương",
+        "desc": "Gen 4",
+        "team": "Research",
+        "imageUrl": "https://lh3.googleusercontent.com/uc?id=GEN4_PHAN_HAO_LUONG"
+      }
+    ]
+  },
+  "activities": [
+    {
+      "id": "1",
+      "title": "Big Data Day",
+      "type": "Sự kiện học thuật",
+      "description": "Hội thảo thường niên về xu hướng Big Data và AI, mời các chuyên gia từ doanh nghiệp và học viện đến chia sẻ",
+      "imageUrl": "https://lh3.googleusercontent.com/d/1f8pe4mHkPEHirZF2UFO7aH_6UekNg4gR=w1000?authuser=0",
+      "frequency": "Hàng năm"
+    },
+    {
+      "id": "2",
+      "title": "Tham luận tại Hội thảo khoa học sinh viên",
+      "type": "Tham gia sự kiện học thuật",
+      "description": "Tham luận về chủ đề “Sinh viên dữ liệu Việt Nam: Từ câu lạc bộ học thuật đến mạng lưới điện toán đám mây, dữ liệu lớn và lượng tử.”",
+      "imageUrl": "https://lh3.googleusercontent.com/d/1v8TFRbLDWbY_3qB1-M6P8kEKOUuqTCaH=w1000?authuser=0"
+    },
+    {
+      "id": "6",
+      "title": "Internal Seminar",
+      "type": "Chuyên đề học thuật",
+      "description": "Các buổi chuyên đề nội bộ để thành viên các nhóm trình bày các nội dung nghiên cứu theo định hướng của CLB",
+      "imageUrl": "https://lh3.googleusercontent.com/d/1CFlhsYjLBqOx1gKvsWx5KSCkvtCOKeja=w1000?authuser=0",
+      "frequency": "Hàng tháng"
+    },
+    {
+      "id": "4",
+      "title": "BDC Data Hackathon",
+      "type": "Hỗ trợ học tập",
+      "description": "Chương trình kết nối thành viên mới với các thành viên có kinh nghiệm để hướng dẫn và chia sẻ kiến thức",
+      "imageUrl": "https://lh3.googleusercontent.com/d/117tuhJMh0N3GQAUilDL30CLtunck-j94=w1000?authuser=0",
+      "frequency": "Hàng năm"
+    },
+    {
+      "id": "5",
+      "title": "BDC Kick-off and Bonding Day",
+      "type": "Sự kiện kết nối",
+      "description": "Các sự kiện chào đón thành viên mới của BDC",
+      "imageUrl": "https://lh3.googleusercontent.com/d/1zahrcQ5f72zb5t_q7N5_YR2GcFS2gbDy=w1000?authuser=0",
+      "frequency": "Hàng học kỳ"
+    },
+    {
+      "id": "3",
+      "title": "BDC Year End Party",
+      "type": "Gắn kết tập thể",
+      "description": "Hoạt động tập thể nhằm tăng cường tinh thần đồng đội và kết nối các thành viên",
+      "imageUrl": "https://lh3.googleusercontent.com/d/1UYoo1bFp1rIS3aDTEH5lWY3-kzJfa_Zq=w1000?authuser=0",
+      "frequency": "Hàng năm"
+    },
+    {
+      "id": "9",
+      "title": "BDC Birthday Party",
+      "type": "Kỷ niệm thành lập",
+      "description": "Buổi tiệc kỷ niệm thành lập CLB",
+      "imageUrl": "https://lh3.googleusercontent.com/d/11EEKGmTISYIeNf0Ekb_vQJOcnaAHUMkN=w1000?authuser=0",
+      "frequency": "Hàng năm"
+    }
+  ],
+  "achievements": [
+    {
+      "id": "1",
+      "title": "Vô địch CODERACE 2023",
+      "organizer": "BOSCH",
+      "year": "2023"
+    },
+    {
+      "id": "2",
+      "title": "Giải Nhì GDSC IDEA CONTEST 2023",
+      "organizer": "GDSC HCMUT",
+      "year": "2023"
+    },
+    {
+      "id": "3",
+      "title": "Giải Big Idea 2023",
+      "organizer": "Dynamic UEH",
+      "year": "2023",
+      "team": "HealthTect"
+    },
+    {
+      "id": "4",
+      "title": "TOP 10 GDSC Hackathon Việt Nam 2023",
+      "organizer": "GDSC Vietnam",
+      "year": "2023"
+    }
+  ],
+  "projects": [
+    {
+      "id": "p8",
+      "projectName": "Club Management Application",
+      "desc": "Ứng dụng quản lý hoạt động và dự án cho câu lạc bộ",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=PROJECT_AI_EDUCATION",
+      "projectShowcaseUrl": "/"
+    },
+    {
+      "id": "p7",
+      "projectName": "AI for Education",
+      "desc": "Ứng dụng AI trong giáo dục - phát triển các giải pháp thông minh để nâng cao chất lượng học tập",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=PROJECT_AI_EDUCATION",
+      "projectShowcaseUrl": "/projects/ai-for-education"
+    },
+    {
+      "id": "p2",
+      "projectName": "Sustainable HPC Scheduling",
+      "desc": "Nghiên cứu và phát triển các giải pháp định thời thông minh cho hạ tầng tính toán hiệu năng cao và bền vững",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=PROJECT_HPC_SCHEDULING",
+      "projectShowcaseUrl": "/projects/sustainable-hpc-scheduling"
+    },
+    {
+      "id": "p1",
+      "projectName": "Quantum Circuit Benchmark",
+      "desc": "Đánh giá hiệu suất các phần mềm mô phỏng lượng tử hiện nay thông qua thiết kế mạch kiểm lượng tử",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=PROJECT_QUANTUM_CIRCUIT",
+      "projectShowcaseUrl": "/projects/quantum-circuit-benchmark"
+    },
+    {
+      "id": "p3",
+      "projectName": "Super Resolution in Computer Vision",
+      "desc": "Siêu phân giải trong thị giác máy tính - tăng độ phân giải hình ảnh sử dụng deep learning",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=PROJECT_SUPER_RESOLUTION",
+      "projectShowcaseUrl": "/projects/super-resolution-cv"
+    },
+    {
+      "id": "p5",
+      "projectName": "Smart IoT Data Stream Analytics Platform",
+      "desc": "Nền tảng phân tích dòng dữ liệu IoT thông minh và tối ưu hóa dữ liệu truyền",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=PROJECT_IOT_ANALYTICS",
+      "projectShowcaseUrl": "/projects/iot-analytics-platform"
+    },
+    {
+      "id": "p6",
+      "projectName": "Quantum Machine Learning",
+      "desc": "Học máy lượng tử - kết hợp quantum computing và machine learning để giải quyết các vấn đề phức tạp",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=PROJECT_QUANTUM_ML",
+      "projectShowcaseUrl": "/projects/quantum-machine-learning"
+    },
+    {
+      "id": "p4",
+      "projectName": "Quantum Vector Database",
+      "desc": "Cơ sở dữ liệu vector trong tính toán lượng tử - nghiên cứu ứng dụng quantum computing cho vector databases",
+      "imageUrl": "https://lh3.googleusercontent.com/uc?id=PROJECT_QUANTUM_VECTOR_DB",
+      "projectShowcaseUrl": "/projects/quantum-vector-database"
+    }
+  ],
+  "publications": [
+    {
+      "id": "1",
+      "title": "QCFace: Image Quality Control for boosting Face Representation & Recognition",
+      "authors": "Doan Ngo Duc Phuong, Diep Thanh Dang*, Nguyen Duc Thanh, Le Thanh Sach*, Thoai Nam*",
+      "publisher": "The IEEE/CVF Winter Conference on Applications of Computer Vision 2026 (WACV 2026)",
+      "year": 2026
+    },
+    {
+      "id": "2",
+      "title": "Toward Sustainable and Cost-Efficient HPC Systems: A Deep Reinforcement Learning Job Scheduling Approach",
+      "authors": "Hoang Le Hai Thanh*, Nguyen Phuc Nhan, Nguyen Tran Phuong Mai, Bui Ngoc Minh, Thoai Nam*",
+      "publisher": "Multi-disciplinary Trends in Artificial Intelligence - MIWAI 2025. Lecture Notes in Computer Science. Springer, Singapore",
+      "year": 2025,
+      "volume": "16354",
+      "doi": "10.1007/978-981-95-4960-3_33"
+    },
+    {
+      "id": "3",
+      "title": "HDEM: A Hierarchical Dynamic Ensemble Model for Accurate Runtime Prediction on High Performance Computing Systems",
+      "authors": "Hoang Le Hai Thanh*, Nguyen Tuan Huy, Tran Dang Bao, Vo Thuong Bao, Phan Tran Dinh Khoi, Thoai Nam*",
+      "publisher": "Future Data and Security Engineering - FDSE 2025. Communications in Computer and Information Science. Springer, Singapore.",
+      "year": 2025,
+      "volume": "2709",
+      "pages": "200-210",
+      "doi": "10.1007/978-981-95-4724-1_13"
+    },
+    {
+      "id": "4",
+      "title": "A Performance Study of Piecewise Constant Approximation in Streaming Data Compression",
+      "authors": "Phan Alan,La Quoc Nhut Huan,Diep Thanh Dang*,Thoai Nam",
+      "publisher": "International Conference on Advanced Computing and Analytics (ACOMPA)",
+      "year": 2025
+    },
+    {
+      "id": "5",
+      "title": "EDM4QS: An Emulator-Driven Model for Quantum Scheduling",
+      "authors": "Nguyen Trieu,Minh Chung,Diep Thanh Dang*,Thoai Nam",
+      "publisher": "International Symposium on Information and Communication Technology (SoICT)",
+      "year": 2025
+    }
+  ]
+}

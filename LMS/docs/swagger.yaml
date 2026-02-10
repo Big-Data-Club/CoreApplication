@@ -1,0 +1,997 @@
+basePath: /lmsapiv1
+definitions:
+  dto.ContentResponse:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      description:
+        type: string
+      file_path:
+        type: string
+      file_size:
+        type: integer
+      file_type:
+        type: string
+      id:
+        type: integer
+      is_mandatory:
+        type: boolean
+      is_published:
+        type: boolean
+      metadata:
+        additionalProperties: true
+        type: object
+      order_index:
+        type: integer
+      section_id:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  dto.CourseResponse:
+    properties:
+      category:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      creator_email:
+        type: string
+      creator_name:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      level:
+        type: string
+      published_at:
+        type: string
+      status:
+        type: string
+      thumbnail_url:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  dto.CreateContentRequest:
+    properties:
+      description:
+        maxLength: 2000
+        type: string
+      is_mandatory:
+        type: boolean
+      metadata:
+        additionalProperties: true
+        type: object
+      order_index:
+        minimum: 0
+        type: integer
+      title:
+        maxLength: 255
+        minLength: 3
+        type: string
+      type:
+        enum:
+        - TEXT
+        - VIDEO
+        - DOCUMENT
+        - IMAGE
+        - QUIZ
+        - FORUM
+        - ANNOUNCEMENT
+        type: string
+    required:
+    - order_index
+    - title
+    - type
+    type: object
+  dto.CreateCourseRequest:
+    properties:
+      category:
+        maxLength: 100
+        type: string
+      description:
+        maxLength: 5000
+        type: string
+      level:
+        enum:
+        - BEGINNER
+        - INTERMEDIATE
+        - ADVANCED
+        - ALL_LEVELS
+        type: string
+      thumbnail_url:
+        maxLength: 500
+        type: string
+      title:
+        maxLength: 255
+        minLength: 3
+        type: string
+    required:
+    - title
+    type: object
+  dto.CreateSectionRequest:
+    properties:
+      description:
+        maxLength: 2000
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+      title:
+        maxLength: 255
+        minLength: 3
+        type: string
+    required:
+    - order_index
+    - title
+    type: object
+  dto.ErrorResponse:
+    properties:
+      code:
+        type: string
+      error:
+        type: string
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  dto.MessageResponse:
+    properties:
+      message:
+        type: string
+    type: object
+  dto.SectionResponse:
+    properties:
+      course_id:
+        type: integer
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      is_published:
+        type: boolean
+      order_index:
+        type: integer
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  dto.UpdateContentRequest:
+    properties:
+      description:
+        maxLength: 2000
+        type: string
+      is_mandatory:
+        type: boolean
+      is_published:
+        type: boolean
+      metadata:
+        additionalProperties: true
+        type: object
+      order_index:
+        minimum: 0
+        type: integer
+      title:
+        maxLength: 255
+        minLength: 3
+        type: string
+    type: object
+  dto.UpdateCourseRequest:
+    properties:
+      category:
+        maxLength: 100
+        type: string
+      description:
+        maxLength: 5000
+        type: string
+      level:
+        enum:
+        - BEGINNER
+        - INTERMEDIATE
+        - ADVANCED
+        - ALL_LEVELS
+        type: string
+      thumbnail_url:
+        maxLength: 500
+        type: string
+      title:
+        maxLength: 255
+        minLength: 3
+        type: string
+    type: object
+  dto.UpdateSectionRequest:
+    properties:
+      description:
+        maxLength: 2000
+        type: string
+      is_published:
+        type: boolean
+      order_index:
+        minimum: 0
+        type: integer
+      title:
+        maxLength: 255
+        minLength: 3
+        type: string
+    type: object
+  dto.UserRolesResponse:
+    properties:
+      email:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+      user_id:
+        type: integer
+    type: object
+  handler.MockJWTResponse:
+    properties:
+      expires_at:
+        type: string
+      instructions:
+        type: string
+      token:
+        type: string
+      user_info:
+        properties:
+          email:
+            type: string
+          role:
+            type: string
+          user_id:
+            type: integer
+        type: object
+    type: object
+host: localhost:3000
+info:
+  contact:
+    email: support@bdc.hpcc.vn
+    name: API Support
+    url: https://bdc.hpcc.vn/support
+  description: This is the API documentation for LMS (Learning Management System)
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: https://bdc.hpcc.vn/terms
+  title: LMS API Documentation
+  version: "1.0"
+paths:
+  /attempts/{attemptId}/summary:
+    get:
+      consumes:
+      - application/json
+      description: Get detailed summary of a quiz attempt including statistics
+      parameters:
+      - description: Attempt ID
+        in: path
+        name: attemptId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Attempt summary
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid attempt ID
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Not authorized to view this attempt
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Attempt not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get summary of a specific attempt
+      tags:
+      - Quiz - Student
+  /content/{contentId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete content (Owner/Admin only)
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete content
+      tags:
+      - content
+    get:
+      consumes:
+      - application/json
+      description: Get content details by ID
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.ContentResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get content
+      tags:
+      - content
+    put:
+      consumes:
+      - application/json
+      description: Update content details (Owner/Admin only)
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      - description: Content data
+        in: body
+        name: content
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateContentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update content
+      tags:
+      - content
+  /courses:
+    get:
+      consumes:
+      - application/json
+      description: List all published courses
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.CourseResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List published courses
+      tags:
+      - courses
+    post:
+      consumes:
+      - application/json
+      description: Create a new course (Teacher/Admin only)
+      parameters:
+      - description: Course data
+        in: body
+        name: course
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateCourseRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.CourseResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a course
+      tags:
+      - courses
+  /courses/{courseId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a course (Admin only)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a course
+      tags:
+      - courses
+    get:
+      consumes:
+      - application/json
+      description: Get course details by ID
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.CourseResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a course
+      tags:
+      - courses
+    put:
+      consumes:
+      - application/json
+      description: Update course details (Owner/Admin only)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: Course data
+        in: body
+        name: course
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateCourseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a course
+      tags:
+      - courses
+  /courses/{courseId}/publish:
+    post:
+      consumes:
+      - application/json
+      description: Publish a course (Owner/Admin only)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Publish a course
+      tags:
+      - courses
+  /courses/{courseId}/sections:
+    get:
+      consumes:
+      - application/json
+      description: List all sections in a course
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.SectionResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List sections
+      tags:
+      - sections
+    post:
+      consumes:
+      - application/json
+      description: Create a new section in a course (Owner/Admin only)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: Section data
+        in: body
+        name: section
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateSectionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.SectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a section
+      tags:
+      - sections
+  /courses/my:
+    get:
+      consumes:
+      - application/json
+      description: List all courses created by the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.CourseResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List my courses
+      tags:
+      - courses
+  /me/roles:
+    get:
+      consumes:
+      - application/json
+      description: Get the roles of the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.UserRolesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get my roles
+      tags:
+      - users
+  /mock-jwt:
+    get:
+      consumes:
+      - application/json
+      description: Generate a mock JWT token for testing API endpoints in Swagger
+        UI. This endpoint is only for testing purposes.
+      parameters:
+      - default: STUDENT
+        description: User role (ADMIN, TEACHER, STUDENT)
+        in: query
+        name: role
+        type: string
+      - default: 1
+        description: User ID
+        in: query
+        name: user_id
+        type: integer
+      - default: test@example.com
+        description: User email
+        in: query
+        name: email
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.MockJWTResponse'
+      summary: Generate Mock JWT Token
+      tags:
+      - Testing
+  /quizzes/{quizId}/my-attempts:
+    get:
+      consumes:
+      - application/json
+      description: Get all attempts by the current student for a specific quiz
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of attempts
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid quiz ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get student's quiz attempt history
+      tags:
+      - Quiz - Student
+  /sections/{sectionId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a section (Owner/Admin only)
+      parameters:
+      - description: Section ID
+        in: path
+        name: sectionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a section
+      tags:
+      - sections
+    get:
+      consumes:
+      - application/json
+      description: Get section details by ID
+      parameters:
+      - description: Section ID
+        in: path
+        name: sectionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SectionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a section
+      tags:
+      - sections
+    put:
+      consumes:
+      - application/json
+      description: Update section details (Owner/Admin only)
+      parameters:
+      - description: Section ID
+        in: path
+        name: sectionId
+        required: true
+        type: integer
+      - description: Section data
+        in: body
+        name: section
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateSectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a section
+      tags:
+      - sections
+  /sections/{sectionId}/content:
+    get:
+      consumes:
+      - application/json
+      description: List all content in a section
+      parameters:
+      - description: Section ID
+        in: path
+        name: sectionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.ContentResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List content
+      tags:
+      - content
+    post:
+      consumes:
+      - application/json
+      description: Create new content in a section (Owner/Admin only)
+      parameters:
+      - description: Section ID
+        in: path
+        name: sectionId
+        required: true
+        type: integer
+      - description: Content data
+        in: body
+        name: content
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateContentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.ContentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create content
+      tags:
+      - content
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
