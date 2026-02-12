@@ -132,7 +132,7 @@ export default function TeacherQuizManagePage() {
     e.preventDefault();
 
     try {
-      const nextOrderIndex = questions.length + 1;
+      const nextOrderIndex = questions?.length + 1;
       
       const questionData: any = {
         quiz_id: parseInt(String(quizId)),
@@ -161,7 +161,7 @@ export default function TeacherQuizManagePage() {
           (opt) => opt.option_text && opt.option_text.trim()
         );
 
-        if (validOptions.length < 2) {
+        if (validOptions?.length < 2) {
           alert("Cần ít nhất 2 đáp án");
           return;
         }
@@ -185,13 +185,13 @@ export default function TeacherQuizManagePage() {
       if (
         (questionForm.question_type === "SHORT_ANSWER" ||
          questionForm.question_type === "FILL_BLANK_TEXT") &&
-        questionForm.correct_answers.length > 0
+        questionForm.correct_answers?.length > 0
       ) {
         const validAnswers = questionForm.correct_answers.filter(
           (ans) => ans.answer_text && ans.answer_text.trim()
         );
         
-        if (validAnswers.length > 0) {
+        if (validAnswers?.length > 0) {
           questionData.correct_answers = validAnswers.map((ans) => ({
             answer_text: ans.answer_text.trim(),
             case_sensitive: ans.case_sensitive === true,
@@ -269,7 +269,7 @@ export default function TeacherQuizManagePage() {
       points: question.points,
       explanation: "",
       is_required: false,
-      answer_options: question.answer_options.length > 0
+      answer_options: question.answer_options?.length > 0
         ? question.answer_options.map((opt, idx) => ({
             option_text: opt.option_text,
             is_correct: opt.is_correct,
@@ -311,7 +311,7 @@ export default function TeacherQuizManagePage() {
   };
 
   const addAnswerOption = () => {
-    const nextIndex = questionForm.answer_options.length + 1;
+    const nextIndex = questionForm.answer_options?.length + 1;
     setQuestionForm({
       ...questionForm,
       answer_options: [
@@ -428,7 +428,7 @@ export default function TeacherQuizManagePage() {
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-sm text-gray-600">Tổng câu hỏi</p>
-          <p className="text-2xl font-bold text-blue-700">{questions.length}</p>
+          <p className="text-2xl font-bold text-blue-700">{questions?.length}</p>
         </div>
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
           <p className="text-sm text-gray-600">Tổng điểm</p>
@@ -460,7 +460,7 @@ export default function TeacherQuizManagePage() {
           </Button>
         </div>
 
-        {questions.length === 0 ? (
+        {questions?.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-6xl mb-4">📝</div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">
@@ -506,9 +506,9 @@ export default function TeacherQuizManagePage() {
                         <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-sm font-semibold">
                           {question.points} điểm
                         </span>
-                        {images.length > 0 && (
+                        {images?.length > 0 && (
                           <span className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm font-medium">
-                            🖼️ {images.length} ảnh
+                            🖼️ {images?.length} ảnh
                           </span>
                         )}
                       </div>
@@ -517,7 +517,7 @@ export default function TeacherQuizManagePage() {
                       </p>
 
                       {/* Question Images Preview */}
-                      {images.length > 0 && (
+                      {images?.length > 0 && (
                         <div className="mt-3 flex gap-2 flex-wrap">
                           {images.slice(0, 4).map((img: QuestionImage) => (
                             <img
@@ -528,10 +528,10 @@ export default function TeacherQuizManagePage() {
                               title={img.caption || img.file_name}
                             />
                           ))}
-                          {images.length > 4 && (
+                          {images?.length > 4 && (
                             <div className="w-24 h-24 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center border-2 border-gray-200">
                               <span className="text-sm font-bold text-gray-600">
-                                +{images.length - 4}
+                                +{images?.length - 4}
                               </span>
                             </div>
                           )}
@@ -539,7 +539,7 @@ export default function TeacherQuizManagePage() {
                       )}
 
                       {/* Answer options preview */}
-                      {question.answer_options.length > 0 && (
+                      {question.answer_options?.length > 0 && (
                         <div className="mt-2 space-y-1">
                           {question.answer_options.map((opt: any, idx: number) => (
                             <div
@@ -591,7 +591,7 @@ export default function TeacherQuizManagePage() {
               </h2>
               {editingQuestion && (
                 <p className="text-sm text-gray-600 mt-1">
-                  ID: {editingQuestion.id} • {questionImages.length} hình ảnh
+                  ID: {editingQuestion.id} • {questionImages?.length} hình ảnh
                 </p>
               )}
             </div>
@@ -745,7 +745,7 @@ export default function TeacherQuizManagePage() {
                             placeholder={`Đáp án ${index + 1}`}
                             required
                           />
-                          {questionForm.answer_options.length > 2 && (
+                          {questionForm.answer_options?.length > 2 && (
                             <Button
                               type="button"
                               onClick={() => removeAnswerOption(index)}
@@ -794,7 +794,7 @@ export default function TeacherQuizManagePage() {
                               className="flex-1 px-4 py-2 border rounded-lg"
                               placeholder="Đáp án đúng..."
                             />
-                            {questionForm.correct_answers.length > 1 && (
+                            {questionForm.correct_answers?.length > 1 && (
                               <Button
                                 type="button"
                                 onClick={() => removeCorrectAnswer(index)}

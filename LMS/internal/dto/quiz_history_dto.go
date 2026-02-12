@@ -124,6 +124,13 @@ type QuizAttemptSummaryDTO struct {
 	QuestionBreakdown []QuestionResultDTO `json:"question_breakdown"`
 	TimeBreakdown     TimeBreakdownDTO    `json:"time_breakdown"`
 	ScoreBreakdown    ScoreBreakdownDTO   `json:"score_breakdown"`
+	GradingStatus     GradingStatusDTO    `json:"grading_status"`
+}
+
+type GradingStatusDTO struct {
+	IsFullyGraded       bool `json:"is_fully_graded"`
+	PendingGradingCount int  `json:"pending_grading_count"`
+	IsProvisional       bool `json:"is_provisional"`
 }
 
 type QuestionResultDTO struct {

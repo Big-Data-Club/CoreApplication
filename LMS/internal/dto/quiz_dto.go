@@ -333,7 +333,7 @@ type QuizResultResponse struct {
 
 // GradeAnswerRequest represents manual grading
 type GradeAnswerRequest struct {
-	AnswerID       int64   `json:"answer_id" binding:"required"`
+	AnswerID       int64   `json:"-"`
 	PointsEarned   float64 `json:"points_earned" binding:"required,min=0"`
 	GraderFeedback string  `json:"grader_feedback"`
 }

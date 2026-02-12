@@ -16,6 +16,7 @@ import {
   Calendar,
   FileText,
   Home,
+  AlertCircle,
 } from "lucide-react";
 
 interface AttemptSummary {
@@ -54,6 +55,11 @@ interface AttemptSummary {
     correct_count: number;
     incorrect_count: number;
     ungraded_count: number;
+  };
+  grading_status: {
+    is_fully_graded: boolean;
+    pending_grading_count: number;
+    is_provisional: boolean;
   };
 }
 
@@ -140,18 +146,21 @@ export default function AttemptResultPage() {
     );
   }
 
-  const { attempt, question_breakdown, time_breakdown, score_breakdown } = summary;
+  const { attempt, question_breakdown, time_breakdown, score_breakdown, grading_status } = summary;
+
+  const getHeaderColor = () => {
+    if (grading_status.is_provisional) {
+      return "bg-gradient-to-r from-yellow-600 to-orange-600";
+    }
+    return score_breakdown.is_passed
+      ? "bg-gradient-to-r from-green-600 to-emerald-600"
+      : "bg-gradient-to-r from-red-600 to-pink-600";
+  };
 
   return (
     <div className="min-h-screen bg-transparent">
       {/* Header */}
-      <div
-        className={`text-white ${
-          score_breakdown.is_passed
-            ? "bg-gradient-to-r from-green-600 to-emerald-600"
-            : "bg-gradient-to-r from-red-600 to-pink-600"
-        }`}
-      >
+      <div className={`text-white ${getHeaderColor()}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
@@ -174,6 +183,22 @@ export default function AttemptResultPage() {
             </div>
           </div>
 
+          {/* Thông báo điểm tạm thời */}
+          {grading_status.is_provisional && (
+            <div className="mb-6 bg-white bg-opacity-20 backdrop-blur-sm rounded-xl p-4">
+              <div className="flex items-center gap-3 text-black">
+                <AlertCircle className="w-6 h-6" />
+                <div>
+                  <p className="font-bold text-lg">Điểm tạm thời</p>
+                  <p className="text-sm opacity-90">
+                    Còn {grading_status.pending_grading_count} câu chưa được chấm. 
+                    Điểm hiện tại chỉ mang tính chất tham khảo và có thể thay đổi sau khi giáo viên chấm xong.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mb-6">
             <h1 className="text-3xl font-bold mb-2">{attempt.quiz_title}</h1>
             <p className="text-white text-opacity-90">
@@ -186,7 +211,9 @@ export default function AttemptResultPage() {
             <div className="bg-transparent bg-opacity-20 rounded-xl p-6 backdrop-blur-sm">
               <div className="flex items-center gap-2 mb-2">
                 <Award className="w-6 h-6" />
-                <span className="text-sm font-medium">Điểm số</span>
+                <span className="text-sm font-medium">
+                  {grading_status.is_provisional ? "Điểm tạm thời" : "Điểm số"}
+                </span>
               </div>
               <p className="text-4xl font-bold">
                 {score_breakdown.earned_points.toFixed(1)}/{score_breakdown.total_points}
@@ -200,7 +227,9 @@ export default function AttemptResultPage() {
                 <span className="text-sm font-medium">Kết quả</span>
               </div>
               <p className="text-4xl font-bold">
-                {score_breakdown.is_passed ? "Đạt" : "Chưa đạt"}
+                {grading_status.is_provisional 
+                  ? "Đang chờ" 
+                  : score_breakdown.is_passed ? "Đạt" : "Chưa đạt"}
               </p>
               <p className="text-sm mt-1 opacity-90">
                 Chuẩn: {score_breakdown.passing_score.toFixed(0)}%
@@ -217,6 +246,9 @@ export default function AttemptResultPage() {
               </p>
               <p className="text-sm mt-1 opacity-90">
                 Sai: {score_breakdown.incorrect_count}
+                {grading_status.pending_grading_count > 0 && 
+                  ` | Chờ: ${grading_status.pending_grading_count}`
+                }
               </p>
             </div>
 
@@ -244,56 +276,88 @@ export default function AttemptResultPage() {
           </h3>
 
           <div className="space-y-4">
-            {question_breakdown.map((q, index) => (
-              <div
-                key={q.question_id}
-                className={`border-2 rounded-xl p-5 ${
-                  q.is_correct
-                    ? "border-green-200 bg-green-50"
-                    : "border-red-200 bg-red-50"
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  <div
-                    className={`w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg ${
-                      q.is_correct ? "bg-green-500" : "bg-red-500"
-                    }`}
-                  >
-                    {index + 1}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-3">
-                      {q.is_correct ? (
-                        <CheckCircle className="w-5 h-5 text-green-600" />
-                      ) : (
-                        <XCircle className="w-5 h-5 text-red-600" />
-                      )}
-                      <span
-                        className={`font-bold text-lg ${
-                          q.is_correct ? "text-green-800" : "text-red-800"
-                        }`}
-                      >
-                        {q.is_correct ? "Đúng" : "Sai"}
-                      </span>
-                      <span className="px-3 py-1 bg-white text-xs font-medium rounded-full border">
-                        {q.question_type}
-                      </span>
+            {question_breakdown.map((q, index) => {
+              const isPending = q.points_earned === 0 && 
+                (q.question_type === "ESSAY" || 
+                 q.question_type === "FILE_UPLOAD" || 
+                 q.question_type === "SHORT_ANSWER");
+              
+              return (
+                <div
+                  key={q.question_id}
+                  className={`border-2 rounded-xl p-5 ${
+                    isPending
+                      ? "border-yellow-300 bg-yellow-50"
+                      : q.is_correct
+                      ? "border-green-200 bg-green-50"
+                      : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" 
+                      ? "border-yellow-200 bg-yellow-50"
+                      : "border-red-200 bg-red-50"
+                  }`}
+                >
+                  <div className="flex items-start gap-4">
+                    <div
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg ${
+                        isPending
+                          ? "bg-yellow-500"
+                          : q.is_correct
+                          ? "bg-green-500"
+                          : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" 
+                          ? "bg-yellow-500"
+                          : "bg-red-500"
+                      }`}
+                    >
+                      {index + 1}
                     </div>
-                    <p className="text-gray-800 font-medium mb-3 text-lg">{q.question_text}</p>
-                    <div className="flex items-center gap-6 text-sm text-gray-600">
-                      <span className="flex items-center gap-1">
-                        <Award className="w-4 h-4" />
-                        {q.points_earned.toFixed(1)}/{q.points.toFixed(1)} điểm
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        {formatTime(q.time_spent_seconds)}
-                      </span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-3">
+                        {isPending ? (
+                          <>
+                            <AlertCircle className="w-5 h-5 text-yellow-600" />
+                            <span className="font-bold text-lg text-yellow-800">
+                              Đang chờ chấm
+                            </span>
+                          </>
+                        ) : q.is_correct ? (
+                          <>
+                            <CheckCircle className="w-5 h-5 text-green-600" />
+                            <span className="font-bold text-lg text-green-800">Đúng</span>
+                          </>
+                        ) : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" ? (
+                          <>
+                            <XCircle className="w-5 h-5 text-yellow-600" />
+                            <span className="font-bold text-lg text-yellow-800">Đã được chấm</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-5 h-5 text-red-600" />
+                            <span className="font-bold text-lg text-red-800">Sai</span>
+                          </>
+                        )}
+
+                        <span className="px-3 py-1 bg-white text-xs font-medium rounded-full border">
+                          {q.question_type}
+                        </span>
+                      </div>
+                      <p className="text-gray-800 font-medium mb-3 text-lg">{q.question_text}</p>
+                      <div className="flex items-center gap-6 text-sm text-gray-600">
+                        <span className="flex items-center gap-1">
+                          <Award className="w-4 h-4" />
+                          {isPending 
+                            ? `Chưa chấm (${q.points.toFixed(1)} điểm)` 
+                            : `${q.points_earned.toFixed(1)}/${q.points.toFixed(1)} điểm`
+                          }
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-4 h-4" />
+                          {formatTime(q.time_spent_seconds)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -316,7 +380,9 @@ export default function AttemptResultPage() {
             )}
             <div>
               <p className="text-sm text-gray-600 mb-1">Trạng thái:</p>
-              <p className="font-semibold text-gray-800 text-lg">{attempt.status}</p>
+              <p className="font-semibold text-gray-800 text-lg">
+                {grading_status.is_provisional ? "Đang chờ chấm" : attempt.status}
+              </p>
             </div>
             <div>
               <p className="text-sm text-gray-600 mb-1">Tổng thời gian:</p>

@@ -581,7 +581,7 @@ func (h *QuizHandler) BulkGrade(c *gin.Context) {
 // @Produce json
 // @Param quizId path int true "Quiz ID"
 // @Security BearerAuth
-// @Success 200 {object} dto.SuccessResponse{data=[]dto.SuccessResponse} "List of answers needing grading"
+// @Success 200 {object} dto.SuccessResponse{data=[]dto.StudentAnswerForGrading} "List of answers needing grading"
 // @Failure 400 {object} dto.ErrorResponse "Invalid quiz ID"
 // @Failure 401 {object} dto.ErrorResponse "Unauthorized"
 // @Failure 403 {object} dto.ErrorResponse "Forbidden - teacher/admin only"
@@ -807,4 +807,50 @@ func (h *QuizHandler) ListQuestionImages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(images))
+}
+
+// GetQuizByContentID godoc
+// @Summary Get quiz by content ID
+// @Description Get quiz associated with a specific content
+// @Tags Quiz - Teacher
+// @Accept json
+// @Produce json
+// @Param contentId path int true "Content ID"
+// @Security BearerAuth
+// @Success 200 {object} dto.SuccessResponse{data=dto.QuizResponse} "Quiz details"
+// @Failure 400 {object} dto.ErrorResponse "Invalid content ID"
+// @Failure 401 {object} dto.ErrorResponse "Unauthorized"
+// @Failure 404 {object} dto.ErrorResponse "Quiz not found"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
+// @Router /content/{contentId}/quiz [get]
+func (h *QuizHandler) GetQuizByContentID(c *gin.Context) {
+	contentID, err := strconv.ParseInt(c.Param("contentId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_content_id", "Invalid content ID"))
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "User not authenticated"))
+		return
+	}
+
+	userRole, _ := c.Get("user_role")
+
+	quiz, err := h.quizService.GetQuizByContentID(c.Request.Context(), contentID, userID.(int64), userRole.(string))
+	if err != nil {
+		if err.Error() == "quiz not found" {
+			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Quiz not found for this content"))
+			return
+		}
+		if err.Error() == "permission denied" {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "You don't have permission to view this quiz"))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(quiz))
 }

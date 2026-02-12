@@ -1,9 +1,10 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import quizService from "@/services/quizService";
 
 interface ContentViewerProps {
   content: {
@@ -22,9 +23,41 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
   const router = useRouter();
   const [error, setError] = useState<string>("");
   const [imageLoaded, setImageLoaded] = useState(false);
+  
+  // Quiz-specific state
+  const [quizData, setQuizData] = useState<any>(null);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizError, setQuizError] = useState<string>("");
 
   // Get API base URL
-  const API_URL = process.env.NEXT_PUBLIC_LMS_API_URL || "http://localhost:8081/api/v1";
+  const API_URL = process.env.NEXT_PUBLIC_LMS_API_URL;
+
+  // Auto-fetch quiz data when content type is QUIZ
+  useEffect(() => {
+    if (content.type === "QUIZ") {
+      fetchQuizData();
+    }
+  }, [content.id, content.type]);
+
+  const fetchQuizData = async () => {
+    setQuizLoading(true);
+    setQuizError("");
+    try {
+      const response = await quizService.getQuizByContentId(content.id);
+      console.log("Quiz data loaded:", response);
+      setQuizData(response?.data);
+    } catch (err: any) {
+      console.error("Error loading quiz:", err);
+      if (err.response?.status === 404) {
+        setQuizError("Quiz chưa được tạo cho nội dung này");
+      } else {
+        setQuizError("Không thể tải thông tin quiz");
+      }
+      setQuizData(null);
+    } finally {
+      setQuizLoading(false);
+    }
+  };
 
   // Build file URL from file_path
   const buildFileUrl = (filePath: string | undefined): string => {
@@ -96,9 +129,20 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
   };
 
   const renderQuiz = () => {
-    const quizId = content.metadata?.quiz_id;
     const isTeacher = userRole === 'TEACHER' || userRole === 'ADMIN';
     const isStudent = userRole === 'STUDENT';
+    
+    // Show loading state
+    if (quizLoading) {
+      return (
+        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-8">
+          <div className="flex items-center justify-center gap-3">
+            <div className="w-6 h-6 border-3 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-gray-700">Đang tải thông tin quiz...</span>
+          </div>
+        </div>
+      );
+    }
     
     return (
       <div className="space-y-4">
@@ -112,29 +156,55 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
               <h3 className="text-2xl font-bold text-gray-900 mb-2">{content.title}</h3>
               <p className="text-gray-700 mb-4">{content.description || "Kiểm tra kiến thức của bạn"}</p>
               
-              {/* Quiz Stats (if available) */}
-              {content.metadata?.total_points && (
-                <div className="flex gap-4 text-sm mb-4">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-600">Tổng điểm:</span>
-                    <span className="px-2 py-1 bg-white rounded font-semibold text-purple-700">
-                      {content.metadata.total_points}
-                    </span>
-                  </div>
-                  {content.metadata?.time_limit_minutes && (
+              {/* Quiz Stats - Show from fetched quiz data */}
+              {quizData && (
+                <div className="flex gap-4 text-sm mb-4 flex-wrap">
+                  {quizData.total_points && (
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-600">Thời gian:</span>
+                      <span className="font-medium text-gray-600">Tổng điểm:</span>
                       <span className="px-2 py-1 bg-white rounded font-semibold text-purple-700">
-                        {content.metadata.time_limit_minutes} phút
+                        {quizData.total_points}
                       </span>
                     </div>
                   )}
-                  {content.metadata?.max_attempts && (
+                  {quizData.time_limit_minutes && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-600">Thời gian:</span>
+                      <span className="px-2 py-1 bg-white rounded font-semibold text-purple-700">
+                        {quizData.time_limit_minutes} phút
+                      </span>
+                    </div>
+                  )}
+                  {quizData.max_attempts && (
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-gray-600">Số lần làm:</span>
                       <span className="px-2 py-1 bg-white rounded font-semibold text-purple-700">
-                        {content.metadata.max_attempts} lần
+                        {quizData.max_attempts > 0 ? `${quizData.max_attempts} lần` : 'Không giới hạn'}
                       </span>
+                    </div>
+                  )}
+                  {quizData.passing_score && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-600">Điểm đạt:</span>
+                      <span className="px-2 py-1 bg-white rounded font-semibold text-purple-700">
+                        {quizData.passing_score}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Quiz availability info */}
+              {quizData && (
+                <div className="text-sm text-gray-600">
+                  {quizData.available_from && (
+                    <div>
+                      📅 <strong>Mở từ:</strong> {new Date(quizData.available_from).toLocaleString('vi-VN')}
+                    </div>
+                  )}
+                  {quizData.available_until && (
+                    <div>
+                      📅 <strong>Đến:</strong> {new Date(quizData.available_until).toLocaleString('vi-VN')}
                     </div>
                   )}
                 </div>
@@ -143,21 +213,30 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
           </div>
         </div>
 
+        {/* Error message */}
+        {quizError && (
+          <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+            <p className="text-yellow-700">
+              ⚠️ {quizError}
+            </p>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="flex gap-3">
           {isTeacher ? (
             <>
               {/* Teacher Actions */}
-              {quizId ? (
+              {quizData?.id ? (
                 <>
                   <button
-                    onClick={() => router.push(`/lms/teacher/quiz/${quizId}/manage`)}
+                    onClick={() => router.push(`/lms/teacher/quiz/${quizData.id}/manage`)}
                     className="flex-1 px-6 py-4 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold text-lg transition-all transform hover:scale-[1.02]"
                   >
                     ⚙️ Quản lý Quiz
                   </button>
                   <button
-                    onClick={() => router.push(`/lms/teacher/quiz/${quizId}/grading`)}
+                    onClick={() => router.push(`/lms/teacher/quiz/${quizData.id}/grading`)}
                     className="flex-1 px-6 py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold text-lg transition-all transform hover:scale-[1.02]"
                   >
                     ✓ Chấm bài
@@ -175,10 +254,10 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
           ) : (
             <>
               {/* Student Actions */}
-              {quizId ? (
+              {quizData?.id ? (
                 <>
                   <button
-                    onClick={() => router.push(`/lms/student/quiz/${quizId}/take`)}
+                    onClick={() => router.push(`/lms/student/quiz/${quizData.id}/take`)}
                     className="flex-1 px-8 py-5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-700 hover:to-indigo-700 font-bold text-xl transition-all transform hover:scale-[1.02] shadow-lg"
                   >
                     🚀 Bắt đầu làm bài
@@ -187,7 +266,7 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
                   {/* History Button for Students */}
                   {isStudent && (
                     <button
-                      onClick={() => router.push(`/lms/student/quiz/${quizId}/history`)}
+                      onClick={() => router.push(`/lms/student/quiz/${quizData.id}/history`)}
                       className="px-6 py-5 bg-white border-2 border-purple-300 text-purple-700 rounded-xl hover:bg-purple-50 font-semibold text-lg transition-all transform hover:scale-[1.02] flex items-center gap-2"
                     >
                       <span className="text-xl">📜</span>
@@ -222,80 +301,82 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
   };
 
   const renderVideo = () => {
-    const filePath = content.metadata?.file_path || content.file_path;
-    const videoUrl = filePath 
-      ? buildFileUrl(filePath)
-      : (content.metadata?.file_url || content.metadata?.video_url);
+    const videoUrl = content.metadata?.video_url || content.metadata?.url;
     
     if (!videoUrl) {
       return (
         <div className="p-4 bg-gray-100 rounded-lg">
-          <p className="text-gray-600">Video chưa được tải lên</p>
+          <p className="text-gray-600">Video chưa được cấu hình</p>
         </div>
       );
     }
 
-    const isYouTube = videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be");
-    const isVimeo = videoUrl.includes("vimeo.com");
-
-    if (isYouTube) {
-      const videoId = extractYouTubeId(videoUrl);
+    // Check video type
+    const youtubeId = extractYouTubeId(videoUrl);
+    const vimeoId = extractVimeoId(videoUrl);
+    
+    if (youtubeId) {
       return (
-        <div className="aspect-video rounded-lg overflow-hidden shadow-lg">
+        <div className="aspect-video w-full">
           <iframe
-            src={`https://www.youtube.com/embed/${videoId}`}
-            className="w-full h-full"
+            className="w-full h-full rounded-lg shadow-lg"
+            src={`https://www.youtube.com/embed/${youtubeId}`}
+            title={content.title}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
-            title={content.title}
           />
         </div>
       );
     }
-
-    if (isVimeo) {
-      const videoId = extractVimeoId(videoUrl);
+    
+    if (vimeoId) {
       return (
-        <div className="aspect-video rounded-lg overflow-hidden shadow-lg">
+        <div className="aspect-video w-full">
           <iframe
-            src={`https://player.vimeo.com/video/${videoId}`}
-            className="w-full h-full"
+            className="w-full h-full rounded-lg shadow-lg"
+            src={`https://player.vimeo.com/video/${vimeoId}`}
+            title={content.title}
             allow="autoplay; fullscreen; picture-in-picture"
             allowFullScreen
-            title={content.title}
           />
         </div>
       );
     }
 
-    const fileExt = getFileExtension(videoUrl);
-    const videoType = fileExt === "webm" ? "video/webm" : "video/mp4";
+    // Direct video file
+    const isVideoFile = /\.(mp4|webm|ogg)$/i.test(videoUrl);
+    if (isVideoFile) {
+      return (
+        <div className="w-full">
+          <video
+            className="w-full rounded-lg shadow-lg"
+            controls
+            preload="metadata"
+          >
+            <source src={videoUrl} type={`video/${getFileExtension(videoUrl)}`} />
+            Trình duyệt của bạn không hỗ trợ phát video.
+          </video>
+        </div>
+      );
+    }
 
     return (
-      <div className="space-y-4">
-        <video
-          controls
-          className="w-full rounded-lg shadow-lg"
-          onError={() => setError("Không thể tải video")}
-        >
-          <source src={videoUrl} type={videoType} />
-          Trình duyệt của bạn không hỗ trợ video.
-        </video>
-        {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            ⚠️ {error}
-            <p className="text-xs mt-1">URL: {videoUrl}</p>
-          </div>
-        )}
+      <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <p className="text-yellow-700">
+          Video URL không được hỗ trợ. 
+          <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="underline ml-1">
+            Xem tại đây
+          </a>
+        </p>
       </div>
     );
   };
 
   const renderImage = () => {
-    const filePath = content.metadata?.file_path || content.file_path;
-    const imageUrl = filePath 
-      ? buildFileUrl(filePath)
-      : (content.metadata?.file_url || content.metadata?.image_url);
+    const imagePath = content.metadata?.file_path || content.file_path;
+    const imageUrl = imagePath 
+      ? buildFileUrl(imagePath)
+      : content.metadata?.image_url;
     
     if (!imageUrl) {
       return (
@@ -497,6 +578,7 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
                   type: content.type,
                   file_path: content.file_path,
                   metadata: content.metadata,
+                  quiz_data: quizData,
                   built_url: content.metadata?.file_path 
                     ? buildFileUrl(content.metadata.file_path)
                     : "N/A"

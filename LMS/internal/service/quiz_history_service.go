@@ -32,6 +32,13 @@ type AttemptSummary struct {
 	QuestionBreakdown []QuestionResult              `json:"question_breakdown"`
 	TimeBreakdown     TimeBreakdown                 `json:"time_breakdown"`
 	ScoreBreakdown    ScoreBreakdown                `json:"score_breakdown"`
+	GradingStatus     GradingStatus                 `json:"grading_status"`
+}
+
+type GradingStatus struct {
+	IsFullyGraded       bool `json:"is_fully_graded"`
+	PendingGradingCount int  `json:"pending_grading_count"`
+	IsProvisional       bool `json:"is_provisional"`
 }
 
 type QuestionResult struct {
@@ -136,6 +143,7 @@ func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID i
 	correctCount := 0
 	incorrectCount := 0
 	ungradedCount := 0
+	pendingGradingCount := 0
 
 	for _, q := range questions {
 		result := QuestionResult{
@@ -146,8 +154,10 @@ func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID i
 		}
 
 		// Find answer for this question
+		answerFound := false
 		for _, ans := range answers {
 			if ans.QuestionID == q.ID {
+				answerFound = true
 				if ans.PointsEarned.Valid {
 					result.PointsEarned = ans.PointsEarned.Float64
 				}
@@ -160,6 +170,15 @@ func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID i
 					}
 				} else {
 					ungradedCount++
+					// Check if this is a question type that requires manual grading
+					if q.QuestionType == models.QuestionTypeEssay || 
+					   q.QuestionType == models.QuestionTypeFileUpload || 
+					   q.QuestionType == models.QuestionTypeShortAnswer {
+						// Only count as pending if answer exists but not graded
+						if !ans.PointsEarned.Valid {
+							pendingGradingCount++
+						}
+					}
 				}
 				if ans.TimeSpentSeconds.Valid {
 					result.TimeSpentSeconds = int(ans.TimeSpentSeconds.Int32)
@@ -167,6 +186,13 @@ func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID i
 				result.AnsweredAt = ans.AnsweredAt.Format(time.RFC3339)
 				break
 			}
+		}
+
+		// If no answer found for required manual grading question, count as pending
+		if !answerFound && (q.QuestionType == models.QuestionTypeEssay || 
+		                     q.QuestionType == models.QuestionTypeFileUpload || 
+		                     q.QuestionType == models.QuestionTypeShortAnswer) {
+			pendingGradingCount++
 		}
 
 		questionBreakdown = append(questionBreakdown, result)
@@ -219,11 +245,20 @@ func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID i
 		UngradedCount:  ungradedCount,
 	}
 
+	// Calculate grading status
+	isFullyGraded := pendingGradingCount == 0
+	gradingStatus := GradingStatus{
+		IsFullyGraded:       isFullyGraded,
+		PendingGradingCount: pendingGradingCount,
+		IsProvisional:       !isFullyGraded, // Điểm tạm thời nếu chưa chấm hết
+	}
+
 	return &AttemptSummary{
 		Attempt:           *attempt,
 		QuestionBreakdown: questionBreakdown,
 		TimeBreakdown:     timeBreakdown,
 		ScoreBreakdown:    scoreBreakdown,
+		GradingStatus:     gradingStatus,
 	}, nil
 }
 

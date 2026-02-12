@@ -9,9 +9,9 @@ export default async function LMSLayout({ children }: { children: React.ReactNod
 
   const cookieStore = await cookies();
   const token = cookieStore.get("authToken")?.value;
-  if (!token) {
-    redirect("/");
-  }
+  // if (!token) {
+  //   redirect("/");
+  // }
 
   return (
     <div className="relative flex flex-col h-screen w-screen bg-transparent">

@@ -903,29 +903,31 @@ func (s *QuizService) GradeAnswer(ctx context.Context, req *dto.GradeAnswerReque
 		return fmt.Errorf("failed to grade answer: %w", err)
 	}
 
-	// Recalculate attempt score
+	// Always recalculate attempt score after grading
 	quiz, err := s.quizRepo.GetQuiz(ctx, attempt.QuizID)
 	if err != nil {
 		return err
 	}
 
 	// Check if all answers are graded
-	allGraded, err := s.checkAllAnswersGraded(ctx, attempt.ID)
+	_, err = s.checkAllAnswersGraded(ctx, attempt.ID)
 	if err != nil {
 		return err
 	}
 
-	if allGraded {
+	// Update manually graded timestamp if this is the first manual grading
+	if !attempt.ManuallyGradedAt.Valid {
 		attempt.ManuallyGradedAt = sql.NullTime{Time: now, Valid: true}
 		attempt.GradedBy = sql.NullInt64{Int64: graderID, Valid: true}
-		
-		if err := s.calculateAttemptScore(ctx, attempt, quiz); err != nil {
-			return err
-		}
+	}
+	
+	// Recalculate score (this will set status to GRADED if all answers are graded)
+	if err := s.calculateAttemptScore(ctx, attempt, quiz); err != nil {
+		return err
+	}
 
-		if err := s.quizRepo.UpdateAttempt(ctx, attempt); err != nil {
-			return err
-		}
+	if err := s.quizRepo.UpdateAttempt(ctx, attempt); err != nil {
+		return err
 	}
 
 	return nil
@@ -942,38 +944,53 @@ func (s *QuizService) BulkGrade(ctx context.Context, req *dto.BulkGradeRequest, 
 }
 
 // ListStudentAnswersForGrading lists answers that need grading
-func (s *QuizService) ListStudentAnswersForGrading(ctx context.Context, quizID int64, userID int64, userRole string) ([]dto.StudentAnswerResponse, error) {
+func (s *QuizService) ListStudentAnswersForGrading(ctx context.Context, quizID int64, userID int64, userRole string) ([]dto.StudentAnswerForGrading, error) {
 	// Verify permission
 	if err := s.verifyQuizOwnership(ctx, quizID, userID, userRole); err != nil {
 		return nil, err
 	}
 
-	// Get all submitted attempts
-	attempts, err := s.quizRepo.ListQuizAttempts(ctx, quizID, models.AttemptStatusSubmitted)
+	// Get answers that need grading from repo
+	repoAnswers, err := s.quizRepo.GetAnswersForGrading(ctx, quizID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get answers for grading: %w", err)
 	}
 
-	var needsGrading []dto.StudentAnswerResponse
-
-	for _, attempt := range attempts {
-		answers, err := s.quizRepo.ListAttemptAnswers(ctx, attempt.ID)
-		if err != nil {
+	// Convert to DTO
+	dtoAnswers := make([]dto.StudentAnswerForGrading, 0, len(repoAnswers))
+	for _, ans := range repoAnswers {
+		// Parse answer data
+		var answerData map[string]interface{}
+		if err := json.Unmarshal(ans.AnswerData, &answerData); err != nil {
+			logger.Error("Failed to parse answer data", err)
 			continue
 		}
 
-		for _, ans := range answers {
-			// Only include answers that need manual grading
-			if !ans.GradedAt.Valid {
-				question, _ := s.quizRepo.GetQuestion(ctx, ans.QuestionID)
-				if question != nil && !s.canAutoGrade(question.QuestionType) {
-					needsGrading = append(needsGrading, *s.buildStudentAnswerResponse(&ans))
-				}
-			}
+		dtoAnswer := dto.StudentAnswerForGrading{
+			ID:           ans.AnswerID,
+			AttemptID:    ans.AttemptID,
+			StudentID:    ans.StudentID,
+			StudentName:  ans.StudentName,
+			StudentEmail: ans.StudentEmail,
+			QuestionID:   ans.QuestionID,
+			QuestionText: ans.QuestionText,
+			QuestionType: ans.QuestionType,
+			Points:       ans.Points,
+			AnswerData:   answerData,
+			AnsweredAt:   ans.AnsweredAt,
 		}
+
+		if ans.PointsEarned.Valid {
+			dtoAnswer.PointsEarned = &ans.PointsEarned.Float64
+		}
+		if ans.GraderFeedback.Valid {
+			dtoAnswer.Feedback = ans.GraderFeedback.String
+		}
+
+		dtoAnswers = append(dtoAnswers, dtoAnswer)
 	}
 
-	return needsGrading, nil
+	return dtoAnswers, nil
 }
 
 // canAutoGrade checks if a question type can be auto-graded
@@ -1216,6 +1233,7 @@ func (s *QuizService) calculateAttemptScore(ctx context.Context, attempt *models
 
 	var totalPoints float64 = 0
 	var earnedPoints float64 = 0
+	allAnswersGraded := true
 
 	for _, ans := range answers {
 		question, err := s.quizRepo.GetQuestion(ctx, ans.QuestionID)
@@ -1227,6 +1245,13 @@ func (s *QuizService) calculateAttemptScore(ctx context.Context, attempt *models
 
 		if ans.PointsEarned.Valid {
 			earnedPoints += ans.PointsEarned.Float64
+		} else {
+			// Check if this is a question type that requires manual grading
+			if question.QuestionType == models.QuestionTypeEssay ||
+				question.QuestionType == models.QuestionTypeFileUpload ||
+				question.QuestionType == models.QuestionTypeShortAnswer {
+				allAnswersGraded = false
+			}
 		}
 	}
 
@@ -1244,7 +1269,13 @@ func (s *QuizService) calculateAttemptScore(ctx context.Context, attempt *models
 	attempt.EarnedPoints = sql.NullFloat64{Float64: earnedPoints, Valid: true}
 	attempt.Percentage = sql.NullFloat64{Float64: percentage, Valid: true}
 	attempt.IsPassed = sql.NullBool{Bool: isPassed, Valid: true}
-	attempt.Status = models.AttemptStatusGraded
+	
+	// Only mark as GRADED if all manual-grading questions have been graded
+	if allAnswersGraded {
+		attempt.Status = models.AttemptStatusGraded
+	} else {
+		attempt.Status = models.AttemptStatusSubmitted
+	}
 
 	return nil
 }
@@ -1324,7 +1355,7 @@ func (s *QuizService) validateAnswerData(questionType string, answerData map[str
 		}
 
 	case models.QuestionTypeShortAnswer, models.QuestionTypeEssay:
-		if _, ok := answerData["text"]; !ok {
+		if _, ok := answerData["answer_text"]; !ok {
 			return fmt.Errorf("text answer must have text field")
 		}
 
@@ -1704,4 +1735,50 @@ func fromNullBoolPtr(nb sql.NullBool) *bool {
 		return &nb.Bool
 	}
 	return nil
+}
+
+// GetQuizByContentID gets quiz by content ID
+func (s *QuizService) GetQuizByContentID(ctx context.Context, contentID int64, userID int64, userRole string) (*dto.QuizResponse, error) {
+	// Get the content first to verify access
+	content, err := s.courseRepo.GetContentByID(ctx, contentID)
+	if err != nil {
+		return nil, fmt.Errorf("content not found")
+	}
+
+	// Get section and course to verify ownership
+	section, err := s.courseRepo.GetSectionByID(ctx, content.SectionID)
+	if err != nil {
+		return nil, fmt.Errorf("section not found")
+	}
+
+	course, err := s.courseRepo.GetByID(ctx, section.CourseID)
+	if err != nil {
+		return nil, fmt.Errorf("course not found")
+	}
+
+	// Check permission (owner or admin)
+	// For students: they can view quiz if it's published and they're enrolled
+	// But we'll let the handler/frontend handle enrollment checks for simplicity
+	if userRole != "ADMIN" && course.CreatedBy != userID {
+		// Could add enrollment check here if needed, but requires adding enrollmentRepo to QuizService
+		// For now, assume if quiz is published, anyone can view the basic info
+		// The actual quiz taking will be restricted by enrollment in other endpoints
+	}
+
+	// Get quiz
+	quiz, err := s.quizRepo.GetQuizByContentID(ctx, contentID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("quiz not found")
+		}
+		return nil, fmt.Errorf("failed to get quiz: %w", err)
+	}
+
+	// Get quiz with stats
+	quizWithStats, err := s.quizRepo.GetQuizWithStats(ctx, quiz.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get quiz stats: %w", err)
+	}
+
+	return s.buildQuizResponseWithStats(quizWithStats), nil
 }

@@ -4,7 +4,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import FileUpload from "@/components/lms/teacher/FileUpload";
 import YouTubeVideoUpload from "./YoutubeVideoUpload";
+import QuizSettingsForm, { QuizSettings } from "./QuizSettingsForm";
 import lmsService from "@/services/lmsService";
+import quizService from "@/services/quizService";
 import { Content, ContentType, FileInfo } from "@/types";
 
 interface ContentModalProps {
@@ -28,6 +30,27 @@ export default function ContentModal({
     is_mandatory: false,
     metadata: {} as Record<string, any>,
   });
+
+  // Quiz settings state
+  const [quizSettings, setQuizSettings] = useState<QuizSettings>({
+    title: "",
+    description: "",
+    instructions: "",
+    time_limit_minutes: undefined,
+    available_from: undefined,
+    available_until: undefined,
+    max_attempts: undefined,
+    shuffle_questions: false,
+    shuffle_answers: false,
+    passing_score: undefined,
+    total_points: 100,
+    auto_grade: true,
+    show_results_immediately: true,
+    show_correct_answers: true,
+    allow_review: true,
+    show_feedback: true,
+  });
+
   const [loading, setLoading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<FileInfo | null>(null);
   const [textContent, setTextContent] = useState("");
@@ -91,11 +114,35 @@ export default function ContentModal({
       setUploadMethod('youtube');
     }
     
+    if (newType === "QUIZ") {
+      setQuizSettings(prev => ({
+        ...prev,
+        title: formData.title,
+        description: formData.description,
+      }));
+    }
+    
     setFormData({
       ...formData,
       type: newType as ContentType,
       metadata: {},
     });
+  };
+
+  // Sync quiz title with content title
+  const handleTitleChange = (title: string) => {
+    setFormData({ ...formData, title });
+    if (formData.type === "QUIZ") {
+      setQuizSettings(prev => ({ ...prev, title }));
+    }
+  };
+
+  // Sync quiz description with content description
+  const handleDescriptionChange = (description: string) => {
+    setFormData({ ...formData, description });
+    if (formData.type === "QUIZ") {
+      setQuizSettings(prev => ({ ...prev, description }));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -132,14 +179,33 @@ export default function ContentModal({
         return;
       }
       metadata.document_type = "uploaded";
+    } else if (formData.type === "QUIZ") {
+      // Store quiz settings in metadata
+      metadata.quiz_settings = quizSettings;
     }
 
     try {
       setLoading(true);
-      await lmsService.createContent(sectionId, {
+      
+      // Create content first
+      const contentResponse = await lmsService.createContent(sectionId, {
         ...formData,
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       });
+
+      // If it's a quiz, create the quiz record
+      if (formData.type === "QUIZ" && contentResponse.data) {
+        const contentId = contentResponse.data.id;
+        
+        try {
+          await quizService.createQuizWithContent(contentId, quizSettings);
+        } catch (quizError: any) {
+          console.error("Error creating quiz:", quizError);
+          // Content already created, inform user about quiz creation failure
+          alert("Nội dung đã được tạo nhưng có lỗi khi tạo quiz. Vui lòng thử lại từ trang chỉnh sửa.");
+        }
+      }
+
       alert("Tạo nội dung thành công!");
       onSuccess();
     } catch (error: any) {
@@ -166,12 +232,51 @@ export default function ContentModal({
                 onChange={(e) => handleTypeChange(e.target.value)}
                 className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                 required
+                disabled={loading}
               >
                 {contentTypes.map(type => (
                   <option key={type.value} value={type.value}>{type.label}</option>
                 ))}
               </select>
             </div>
+
+            {/* Title */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Tiêu đề *</label>
+              <input
+                type="text"
+                value={formData.title}
+                onChange={(e) => handleTitleChange(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Nhập tiêu đề nội dung..."
+                required
+                disabled={loading}
+              />
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Mô tả</label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => handleDescriptionChange(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                rows={3}
+                placeholder="Mô tả ngắn về nội dung này..."
+                disabled={loading}
+              />
+            </div>
+
+            {/* QUIZ Settings */}
+            {formData.type === "QUIZ" && (
+              <div className="border-t pt-4">
+                <QuizSettingsForm
+                  settings={quizSettings}
+                  onChange={setQuizSettings}
+                  disabled={loading}
+                />
+              </div>
+            )}
 
             {/* VIDEO Upload Options */}
             {formData.type === "VIDEO" && (
@@ -187,6 +292,7 @@ export default function ContentModal({
                           ? 'border-red-500 bg-red-50 text-red-700'
                           : 'border-gray-300 hover:border-red-300'
                       }`}
+                      disabled={loading}
                     >
                       📺 YouTube
                     </button>
@@ -198,6 +304,7 @@ export default function ContentModal({
                           ? 'border-blue-500 bg-blue-50 text-blue-700'
                           : 'border-gray-300 hover:border-blue-300'
                       }`}
+                      disabled={loading}
                     >
                       💾 Server
                     </button>
@@ -209,6 +316,7 @@ export default function ContentModal({
                           ? 'border-green-500 bg-green-50 text-green-700'
                           : 'border-gray-300 hover:border-green-300'
                       }`}
+                      disabled={loading}
                     >
                       🔗 URL
                     </button>
@@ -217,7 +325,7 @@ export default function ContentModal({
 
                 {/* YouTube Upload */}
                 {uploadMethod === 'youtube' && (
-                  <YouTubeVideoUpload onFileUploaded={handleFileUploaded} />
+                  <YouTubeVideoUpload onFileUploaded={handleFileUploaded} disabled={loading} />
                 )}
 
                 {/* Server Upload */}
@@ -241,6 +349,7 @@ export default function ContentModal({
                       onChange={(e) => setVideoUrl(e.target.value)}
                       placeholder="https://youtube.com/watch?v=... hoặc https://example.com/video.mp4"
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      disabled={loading}
                     />
                   </div>
                 )}
@@ -300,7 +409,7 @@ export default function ContentModal({
                       onChange={(e) => setImageUrl(e.target.value)}
                       placeholder="https://example.com/image.jpg"
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                      disabled={!!uploadedFile}
+                      disabled={!!uploadedFile || loading}
                     />
                   </div>
                 )}
@@ -325,31 +434,6 @@ export default function ContentModal({
               </div>
             )}
 
-            {/* Title */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Tiêu đề *</label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Nhập tiêu đề nội dung..."
-                required
-              />
-            </div>
-
-            {/* Description */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Mô tả</label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                rows={3}
-                placeholder="Mô tả ngắn về nội dung này..."
-              />
-            </div>
-
             {/* Order Index and Mandatory */}
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -360,6 +444,7 @@ export default function ContentModal({
                   onChange={(e) => setFormData({ ...formData, order_index: parseInt(e.target.value) || 0 })}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                   min="0"
+                  disabled={loading}
                 />
               </div>
               <div className="flex items-center">
@@ -369,6 +454,7 @@ export default function ContentModal({
                     checked={formData.is_mandatory}
                     onChange={(e) => setFormData({ ...formData, is_mandatory: e.target.checked })}
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    disabled={loading}
                   />
                   <span className="ml-2 text-sm font-medium">Nội dung bắt buộc</span>
                 </label>
@@ -376,18 +462,19 @@ export default function ContentModal({
             </div>
 
             {/* Info box */}
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-700">
-                <strong>💡 Lưu ý:</strong> {" "}
-                {formData.type === "TEXT" && "Nội dung văn bản sẽ được hiển thị trực tiếp trên trang."}
-                {formData.type === "VIDEO" && "Video có thể upload lên YouTube (khuyến nghị), server, hoặc nhúng từ URL."}
-                {formData.type === "DOCUMENT" && "Tài liệu (PDF, Word, Excel) sẽ có thể xem và tải xuống."}
-                {formData.type === "IMAGE" && "Hình ảnh sẽ được hiển thị trong bài học."}
-                {formData.type === "QUIZ" && "Quiz cần được cấu hình thêm sau khi tạo."}
-                {formData.type === "FORUM" && "Diễn đàn cho phép học viên thảo luận."}
-                {formData.type === "ANNOUNCEMENT" && "Thông báo sẽ được gửi đến tất cả học viên."}
-              </p>
-            </div>
+            {formData.type !== "QUIZ" && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-700">
+                  <strong>💡 Lưu ý:</strong> {" "}
+                  {formData.type === "TEXT" && "Nội dung văn bản sẽ được hiển thị trực tiếp trên trang."}
+                  {formData.type === "VIDEO" && "Video có thể upload lên YouTube (khuyến nghị), server, hoặc nhúng từ URL."}
+                  {formData.type === "DOCUMENT" && "Tài liệu (PDF, Word, Excel) sẽ có thể xem và tải xuống."}
+                  {formData.type === "IMAGE" && "Hình ảnh sẽ được hiển thị trong bài học."}
+                  {formData.type === "FORUM" && "Diễn đàn cho phép học viên thảo luận."}
+                  {formData.type === "ANNOUNCEMENT" && "Thông báo sẽ được gửi đến tất cả học viên."}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Actions */}

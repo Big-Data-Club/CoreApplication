@@ -51,6 +51,7 @@ export default function StudentCourseDetailPage() {
   const loadSectionContent = async (sectionId: number) => {
     try {
       const data = await lmsService.listContent(sectionId);
+      console.log(data)
       setSectionContents(prev => ({
         ...prev,
         [sectionId]: data?.data || []

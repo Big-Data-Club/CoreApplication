@@ -42,6 +42,33 @@ class QuizService {
   // QUIZ MANAGEMENT (Teacher)
   // ============================================
 
+  async createQuizWithContent(contentId: number, quizData: any) {
+    // Tạo một bản sao để xử lý dữ liệu
+    const payload = { 
+        ...quizData,
+        content_id: contentId 
+    };
+
+    // XỬ LÝ DATE: Chuyển sang ISO string
+    if (payload.available_from) {
+        payload.available_from = new Date(payload.available_from).toISOString();
+    }
+    if (payload.available_until) {
+        payload.available_until = new Date(payload.available_until).toISOString();
+    }
+
+    // Đảm bảo các trường số là number (đề phòng input trả về string)
+    if (payload.time_limit_minutes) payload.time_limit_minutes = Number(payload.time_limit_minutes);
+    if (payload.max_attempts) payload.max_attempts = Number(payload.max_attempts);
+    if (payload.passing_score) payload.passing_score = Number(payload.passing_score);
+    if (payload.total_points) payload.total_points = Number(payload.total_points);
+
+    console.log("Payload sending:", payload); // Check lại log xem date đã có dạng 2026-02-13T00:11:00.000Z chưa
+
+    const response = await this.api.post('/quizzes', payload);
+    return response.data;
+  }
+
   async createQuiz(quizData: any) {
     const response = await this.api.post('/quizzes', quizData);
     return response.data;
@@ -49,6 +76,11 @@ class QuizService {
 
   async getQuiz(quizId: number) {
     const response = await this.api.get(`/quizzes/${quizId}`);
+    return response.data;
+  }
+
+  async getQuizByContentId(contentId: number) {
+    const response = await this.api.get(`/content/${contentId}/quiz`);
     return response.data;
   }
 
@@ -159,7 +191,7 @@ class QuizService {
     return response.data;
   }
 
-  async deleteQuestionImage(questionId: number, imageId: number) {
+  async deleteQuestionImage(questionId: number, imageId: number | string) {
     const response = await this.api.delete(`/questions/${questionId}/images/${imageId}`);
     return response.data;
   }

@@ -14,77 +14,77 @@ x-common-logging: &common-logging
 
 services:
   # Frontend: Next.js Application
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        - BUILD_DATE=${BUILD_DATE:-unknown}
-        - VERSION=${VERSION:-1.0.0}
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-        - NEXT_PUBLIC_LMS_API_URL=${NEXT_PUBLIC_LMS_API_URL}
-    image: ${DOCKER_USERNAME}/bdc-frontend:${IMAGE_TAG:-latest}
-    container_name: nextjs-prod
-    restart: unless-stopped
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #     args:
+  #       - BUILD_DATE=${BUILD_DATE:-unknown}
+  #       - VERSION=${VERSION:-1.0.0}
+  #       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+  #       - NEXT_PUBLIC_LMS_API_URL=${NEXT_PUBLIC_LMS_API_URL}
+  #   image: ${DOCKER_USERNAME}/bdc-frontend:${IMAGE_TAG:-latest}
+  #   container_name: nextjs-prod
+  #   restart: unless-stopped
     
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      HOSTNAME: 0.0.0.0
-      BACKEND_URL: http://backend:8080
-      LMS_API_URL: http://lms-backend:8081
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-      NEXT_PUBLIC_LMS_API_URL: ${NEXT_PUBLIC_LMS_API_URL}
-      GOOGLE_SCRIPT_URL: ${GOOGLE_SCRIPT_URL}
+  #   environment:
+  #     NODE_ENV: production
+  #     PORT: 3000
+  #     HOSTNAME: 0.0.0.0
+  #     BACKEND_URL: http://backend:8080
+  #     LMS_API_URL: http://lms-backend:8081
+  #     NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+  #     NEXT_PUBLIC_LMS_API_URL: ${NEXT_PUBLIC_LMS_API_URL}
+  #     GOOGLE_SCRIPT_URL: ${GOOGLE_SCRIPT_URL}
       
-      # Auth configuration
-      NEXTAUTH_URL: ${NEXTAUTH_URL}
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+  #     # Auth configuration
+  #     NEXTAUTH_URL: ${NEXTAUTH_URL}
+  #     NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       
-      # Telemetry
-      NEXT_TELEMETRY_DISABLED: 1
+  #     # Telemetry
+  #     NEXT_TELEMETRY_DISABLED: 1
     
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+  #   ports:
+  #     - "${FRONTEND_PORT:-3000}:3000"
     
-    volumes:
-      - ./frontend/logs:/app/logs
-      - ./frontend/data:/app/data
+  #   volumes:
+  #     - ./frontend/logs:/app/logs
+  #     - ./frontend/data:/app/data
     
-    depends_on:
-      backend:
-        condition: service_healthy
-      lms-backend:
-        condition: service_healthy
+  #   depends_on:
+  #     backend:
+  #       condition: service_healthy
+  #     lms-backend:
+  #       condition: service_healthy
     
-    networks:
-      - app-network
+  #   networks:
+  #     - app-network
     
-    healthcheck:
-      <<: *common-healthcheck
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      start_period: 45s
+  #   healthcheck:
+  #     <<: *common-healthcheck
+  #     test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+  #     start_period: 45s
     
-    logging: *common-logging
+  #   logging: *common-logging
     
-    deploy:
-      resources:
-        limits:
-          cpus: '1.5'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 256M
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '1.5'
+  #         memory: 1G
+  #       reservations:
+  #         cpus: '0.5'
+  #         memory: 256M
     
-    security_opt:
-      - no-new-privileges:true
+  #   security_opt:
+  #     - no-new-privileges:true
     
-    labels:
-      - "service.type=frontend"
-      - "service.name=nextjs-prod"
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`bdc.hpcc.vn`)"
-      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+  #   labels:
+  #     - "service.type=frontend"
+  #     - "service.name=nextjs-prod"
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.frontend.rule=Host(`bdc.hpcc.vn`)"
+  #     - "traefik.http.services.frontend.loadbalancer.server.port=3000"
 
   # Database: PostgreSQL 
   postgres:

@@ -110,6 +110,11 @@ func (h *QuizHandler) GetAttemptSummary(c *gin.Context) {
 			IncorrectCount: summary.ScoreBreakdown.IncorrectCount,
 			UngradedCount:  summary.ScoreBreakdown.UngradedCount,
 		},
+		GradingStatus: dto.GradingStatusDTO{
+			IsFullyGraded:       summary.GradingStatus.IsFullyGraded,
+			PendingGradingCount: summary.GradingStatus.PendingGradingCount,
+			IsProvisional:       summary.GradingStatus.IsProvisional,
+		},
 	}
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(summaryDTO))

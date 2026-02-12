@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import FileUpload from "@/components/lms/teacher/FileUpload";
+import QuizSettingsForm, { QuizSettings } from "./QuizSettingsForm";
 import lmsService from "@/services/lmsService";
+import quizService from "@/services/quizService";
 import { Content, FileInfo } from "@/types";
 import { useRouter } from "next/navigation";
 
@@ -26,6 +28,10 @@ export default function EditContentModal({
     metadata: content.metadata || {},
   });
 
+  const [quizSettings, setQuizSettings] = useState<QuizSettings | null>(null);
+  const [quizId, setQuizId] = useState<number | null>(null);
+  const [loadingQuiz, setLoadingQuiz] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<FileInfo | null>(null);
   const [textContent, setTextContent] = useState(
@@ -34,6 +40,72 @@ export default function EditContentModal({
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [removeFileConfirm, setRemoveFileConfirm] = useState(false);
   const router = useRouter();
+
+  // Load quiz settings if content type is QUIZ
+  useEffect(() => {
+    if (content.type === "QUIZ") {
+      loadQuizSettings();
+    }
+  }, [content.id, content.type]);
+
+  const loadQuizSettings = async () => {
+    try {
+      setLoadingQuiz(true);
+      const response = await quizService.getQuizByContentId(content.id);
+      
+      if (response.data) {
+        const quiz = response.data;
+        setQuizId(quiz.id);
+        
+        // Convert quiz data to QuizSettings format
+        setQuizSettings({
+          title: quiz.title,
+          description: quiz.description || "",
+          instructions: quiz.instructions || "",
+          time_limit_minutes: quiz.time_limit_minutes || undefined,
+          available_from: quiz.available_from 
+            ? new Date(quiz.available_from).toISOString().slice(0, 16) 
+            : undefined,
+          available_until: quiz.available_until 
+            ? new Date(quiz.available_until).toISOString().slice(0, 16) 
+            : undefined,
+          max_attempts: quiz.max_attempts || undefined,
+          shuffle_questions: quiz.shuffle_questions || false,
+          shuffle_answers: quiz.shuffle_answers || false,
+          passing_score: quiz.passing_score || undefined,
+          total_points: quiz.total_points || 100,
+          auto_grade: quiz.auto_grade ?? true,
+          show_results_immediately: quiz.show_results_immediately ?? true,
+          show_correct_answers: quiz.show_correct_answers ?? true,
+          allow_review: quiz.allow_review ?? true,
+          show_feedback: quiz.show_feedback ?? true,
+        });
+      }
+    } catch (error: any) {
+      console.error("Error loading quiz:", error);
+      // Quiz might not exist yet, that's ok
+      setQuizSettings({
+        title: content.title,
+        description: content.description || "",
+        instructions: "",
+        time_limit_minutes: undefined,
+        available_from: undefined,
+        available_until: undefined,
+        max_attempts: undefined,
+        shuffle_questions: false,
+        shuffle_answers: false,
+        passing_score: undefined,
+        total_points: 100,
+        auto_grade: true,
+        show_results_immediately: true,
+        show_correct_answers: true,
+        allow_review: true,
+        show_feedback: true,
+      });
+    } finally {
+      setLoadingQuiz(false);
+    }
+  };
 
   const getContentTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
@@ -91,22 +163,56 @@ export default function EditContentModal({
     setRemoveFileConfirm(false);
   };
 
+  const handleTitleChange = (title: string) => {
+    setFormData({ ...formData, title });
+    if (content.type === "QUIZ" && quizSettings) {
+      setQuizSettings({ ...quizSettings, title });
+    }
+  };
+
+  const handleDescriptionChange = (description: string) => {
+    setFormData({ ...formData, description });
+    if (content.type === "QUIZ" && quizSettings) {
+      setQuizSettings({ ...quizSettings, description });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Build metadata
     const metadata = { ...formData.metadata };
 
     if (content.type === "TEXT") {
       metadata.content = textContent;
+    } else if (content.type === "QUIZ" && quizSettings) {
+      metadata.quiz_settings = quizSettings;
     }
 
     try {
       setLoading(true);
+      
+      // Update content
       await lmsService.updateContent(content.id, {
         ...formData,
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       });
+
+      // If it's a quiz, update or create quiz record
+      if (content.type === "QUIZ" && quizSettings) {
+        try {
+          if (quizId) {
+            // Update existing quiz
+            await quizService.updateQuiz(quizId, quizSettings);
+          } else {
+            // Create new quiz if it doesn't exist
+            await quizService.createQuizWithContent(content.id, quizSettings);
+          }
+        } catch (quizError: any) {
+          console.error("Error updating quiz:", quizError);
+          alert("Nội dung đã được cập nhật nhưng có lỗi khi cập nhật quiz settings.");
+        }
+      }
+
       alert("Cập nhật nội dung thành công!");
       onSuccess();
     } catch (error: any) {
@@ -138,7 +244,7 @@ export default function EditContentModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b sticky top-0 bg-white z-10">
           <h2 className="text-xl font-bold">Chỉnh sửa nội dung</h2>
           <p className="text-sm text-gray-600 mt-1">
@@ -165,9 +271,7 @@ export default function EditContentModal({
             <input
               type="text"
               value={formData.title}
-              onChange={(e) =>
-                setFormData({ ...formData, title: e.target.value })
-              }
+              onChange={(e) => handleTitleChange(e.target.value)}
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
               required
               disabled={loading}
@@ -179,14 +283,30 @@ export default function EditContentModal({
             <label className="block text-sm font-medium mb-2">Mô tả</label>
             <textarea
               value={formData.description}
-              onChange={(e) =>
-                setFormData({ ...formData, description: e.target.value })
-              }
+              onChange={(e) => handleDescriptionChange(e.target.value)}
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
               rows={3}
               disabled={loading}
             />
           </div>
+
+          {/* QUIZ Settings */}
+          {content.type === "QUIZ" && quizSettings && (
+            <div className="border-t pt-4">
+              {loadingQuiz ? (
+                <div className="text-center py-4">
+                  <div className="inline-block w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-sm text-gray-600 mt-2">Đang tải cài đặt quiz...</p>
+                </div>
+              ) : (
+                <QuizSettingsForm
+                  settings={quizSettings}
+                  onChange={setQuizSettings}
+                  disabled={loading}
+                />
+              )}
+            </div>
+          )}
 
           {/* Text Content for TEXT type */}
           {content.type === "TEXT" && (
@@ -226,7 +346,6 @@ export default function EditContentModal({
                 )}
               </div>
 
-              {/* Current File Info */}
               {currentFile && !showFileUpload && (
                 <div className="p-4 bg-green-50 border border-green-200 rounded-lg mb-4">
                   <div className="flex justify-between items-start">
@@ -253,7 +372,6 @@ export default function EditContentModal({
                     </button>
                   </div>
 
-                  {/* Confirm Remove */}
                   {removeFileConfirm && (
                     <div className="mt-3 p-3 bg-red-100 border border-red-300 rounded text-sm">
                       <p className="text-red-700 mb-2">
@@ -280,7 +398,6 @@ export default function EditContentModal({
                 </div>
               )}
 
-              {/* Upload New File */}
               {showFileUpload && (
                 <div className="mb-4">
                   <FileUpload
@@ -290,7 +407,6 @@ export default function EditContentModal({
                 </div>
               )}
 
-              {/* No File Yet */}
               {!currentFile && (
                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-sm text-yellow-700 mb-3">
@@ -341,13 +457,15 @@ export default function EditContentModal({
           </div>
 
           {/* Info */}
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-700">
-              <strong>💡 Lưu ý:</strong> Khi bạn cập nhật file, học viên sẽ nhận
-              được file mới khi họ truy cập lại nội dung. Tiêu đề và mô tả cũng sẽ
-              được cập nhật ngay lập tức.
-            </p>
-          </div>
+          {content.type !== "QUIZ" && (
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700">
+                <strong>💡 Lưu ý:</strong> Khi bạn cập nhật file, học viên sẽ nhận
+                được file mới khi họ truy cập lại nội dung. Tiêu đề và mô tả cũng sẽ
+                được cập nhật ngay lập tức.
+              </p>
+            </div>
+          )}
         </form>
 
         {/* Actions */}
@@ -355,19 +473,21 @@ export default function EditContentModal({
           <Button
             type="submit"
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || loadingQuiz}
             className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
           >
             {loading ? "Đang cập nhật..." : "✓ Cập nhật"}
           </Button>
-          {(content.type === "QUIZ") && (<Button
-            type="submit"
-            onClick={() => router.push(`/lms/teacher/quiz/${content.id}/manage`)}
-            disabled={loading}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-          >
-            {loading ? "Đang chuyển đến ..." : "Quản lý Quiz"}
-          </Button>)}
+          {content.type === "QUIZ" && quizId && (
+            <Button
+              type="button"
+              onClick={() => router.push(`/lms/teacher/quiz/${quizId}/manage`)}
+              disabled={loading}
+              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            >
+              📝 Quản lý Quiz
+            </Button>
+          )}
           <Button
             type="button"
             onClick={onClose}

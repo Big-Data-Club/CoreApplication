@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"example/hello/internal/models"
 )
@@ -1143,4 +1144,87 @@ func (r *QuizRepository) CheckAttemptOwnership(ctx context.Context, attemptID, s
 	var exists bool
 	err := r.db.QueryRowContext(ctx, query, attemptID, studentID).Scan(&exists)
 	return exists, err
+}
+
+// AnswerForGrading represents an answer that needs grading with full context
+type AnswerForGrading struct {
+	AnswerID       int64
+	AttemptID      int64
+	AttemptNumber  int
+	StudentID      int64
+	StudentName    string
+	StudentEmail   string
+	QuestionID     int64
+	QuestionText   string
+	QuestionType   string
+	Points         float64
+	AnswerData     []byte
+	PointsEarned   sql.NullFloat64
+	GraderFeedback sql.NullString
+	GradedAt       sql.NullTime
+	AnsweredAt     time.Time
+}
+
+// GetAnswersForGrading retrieves all answers that need manual grading for a quiz
+func (r *QuizRepository) GetAnswersForGrading(ctx context.Context, quizID int64) ([]AnswerForGrading, error) {
+	query := `
+		SELECT 
+			qsa.id as answer_id,
+			qsa.attempt_id,
+			qa.attempt_number,
+			qa.student_id,
+			u.full_name as student_name,
+			u.email as student_email,
+			qq.id as question_id,
+			qq.question_text,
+			qq.question_type,
+			qq.points,
+			qsa.answer_data,
+			qsa.points_earned,
+			qsa.grader_feedback,
+			qsa.graded_at,
+			qsa.answered_at
+		FROM quiz_student_answers qsa
+		JOIN quiz_attempts qa ON qsa.attempt_id = qa.id
+		JOIN users u ON qa.student_id = u.id
+		JOIN quiz_questions qq ON qsa.question_id = qq.id
+		WHERE qq.quiz_id = $1
+		  AND qa.status = 'SUBMITTED'
+		  AND qq.question_type IN ('ESSAY', 'FILE_UPLOAD', 'SHORT_ANSWER')
+		ORDER BY qsa.graded_at NULLS FIRST, qsa.answered_at DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, quizID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var answers []AnswerForGrading
+	for rows.Next() {
+		var answer AnswerForGrading
+		err := rows.Scan(
+			&answer.AnswerID,
+			&answer.AttemptID,
+			&answer.AttemptNumber,
+			&answer.StudentID,
+			&answer.StudentName,
+			&answer.StudentEmail,
+			&answer.QuestionID,
+			&answer.QuestionText,
+			&answer.QuestionType,
+			&answer.Points,
+			&answer.AnswerData,
+			&answer.PointsEarned,
+			&answer.GraderFeedback,
+			&answer.GradedAt,
+			&answer.AnsweredAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		answers = append(answers, answer)
+	}
+
+	return answers, rows.Err()
 }

@@ -217,6 +217,7 @@ func main() {
 			content := auth.Group("/content")
 			{
 				content.GET("/:contentId", courseHandler.GetContent)
+				content.GET("/:contentId/quiz", quizHandler.GetQuizByContentID)
 				content.PUT("/:contentId", middleware.RequireRoles("ADMIN", "TEACHER"), courseHandler.UpdateContent)
 				content.DELETE("/:contentId", middleware.RequireRoles("ADMIN", "TEACHER"), courseHandler.DeleteContent)
 			}
