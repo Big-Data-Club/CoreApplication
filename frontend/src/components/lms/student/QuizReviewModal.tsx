@@ -3,6 +3,8 @@
 import { useState, useEffect, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import quizService from "@/services/quizService";
+import FillBlankTextStudent from "@/components/lms/student/FillBlankTextStudent";
+import FillBlankDropdownStudent from "@/components/lms/student/FillBlankDropdownStudent";
 import {
   CheckCircle,
   XCircle,
@@ -13,12 +15,21 @@ import {
   FileText,
   Upload,
 } from "lucide-react";
+import type {
+  FillBlankTextSettings,
+  FillBlankTextCorrectAnswer,
+  FillBlankTextStudentAnswer,
+  FillBlankDropdownSettings,
+  FillBlankDropdownOption,
+  FillBlankDropdownStudentAnswer,
+} from "@/fillBlankType";
 
 interface AnswerOption {
   id: number;
   option_text: string;
   is_correct: boolean;
   order_index: number;
+  blank_id?: number;
 }
 
 interface CorrectAnswer {
@@ -26,6 +37,7 @@ interface CorrectAnswer {
   answer_text: string;
   case_sensitive: boolean;
   exact_match: boolean;
+  blank_id?: number;
 }
 
 interface Question {
@@ -34,6 +46,7 @@ interface Question {
   question_text: string;
   explanation?: string;
   points: number;
+  settings?: any;
   answer_options: AnswerOption[];
   correct_answers: CorrectAnswer[];
 }
@@ -287,7 +300,7 @@ export default function QuizReviewModal({
                 <p className="text-gray-800 font-medium">{fileName}</p>
                 {filePath && (
                   <a
-                    href={filePath}
+                    href={`/files/${filePath}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:underline text-sm"
@@ -316,6 +329,94 @@ export default function QuizReviewModal({
     );
   };
 
+  const renderFillBlankTextQuestion = (qa: QuestionWithAnswer) => {
+    const { question, student_answer } = qa;
+    
+    // Parse settings
+    const settings: FillBlankTextSettings = question.settings || { blank_count: 0, blanks: [] };
+    
+    // Parse correct answers
+    const correctAnswers: FillBlankTextCorrectAnswer[] = question.correct_answers.map(ca => ({
+      blank_id: ca.blank_id || 0,
+      answer_text: ca.answer_text,
+      case_sensitive: ca.case_sensitive,
+      exact_match: ca.exact_match,
+    }));
+    
+    // Parse student answer
+    const studentAnswerData: FillBlankTextStudentAnswer = student_answer?.answer_data || { blanks: [] };
+
+    return (
+      <div className="space-y-3">
+        <FillBlankTextStudent
+          questionText={question.question_text}
+          settings={settings}
+          value={studentAnswerData}
+          onChange={() => {}} // Read-only in review mode
+          disabled={true}
+          showCorrectAnswers={review?.show_correct_answers || false}
+          correctAnswers={correctAnswers}
+        />
+
+        {/* Grader feedback */}
+        {student_answer?.grader_feedback && (
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mt-4">
+            <p className="text-sm font-medium text-blue-800 mb-2 flex items-center gap-2">
+              <MessageSquare className="w-4 h-4" />
+              Nhận xét của giáo viên:
+            </p>
+            <p className="text-blue-900">{student_answer.grader_feedback}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderFillBlankDropdownQuestion = (qa: QuestionWithAnswer) => {
+    const { question, student_answer } = qa;
+    
+    // Parse settings
+    const settings: FillBlankDropdownSettings = question.settings || { blank_count: 0, blanks: [] };
+    
+    // Parse options
+    const options: FillBlankDropdownOption[] = question.answer_options.map(opt => ({
+      id: opt.id,
+      blank_id: opt.blank_id || 0,
+      option_text: opt.option_text,
+      is_correct: opt.is_correct,
+      order_index: opt.order_index,
+    }));
+    
+    // Parse student answer
+    const studentAnswerData: FillBlankDropdownStudentAnswer = student_answer?.answer_data || { blanks: [] };
+
+    return (
+      <div className="space-y-3">
+        <FillBlankDropdownStudent
+          questionText={question.question_text}
+          settings={settings}
+          options={options}
+          value={studentAnswerData}
+          onChange={() => {}} // Read-only in review mode
+          disabled={true}
+          showCorrectAnswers={review?.show_correct_answers || false}
+          studentAnswer={studentAnswerData}
+        />
+
+        {/* Grader feedback */}
+        {student_answer?.grader_feedback && (
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mt-4">
+            <p className="text-sm font-medium text-blue-800 mb-2 flex items-center gap-2">
+              <MessageSquare className="w-4 h-4" />
+              Nhận xét của giáo viên:
+            </p>
+            <p className="text-blue-900">{student_answer.grader_feedback}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderQuestionAnswer = (qa: QuestionWithAnswer) => {
     const { question } = qa;
 
@@ -329,6 +430,10 @@ export default function QuizReviewModal({
         return renderEssayQuestion(qa);
       case "FILE_UPLOAD":
         return renderFileUploadQuestion(qa);
+      case "FILL_BLANK_TEXT":
+        return renderFillBlankTextQuestion(qa);
+      case "FILL_BLANK_DROPDOWN":
+        return renderFillBlankDropdownQuestion(qa);
       default:
         return (
           <p className="text-gray-500 italic">
@@ -490,9 +595,13 @@ export default function QuizReviewModal({
                               </span>
                             )}
                           </div>
-                          <p className="text-gray-900 font-medium mb-1">
-                            {question.question_text}
-                          </p>
+                          {/* For fill blank questions, don't show question_text here as it's already in the component */}
+                          {question.question_type !== "FILL_BLANK_TEXT" && 
+                           question.question_type !== "FILL_BLANK_DROPDOWN" && (
+                            <p className="text-gray-900 font-medium mb-1">
+                              {question.question_text}
+                            </p>
+                          )}
                           <div className="flex items-center gap-4 text-sm text-gray-600">
                             <span className="flex items-center gap-1">
                               <Award className="w-4 h-4" />

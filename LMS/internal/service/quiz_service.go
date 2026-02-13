@@ -234,6 +234,7 @@ func (s *QuizService) CreateQuestion(ctx context.Context, req *dto.CreateQuestio
 
 	// Marshal settings
 	var settingsJSON []byte
+	logger.Info(fmt.Sprintf("%v", req.Settings))
 	if req.Settings == nil {
 		settingsJSON = []byte(`{}`)
 	} else {

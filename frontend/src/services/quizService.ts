@@ -97,7 +97,8 @@ class QuizService {
   // ============================================
 
   async createQuestion(quizId: number, questionData: any) {
-    const response = await this.api.post(`/quizzes/${quizId}/questions`, questionData);
+    const data = { ...questionData, quiz_id: quizId };
+    const response = await this.api.post(`/quizzes/${quizId}/questions`, data);
     return response.data;
   }
 

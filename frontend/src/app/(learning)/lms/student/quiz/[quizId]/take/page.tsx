@@ -5,6 +5,16 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import quizService from "@/services/quizService";
 import { Button } from "@/components/ui/button";
+import FillBlankTextStudent from "@/components/lms/student/FillBlankTextStudent";
+import FillBlankDropdownStudent from "@/components/lms/student/FillBlankDropdownStudent";
+import FileUploadQuestion from "@/components/lms/student/FileUploadQuestion";
+import type {
+  FillBlankTextSettings,
+  FillBlankTextStudentAnswer,
+  FillBlankDropdownSettings,
+  FillBlankDropdownOption,
+  FillBlankDropdownStudentAnswer,
+} from "@/fillBlankType";
 
 interface QuestionImage {
   id: string;
@@ -23,9 +33,7 @@ interface Question {
   question_html?: string;
   points: number;
   order_index: number;
-  settings?: {
-    images?: QuestionImage[];
-  };
+  settings?: any;
   answer_options?: any[];
   is_required: boolean;
 }
@@ -140,6 +148,7 @@ export default function StudentQuizTakingPage() {
   };
 
   const handleAnswerChange = async (questionId: number, answerData: any) => {
+    // Store in local state
     setAnswers({ ...answers, [questionId]: answerData });
 
     // Auto-save answer to backend
@@ -166,9 +175,19 @@ export default function StudentQuizTakingPage() {
     if (!attempt) return;
 
     // Check required questions
-    const unansweredRequired = questions.filter(
-      (q) => q.is_required && !answers[q.id]
-    );
+    const unansweredRequired = questions.filter((q) => {
+      if (!q.is_required) return false;
+      
+      const answer = answers[q.id];
+      if (!answer) return true;
+      
+      // Special check for FILE_UPLOAD: must have file_name
+      if (q.question_type === "FILE_UPLOAD") {
+        return !answer.file_name;
+      }
+      
+      return false;
+    });
 
     if (unansweredRequired.length > 0) {
       if (!confirm(`Còn ${unansweredRequired.length} câu hỏi bắt buộc chưa trả lời. Bạn có chắc muốn nộp bài?`)) {
@@ -182,8 +201,8 @@ export default function StudentQuizTakingPage() {
 
     try {
       setSubmitting(true);
-      const result = await quizService.submitQuiz(attempt.id);
-      alert("Nộp bài thành công!");
+      await quizService.submitQuiz(attempt.id);
+      alert("Đã nộp bài thành công!");
       router.push(`/lms/student/quiz/${quizId}/result/${attempt.id}`);
     } catch (error: any) {
       console.error("Error submitting quiz:", error);
@@ -195,7 +214,30 @@ export default function StudentQuizTakingPage() {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const isQuestionAnswered = (question: Question) => {
+    const answer = answers[question.id];
+    if (!answer) return false;
+    
+    // For FILE_UPLOAD, check if file has been uploaded
+    if (question.question_type === "FILE_UPLOAD") {
+      return !!answer.file_name;
+    }
+    
+    // For FILL_BLANK types, check if at least one blank is filled
+    if (question.question_type === "FILL_BLANK_TEXT" || question.question_type === "FILL_BLANK_DROPDOWN") {
+      return answer.blanks && answer.blanks.length > 0;
+    }
+    
+    // For MULTIPLE_CHOICE, check if at least one option is selected
+    if (question.question_type === "MULTIPLE_CHOICE") {
+      return answer.selected_option_ids && answer.selected_option_ids.length > 0;
+    }
+    
+    // For other types, just check if answer exists
+    return true;
   };
 
   const renderQuestionImages = (images: QuestionImage[] | undefined, position: string = "above_question") => {
@@ -375,6 +417,45 @@ export default function StudentQuizTakingPage() {
               placeholder="Nhập bài luận của bạn..."
             />
           )}
+
+          {/* FILL_BLANK_TEXT */}
+          {question.question_type === "FILL_BLANK_TEXT" && (
+            <FillBlankTextStudent
+              questionText={question.question_text}
+              settings={(question.settings as FillBlankTextSettings) || { blank_count: 0, blanks: [] }}
+              value={(answers[question.id] as FillBlankTextStudentAnswer) || { blanks: [] }}
+              onChange={(newAnswer) => handleAnswerChange(question.id, newAnswer)}
+              disabled={false}
+              showCorrectAnswers={false}
+            />
+          )}
+
+          {/* FILL_BLANK_DROPDOWN */}
+          {question.question_type === "FILL_BLANK_DROPDOWN" && (
+            <FillBlankDropdownStudent
+              questionText={question.question_text}
+              settings={(question.settings as FillBlankDropdownSettings) || { blank_count: 0, blanks: [] }}
+              options={(question.answer_options as FillBlankDropdownOption[]) || []}
+              value={(answers[question.id] as FillBlankDropdownStudentAnswer) || { blanks: [] }}
+              onChange={(newAnswer) => handleAnswerChange(question.id, newAnswer)}
+              disabled={false}
+              showCorrectAnswers={false}
+            />
+          )}
+
+          {/* FILE_UPLOAD */}
+          {question.question_type === "FILE_UPLOAD" && (
+            <FileUploadQuestion
+              questionId={question.id}
+              value={answers[question.id] || null}
+              onChange={(fileData) => handleAnswerChange(question.id, fileData)}
+              disabled={false}
+              maxFileSize={question.settings?.max_file_size || 100}
+              allowedExtensions={question.settings?.allowed_extensions}
+              required={question.is_required}
+              placeholder={question.settings?.placeholder || "Nộp bài làm của bạn"}
+            />
+          )}
         </div>
 
         {/* Images AT BOTTOM */}
@@ -417,13 +498,13 @@ export default function StudentQuizTakingPage() {
           <div className="mt-6">
             <div className="flex justify-between text-sm text-gray-600 mb-2">
               <span>Tiến độ</span>
-              <span>{Object.keys(answers).length}/{questions.length} câu đã trả lời</span>
+              <span>{questions.filter(q => isQuestionAnswered(q)).length}/{questions.length} câu đã trả lời</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-3">
               <div
                 className="bg-blue-600 h-3 rounded-full transition-all duration-300"
                 style={{
-                  width: `${(Object.keys(answers).length / questions.length) * 100}%`,
+                  width: `${(questions.filter(q => isQuestionAnswered(q)).length / questions.length) * 100}%`,
                 }}
               />
             </div>
@@ -449,11 +530,11 @@ export default function StudentQuizTakingPage() {
                 key={idx}
                 onClick={() => setCurrentQuestion(idx)}
                 className={`w-10 h-10 rounded-lg font-semibold transition-all ${
-                  idx === currentQuestion
-                    ? "bg-blue-600 text-white scale-110"
-                    : answers[questions[idx].id]
-                    ? "bg-green-100 text-green-700 border-2 border-green-500"
-                    : "bg-gray-100 text-gray-700 border-2 border-gray-300"
+                  currentQuestion === idx
+                    ? "bg-blue-600 text-white"
+                    : isQuestionAnswered(questions[idx])
+                    ? "bg-green-100 text-green-700 border-2 border-green-300"
+                    : "bg-gray-100 text-gray-600 border-2 border-gray-300"
                 }`}
               >
                 {idx + 1}
@@ -461,52 +542,42 @@ export default function StudentQuizTakingPage() {
             ))}
           </div>
 
-          {currentQuestion < questions.length - 1 ? (
-            <Button
-              onClick={() => setCurrentQuestion(currentQuestion + 1)}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Câu sau →
-            </Button>
-          ) : (
+          {currentQuestion === questions.length - 1 ? (
             <Button
               onClick={handleSubmit}
               disabled={submitting}
               className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
             >
-              {submitting ? "Đang nộp..." : "✓ Nộp bài"}
+              {submitting ? "Đang nộp..." : "Nộp bài"}
+            </Button>
+          ) : (
+            <Button
+              onClick={() => setCurrentQuestion(Math.min(questions.length - 1, currentQuestion + 1))}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Câu sau →
             </Button>
           )}
         </div>
-
-        {/* Instructions */}
-        {quiz?.instructions && (
-          <div className="mt-6 bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4">
-            <p className="text-sm text-yellow-800">
-              <strong>💡 Lưu ý:</strong> {quiz.instructions}
-            </p>
-          </div>
-        )}
       </div>
 
       {/* Image Modal */}
       {showImageModal && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-95 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4"
           onClick={() => setShowImageModal(null)}
         >
           <div className="relative max-w-7xl max-h-full">
             <button
               onClick={() => setShowImageModal(null)}
-              className="absolute -top-14 right-0 bg-white hover:bg-gray-100 text-gray-800 px-4 py-2 rounded-lg shadow-lg font-semibold"
+              className="absolute -top-12 right-0 text-white text-2xl hover:text-gray-300"
             >
-              ✕ Đóng (ESC)
+              ✕ Đóng
             </button>
             <img
               src={showImageModal}
-              alt="Preview"
-              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
+              alt="Enlarged view"
+              className="max-w-full max-h-[90vh] object-contain"
             />
           </div>
         </div>

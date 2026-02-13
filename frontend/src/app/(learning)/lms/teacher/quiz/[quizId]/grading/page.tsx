@@ -448,7 +448,7 @@ export default function TeacherGradingPage() {
           </div>
           {answerData.file_path && (
             <a
-              href={answerData.file_path}
+              href={`/files/${answerData.file_path}`}
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"

@@ -6,6 +6,14 @@ import { useParams, useRouter } from "next/navigation";
 import quizService from "@/services/quizService";
 import { Button } from "@/components/ui/button";
 import QuestionImageUploader from "@/components/lms/teacher/QuestionImageUploader";
+import FillBlankTextEditor from "@/components/lms/teacher/FillBlankTextEditor";
+import FillBlankDropdownEditor from "@/components/lms/teacher/FillBlankDropdownEditor";
+import type {
+  FillBlankTextSettings,
+  FillBlankTextCorrectAnswer,
+  FillBlankDropdownSettings,
+  FillBlankDropdownOption,
+} from "@/fillBlankType";
 
 interface Quiz {
   id: number;
@@ -43,11 +51,25 @@ interface Question {
   question_html?: string;
   points: number;
   order_index: number;
-  settings?: {
-    images?: QuestionImage[];
-  };
+  settings?: any;
   answer_options: any[];
   correct_answers: any[];
+}
+
+// Extended answer option interface with blank_id
+interface AnswerOption {
+  option_text: string;
+  is_correct: boolean;
+  order_index: number;
+  blank_id?: number;
+}
+
+// Extended correct answer interface with blank_id
+interface CorrectAnswer {
+  answer_text: string;
+  case_sensitive?: boolean;
+  exact_match?: boolean;
+  blank_id?: number;
 }
 
 const QUESTION_TYPES = [
@@ -73,7 +95,16 @@ export default function TeacherQuizManagePage() {
   const [showQuizSettings, setShowQuizSettings] = useState(false);
 
   // Question form state
-  const [questionForm, setQuestionForm] = useState({
+  const [questionForm, setQuestionForm] = useState<{
+    question_type: string;
+    question_text: string;
+    question_html: string;
+    points: number;
+    explanation: string;
+    is_required: boolean;
+    answer_options: AnswerOption[];
+    correct_answers: CorrectAnswer[];
+  }>({
     question_type: "SINGLE_CHOICE",
     question_text: "",
     question_html: "",
@@ -84,12 +115,13 @@ export default function TeacherQuizManagePage() {
       { option_text: "", is_correct: false, order_index: 1 },
       { option_text: "", is_correct: false, order_index: 2 },
     ],
-    correct_answers: [] as Array<{
-      answer_text: string;
-      case_sensitive?: boolean;
-      exact_match?: boolean;
-    }>,
+    correct_answers: [],
   });
+
+  // Fill Blank specific state
+  const [fillBlankSettings, setFillBlankSettings] = useState<
+    FillBlankTextSettings | FillBlankDropdownSettings | null
+  >(null);
 
   // Images for current question
   const [questionImages, setQuestionImages] = useState<QuestionImage[]>([]);
@@ -151,11 +183,73 @@ export default function TeacherQuizManagePage() {
         questionData.explanation = questionForm.explanation.trim();
       }
 
-      // Add answer options for choice questions
-      if (
+      // === FILL_BLANK_TEXT HANDLING ===
+      if (questionForm.question_type === "FILL_BLANK_TEXT") {
+        if (!fillBlankSettings || fillBlankSettings.blank_count === 0) {
+          alert("Vui lòng thêm ít nhất 1 blank vào câu hỏi (sử dụng {BLANK_1}, {BLANK_2}, ...)");
+          return;
+        }
+
+        // Validate: mỗi blank phải có ít nhất 1 correct answer
+        const blanksWithoutAnswers = fillBlankSettings.blanks.filter(blank => {
+          return !questionForm.correct_answers.some(ans => ans.blank_id === blank.blank_id);
+        });
+
+        if (blanksWithoutAnswers.length > 0) {
+          const blankIds = blanksWithoutAnswers.map(b => `{BLANK_${b.blank_id}}`).join(', ');
+          alert(`Các blank sau chưa có đáp án đúng: ${blankIds}`);
+          return;
+        }
+
+        questionData.settings = fillBlankSettings;
+        questionData.correct_answers = questionForm.correct_answers.map(ans => ({
+          answer_text: ans.answer_text.trim(),
+          blank_id: ans.blank_id,
+          case_sensitive: ans.case_sensitive === true,
+          exact_match: ans.exact_match === true,
+        }));
+        questionData.answer_options = [];
+      }
+      // === FILL_BLANK_DROPDOWN HANDLING ===
+      else if (questionForm.question_type === "FILL_BLANK_DROPDOWN") {
+        if (!fillBlankSettings || fillBlankSettings.blank_count === 0) {
+          alert("Vui lòng thêm ít nhất 1 blank vào câu hỏi (sử dụng {BLANK_1}, {BLANK_2}, ...)");
+          return;
+        }
+
+        // Validate: mỗi blank phải có ít nhất 2 options và đúng 1 correct
+        for (const blank of fillBlankSettings.blanks) {
+          const optionsForBlank = questionForm.answer_options.filter(
+            opt => opt.blank_id === blank.blank_id
+          );
+
+          if (optionsForBlank.length < 2) {
+            alert(`Blank {BLANK_${blank.blank_id}} cần ít nhất 2 options`);
+            return;
+          }
+
+          const correctCount = optionsForBlank.filter(opt => opt.is_correct).length;
+          if (correctCount !== 1) {
+            alert(`Blank {BLANK_${blank.blank_id}} phải có đúng 1 đáp án đúng (hiện có ${correctCount})`);
+            return;
+          }
+        }
+
+        questionData.settings = fillBlankSettings;
+        questionData.answer_options = questionForm.answer_options
+          .filter(opt => opt.option_text && opt.option_text.trim())
+          .map(opt => ({
+            option_text: opt.option_text.trim(),
+            is_correct: opt.is_correct === true,
+            order_index: opt.order_index,
+            blank_id: opt.blank_id,
+          }));
+        questionData.correct_answers = [];
+      }
+      // Add answer options for SINGLE_CHOICE, MULTIPLE_CHOICE
+      else if (
         questionForm.question_type === "SINGLE_CHOICE" ||
-        questionForm.question_type === "MULTIPLE_CHOICE" ||
-        questionForm.question_type === "FILL_BLANK_DROPDOWN"
+        questionForm.question_type === "MULTIPLE_CHOICE"
       ) {
         const validOptions = questionForm.answer_options.filter(
           (opt) => opt.option_text && opt.option_text.trim()
@@ -177,30 +271,32 @@ export default function TeacherQuizManagePage() {
           is_correct: opt.is_correct === true,
           order_index: index + 1,
         }));
-      } else {
-        questionData.answer_options = [];
+        questionData.correct_answers = [];
       }
-
-      // Add correct answers for text-based questions
-      if (
-        (questionForm.question_type === "SHORT_ANSWER" ||
-         questionForm.question_type === "FILL_BLANK_TEXT") &&
-        questionForm.correct_answers?.length > 0
-      ) {
-        const validAnswers = questionForm.correct_answers.filter(
-          (ans) => ans.answer_text && ans.answer_text.trim()
-        );
-        
-        if (validAnswers?.length > 0) {
-          questionData.correct_answers = validAnswers.map((ans) => ({
-            answer_text: ans.answer_text.trim(),
-            case_sensitive: ans.case_sensitive === true,
-            exact_match: ans.exact_match === true,
-          }));
+      // Add correct answers for SHORT_ANSWER
+      else if (questionForm.question_type === "SHORT_ANSWER") {
+        if (questionForm.correct_answers?.length > 0) {
+          const validAnswers = questionForm.correct_answers.filter(
+            (ans) => ans.answer_text && ans.answer_text.trim()
+          );
+          
+          if (validAnswers?.length > 0) {
+            questionData.correct_answers = validAnswers.map((ans) => ({
+              answer_text: ans.answer_text.trim(),
+              case_sensitive: ans.case_sensitive === true,
+              exact_match: ans.exact_match === true,
+            }));
+          } else {
+            questionData.correct_answers = [];
+          }
         } else {
           questionData.correct_answers = [];
         }
-      } else {
+        questionData.answer_options = [];
+      }
+      // For ESSAY and FILE_UPLOAD
+      else {
+        questionData.answer_options = [];
         questionData.correct_answers = [];
       }
 
@@ -224,14 +320,12 @@ export default function TeacherQuizManagePage() {
             question_text: newQuestion.question_text,
             question_html: newQuestion.question_html || "",
             points: newQuestion.points,
-            explanation: "",
-            is_required: false,
-            answer_options: newQuestion.answer_options || [
-              { option_text: "", is_correct: false, order_index: 1 },
-              { option_text: "", is_correct: false, order_index: 2 },
-            ],
-            correct_answers: [],
+            explanation: newQuestion.explanation || "",
+            is_required: newQuestion.is_required || false,
+            answer_options: newQuestion.answer_options || [],
+            correct_answers: newQuestion.correct_answers || [],
           });
+          setFillBlankSettings(newQuestion.settings || null);
           await loadQuestionImages(newQuestion.id);
           // Keep modal open to add images
           return;
@@ -248,7 +342,7 @@ export default function TeacherQuizManagePage() {
   };
 
   const handleDeleteQuestion = async (questionId: number) => {
-    if (!confirm("Bạn có chắc muốn xóa câu hỏi này? Tất cả hình ảnh đính kèm cũng sẽ bị xóa.")) return;
+    if (!confirm("Bạn có chắc muốn xóa câu hỏi này?")) return;
 
     try {
       await quizService.deleteQuestion(questionId);
@@ -260,7 +354,7 @@ export default function TeacherQuizManagePage() {
     }
   };
 
-  const startEditQuestion = async (question: Question) => {
+  const startEditQuestion = (question: Question) => {
     setEditingQuestion(question);
     setQuestionForm({
       question_type: question.question_type,
@@ -269,26 +363,12 @@ export default function TeacherQuizManagePage() {
       points: question.points,
       explanation: "",
       is_required: false,
-      answer_options: question.answer_options?.length > 0
-        ? question.answer_options.map((opt, idx) => ({
-            option_text: opt.option_text,
-            is_correct: opt.is_correct,
-            order_index: idx + 1,
-          }))
-        : [
-            { option_text: "", is_correct: false, order_index: 1 },
-            { option_text: "", is_correct: false, order_index: 2 },
-          ],
-      correct_answers: question.correct_answers?.map(ans => ({
-        answer_text: ans.answer_text || "",
-        case_sensitive: ans.case_sensitive || false,
-        exact_match: ans.exact_match || false,
-      })) || [],
+      answer_options: question.answer_options || [],
+      correct_answers: question.correct_answers || [],
     });
-    
-    // Load images for this question
-    await loadQuestionImages(question.id);
+    setFillBlankSettings(question.settings || null);
     setShowQuestionForm(true);
+    loadQuestionImages(question.id);
   };
 
   const resetQuestionForm = () => {
@@ -305,49 +385,53 @@ export default function TeacherQuizManagePage() {
       ],
       correct_answers: [],
     });
+    setFillBlankSettings(null);
     setEditingQuestion(null);
-    setQuestionImages([]);
     setShowQuestionForm(false);
+    setQuestionImages([]);
   };
 
   const addAnswerOption = () => {
-    const nextIndex = questionForm.answer_options?.length + 1;
     setQuestionForm({
       ...questionForm,
       answer_options: [
         ...questionForm.answer_options,
-        { 
-          option_text: "", 
-          is_correct: false, 
-          order_index: nextIndex
+        {
+          option_text: "",
+          is_correct: false,
+          order_index: questionForm.answer_options.length + 1,
         },
       ],
     });
   };
 
   const removeAnswerOption = (index: number) => {
-    const updated = questionForm.answer_options.filter((_, i) => i !== index);
-    updated.forEach((opt, idx) => {
-      opt.order_index = idx + 1;
+    setQuestionForm({
+      ...questionForm,
+      answer_options: questionForm.answer_options.filter((_, i) => i !== index),
     });
-    setQuestionForm({ ...questionForm, answer_options: updated });
   };
 
   const updateAnswerOption = (index: number, field: string, value: any) => {
-    const updated = [...questionForm.answer_options];
-    updated[index] = { ...updated[index], [field]: value };
-
-    if (
-      field === "is_correct" &&
-      value &&
-      questionForm.question_type === "SINGLE_CHOICE"
-    ) {
-      updated.forEach((opt, i) => {
-        if (i !== index) opt.is_correct = false;
-      });
-    }
-
-    setQuestionForm({ ...questionForm, answer_options: updated });
+    const newOptions = questionForm.answer_options.map((opt, i) => {
+      if (i === index) {
+        // For single choice, if setting is_correct to true, unset others
+        if (field === "is_correct" && value === true && questionForm.question_type === "SINGLE_CHOICE") {
+          return { ...opt, is_correct: true };
+        }
+        return { ...opt, [field]: value };
+      }
+      // Unset other options if single choice
+      if (field === "is_correct" && value === true && questionForm.question_type === "SINGLE_CHOICE") {
+        return { ...opt, is_correct: false };
+      }
+      return opt;
+    });
+    
+    setQuestionForm({
+      ...questionForm,
+      answer_options: newOptions,
+    });
   };
 
   const addCorrectAnswer = () => {
@@ -355,7 +439,11 @@ export default function TeacherQuizManagePage() {
       ...questionForm,
       correct_answers: [
         ...questionForm.correct_answers,
-        { answer_text: "", case_sensitive: false, exact_match: false },
+        {
+          answer_text: "",
+          case_sensitive: false,
+          exact_match: true,
+        },
       ],
     });
   };
@@ -368,34 +456,50 @@ export default function TeacherQuizManagePage() {
   };
 
   const updateCorrectAnswer = (index: number, field: string, value: any) => {
-    const updated = [...questionForm.correct_answers];
-    updated[index] = { ...updated[index], [field]: value };
-    setQuestionForm({ ...questionForm, correct_answers: updated });
+    const newAnswers = questionForm.correct_answers.map((ans, i) =>
+      i === index ? { ...ans, [field]: value } : ans
+    );
+    setQuestionForm({
+      ...questionForm,
+      correct_answers: newAnswers,
+    });
   };
 
   const handleUpdateQuizSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!quiz) return;
+
     try {
-      await quizService.updateQuiz(quizId, quiz!);
-      alert("Cập nhật cài đặt quiz thành công!");
+      await quizService.updateQuiz(quiz.id, {
+        time_limit_minutes: quiz.time_limit_minutes,
+        max_attempts: quiz.max_attempts,
+        passing_score: quiz.passing_score,
+        total_points: quiz.total_points,
+        auto_grade: quiz.auto_grade,
+        show_results_immediately: quiz.show_results_immediately,
+        show_correct_answers: quiz.show_correct_answers,
+        allow_review: quiz.allow_review,
+        is_published: quiz.is_published,
+      });
+      alert("Đã cập nhật cài đặt quiz");
       setShowQuizSettings(false);
       loadQuizData();
     } catch (error) {
       console.error("Error updating quiz:", error);
-      alert("Không thể cập nhật quiz");
+      alert("Không thể cập nhật cài đặt");
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      <div className="container mx-auto p-6 text-center">
+        <p>Đang tải...</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
+    <div className="container mx-auto p-6">
       {/* Header */}
       <div className="mb-6">
         <Button onClick={() => router.back()} variant="outline" className="mb-4">
@@ -551,6 +655,37 @@ export default function TeacherQuizManagePage() {
                               }`}
                             >
                               {opt.is_correct ? "✓" : "○"} {opt.option_text}
+                              {opt.blank_id && (
+                                <span className="ml-2 text-xs text-blue-600">
+                                  [BLANK_{opt.blank_id}]
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Correct answers preview for text-based questions */}
+                      {question.correct_answers?.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs font-medium text-gray-600">Đáp án đúng:</p>
+                          {question.correct_answers.map((ans: any, idx: number) => (
+                            <div
+                              key={idx}
+                              className="text-sm px-3 py-1 rounded bg-green-50 text-green-700"
+                            >
+                              ✓ {ans.answer_text}
+                              {ans.blank_id && (
+                                <span className="ml-2 text-xs text-blue-600">
+                                  [BLANK_{ans.blank_id}]
+                                </span>
+                              )}
+                              {ans.case_sensitive && (
+                                <span className="ml-2 text-xs">(Aa)</span>
+                              )}
+                              {ans.exact_match && (
+                                <span className="ml-2 text-xs">(=)</span>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -605,12 +740,15 @@ export default function TeacherQuizManagePage() {
                   </label>
                   <select
                     value={questionForm.question_type}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const newType = e.target.value;
                       setQuestionForm({
                         ...questionForm,
-                        question_type: e.target.value,
-                      })
-                    }
+                        question_type: newType,
+                      });
+                      // Reset Fill Blank state when changing type
+                      setFillBlankSettings(null);
+                    }}
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                     required
                     disabled={!!editingQuestion}
@@ -628,25 +766,62 @@ export default function TeacherQuizManagePage() {
                   )}
                 </div>
 
-                {/* Question Text */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Câu hỏi *
-                  </label>
-                  <textarea
-                    value={questionForm.question_text}
-                    onChange={(e) =>
+                {/* === FILL_BLANK_TEXT EDITOR === */}
+                {questionForm.question_type === "FILL_BLANK_TEXT" && (
+                  <FillBlankTextEditor
+                    questionText={questionForm.question_text}
+                    settings={fillBlankSettings as FillBlankTextSettings || { blank_count: 0, blanks: [] }}
+                    correctAnswers={questionForm.correct_answers as FillBlankTextCorrectAnswer[]}
+                    onChange={(text, settings, answers) => {
                       setQuestionForm({
                         ...questionForm,
-                        question_text: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                    rows={3}
-                    placeholder="Nhập nội dung câu hỏi..."
-                    required
+                        question_text: text,
+                        correct_answers: answers,
+                      });
+                      setFillBlankSettings(settings);
+                    }}
                   />
-                </div>
+                )}
+
+                {/* === FILL_BLANK_DROPDOWN EDITOR === */}
+                {questionForm.question_type === "FILL_BLANK_DROPDOWN" && (
+                  <FillBlankDropdownEditor
+                    questionText={questionForm.question_text}
+                    settings={fillBlankSettings as FillBlankDropdownSettings || { blank_count: 0, blanks: [] }}
+                    options={questionForm.answer_options as FillBlankDropdownOption[]}
+                    onChange={(text, settings, options) => {
+                      setQuestionForm({
+                        ...questionForm,
+                        question_text: text,
+                        answer_options: options,
+                      });
+                      setFillBlankSettings(settings);
+                    }}
+                  />
+                )}
+
+                {/* === REGULAR QUESTION TEXT (for non-fill-blank types) === */}
+                {questionForm.question_type !== "FILL_BLANK_TEXT" &&
+                 questionForm.question_type !== "FILL_BLANK_DROPDOWN" && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Câu hỏi *
+                    </label>
+                    <textarea
+                      value={questionForm.question_text}
+                      onChange={(e) =>
+                        setQuestionForm({
+                          ...questionForm,
+                          question_text: e.target.value,
+                        })
+                      }
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      rows={3}
+                      placeholder="Nhập nội dung câu hỏi..."
+                      required
+                    />
+                  </div>
+                )}
 
                 {/* Question Images - Only show if question is saved */}
                 {editingQuestion && (
@@ -660,7 +835,7 @@ export default function TeacherQuizManagePage() {
                       images={questionImages}
                       onImagesUpdate={() => {
                         loadQuestionImages(editingQuestion.id);
-                        loadQuizData(); // Reload to update preview
+                        loadQuizData();
                       }}
                     />
                   </div>
@@ -704,10 +879,9 @@ export default function TeacherQuizManagePage() {
                   </div>
                 </div>
 
-                {/* Answer Options for Choice Questions */}
+                {/* Answer Options for SINGLE_CHOICE and MULTIPLE_CHOICE */}
                 {(questionForm.question_type === "SINGLE_CHOICE" ||
-                  questionForm.question_type === "MULTIPLE_CHOICE" ||
-                  questionForm.question_type === "FILL_BLANK_DROPDOWN") && (
+                  questionForm.question_type === "MULTIPLE_CHOICE") && (
                   <div>
                     <label className="block text-sm font-medium mb-2">
                       Đáp án *
@@ -766,17 +940,11 @@ export default function TeacherQuizManagePage() {
                     >
                       + Thêm đáp án
                     </Button>
-                    <p className="text-xs text-gray-500 mt-2">
-                      {questionForm.question_type === "SINGLE_CHOICE"
-                        ? "Chọn 1 đáp án đúng (radio)"
-                        : "Có thể chọn nhiều đáp án đúng (checkbox)"}
-                    </p>
                   </div>
                 )}
 
-                {/* Correct Answers for Text-based Questions */}
-                {(questionForm.question_type === "SHORT_ANSWER" ||
-                  questionForm.question_type === "FILL_BLANK_TEXT") && (
+                {/* Correct Answers for SHORT_ANSWER */}
+                {questionForm.question_type === "SHORT_ANSWER" && (
                   <div>
                     <label className="block text-sm font-medium mb-2">
                       Đáp án đúng (tùy chọn)
@@ -840,9 +1008,6 @@ export default function TeacherQuizManagePage() {
                     >
                       + Thêm đáp án đúng
                     </Button>
-                    <p className="text-xs text-gray-500 mt-2">
-                      Để trống nếu muốn chấm thủ công. Có thể thêm nhiều đáp án đúng.
-                    </p>
                   </div>
                 )}
 
