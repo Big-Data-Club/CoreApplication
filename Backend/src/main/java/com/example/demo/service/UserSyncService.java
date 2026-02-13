@@ -5,6 +5,7 @@ import com.example.demo.model.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -70,11 +71,11 @@ public class UserSyncService {
         
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
         
-        ResponseEntity<Map> response = restTemplate.exchange(
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
             url,
             HttpMethod.POST,
             request,
-            Map.class
+            new ParameterizedTypeReference<Map<String, Object>>() {}
         );
         
         if (!response.getStatusCode().is2xxSuccessful()) {
@@ -99,11 +100,11 @@ public class UserSyncService {
         
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
         
-        ResponseEntity<Map> response = restTemplate.exchange(
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
             url,
             HttpMethod.POST,
             request,
-            Map.class
+            new ParameterizedTypeReference<Map<String, Object>>() {}
         );
         
         if (!response.getStatusCode().is2xxSuccessful()) {
