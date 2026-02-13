@@ -93,7 +93,6 @@ export default function FileUpload({
         if (xhr.status === 200) {
           try {
             const response = JSON.parse(xhr.responseText);
-            console.log("Upload response:", response);
             
             if (response.data) {
               onFileUploaded(response.data);
@@ -137,7 +136,6 @@ export default function FileUpload({
       xhr.open("POST", `${apiUrl}/files/upload`);
       xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       
-      console.log("Uploading to:", `${apiUrl}/files/upload`);
       xhr.send(formData);
 
     } catch (err) {

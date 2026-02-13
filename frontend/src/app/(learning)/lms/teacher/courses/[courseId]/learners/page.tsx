@@ -64,7 +64,6 @@ export default function CourseLearnerPage() {
       const status = statusFilter === 'ALL' ? undefined : statusFilter;
       const data = await lmsService.getCourseLearners(courseId, status);
       setLearners(data || []);
-      console.log(data)
     } catch (error) {
       console.error('Failed to load learners:', error);
     } finally {

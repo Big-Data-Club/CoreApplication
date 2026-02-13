@@ -62,7 +62,6 @@ export default function TeacherGradingPage() {
   const loadAnswersForGrading = async () => {
     try {
       const data = await quizService.listAnswersForGrading(quizId);
-      console.log(data)
       setAnswers(data.data || []);
       setLoading(false);
     } catch (error) {
@@ -123,7 +122,7 @@ export default function TeacherGradingPage() {
 
   const getGradingStats = () => {
     const total = answers.length;
-    const graded = answers.filter((a) => a.points_earned !== null).length;
+    const graded = answers.filter((a) => a.points_earned !== undefined).length;
     const ungraded = total - graded;
     return { total, graded, ungraded };
   };
@@ -301,7 +300,7 @@ export default function TeacherGradingPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    {answer.points_earned !== null ? (
+                    {answer.points_earned !== undefined ? (
                       <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg">
                         <p className="text-sm font-medium">Đã chấm</p>
                         <p className="text-lg font-bold">
@@ -311,7 +310,7 @@ export default function TeacherGradingPage() {
                     ) : (
                       <div className="px-4 py-2 bg-yellow-100 text-yellow-700 rounded-lg">
                         <p className="text-sm font-medium">Chưa chấm</p>
-                        <p className="text-lg font-bold">{answer.points} điểm</p>
+                        <p className="text-lg font-bold">Tối đa: {answer.points} điểm</p>
                       </div>
                     )}
                   </div>
@@ -427,7 +426,6 @@ export default function TeacherGradingPage() {
   );
 
   function renderAnswerContent(answerData: any) {
-    console.log(answerData)
     if (answerData.answer_text) {
       return (
         <p className="text-gray-800 whitespace-pre-wrap font-medium">{answerData.answer_text}</p>

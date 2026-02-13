@@ -4,7 +4,6 @@ import youtubeTokenManager from '@/services/youtubeTokenManager';
 export async function GET(request: NextRequest) {
   try {
     const status = await youtubeTokenManager.getStatus();
-    console.log(status)
     return NextResponse.json(status);
   } catch (error: any) {
     console.error('YouTube status error:', error);

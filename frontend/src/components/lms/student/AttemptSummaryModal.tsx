@@ -4,6 +4,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import quizService from "@/services/quizService";
+import QuizReviewModal from "./QuizReviewModal";
 import {
   ArrowLeft,
   Clock,
@@ -16,6 +17,7 @@ import {
   Timer,
   Calendar,
   FileText,
+  Eye,
 } from "lucide-react";
 
 interface AttemptSummary {
@@ -71,6 +73,7 @@ export default function AttemptSummaryModal({
   const [summary, setSummary] = useState<AttemptSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
     loadSummary();
@@ -80,7 +83,6 @@ export default function AttemptSummaryModal({
     try {
       setLoading(true);
       const response = await quizService.getAttemptSummary(attemptId);
-      console.log(response)
       setSummary(response.data);
     } catch (err: any) {
       console.error("Error loading attempt summary:", err);
@@ -319,7 +321,31 @@ export default function AttemptSummaryModal({
             </div>
           </div>
         </div>
+
+        {/* Footer with Review Button */}
+        <div className="p-6 bg-gray-50 border-t">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-gray-600">
+              Bạn có thể xem chi tiết đáp án và giải thích cho từng câu hỏi
+            </p>
+            <Button
+              onClick={() => setShowReview(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+            >
+              <Eye className="w-4 h-4" />
+              Xem chi tiết bài làm
+            </Button>
+          </div>
+        </div>
       </div>
+
+      {/* Quiz Review Modal */}
+      {showReview && (
+        <QuizReviewModal
+          attemptId={attemptId}
+          onClose={() => setShowReview(false)}
+        />
+      )}
     </div>
   );
 }

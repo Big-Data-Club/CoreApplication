@@ -137,7 +137,7 @@ public class UserSyncService {
         roles.add("STUDENT");
         
         // ADMIN thêm role ADMIN
-        if (userRole == UserRole.ROLE_ADMIN || userRole == UserRole.ROLE_MANAGER) {
+        if (userRole == UserRole.ROLE_ADMIN) {
             roles.add("ADMIN");
         }
         

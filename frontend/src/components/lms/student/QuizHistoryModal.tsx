@@ -49,17 +49,9 @@ export default function QuizHistoryModal({
   const loadAttempts = async () => {
     try {
       setLoading(true);
-      setError(""); // Clear previous errors
-      
-      console.log("Loading attempts for quiz:", quizId);
-      
-      // Check if auth token exists
-      const cookies = document.cookie.split(';');
-      const authCookie = cookies.find(c => c.trim().startsWith('authToken='));
-      console.log("Auth token exists:", !!authCookie);
+      setError("");
       
       const response = await quizService.getMyQuizAttempts(quizId);
-      console.log("Attempts response:", response);
       
       setAttempts(response.data || []);
     } catch (err: any) {
@@ -164,7 +156,6 @@ export default function QuizHistoryModal({
   };
 
   const bestAttempt = getBestAttempt();
-  console.log(bestAttempt)
   const averageScore = getAverageScore();
 
   return (

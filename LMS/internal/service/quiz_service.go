@@ -422,7 +422,6 @@ func (s *QuizService) AddQuestionImage(ctx context.Context, questionID int64, im
 	var settings map[string]interface{}
 	if len(question.Settings) > 0 {
 		raw := question.Settings
-		logger.Info(string(raw))
 
 		if len(raw) > 0 && raw[0] == '"' {
 			var inner string

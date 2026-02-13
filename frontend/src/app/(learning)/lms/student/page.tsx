@@ -76,7 +76,6 @@ export default function StudentDashboard() {
     try {
       setLoading(true);
       const data = await lmsService.getMyEnrollments('WAITING');
-      console.log(data)
       setEnrollments(data || []);
     } catch (error) {
       console.error("Failed to load pending enrollments:", error);

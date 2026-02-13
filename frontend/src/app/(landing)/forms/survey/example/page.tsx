@@ -172,7 +172,6 @@ export default function FormPage() {
 
       if (result.success) {
         setSubmitted(true);
-        console.log('Form submitted successfully');
       } else {
         throw new Error(result.message || 'Submission failed');
       }

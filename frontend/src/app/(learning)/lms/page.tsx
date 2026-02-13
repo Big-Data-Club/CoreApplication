@@ -62,7 +62,6 @@ export default function LMSRoleSelection() {
       setUserName(userNameCookie);
 
       const data = await lmsService.getMyRoles();
-      console.log(data)
       const roles = data || [];
 
       if (roles.length === 0) {

@@ -44,7 +44,6 @@ export default function ContentViewer({ content, userRole = 'STUDENT' }: Content
     setQuizError("");
     try {
       const response = await quizService.getQuizByContentId(content.id);
-      console.log("Quiz data loaded:", response);
       setQuizData(response?.data);
     } catch (err: any) {
       console.error("Error loading quiz:", err);

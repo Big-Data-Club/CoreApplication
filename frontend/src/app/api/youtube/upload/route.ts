@@ -63,8 +63,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`Uploading video to YouTube: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
-
     // Get authenticated client
     const oauth2Client = await youtubeTokenManager.getAuthenticatedClient();
 
@@ -100,8 +98,6 @@ export async function POST(request: NextRequest) {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const embedUrl = `https://www.youtube.com/embed/${videoId}`;
     const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-
-    console.log(`Video uploaded successfully: ${videoId}`);
 
     // Return YouTube video info
     return NextResponse.json({

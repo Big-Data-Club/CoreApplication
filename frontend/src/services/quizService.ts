@@ -63,8 +63,6 @@ class QuizService {
     if (payload.passing_score) payload.passing_score = Number(payload.passing_score);
     if (payload.total_points) payload.total_points = Number(payload.total_points);
 
-    console.log("Payload sending:", payload); // Check lại log xem date đã có dạng 2026-02-13T00:11:00.000Z chưa
-
     const response = await this.api.post('/quizzes', payload);
     return response.data;
   }

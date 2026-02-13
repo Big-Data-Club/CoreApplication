@@ -17,7 +17,9 @@ import {
   FileText,
   Home,
   AlertCircle,
+  Eye,
 } from "lucide-react";
+import QuizReviewModal from "@/components/lms/student/QuizReviewModal";
 
 interface AttemptSummary {
   attempt: {
@@ -72,6 +74,8 @@ export default function AttemptResultPage() {
   const [summary, setSummary] = useState<AttemptSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const [showReview, setShowReview] = useState(false)
 
   useEffect(() => {
     loadSummary();
@@ -290,7 +294,7 @@ export default function AttemptResultPage() {
                       ? "border-yellow-300 bg-yellow-50"
                       : q.is_correct
                       ? "border-green-200 bg-green-50"
-                      : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" 
+                      : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" || q.question_type === "FILE_UPLOAD" 
                       ? "border-yellow-200 bg-yellow-50"
                       : "border-red-200 bg-red-50"
                   }`}
@@ -302,7 +306,7 @@ export default function AttemptResultPage() {
                           ? "bg-yellow-500"
                           : q.is_correct
                           ? "bg-green-500"
-                          : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" 
+                          : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" || q.question_type === "FILE_UPLOAD" 
                           ? "bg-yellow-500"
                           : "bg-red-500"
                       }`}
@@ -323,7 +327,7 @@ export default function AttemptResultPage() {
                             <CheckCircle className="w-5 h-5 text-green-600" />
                             <span className="font-bold text-lg text-green-800">Đúng</span>
                           </>
-                        ) : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" ? (
+                        ) : q.question_type === "ESSAY" || q.question_type === "SHORT_ANSWER" || q.question_type === "FILE_UPLOAD" ? (
                           <>
                             <XCircle className="w-5 h-5 text-yellow-600" />
                             <span className="font-bold text-lg text-yellow-800">Đã được chấm</span>
@@ -392,6 +396,30 @@ export default function AttemptResultPage() {
             </div>
           </div>
         </div>
+
+        {/* Footer with Review Button */}
+        <div className="p-6 bg-gray-50 border-t">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-gray-600">
+              Bạn có thể xem chi tiết đáp án và giải thích cho từng câu hỏi
+            </p>
+            <Button
+              onClick={() => setShowReview(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+            >
+              <Eye className="w-4 h-4" />
+              Xem chi tiết bài làm
+            </Button>
+          </div>
+        </div>
+
+        {/* Quiz Review Modal */}
+        {showReview && (
+          <QuizReviewModal
+            attemptId={attemptId}
+            onClose={() => setShowReview(false)}
+          />
+        )}
 
         {/* Action Buttons */}
         <div className="mt-8 flex gap-4 justify-center">
