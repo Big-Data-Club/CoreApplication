@@ -197,7 +197,7 @@ export default function QuizHistoryPage() {
   return (
     <div className="min-h-screen bg-transparent">
       {/* Header */}
-      <div className="bg-white border-b">
+      <div className="bg-transparent border-b backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
@@ -217,7 +217,7 @@ export default function QuizHistoryPage() {
               </p>
             </div>
             <Button
-              onClick={() => router.push(`/lms/student/quiz/${quizId}/take`)}
+              onClick={() => router.push(`/lms/student/quiz/${quizId}/take?start=true`)}
               className="bg-blue-600 hover:bg-blue-700 text-white"
               size="lg"
             >

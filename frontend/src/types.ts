@@ -227,6 +227,7 @@ export interface Content {
   is_published: boolean;
   is_mandatory: boolean;
   metadata?: Record<string, any>;
+  updated_at?: any;
 }
 
 export interface FileInfo {

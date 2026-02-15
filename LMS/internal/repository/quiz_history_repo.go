@@ -146,3 +146,37 @@ func (r *QuizRepository) GetAttemptAnswers(ctx context.Context, attemptID int64)
 
 	return answers, nil
 }
+
+// GetAttempt retrieves a single quiz attempt
+func (r *QuizRepository) GetAttempt(ctx context.Context, attemptID int64) (*models.QuizAttempt, error) {
+	query := `
+		SELECT 
+			id, quiz_id, student_id, attempt_number,
+			started_at, submitted_at, time_spent_seconds,
+			total_points, earned_points, percentage,
+			is_passed, status, auto_graded_at,
+			manually_graded_at, graded_by, ip_address,
+			user_agent, created_at, updated_at
+		FROM quiz_attempts
+		WHERE id = $1
+	`
+
+	var attempt models.QuizAttempt
+	err := r.db.QueryRowContext(ctx, query, attemptID).Scan(
+		&attempt.ID, &attempt.QuizID, &attempt.StudentID, &attempt.AttemptNumber,
+		&attempt.StartedAt, &attempt.SubmittedAt, &attempt.TimeSpentSeconds,
+		&attempt.TotalPoints, &attempt.EarnedPoints, &attempt.Percentage,
+		&attempt.IsPassed, &attempt.Status, &attempt.AutoGradedAt,
+		&attempt.ManuallyGradedAt, &attempt.GradedBy, &attempt.IPAddress,
+		&attempt.UserAgent, &attempt.CreatedAt, &attempt.UpdatedAt,
+	)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &attempt, nil
+}

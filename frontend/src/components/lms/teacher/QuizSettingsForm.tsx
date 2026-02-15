@@ -17,6 +17,7 @@ export interface QuizSettings {
   show_correct_answers: boolean;
   allow_review: boolean;
   show_feedback: boolean;
+  is_published: boolean,
 }
 
 interface QuizSettingsFormProps {

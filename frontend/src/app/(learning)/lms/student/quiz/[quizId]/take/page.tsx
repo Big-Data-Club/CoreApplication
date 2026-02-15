@@ -1,8 +1,8 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, useRef } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import quizService from "@/services/quizService";
 import { Button } from "@/components/ui/button";
 import FillBlankTextStudent from "@/components/lms/student/FillBlankTextStudent";
@@ -60,7 +60,11 @@ interface QuizAttempt {
 export default function StudentQuizTakingPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const quizId = parseInt(params.quizId as string);
+  
+  const shouldStart = searchParams.get("start") === "true";
+  const hasStartedRef = useRef(false);
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -75,6 +79,12 @@ export default function StudentQuizTakingPage() {
   useEffect(() => {
     startQuiz();
   }, [quizId]);
+
+  useEffect(() => {
+    if (shouldStart && hasStartedRef.current) {
+      router.replace(`/lms/student/quiz/${quizId}/take`, { scroll: false });
+    }
+  }, [shouldStart, quizId, router]);
 
   // Timer countdown
   useEffect(() => {
@@ -95,15 +105,60 @@ export default function StudentQuizTakingPage() {
 
   const startQuiz = async () => {
     try {
-      const [quizData, attemptData] = await Promise.all([
-        quizService.getQuiz(quizId),
-        quizService.startQuizAttempt(quizId),
-      ]);
-
+      const quizData = await quizService.getQuiz(quizId);
       const quizInfo = quizData.data;
-      const attemptInfo = attemptData.data;
-
       setQuiz(quizInfo);
+
+      // 2. Kiểm tra attempts hiện tại
+      const attemptsResponse = await quizService.getMyQuizAttempts(quizId);
+      const attempts = attemptsResponse?.data || [];
+      const inProgressAttempt = attempts.find((a: any) => a.status === "IN_PROGRESS");
+
+      if (!shouldStart && !inProgressAttempt) {
+        router.replace(`/lms/student/quiz/${quizId}/history`);
+        return;
+      }
+
+      if (!inProgressAttempt && hasStartedRef.current) {
+        router.replace(`/lms/student/quiz/${quizId}/history`);
+        return;
+      }
+
+      let attemptInfo;
+      if (inProgressAttempt) {
+        attemptInfo = inProgressAttempt;
+        
+        try {
+          const answersResponse = await quizService.getAttemptAnswers(inProgressAttempt.id);
+          const savedAnswers: { [key: number]: any } = {};
+          answersResponse.data?.forEach((answer: any) => {
+            savedAnswers[answer.question_id] = answer.answer_data;
+          });
+          setAnswers(savedAnswers);
+        } catch (error) {
+          console.error("Error loading saved answers:", error);
+        }
+        
+        if (quizInfo.time_limit_minutes) {
+          const elapsed = Math.floor(
+            (Date.now() - new Date(inProgressAttempt.started_at).getTime()) / 1000
+          );
+          const totalSeconds = quizInfo.time_limit_minutes * 60;
+          const remaining = Math.max(0, totalSeconds - elapsed);
+          setTimeLeft(remaining);
+        }
+      } else if (shouldStart && !hasStartedRef.current) {
+        const attemptData = await quizService.startQuizAttempt(quizId);
+        attemptInfo = attemptData.data;
+        
+        hasStartedRef.current = true;
+        router.replace(`/lms/student/quiz/${quizId}/take`, { scroll: false });
+        
+        if (quizInfo.time_limit_minutes) {
+          setTimeLeft(quizInfo.time_limit_minutes * 60);
+        }
+      }
+
       setAttempt(attemptInfo);
 
       // Load questions
@@ -134,7 +189,7 @@ export default function StudentQuizTakingPage() {
     } catch (error: any) {
       console.error("Error starting quiz:", error);
       alert(error.response?.data?.message || "Không thể bắt đầu quiz");
-      router.back();
+      router.push(`/lms/student/quiz/${quizId}/history`);
     }
   };
 

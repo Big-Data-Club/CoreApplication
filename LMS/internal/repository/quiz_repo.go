@@ -649,40 +649,6 @@ func (r *QuizRepository) CreateAttempt(ctx context.Context, attempt *models.Quiz
 	return err
 }
 
-// GetAttempt retrieves attempt by ID
-func (r *QuizRepository) GetAttempt(ctx context.Context, attemptID int64) (*models.QuizAttempt, error) {
-	query := `SELECT * FROM quiz_attempts WHERE id = $1`
-	
-	var attempt models.QuizAttempt
-	err := r.db.QueryRowContext(ctx, query, attemptID).Scan(
-		&attempt.ID,
-		&attempt.QuizID,
-		&attempt.StudentID,
-		&attempt.AttemptNumber,
-		&attempt.StartedAt,
-		&attempt.SubmittedAt,
-		&attempt.TimeSpentSeconds,
-		&attempt.TotalPoints,
-		&attempt.EarnedPoints,
-		&attempt.Percentage,
-		&attempt.IsPassed,
-		&attempt.Status,
-		&attempt.AutoGradedAt,
-		&attempt.ManuallyGradedAt,
-		&attempt.GradedBy,
-		&attempt.IPAddress,
-		&attempt.UserAgent,
-		&attempt.CreatedAt,
-		&attempt.UpdatedAt,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-	
-	return &attempt, nil
-}
-
 // GetStudentAttemptCount gets the number of attempts a student has made
 func (r *QuizRepository) GetStudentAttemptCount(ctx context.Context, quizID, studentID int64) (int, error) {
 	query := `

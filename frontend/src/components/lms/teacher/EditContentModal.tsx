@@ -79,6 +79,7 @@ export default function EditContentModal({
           show_correct_answers: quiz.show_correct_answers ?? true,
           allow_review: quiz.allow_review ?? true,
           show_feedback: quiz.show_feedback ?? true,
+          is_published: quiz.is_published ?? false,
         });
       }
     } catch (error: any) {
@@ -101,6 +102,7 @@ export default function EditContentModal({
         show_correct_answers: true,
         allow_review: true,
         show_feedback: true,
+        is_published: false,
       });
     } finally {
       setLoadingQuiz(false);
@@ -200,16 +202,73 @@ export default function EditContentModal({
       // If it's a quiz, update or create quiz record
       if (content.type === "QUIZ" && quizSettings) {
         try {
+          const formatDateTimeForBackend = (dateTimeString: string | undefined) => {
+            if (!dateTimeString) return undefined;
+            
+            const date = new Date(dateTimeString);
+            if (isNaN(date.getTime())) return undefined;
+            
+            return date.toISOString();
+          };
+
+          const cleanQuizSettings = {
+            ...(quizSettings.title && { title: quizSettings.title }),
+            ...(quizSettings.description && { description: quizSettings.description }),
+            ...(quizSettings.instructions && { instructions: quizSettings.instructions }),
+            ...(quizSettings.time_limit_minutes !== undefined && { 
+              time_limit_minutes: quizSettings.time_limit_minutes 
+            }),
+            ...(quizSettings.available_from && { 
+              available_from: formatDateTimeForBackend(quizSettings.available_from) 
+            }),
+            ...(quizSettings.available_until && { 
+              available_until: formatDateTimeForBackend(quizSettings.available_until) 
+            }),
+            ...(quizSettings.max_attempts !== undefined && { 
+              max_attempts: quizSettings.max_attempts 
+            }),
+            ...(quizSettings.shuffle_questions !== undefined && { 
+              shuffle_questions: quizSettings.shuffle_questions 
+            }),
+            ...(quizSettings.shuffle_answers !== undefined && { 
+              shuffle_answers: quizSettings.shuffle_answers 
+            }),
+            ...(quizSettings.passing_score !== undefined && { 
+              passing_score: quizSettings.passing_score 
+            }),
+            ...(quizSettings.total_points !== undefined && { 
+              total_points: quizSettings.total_points 
+            }),
+            ...(quizSettings.auto_grade !== undefined && { 
+              auto_grade: quizSettings.auto_grade 
+            }),
+            ...(quizSettings.show_results_immediately !== undefined && { 
+              show_results_immediately: quizSettings.show_results_immediately 
+            }),
+            ...(quizSettings.show_correct_answers !== undefined && { 
+              show_correct_answers: quizSettings.show_correct_answers 
+            }),
+            ...(quizSettings.allow_review !== undefined && { 
+              allow_review: quizSettings.allow_review 
+            }),
+            ...(quizSettings.show_feedback !== undefined && { 
+              show_feedback: quizSettings.show_feedback 
+            }),
+            ...(quizSettings.is_published !== undefined && { 
+              is_published: quizSettings.is_published 
+            }),
+          };
+
           if (quizId) {
-            // Update existing quiz
-            await quizService.updateQuiz(quizId, quizSettings);
+            await quizService.updateQuiz(quizId, cleanQuizSettings);
           } else {
-            // Create new quiz if it doesn't exist
-            await quizService.createQuizWithContent(content.id, quizSettings);
+            await quizService.createQuizWithContent(content.id, cleanQuizSettings);
           }
         } catch (quizError: any) {
           console.error("Error updating quiz:", quizError);
-          alert("Nội dung đã được cập nhật nhưng có lỗi khi cập nhật quiz settings.");
+          console.error("Error details:", quizError.response?.data);
+          alert("Nội dung đã được cập nhật nhưng có lỗi khi cập nhật quiz settings: " + 
+                (quizError.response?.data?.message || quizError.message));
         }
       }
 
@@ -259,7 +318,7 @@ export default function EditContentModal({
               <strong>Loại nội dung:</strong> {getContentTypeLabel(content.type)}
               <br />
               <strong>Ngày tạo:</strong>{" "}
-              {new Date(content.metadata?.created_at || "").toLocaleDateString(
+              {new Date(content?.updated_at || "").toLocaleDateString(
                 "vi-VN"
               )}
             </p>

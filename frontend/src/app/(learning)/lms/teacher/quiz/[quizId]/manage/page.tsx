@@ -356,6 +356,7 @@ export default function TeacherQuizManagePage() {
 
   const startEditQuestion = (question: Question) => {
     setEditingQuestion(question);
+    console.log(question)
     setQuestionForm({
       question_type: question.question_type,
       question_text: question.question_text,
@@ -1035,6 +1036,7 @@ export default function TeacherQuizManagePage() {
               <div className="flex gap-3 mt-6 pt-4 border-t">
                 <Button
                   type="submit"
+                  
                   className="flex-1 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
                 >
                   {editingQuestion ? "💾 Cập nhật" : "✅ Lưu & Thêm ảnh"}

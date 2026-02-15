@@ -208,6 +208,11 @@ class QuizService {
     const response = await this.api.get(`/attempts/${attemptId}/summary`);
     return response.data;
   }
+
+  async getAttemptAnswers(attemptId: number) {
+    const response = await this.api.get(`/attempts/${attemptId}/answers`);
+    return response.data;
+  }
 }
 
 export const quizService = new QuizService();

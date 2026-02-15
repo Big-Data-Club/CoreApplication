@@ -274,3 +274,21 @@ func formatDuration(seconds int) string {
 	}
 	return fmt.Sprintf("%ds", secs)
 }
+
+// GetAttempt retrieves a single quiz attempt
+func (s *QuizService) GetAttempt(ctx context.Context, attemptID int64) (*models.QuizAttempt, error) {
+	attempt, err := s.quizRepo.GetAttempt(ctx, attemptID)
+	if err != nil {
+		return nil, errors.New("attempt not found")
+	}
+	return attempt, nil
+}
+
+// GetAttemptAnswers retrieves all answers for a quiz attempt  
+func (s *QuizService) GetAttemptAnswers(ctx context.Context, attemptID int64) ([]models.QuizStudentAnswer, error) {
+	answers, err := s.quizRepo.GetAttemptAnswers(ctx, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	return answers, nil
+}

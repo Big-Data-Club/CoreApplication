@@ -2,6 +2,7 @@ package dto
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"example/hello/internal/models"
@@ -209,4 +210,85 @@ func NullInt64ToPtr(ni sql.NullInt64) *int64 {
 		return &ni.Int64
 	}
 	return nil
+}
+
+// ============================================
+// STUDENT ANSWER DTO
+// ============================================
+
+// QuizStudentAnswerDTO represents a student answer for API responses
+type QuizStudentAnswerDTO struct {
+	ID               int64                  `json:"id"`
+	AttemptID        int64                  `json:"attempt_id"`
+	QuestionID       int64                  `json:"question_id"`
+	AnswerData       map[string]interface{} `json:"answer_data"`
+	PointsEarned     *float64               `json:"points_earned"`
+	IsCorrect        *bool                  `json:"is_correct"`
+	GraderFeedback   *string                `json:"grader_feedback"`
+	GradedBy         *int64                 `json:"graded_by"`
+	GradedAt         *time.Time             `json:"graded_at"`
+	AnsweredAt       time.Time              `json:"answered_at"`
+	TimeSpentSeconds *int                   `json:"time_spent_seconds"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+}
+
+// ToQuizStudentAnswerDTO converts QuizStudentAnswer to DTO
+func ToQuizStudentAnswerDTO(answer models.QuizStudentAnswer) QuizStudentAnswerDTO {
+	dto := QuizStudentAnswerDTO{
+		ID:         answer.ID,
+		AttemptID:  answer.AttemptID,
+		QuestionID: answer.QuestionID,
+		AnsweredAt: answer.AnsweredAt,
+		CreatedAt:  answer.CreatedAt,
+		UpdatedAt:  answer.UpdatedAt,
+	}
+
+	// Parse JSONB answer_data
+	var answerData map[string]interface{}
+	if len(answer.AnswerData) > 0 {
+		if err := json.Unmarshal(answer.AnswerData, &answerData); err == nil {
+			dto.AnswerData = answerData
+		}
+	}
+	if dto.AnswerData == nil {
+		dto.AnswerData = make(map[string]interface{})
+	}
+
+	// Handle nullable fields
+	if answer.PointsEarned.Valid {
+		dto.PointsEarned = &answer.PointsEarned.Float64
+	}
+
+	if answer.IsCorrect.Valid {
+		dto.IsCorrect = &answer.IsCorrect.Bool
+	}
+
+	if answer.GraderFeedback.Valid {
+		dto.GraderFeedback = &answer.GraderFeedback.String
+	}
+
+	if answer.GradedBy.Valid {
+		dto.GradedBy = &answer.GradedBy.Int64
+	}
+
+	if answer.GradedAt.Valid {
+		dto.GradedAt = &answer.GradedAt.Time
+	}
+
+	if answer.TimeSpentSeconds.Valid {
+		seconds := int(answer.TimeSpentSeconds.Int32)
+		dto.TimeSpentSeconds = &seconds
+	}
+
+	return dto
+}
+
+// ToQuizStudentAnswerDTOList converts a list of QuizStudentAnswer to DTOs
+func ToQuizStudentAnswerDTOList(answers []models.QuizStudentAnswer) []QuizStudentAnswerDTO {
+	dtos := make([]QuizStudentAnswerDTO, len(answers))
+	for i, answer := range answers {
+		dtos[i] = ToQuizStudentAnswerDTO(answer)
+	}
+	return dtos
 }

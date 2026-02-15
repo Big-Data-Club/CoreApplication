@@ -26,6 +26,7 @@ interface Content {
   file_path?: string;
   file_size?: number;
   file_type?: string;
+  updated_at?: any;
 }
 
 export default function CourseDetailPage() {

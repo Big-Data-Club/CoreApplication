@@ -137,3 +137,57 @@ func convertQuestionResultsToDTO(results []service.QuestionResult) []dto.Questio
 	}
 	return dtos
 }
+
+// GetAttemptAnswers godoc
+// @Summary Get attempt answers
+// @Description Get all answers for a specific quiz attempt
+// @Tags Quiz - Student
+// @Accept json
+// @Produce json
+// @Param attemptId path int true "Attempt ID"
+// @Security BearerAuth
+// @Success 200 {object} dto.SuccessResponse{data=[]dto.QuizStudentAnswerDTO} "List of student answers"
+// @Failure 400 {object} dto.ErrorResponse "Invalid attempt ID"
+// @Failure 401 {object} dto.ErrorResponse "Unauthorized"
+// @Failure 403 {object} dto.ErrorResponse "Forbidden - not authorized to view this attempt"
+// @Failure 404 {object} dto.ErrorResponse "Attempt not found"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
+// @Router /attempts/{attemptId}/answers [get]
+func (h *QuizHandler) GetAttemptAnswers(c *gin.Context) {
+	attemptID, err := strconv.ParseInt(c.Param("attemptId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_attempt_id", "Invalid attempt ID"))
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "User not authenticated"))
+		return
+	}
+
+	// Get attempt to verify ownership
+	attempt, err := h.quizService.GetAttempt(c.Request.Context(), attemptID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Attempt not found"))
+		return
+	}
+
+	// Check authorization
+	if attempt.StudentID != userID.(int64) {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Not authorized to view this attempt"))
+		return
+	}
+
+	// Get answers
+	answers, err := h.quizService.GetAttemptAnswers(c.Request.Context(), attemptID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+
+	// Convert to DTOs
+	dtos := dto.ToQuizStudentAnswerDTOList(answers)
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(dtos))
+}

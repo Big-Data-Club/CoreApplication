@@ -95,6 +95,7 @@ func main() {
 	courseRepo := repository.NewCourseRepository(db)
 	enrollmentRepo := repository.NewEnrollmentRepository(db)
 	quizRepo := repository.NewQuizRepository(db)
+	forumRepo := repository.NewForumRepository(db)
 
 	// Initialize services
 	userService := service.NewUserService(userRepo)
@@ -102,6 +103,7 @@ func main() {
 	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo)
 	userSyncService := service.NewUserSyncService(userRepo)
+	forumService := service.NewForumService(forumRepo, courseRepo)
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
 
 	// Initialize handlers
@@ -111,6 +113,7 @@ func main() {
 	fileHandler := handler.NewFileHandler(storageProvider)
 	syncHandler := handler.NewUserSyncHandler(userSyncService, syncSecret)
 	quizHandler := handler.NewQuizHandler(quizService, storageProvider)
+	forumHandler := handler.NewForumHandler(forumService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -274,6 +277,7 @@ func main() {
 			// QUIZ ATTEMPT ROUTES
 			attempts := auth.Group("/attempts")
 			{
+				attempts.GET("/:attemptId/answers", quizHandler.GetAttemptAnswers)
 				attempts.POST("/:attemptId/answers", quizHandler.SubmitAnswer)
 				attempts.POST("/:attemptId/submit", quizHandler.SubmitQuiz)
 				attempts.GET("/:attemptId/result", quizHandler.GetQuizResult)
@@ -285,6 +289,43 @@ func main() {
 			answers := auth.Group("/answers")
 			{
 				answers.POST("/:answerId/grade", middleware.RequireRoles("ADMIN", "TEACHER"), quizHandler.GradeAnswer)
+			}
+
+			// FORUM ROUTES
+			// Forum posts on content
+			content.POST("/:contentId/forum/posts", forumHandler.CreatePost)
+			content.GET("/:contentId/forum/posts", forumHandler.ListPosts)
+
+			// Individual forum posts
+			forum := auth.Group("/forum")
+			{
+				// Post operations
+				posts := forum.Group("/posts")
+				{
+					posts.GET("/:postId", forumHandler.GetPost)
+					posts.PUT("/:postId", middleware.RequireRoles("STUDENT", "TEACHER", "ADMIN"), forumHandler.UpdatePost)
+					posts.DELETE("/:postId", middleware.RequireRoles("STUDENT", "TEACHER", "ADMIN"), forumHandler.DeletePost)
+					
+					// Admin/Teacher actions
+					posts.POST("/:postId/pin", middleware.RequireRoles("TEACHER", "ADMIN"), forumHandler.PinPost)
+					posts.POST("/:postId/lock", middleware.RequireRoles("TEACHER", "ADMIN"), forumHandler.LockPost)
+					
+					// Voting
+					posts.POST("/:postId/vote", forumHandler.VotePost)
+					
+					// Comments on posts
+					posts.POST("/:postId/comments", forumHandler.CreateComment)
+					posts.GET("/:postId/comments", forumHandler.ListComments)
+				}
+
+				// Comment operations
+				comments := forum.Group("/comments")
+				{
+					comments.PUT("/:commentId", middleware.RequireRoles("STUDENT", "TEACHER", "ADMIN"), forumHandler.UpdateComment)
+					comments.DELETE("/:commentId", middleware.RequireRoles("STUDENT", "TEACHER", "ADMIN"), forumHandler.DeleteComment)
+					comments.POST("/:commentId/accept", forumHandler.AcceptComment)
+					comments.POST("/:commentId/vote", forumHandler.VoteComment)
+				}
 			}
 		}
 	}

@@ -433,7 +433,7 @@ export default function AttemptResultPage() {
             Về lịch sử
           </Button>
           <Button
-            onClick={() => router.push(`/lms/student/quiz/${quizId}/take`)}
+            onClick={() => router.push(`/lms/student/quiz/${quizId}/take?start=true`)}
             size="lg"
             className="px-8 bg-blue-600 hover:bg-blue-700 text-white"
           >

@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useState, useEffect, ReactNode } from "react";
@@ -49,6 +50,15 @@ interface Question {
   settings?: any;
   answer_options: AnswerOption[];
   correct_answers: CorrectAnswer[];
+  images?: Array<{
+    id: string;
+    url: string;
+    file_name: string;
+    position: string;
+    caption?: string;
+    alt_text?: string;
+    display_width?: string;
+  }>;
 }
 
 interface StudentAnswer {
@@ -115,6 +125,48 @@ export default function QuizReviewModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  const buildImageUrl = (url: string) => {
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return url;
+    }
+    return `${url}`;
+  };
+
+  const renderQuestionImages = (question: Question, position: "top" | "bottom") => {
+    const images = question.images || question.settings?.images || [];
+    const filteredImages = images.filter((img: any) => 
+      !img.position || img.position === position || 
+      (position === "top" && img.position === "above_question") ||
+      (position === "bottom" && img.position === "below_question")
+    );
+
+    if (filteredImages.length === 0) return null;
+
+    return (
+      <div className="space-y-3 mb-4">
+        {filteredImages.map((img: any) => (
+          <div key={img.id} className="border rounded-lg p-3 bg-gray-50">
+            <img
+              src={buildImageUrl(img.url)}
+              alt={img.alt_text || img.file_name}
+              className={`rounded-lg ${
+                img.display_width === "full" ? "w-full" :
+                img.display_width === "large" ? "max-w-3xl mx-auto" :
+                img.display_width === "medium" ? "max-w-xl mx-auto" :
+                "max-w-md mx-auto"
+              }`}
+            />
+            {img.caption && (
+              <p className="text-sm text-gray-600 mt-2 text-center italic">
+                {img.caption}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const renderQuestionIcon = (type: string) => {
@@ -615,7 +667,11 @@ export default function QuizReviewModal({
 
                   {/* Question Body */}
                   <div className="p-4">
+                    {renderQuestionImages(question, "top")}
+                    
                     {renderQuestionAnswer(qa)}
+
+                    {renderQuestionImages(question, "bottom")}
 
                     {/* Explanation */}
                     {show_feedback && question.explanation && (
