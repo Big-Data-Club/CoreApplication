@@ -49,6 +49,7 @@ export default function ContentModal({
     show_correct_answers: true,
     allow_review: true,
     show_feedback: true,
+    is_published: true,
   });
 
   const [loading, setLoading] = useState(false);
