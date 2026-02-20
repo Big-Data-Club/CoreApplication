@@ -103,7 +103,6 @@ Thumbs.db
 *~
 
 # Database dumps
-*.sql
 *.dump
 *.db
 
