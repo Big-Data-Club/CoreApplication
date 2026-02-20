@@ -1,422 +1,396 @@
 # 📚 BDC Application
 
-A comprehensive, microservices-based Learning Management System built with modern technologies including Next.js, Spring Boot, and Go. This platform provides a complete solution for course management, student enrollment, assessments, and administrative functions.
+> Nền tảng quản lý học tập thế hệ mới — microservices-based LMS xây dựng với **Next.js**, **Spring Boot** và **Go**, hướng tới một hệ sinh thái học tập thích ứng với AI.
 
-## 🌟 Overview
+[![CI](https://github.com/Big-Data-Club/CoreApplication/actions/workflows/ci.yml/badge.svg)](https://github.com/Big-Data-Club/CoreApplication/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-ready-blue?logo=docker)](./docker-compose.yml)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)](https://nextjs.org)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.x-green?logo=springboot)](https://spring.io)
+[![Go](https://img.shields.io/badge/Go-1.21-00ADD8?logo=go)](https://golang.org)
 
-BDC LMS is a full-stack learning management platform designed for educational institutions and training organizations. The system features a modern, responsive frontend, robust authentication, and separate backend services for general administration and LMS-specific functionality.
+---
 
-### Key Features
+> 🌐 **Chọn ngôn ngữ / Language:**
+> &nbsp;&nbsp;[🇻🇳 Tiếng Việt](./README.md) &nbsp;|&nbsp; [🇬🇧 English](./README.en.md)
 
-- 🎓 **Course Management** - Create, edit, and organize courses with multimedia content
-- 👥 **Student Enrollment** - Flexible enrollment system with approval workflows
-- 📝 **Quiz & Assessment** - Comprehensive quiz system with multiple question types
-- 👤 **User Management** - Role-based access control (Admin, Manager, Teacher, Student)
-- 📢 **Announcements** - System-wide and course-specific announcements
-- 📅 **Event Management** - Track events, tasks, and deadlines
-- 📁 **File Management** - Upload and serve various file types (videos, documents, images)
-- 🔐 **Secure Authentication** - JWT-based authentication with cookie support
-- 🔄 **User Synchronization** - Automatic sync between auth and LMS services
+---
 
-## 🏗️ Architecture
+## 📖 Tài Liệu Dành Cho Developer
 
-### System Components
+> Bạn là dev mới hoặc contributor? Hãy đọc các tài liệu này **theo thứ tự** trước khi bắt đầu:
+
+| Tài liệu | Mô tả | Ngôn ngữ |
+|---|---|---|
+| **[🛠️ DEVELOPER_GUIDE](./docs/DEVELOPER_GUIDE.md)** | Setup môi trường, chạy local, quy trình đóng góp code | [🇻🇳 VI](./docs/DEVELOPER_GUIDE.md) · [🇬🇧 EN](./docs/DEVELOPER_GUIDE.en.md) |
+| **[⚠️ TECHNICAL_NOTES](./docs/TECHNICAL_NOTES.md)** | Các vấn đề kỹ thuật quan trọng — **đọc kỹ trước khi build** | [🇻🇳 VI](./docs/TECHNICAL_NOTES.md) · [🇬🇧 EN](./docs/TECHNICAL_NOTES.en.md) |
+| **[🔑 .env.example](./.env.example)** | Template biến môi trường có chú thích — sao chép thành `.env` để bắt đầu | — |
+
+---
+
+## 🌟 Tổng Quan
+
+BDC Application là một **Learning Management System (LMS)** dạng microservices, được thiết kế cho các tổ chức giáo dục và câu lạc bộ học thuật. Hệ thống hiện cung cấp đầy đủ tính năng cốt lõi về quản lý khoá học, đăng ký, đánh giá và quản trị người dùng.
+
+Định hướng phát triển tiếp theo là tích hợp **AI** để chuyển đổi từ một LMS truyền thống sang một **hệ sinh thái học tập thích ứng** — nơi mỗi sinh viên có lộ trình học cá nhân hóa riêng, được dẫn dắt bởi dữ liệu hành vi học tập thực tế.
+
+### Tính Năng Hiện Tại
+
+- 🎓 **Quản lý khoá học** — Tạo, chỉnh sửa và tổ chức khoá học với nội dung đa phương tiện (video, tài liệu, bài kiểm tra)
+- 👥 **Đăng ký khoá học** — Hệ thống đăng ký linh hoạt với quy trình xét duyệt
+- 📝 **Quiz & Đánh giá** — Nhiều loại câu hỏi, theo dõi kết quả và lịch sử làm bài
+- 👤 **Quản lý người dùng** — Phân quyền theo vai trò: Admin, Manager, Teacher, Student
+- 📢 **Thông báo** — Thông báo toàn hệ thống và theo từng khoá học
+- 📅 **Quản lý sự kiện** — Theo dõi sự kiện, nhiệm vụ và deadline của câu lạc bộ
+- 📁 **Quản lý file** — Upload và serve video, tài liệu, hình ảnh (Local hoặc MinIO)
+- 🔐 **Xác thực bảo mật** — JWT-based authentication với HTTP-only cookie
+- 🔄 **Đồng bộ người dùng** — Tự động sync giữa Auth Service và LMS Service
+
+---
+
+## 🏗️ Kiến Trúc Hệ Thống
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Frontend (Next.js)                    │
-│                  Port 3000 - User Interface                  │
-└────────────┬────────────────────────────────┬───────────────┘
-             │                                │
-             ▼                                ▼
-┌────────────────────────┐    ┌─────────────────────────────┐
-│  Backend (Spring Boot) │    │   LMS Backend (Go)          │
-│  Port 8080             │    │   Port 8081                 │
-│  - Authentication      │◄───┤   - Courses                 │
-│  - User Management     │    │   - Quizzes                 │
-│  - Events & Tasks      │    │   - Enrollments             │
-│  - Announcements       │    │   - File Storage            │
-└──────────┬─────────────┘    └──────────┬──────────────────┘
-           │                              │
-           ▼                              ▼
-┌──────────────────────┐    ┌───────────────────────────────┐
-│ PostgreSQL (Auth DB) │    │ PostgreSQL (LMS DB) + Redis   │
-│ Port 5433            │    │ Ports 5434, 6379              │
-└──────────────────────┘    └───────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    🌐 Trình duyệt / Client                    │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ Port 3000
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│             🖥️  Frontend — Next.js 14 (TypeScript)            │
+│   /apiv1/*  ──────────► Backend  (proxy rewrite)             │
+│   /lmsapiv1/*  ────────► LMS Backend  (proxy rewrite)        │
+│   /files/*  ───────────► LMS (file serving)                  │
+└──────────┬──────────────────────────────┬────────────────────┘
+           │ :8080                         │ :8081
+           ▼                               ▼
+┌──────────────────────┐     ┌─────────────────────────────────┐
+│  ⚙️  Auth Backend     │     │  ⚙️  LMS Backend                 │
+│   Spring Boot 3.x    │◄────│   Go 1.21 + Gin                 │
+│   - JWT / Auth       │     │   - Khoá học, Quiz              │
+│   - Users, Events    │     │   - Enroll, File upload         │
+│   - Announcements    │     │   - Đồng bộ user từ Auth        │
+└──────────┬───────────┘     └──────────┬──────────────────────┘
+           │                             │         │
+           ▼                             ▼         ▼
+┌──────────────────────┐  ┌─────────────────────┐  ┌──────────┐
+│ 🗄️  PostgreSQL (Auth) │  │ 🗄️  PostgreSQL (LMS) │  │  Redis   │
+│   Port: 5433         │  │   Port: 5434         │  │  :6379   │
+└──────────────────────┘  └─────────────────────┘  └──────────┘
+                                                    ┌──────────┐
+                                                    │ 📦 MinIO │
+                                                    │ :9000/01 │
+                                                    └──────────┘
 ```
 
 ### Technology Stack
 
-**Frontend:**
-- Next.js 14+ (React Framework)
-- TypeScript
-- Tailwind CSS
-- Radix UI Components
-- NextAuth.js for authentication
+| Thành phần | Công nghệ | Phiên bản |
+|---|---|---|
+| Frontend | Next.js, TypeScript, Tailwind CSS, NextAuth.js | 14+ |
+| Auth Backend | Spring Boot, Spring Security, JWT | 3.x (Java 21) |
+| LMS Backend | Go, Gin framework, GORM | 1.21+ |
+| Database | PostgreSQL | 15 |
+| Cache | Redis | 7 |
+| Object Storage | MinIO | Latest |
+| Container | Docker, Docker Compose | 24+ / 2.0+ |
 
-**Backend Services:**
-- **Auth Service:** Spring Boot 3.x (Java)
-  - Spring Security with JWT
-  - PostgreSQL database
-  - REST API
-  
-- **LMS Service:** Go 1.21+ with Gin framework
-  - PostgreSQL for data persistence
-  - Redis for caching
-  - Swagger/OpenAPI documentation
+---
 
-**Infrastructure:**
-- Docker & Docker Compose
-- PostgreSQL 15
-- Redis 7
-- MinIO for object storage (optional)
+## 🚀 Bắt Đầu Nhanh
 
-## 🚀 Getting Started
+### Yêu cầu tối thiểu
 
-### Prerequisites
+- **Docker Desktop** 24.0+ và **Docker Compose** 2.0+
+- **Git**
+- RAM tối thiểu **4GB** cho Docker
 
-- Docker 24.0+
-- Docker Compose 2.0+
-- Node.js 18+ (for local development)
-- Java 17+ (for local development)
-- Go 1.21+ (for local development)
+### 3 bước để chạy toàn bộ stack
 
-### Quick Start with Docker
-
-1. **Clone the repository:**
 ```bash
+# Bước 1: Clone repository
 git clone https://github.com/Big-Data-Club/CoreApplication.git
 cd CoreApplication
-```
 
-2. **Create environment file:**
-```bash
+# Bước 2: Tạo file cấu hình từ template
 cp .env.example .env
+# Mở .env và điền các giá trị cần thiết
+# (xem TECHNICAL_NOTES.md để biết biến nào quan trọng nhất)
+
+# Bước 3: Build và khởi chạy toàn bộ stack
+docker compose up -d --build
 ```
 
-4. **Start all services:**
-```bash
-docker-compose up -d
-```
+### Truy Cập Ứng Dụng
 
-5. **Access the application:**
-- Frontend: http://localhost:3000
-- Auth API: http://localhost:8080 || http://localhost:3000/apiv1
-- LMS API: http://localhost:8081  || http://localhost:3000/lmsapiv1
-- MinIO Console: http://localhost:9001
+Sau khi tất cả container healthy (khoảng 1–2 phút), bạn có thể truy cập:
 
-### Local Development Setup
+| Dịch vụ | URL |
+|---|---|
+| 🌐 Frontend | http://localhost:3000 |
+| ⚙️ Auth API + Swagger | http://localhost:8080/swagger-ui.html |
+| ⚙️ LMS API + Swagger | http://localhost:3000/lmsapidocs/swagger/index.html |
+| 📦 MinIO Console | http://localhost:9001 |
 
-#### Frontend Development
-```bash
-cd frontend
-npm install
-npm run dev
-```
+> **Tài khoản admin mặc định** — Đổi ngay sau lần đăng nhập đầu tiên!
+> Email: `phucnhan289@gmail.com` · Password: `hehehe`
+> Chi tiết: [TECHNICAL_NOTES.md — Mục 6: DataInitializer](./docs/TECHNICAL_NOTES.md#6-datainitializer--tài-khoản-admin-mặc-định)
 
-#### Backend (Auth Service) Development
-```bash
-cd Backend
-./mvnw spring-boot:run
-```
-
-#### LMS Service Development
-```bash
-cd LMS
-go mod download
-go run cmd/server/main.go
-```
+---
 
 ## 📖 API Documentation
 
-### Auth Service API (Spring Boot)
-- Base URL: `http://localhost:8080/api`
-- Swagger UI: `http://localhost:8080/swagger-ui.html`
+### Auth Service (`/apiv1`)
 
-**Main Endpoints:**
-- `POST /api/auth/login` - User login
-- `POST /api/auth/logout` - User logout
-- `POST /api/auth/register/bulk` - Bulk user registration (Admin only)
-- `GET /api/users` - Get all users
-- `GET /api/events` - Get all events
-- `GET /api/tasks` - Get all tasks
-- `GET /api/announcements` - Get all announcements
+Base URL: `http://localhost:8080/api` — Swagger đầy đủ: http://localhost:8080/swagger-ui.html
 
-### LMS Service API (Go)
-- Base URL: `http://localhost:8081/api/v1`
-- Swagger UI: `http://localhost:8081/swagger/index.html`
+| Method | Endpoint | Mô tả | Role |
+|---|---|---|---|
+| POST | `/auth/login` | Đăng nhập, nhận JWT | Public |
+| POST | `/auth/logout` | Đăng xuất, xoá cookie | Authenticated |
+| POST | `/auth/register/bulk` | Tạo hàng loạt user, gửi email mật khẩu | Admin |
+| GET | `/users` | Danh sách users có phân trang | Admin/Manager |
+| GET | `/events` | Danh sách sự kiện | Authenticated |
+| GET | `/tasks` | Danh sách nhiệm vụ | Authenticated |
+| GET | `/announcements` | Thông báo hệ thống | Authenticated |
 
-**Main Endpoints:**
-- `GET /api/v1/courses` - Get all courses
-- `POST /api/v1/courses` - Create course (Teacher/Admin)
-- `POST /api/v1/enrollments` - Enroll in course
-- `GET /api/v1/quizzes` - Get quizzes
-- `POST /api/v1/files/upload` - Upload file
-- `GET /api/v1/files/serve/{filepath}` - Serve file
+### LMS Service (`/lmsapiv1`)
 
-## 🔐 Authentication & Authorization
+Base URL: `http://localhost:8081/api/v1` — Swagger đầy đủ: http://localhost:3000/lmsapidocs/swagger/index.html
 
-### User Roles
+| Method | Endpoint | Mô tả | Role |
+|---|---|---|---|
+| GET | `/courses` | Danh sách khoá học | Authenticated |
+| POST | `/courses` | Tạo khoá học mới | Teacher/Admin |
+| POST | `/enrollments` | Đăng ký khoá học | Student |
+| GET | `/quizzes` | Danh sách quiz | Authenticated |
+| POST | `/files/upload` | Upload file (video/doc/image) | Authenticated |
+| GET | `/files/serve/:path` | Serve file (public) | Public |
 
-| Role | Permissions |
-|------|-------------|
-| **ADMIN** | Full system access, user management, all CRUD operations |
-| **MANAGER** | Event & task management, announcements, reports |
-| **TEACHER** | Course creation, quiz management, student enrollment approval |
-| **STUDENT** | Course enrollment, quiz taking, view content |
+---
 
-### Authentication Flow
+## 🔐 Xác Thực & Phân Quyền
 
-1. User logs in via `/api/auth/login`
-2. Backend validates credentials and generates JWT token
-3. Token is set as HTTP-only cookie and returned in response
-4. Frontend includes token in subsequent requests
-5. Both backend services validate JWT for protected routes
+### Vai Trò Người Dùng
+
+| Role | Quyền hạn |
+|---|---|
+| **ADMIN** | Toàn quyền hệ thống — quản lý user, CRUD tất cả tài nguyên |
+| **MANAGER** | Quản lý sự kiện, nhiệm vụ, thông báo |
+| **TEACHER** | Tạo khoá học, tạo quiz, duyệt đăng ký |
+| **STUDENT** | Đăng ký khoá học, làm quiz, xem nội dung |
+
+### Luồng Xác Thực JWT
+
+```
+Client ─── POST /apiv1/auth/login ──────────────────► Auth Backend
+                                                            │ validate credentials
+                                                            │ generate JWT token
+Client ◄── Set-Cookie (httpOnly) + JWT ─────────────────────┘
+
+Client ─── GET /lmsapiv1/courses (Bearer token) ────► LMS Backend
+                                                            │ verify JWT (cùng JWT_SECRET)
+Client ◄── Course data ─────────────────────────────────────┘
+```
+
+> ⚠️ `JWT_SECRET` phải **giống nhau và >= 32 ký tự** giữa Backend và LMS Backend.
+> Xem chi tiết tại [TECHNICAL_NOTES.md — Mục 1: JWT](./docs/TECHNICAL_NOTES.md#1-jwt--chia-sẻ-secret-giữa-2-backend).
+
+---
 
 ## 🗄️ Database Schema
 
-### Auth Database (PostgreSQL)
-- **users** - User accounts and profiles
-- **events** - System events
-- **tasks** - User tasks
-- **announcements** - System announcements
+### Auth Database · PostgreSQL port 5433
 
-### LMS Database (PostgreSQL)
-- **users** - Synchronized user data
-- **courses** - Course information
-- **lessons** - Lesson content
-- **enrollments** - Student course enrollments
-- **quizzes** - Quiz definitions
-- **questions** - Quiz questions
-- **quiz_attempts** - Student quiz attempts
-- **answers** - Student quiz answers
+Gồm các bảng: `users`, `events`, `tasks`, `announcements`, `password_reset_tokens`
+
+### LMS Database · PostgreSQL port 5434
+
+Gồm các bảng: `users` *(sync từ Auth)*, `courses`, `sections`, `content`, `enrollments`, `quizzes`, `questions`, `quiz_attempts`, `answers`
+
+---
 
 ## 📁 File Upload & Storage
 
-### Supported File Types
+| Loại | Định dạng hỗ trợ | Kích thước tối đa |
+|---|---|---|
+| Video | MP4, AVI, MOV, MKV, WebM, FLV | 100MB |
+| Tài liệu | PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT | 100MB |
+| Hình ảnh | JPG, JPEG, PNG, GIF, BMP, SVG, WebP | 100MB |
 
-**Videos:**
-- Formats: MP4, AVI, MOV, MKV, WebM, FLV, WMV, M4V
-- Max size: 100MB
+Hệ thống hỗ trợ 2 backend lưu trữ — chọn qua biến `STORAGE_TYPE`:
+- **`local`** (mặc định) — Lưu vào filesystem, phù hợp dev
+- **`minio`** — Object storage phân tán, khuyến nghị cho production
 
-**Documents:**
-- Formats: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT, CSV
-- Max size: 100MB
+Xem cấu hình chi tiết tại [TECHNICAL_NOTES.md — Mục 5: Storage](./docs/TECHNICAL_NOTES.md#5-storage--local-vs-minio).
 
-**Images:**
-- Formats: JPG, JPEG, PNG, GIF, BMP, SVG, WebP
-- Max size: 100MB
+---
 
-### File Endpoints
+## 🔄 Đồng Bộ Người Dùng
+
+Khi tạo user qua Auth Service, hệ thống tự động đồng bộ sang LMS để user có thể đăng ký khoá học ngay lập tức.
+
 ```bash
-# Upload file
-POST /lmsapiv1/files/upload
-Content-Type: multipart/form-data
-Body: file, type (video|document|image)
-
-# Serve file (public)
-GET /files/{filepath}
-
-# Download file (authenticated)
-GET /lmsapiv1/files/download/{filepath}
-
-# Delete file (admin/teacher)
-DELETE /lmsapiv1/files/delete/{filepath}
-```
-
-## 🔄 User Synchronization
-
-The system maintains user data synchronization between Auth and LMS services:
-
-### Sync Endpoints
-```bash
-# Sync single user
+# Sync thủ công khi cần thiết (ví dụ: LMS bị down khi tạo user)
 POST /lmsapiv1/sync/user
-Headers: X-Sync-Secret: {secret}
-Body: {user_id, email, name, role}
-
-# Bulk sync users
 POST /lmsapiv1/sync/users/bulk
-Headers: X-Sync-Secret: {secret}
-
-# Delete user from LMS
 DELETE /lmsapiv1/sync/user/{userId}
-Headers: X-Sync-Secret: {secret}
+Headers: X-Sync-Secret: {LMS_SYNC_SECRET}
 ```
+
+> ⚠️ `LMS_API_SECRET` (Backend) phải bằng `LMS_SYNC_SECRET` (LMS). Xem [TECHNICAL_NOTES.md — Mục 4](./docs/TECHNICAL_NOTES.md#4-user-sync--đồng-bộ-bất-đồng-bộ-dễ-bị-bỏ-lỡ).
+
+---
 
 ## 🐳 Docker Services
 
-### Service Ports
-
-| Service | Port | Description |
-|---------|------|-------------|
-| Frontend | 3000 | Next.js application |
-| Backend | 8080 | Spring Boot auth service |
-| LMS Backend | 8081 | Go LMS service |
-| PostgreSQL (Auth) | 5433 | Auth database |
-| PostgreSQL (LMS) | 5434 | LMS database |
-| Redis | 6379 | Cache service |
-| MinIO | 9000 | Object storage API |
-| MinIO Console | 9001 | MinIO web interface |
-
-### Docker Commands
+| Service | Port | Mô tả |
+|---|---|---|
+| `frontend` | 3000 | Next.js application |
+| `backend` | 8080 | Spring Boot Auth Service |
+| `lms-backend` | 8081 | Go LMS Service |
+| `postgres` | 5433 | Auth database |
+| `postgres-lms` | 5434 | LMS database |
+| `redis-lms` | 6379 | Cache (session, queue) |
+| `minio` | 9000 / 9001 | Object storage API / Console |
 
 ```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f [service-name]
-
-# Stop all services
-docker-compose down
-
-# Rebuild services
-docker-compose up -d --build
-
-# Reset everything (including volumes)
-docker-compose down -v
+docker compose up -d              # Khởi chạy tất cả service
+docker compose ps                 # Kiểm tra trạng thái
+docker compose logs -f            # Xem log realtime
+docker compose down               # Dừng (giữ nguyên data)
+docker compose down -v            # Dừng + xoá toàn bộ data
+docker compose up -d --build backend   # Rebuild riêng 1 service
 ```
 
-## 🛠️ Configuration
-
-### Frontend Configuration (next.config.ts)
-
-The frontend uses Next.js rewrites to proxy API requests:
-- `/apiv1/*` → Auth Backend (8080)
-- `/lmsapiv1/*` → LMS Backend (8081)
-- `/files/*` → LMS file serving
-- `/uploads/*` → Auth file serving
-
-### Backend Configuration
-
-**Spring Boot (application.yml):**
-- Database connection settings
-- JWT configuration
-- CORS allowed origins
-- Email configuration
-- Hikari connection pool
-
-**Go Service (environment variables):**
-- Database and Redis settings
-- File upload configuration
-- JWT secret (shared with auth service)
-- CORS settings
-
-## 🚀 Deployment
-
-### Production Checklist
-
-- [ ] Change all default passwords and secrets
-- [ ] Set `NODE_ENV=production`
-- [ ] Enable HTTPS/SSL certificates
-- [ ] Configure proper CORS origins
-- [ ] Set up database backups
-- [ ] Configure Redis persistence
-- [ ] Set up monitoring and logging
-- [ ] Configure rate limiting
-- [ ] Review security headers
-- [ ] Set up CDN for static assets
-
-### Environment-specific Builds
-
-```bash
-# Build for production
-docker-compose build --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') --build-arg VERSION=1.0.0
-
-# Push to registry
-docker-compose push
-```
+---
 
 ## 🧪 Testing
 
-### Frontend Tests
 ```bash
-cd frontend
-npm run test
-npm run test:e2e
+# Frontend
+cd frontend && npm run test:ci
+
+# Backend (Java)
+cd Backend && ./mvnw test
+
+# LMS (Go)
+cd LMS && go test ./...
 ```
 
-### Backend Tests
+---
+
+## 📊 Health Checks
+
+| Service | Endpoint |
+|---|---|
+| Frontend | `GET /api/health` |
+| Auth Backend | `GET /actuator/health` |
+| LMS Backend | `GET /health` |
+| Metrics (Prometheus) | `GET /actuator/prometheus` |
+
+---
+
+## 🗺️ Roadmap — AI4Education
+
+Định hướng phát triển tiếp theo: tích hợp AI để giải quyết 3 khoảng trống học tập được phát hiện qua khảo sát thực tế tại câu lạc bộ.
+
+| Khoảng trống | Mô tả |
+|---|---|
+| **Navigation Gap** | Sinh viên không biết nên học gì trước, học gì sau |
+| **Practice Gap** | LMS chỉ lưu tài liệu tĩnh, thiếu công cụ luyện tập và phản hồi tức thì |
+| **Trust Gap** | Thiếu cơ chế kiểm chứng nội dung do AI tạo ra |
+
+### Phase 1 — AI Error Diagnosis & Deep Linking
+Biến mỗi lỗi sai thành cơ hội học sâu — không chỉ hiển thị "Sai rồi, thử lại".
+
+- [ ] **Error Pattern Analysis** — Phân tích nguyên nhân sai: nhầm khái niệm, thiếu kiến thức nền, hay đọc sai đề
+- [ ] **Deep Link to Source** — Nút "Xem lại" dẫn thẳng đến trang PDF hoặc timestamp chính xác trong video
+- [ ] **Weakness Heatmap** — Bản đồ nhiệt hiển thị Knowledge Node hay sai nhất của cả lớp
+- [ ] **Class Analytics Report** — Báo cáo tự động sau mỗi quiz: tỷ lệ đúng/sai, phân phối điểm
+
+### Phase 2 — AI Smart Quiz & Active Recall
+Tự động hóa tạo bài kiểm tra chất lượng cao, giảm tải giảng viên.
+
+- [ ] **Auto Quiz Generator** — Tạo câu hỏi theo Bloom's Taxonomy (6 cấp độ) từ slide và video
+- [ ] **Source-cited Answers** — Mỗi câu hỏi đi kèm giải thích và trích dẫn nguồn rõ ràng
+- [ ] **Spaced Repetition Engine** — Nhắc ôn tập đúng thời điểm theo thuật toán SM-2
+- [ ] **Instructor Quiz Review** — Giảng viên xét duyệt quiz AI tạo trước khi phát hành
+
+### Phase 3 — AI Micro-Video Creator
+Giải quyết bài toán slide 50–100 trang và video ghi hình dài 1–2 tiếng.
+
+- [ ] **Auto Summarizer** — Tóm tắt từ slide PDF và video transcript
+- [ ] **Script Generator** — Kịch bản micro-video 60–90 giây phong cách TikTok/Reels
+- [ ] **AI Voice + Slide Video** — Tạo video tự động từ kịch bản + giọng đọc AI
+- [ ] **Video Chaptering** — Chia video dài thành chương có timestamp tự động
+
+### Phase 4 — AI Atomic Roadmap *(GPS Học Tập Cá Nhân)*
+Biến mỗi khoá học thành lộ trình học cá nhân hóa.
+
+- [ ] **Knowledge Graph Engine** — Tự động chia nội dung thành các Knowledge Node nhỏ
+- [ ] **Adaptive Sequencing** — AI sắp xếp thứ tự học dựa trên đánh giá đầu vào
+- [ ] **Progress-based Rerouting** — Tự động điều chỉnh lộ trình khi phát hiện lỗ hổng kiến thức
+- [ ] **Personal Dashboard** — Tiến độ theo Knowledge Node, điểm mạnh/yếu cá nhân
+
+### Phase 5 — Tích Hợp & Hạ Tầng Mở Rộng
+
+- [ ] WebSocket Notifications — Thông báo realtime
+- [ ] Mobile App (React Native) — Học offline + push notification
+- [ ] LMS Integration — Kết nối Moodle, Canvas qua LTI standard
+- [ ] Certificate Generation — Chứng chỉ hoàn thành có chữ ký số
+- [ ] Multi-language Support — Giao diện Việt/Anh
+- [ ] Advanced Search — Tìm kiếm toàn văn trong video transcript và tài liệu
+
+---
+
+## 🤝 Đóng Góp
+
+Xem hướng dẫn đầy đủ về quy trình đóng góp, convention commit message và coding standards tại **[DEVELOPER_GUIDE.md — Mục 9](./docs/DEVELOPER_GUIDE.md#9-hướng-dẫn-đóng-góp-code)**.
+
 ```bash
-cd Backend
-./mvnw test
+git checkout -b feature/ten-tinh-nang
+# ... viết code ...
+git commit -m "feat(lms): mô tả ngắn gọn"
+git push origin feature/ten-tinh-nang
+# → Tạo Pull Request lên branch develop
 ```
 
-### LMS Service Tests
-```bash
-cd LMS
-go test ./...
-```
+---
 
-## 📊 Monitoring & Health Checks
+## 👥 Team & Hỗ Trợ
 
-### Health Check Endpoints
+**BDC Development Team** — Big Data Club, HCMUT
 
-- Frontend: `GET /api/health`
-- Backend: `GET /actuator/health`
-- LMS: `GET /health`
+| Kênh | Địa chỉ |
+|---|---|
+| 🐛 Báo lỗi | [GitHub Issues](https://github.com/Big-Data-Club/CoreApplication/issues) — dùng template `bug_report.md` |
+| ✨ Đề xuất tính năng | [GitHub Issues](https://github.com/Big-Data-Club/CoreApplication/issues) — dùng template `feature_request.md` |
+| 📧 Email | bdc@hcmut.edu.vn |
+| 🌐 Production | https://bdc.hpcc.vn |
 
-### Metrics & Monitoring
-
-- Spring Boot Actuator: `http://localhost:8080/actuator`
-- Prometheus metrics available at `/actuator/prometheus`
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
-
-### Coding Standards
-
-- **Frontend:** Follow Next.js and React best practices
-- **Backend (Java):** Follow Spring Boot conventions
-- **Backend (Go):** Follow effective Go guidelines
-- Use meaningful commit messages
-- Write tests for new features
-- Update documentation
+---
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Dự án được cấp phép theo [MIT License](./LICENSE).
 
-## 👥 Team & Support
+---
 
-**Project Maintainers:**
-- Development Team: BDC Development Team
-
-**Support:**
-- Documentation: [Project Wiki]
-- Issues: [GitHub Issues]
-- Email: support@example.com
-
-## 🗺️ Roadmap
-
-### Upcoming Features
-
-- [ ] Real-time notifications with WebSocket
-- [ ] Advanced analytics dashboard
-- [ ] Mobile application (React Native)
-- [ ] Video streaming optimization
-- [ ] AI-powered content recommendations
-- [ ] Integration with external LMS (Moodle, Canvas)
-- [ ] Multi-language support
-- [ ] Certificate generation
-- [ ] Payment gateway integration
-
-## 📚 Additional Resources
+## 📚 Tài Liệu Tham Khảo
 
 - [Next.js Documentation](https://nextjs.org/docs)
 - [Spring Boot Documentation](https://spring.io/projects/spring-boot)
 - [Gin Framework Documentation](https://gin-gonic.com/docs/)
 - [Docker Documentation](https://docs.docker.com/)
-- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
+- [MinIO Documentation](https://min.io/docs/)
 
 ---
 
+<div align="center">
+
 **Built with ❤️ by BDC Team**
 
-For questions or feedback, please open an issue or contact the development team.
+[🛠️ Developer Guide](./docs/DEVELOPER_GUIDE.md) · [⚠️ Technical Notes](./docs/TECHNICAL_NOTES.md) · [🇬🇧 English Version](./README.en.md) · [🌐 Production](https://bdc.hpcc.vn)
+
+</div>
