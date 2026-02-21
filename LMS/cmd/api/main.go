@@ -165,13 +165,13 @@ func main() {
 		{
 			// Public file serving endpoint
 			files.GET("/serve/*filepath", fileHandler.ServeFile)
+			files.GET("/download/*filepath", fileHandler.DownloadFile)
 
 			// Protected endpoints
 			protected := files.Group("")
 			protected.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
 			{
 				protected.POST("/upload", fileHandler.UploadFile)
-				protected.GET("/download/*filepath", fileHandler.DownloadFile)
 				protected.DELETE("/delete/*filepath", middleware.RequireRoles("ADMIN", "TEACHER"), fileHandler.DeleteFile)
 			}
 		}

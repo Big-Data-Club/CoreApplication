@@ -112,7 +112,7 @@ func LoadStorageConfig() StorageConfig {
 	return StorageConfig{
 		Type:           storageType,
 		LocalBasePath:  getEnv("STORAGE_LOCAL_PATH", "./uploads"),
-		MinIOEndpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),
+		MinIOEndpoint:  getEnv("MINIO_ENDPOINT", "minio:9000"),
 		MinIOAccessKey: getEnv("MINIO_ACCESS_KEY", "minioadmin"),
 		MinIOSecretKey: getEnv("MINIO_SECRET_KEY", "minioadmin123"),
 		MinIOBucket:    getEnv("MINIO_BUCKET", "lms-files"),

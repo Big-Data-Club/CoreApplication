@@ -684,18 +684,12 @@ func (h *QuizHandler) UploadQuestionImage(c *gin.Context) {
 	}
 	defer src.Close()
 
-	fileData := make([]byte, file.Size)
-	if _, err := src.Read(fileData); err != nil {
-		logger.Error("Failed to read file data", err)
-		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("upload_failed", "Failed to read file"))
-		return
-	}
-
 	ext := filepath.Ext(file.Filename)
 	imageID := uuid.New().String()
 	filename := fmt.Sprintf("quizzes/question_%d/%s%s", questionID, imageID, ext)
+	contentType := getContentType(file.Filename)
 
-	storagePath, err := h.storage.Upload(c.Request.Context(), filename, fileData)
+	storagePath, err := h.storage.Upload(c.Request.Context(), filename, src, file.Size, contentType)
 	if err != nil {
 		logger.Error("Failed to upload to storage", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("upload_failed", "Failed to save file"))

@@ -37,11 +37,9 @@ services:
       NEXT_PUBLIC_LMS_API_URL: ${NEXT_PUBLIC_LMS_API_URL}
       GOOGLE_SCRIPT_URL: ${GOOGLE_SCRIPT_URL}
       
-      # Auth configuration
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       
-      # Telemetry
       NEXT_TELEMETRY_DISABLED: 1
     
     ports:
@@ -93,9 +91,9 @@ services:
     restart: unless-stopped
     
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-club_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123456}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
       POSTGRES_MAX_CONNECTIONS: 100
       POSTGRES_SHARED_BUFFERS: "128MB"
@@ -132,7 +130,7 @@ services:
       - "service.type=database"
       - "service.name=postgres-auth"
 
-  # Backend Service: Spring Boot (Auth)
+  # Backend Service: Spring Boot
   backend:
     build:
       context: ./Backend
@@ -145,15 +143,12 @@ services:
     restart: unless-stopped
     
     environment:
-      # Spring Profiles
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
       
-      # Database Configuration
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-club_db}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-123456}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
 
-      # Sync User
       LMS_API_URL: ${LMS_API_URL}
       LMS_API_SECRET: ${LMS_API_SECRET}
       
@@ -289,7 +284,7 @@ services:
     restart: unless-stopped
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:-redis_password}
+      --requirepass ${REDIS_PASSWORD}
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
       --save 900 1
@@ -306,7 +301,7 @@ services:
       - app-network
     healthcheck:
       <<: *common-healthcheck
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
     logging: *common-logging
     deploy:
       resources:
@@ -349,9 +344,9 @@ services:
       # Database
       DB_HOST: postgres-lms
       DB_PORT: 5432
-      DB_USER: ${LMS_POSTGRES_USER:-lms_user}
-      DB_PASSWORD: ${LMS_POSTGRES_PASSWORD:-lms_password}
-      DB_NAME: ${LMS_POSTGRES_DB:-lms_db}
+      DB_USER: ${LMS_POSTGRES_USER}
+      DB_PASSWORD: ${LMS_POSTGRES_PASSWORD}
+      DB_NAME: ${LMS_POSTGRES_DB}
       DB_SSL_MODE: disable
       DB_MAX_OPEN_CONNS: 50
       DB_MAX_IDLE_CONNS: 10
@@ -361,7 +356,7 @@ services:
       # Redis
       REDIS_HOST: redis-lms
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DB: 0
       REDIS_POOL_SIZE: 10
       
@@ -370,6 +365,7 @@ services:
       JWT_EXPIRATION_HOURS: 1
       
       # File Storage
+      STORAGE_TYPE: ${STORAGE_TYPE}
       UPLOAD_MAX_SIZE: 104857600  # 100MB
       UPLOAD_DIR: /app/uploads
       ALLOWED_VIDEO_FORMATS: "mp4,avi,mov,mkv,webm,flv"

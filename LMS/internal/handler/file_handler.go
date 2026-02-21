@@ -2,11 +2,11 @@ package handler
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"example/hello/internal/dto"
 	"example/hello/pkg/logger"
@@ -30,7 +30,7 @@ func NewFileHandler(storage storage.Storage) *FileHandler {
 type FileUploadResponse struct {
 	FileID   string `json:"file_id" example:"550e8400-e29b-41d4-a716-446655440000"`
 	FileName string `json:"file_name" example:"document.pdf"`
-	FileURL  string `json:"file_url" example:"/files/document/20240101120000_550e8400_document.pdf"`
+	FileURL  string `json:"file_url" example:"/api/v1/files/serve/document/20240101120000_550e8400_document.pdf"`
 	FilePath string `json:"file_path" example:"document/20240101120000_550e8400_document.pdf"`
 	FileSize int64  `json:"file_size" example:"1024000"`
 	FileType string `json:"file_type" example:"document"`
@@ -97,14 +97,6 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	}
 	defer src.Close()
 
-	// Read file content
-	fileData, err := io.ReadAll(src)
-	if err != nil {
-		logger.Error("Failed to read file content", err)
-		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to read file"))
-		return
-	}
-
 	// Generate unique filename
 	fileID := uuid.New().String()
 	timestamp := time.Now().Format("20060102150405")
@@ -116,8 +108,11 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	// Create stored filename: type/YYYYMMDDHHMMSS_uuid_originalname.ext
 	storedFilename := fmt.Sprintf("%s/%s_%s_%s%s", fileType, timestamp, fileID[:8], nameWithoutExt, ext)
 
-	// Upload to storage
-	_, err = h.storage.Upload(c.Request.Context(), storedFilename, fileData)
+	// Detect content type từ extension để lưu đúng metadata (quan trọng với MinIO)
+	contentType := getContentType(file.Filename)
+
+	// Stream trực tiếp từ multipart reader vào storage — không buffer vào RAM
+	_, err = h.storage.Upload(c.Request.Context(), storedFilename, src, file.Size, contentType)
 	if err != nil {
 		logger.Error("Failed to upload file to storage", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("upload_failed", "Failed to upload file"))
@@ -149,50 +144,59 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 // @Produce application/octet-stream
 // @Param filepath path string true "File path"
 // @Success 200 {file} binary "File content"
+// @Success 206 {file} binary "Partial file content (Range request)"
+// @Failure 400 {object} dto.ErrorResponse "Invalid filename"
 // @Failure 404 {object} dto.ErrorResponse "File not found"
 // @Router /files/serve/{filepath} [get]
 func (h *FileHandler) ServeFile(c *gin.Context) {
-	// Get full filepath from URL param
-	filename := strings.TrimPrefix(c.Param("filepath"), "/")
-	
-	if filename == "" {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Filename is required"))
+	filename, ok := sanitizeFilePath(c.Param("filepath"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
 		return
 	}
 
 	logger.Info(fmt.Sprintf("Serving file: %s", filename))
 
-	// Download from storage
-	data, err := h.storage.Download(c.Request.Context(), filename)
+	result, err := h.storage.GetObject(c.Request.Context(), filename)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to serve file %s", filename), err)
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("file_not_found", "File not found"))
 		return
 	}
+	defer result.Body.Close()
 
-	// Determine content type
-	contentType := getContentType(filename)
-	
-	// Set CORS headers (already set by middleware, but ensure they're correct)
+	// CORS cho file serving (cho phép embed từ bất kỳ website nào)
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
-	
-	// Set content headers
-	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "public, max-age=31536000") // Cache for 1 year
-	c.Header("Content-Length", fmt.Sprintf("%d", len(data)))
-	
-	// For images, videos, and PDFs, use inline display
+
+	// Inline cho image/video/PDF, attachment cho loại khác
 	ext := strings.ToLower(filepath.Ext(filename))
 	if isImage(ext) || isVideo(ext) || ext == ".pdf" {
 		c.Header("Content-Disposition", "inline")
 	} else {
-		// For other files, suggest download
-		baseName := filepath.Base(filename)
-		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", baseName))
+		c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filepath.Base(filename)))
 	}
 
-	c.Data(http.StatusOK, contentType, data)
+	// Filename trong MinIO có timestamp nên content không đổi → immutable cache
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+
+	if result.ETag != "" {
+		c.Header("ETag", result.ETag)
+	}
+
+	// Detect content type từ extension (ưu tiên hơn metadata MinIO nếu rỗng)
+	contentType := result.ContentType
+	if contentType == "" || contentType == "application/octet-stream" {
+		contentType = getContentType(filename)
+	}
+
+	// http.ServeContent tự động:
+	//   ✓ Handle Range/Partial Content → video player seek được
+	//   ✓ Set Content-Length và Content-Type
+	//   ✓ Handle If-Modified-Since, ETag (304 Not Modified)
+	//   ✓ Stream từ storage đến client, không buffer vào RAM
+	c.Writer.Header().Set("Content-Type", contentType)
+	http.ServeContent(c.Writer, c.Request, filepath.Base(filename), result.LastModified, result.Body)
 }
 
 // DownloadFile godoc
@@ -203,35 +207,33 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 // @Param filepath path string true "File path"
 // @Security BearerAuth
 // @Success 200 {file} binary "File content"
+// @Success 206 {file} binary "Partial file content"
 // @Failure 400 {object} dto.ErrorResponse "Invalid filename"
 // @Failure 401 {object} dto.ErrorResponse "Unauthorized"
 // @Failure 404 {object} dto.ErrorResponse "File not found"
 // @Router /files/download/{filepath} [get]
 func (h *FileHandler) DownloadFile(c *gin.Context) {
-	filename := strings.TrimPrefix(c.Param("filepath"), "/")
-	
-	if filename == "" {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Filename is required"))
+	filename, ok := sanitizeFilePath(c.Param("filepath"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
 		return
 	}
 
 	logger.Info(fmt.Sprintf("Downloading file: %s", filename))
 
-	// Download from storage
-	data, err := h.storage.Download(c.Request.Context(), filename)
+	result, err := h.storage.GetObject(c.Request.Context(), filename)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to download file %s", filename), err)
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("file_not_found", "File not found"))
 		return
 	}
+	defer result.Body.Close()
 
-	// Set headers for download
 	baseName := filepath.Base(filename)
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", baseName))
-	c.Header("Content-Type", "application/octet-stream")
-	c.Header("Content-Length", fmt.Sprintf("%d", len(data)))
-	
-	c.Data(http.StatusOK, "application/octet-stream", data)
+	// attachment: buộc browser download thay vì mở inline
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, baseName))
+
+	http.ServeContent(c.Writer, c.Request, baseName, result.LastModified, result.Body)
 }
 
 // DeleteFile godoc
@@ -245,13 +247,13 @@ func (h *FileHandler) DownloadFile(c *gin.Context) {
 // @Failure 400 {object} dto.ErrorResponse "Invalid filename"
 // @Failure 401 {object} dto.ErrorResponse "Unauthorized"
 // @Failure 403 {object} dto.ErrorResponse "Forbidden - admin/teacher only"
+// @Failure 404 {object} dto.ErrorResponse "File not found"
 // @Failure 500 {object} dto.ErrorResponse "Failed to delete file"
 // @Router /files/delete/{filepath} [delete]
 func (h *FileHandler) DeleteFile(c *gin.Context) {
-	filename := strings.TrimPrefix(c.Param("filepath"), "/")
-	
-	if filename == "" {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Filename is required"))
+	filename, ok := sanitizeFilePath(c.Param("filepath"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
 		return
 	}
 
@@ -267,23 +269,66 @@ func (h *FileHandler) DeleteFile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewMessageResponse("File deleted successfully"))
 }
 
-// Helper functions
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 
+// sanitizeFilePath làm sạch và validate đường dẫn để chống path traversal.
+// Input "/document/20240101_abc.pdf" → "document/20240101_abc.pdf", true
+// Input "../../etc/passwd"           → "", false
+func sanitizeFilePath(rawPath string) (string, bool) {
+	cleaned := strings.TrimPrefix(rawPath, "/")
+	if cleaned == "" {
+		return "", false
+	}
+
+	// filepath.Clean resolve .., ., double slashes
+	cleaned = filepath.Clean(cleaned)
+
+	// Chặn path traversal và absolute path
+	if strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
+		return "", false
+	}
+
+	// Chỉ cho phép ký tự an toàn
+	for _, r := range cleaned {
+		if !isAllowedPathChar(r) {
+			return "", false
+		}
+	}
+
+	return cleaned, true
+}
+
+func isAllowedPathChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) ||
+		r == '/' || r == '-' || r == '_' || r == '.' || r == ' '
+}
+
+// cleanFilename sanitizes a filename để lưu an toàn.
 func cleanFilename(filename string) string {
-	// Remove path separators and special characters
 	clean := filepath.Base(filename)
-	clean = strings.ReplaceAll(clean, " ", "_")
-	clean = strings.ReplaceAll(clean, "(", "")
-	clean = strings.ReplaceAll(clean, ")", "")
-	
-	// Limit length (keep extension)
 	ext := filepath.Ext(clean)
 	nameWithoutExt := strings.TrimSuffix(clean, ext)
-	if len(nameWithoutExt) > 50 {
-		nameWithoutExt = nameWithoutExt[:50]
+
+	var builder strings.Builder
+	for _, r := range nameWithoutExt {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == '.' {
+			builder.WriteRune(r)
+		} else {
+			builder.WriteRune('_')
+		}
 	}
-	
-	return nameWithoutExt + ext
+
+	clean = strings.Trim(builder.String(), "_")
+	if clean == "" {
+		clean = "file"
+	}
+	if len(clean) > 50 {
+		clean = clean[:50]
+	}
+
+	return clean + ext
 }
 
 func isValidFileType(fileType, filename string) bool {
