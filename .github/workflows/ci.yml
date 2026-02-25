@@ -13,6 +13,11 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 env:
   DOCKER_BUILDKIT: 1
   COMPOSE_DOCKER_CLI_BUILD: 1
