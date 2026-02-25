@@ -68,17 +68,6 @@ jobs:
           ref: main
           clean: true
 
-      - name: Cập nhật IMAGE_TAG
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          IMAGE_TAG: ${{ needs.gate.outputs.tag }}
-        run: |
-          ENV_FILE="${{ env.APP_DIR }}/.env"
-          [[ -f "$ENV_FILE" ]] || { echo "❌ .env không tồn tại tại $ENV_FILE"; exit 1; }
-          sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|"                   "$ENV_FILE"
-          sed -i "s|^DOCKER_USERNAME=.*|DOCKER_USERNAME=${DOCKER_USERNAME}|" "$ENV_FILE"
-          echo "📌 IMAGE_TAG=${IMAGE_TAG}, DOCKER_USERNAME=${DOCKER_USERNAME}"
-
       - name: Force stop stack
         if: ${{ github.event.inputs.force_restart == 'true' }}
         run: |
