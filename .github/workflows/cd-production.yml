@@ -1,453 +1,141 @@
-name: CD - Deploy to Production
+name: CD — Deploy Production
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'Backend/**'
-      - 'frontend/**'
-      - 'LMS/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/cd-production.yml'
+  workflow_run:
+    workflows: ["CI - Build, Test & Push"]
+    types: [completed]
+    branches: [main]
+
   workflow_dispatch:
     inputs:
-      service:
-        description: 'Service to deploy (all/frontend/backend/lms)'
+      image_tag:
+        description: 'Image tag cần deploy'
         required: false
-        type: choice
-        options:
-          - all
-          - frontend
-          - backend
-          - lms
-        default: 'all'
+        default: 'latest'
+      force_restart:
+        description: 'Force down toàn bộ stack trước khi deploy'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 env:
-  DEPLOY_PATH: /home/bdc_web/bdc
-  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  APP_DIR: /home/bdc_web/codespace/bdc_deploy
 
 jobs:
-  # STAGE 1: Detect Changes
-  detect-changes:
-    name: 🔍 Detect Changes
+  gate:
+    name: 🔍 Kiểm tra điều kiện
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      lms: ${{ steps.filter.outputs.lms }}
-      deploy_backend: ${{ steps.should_deploy.outputs.backend }}
-      deploy_frontend: ${{ steps.should_deploy.outputs.frontend }}
-      deploy_lms: ${{ steps.should_deploy.outputs.lms }}
-      version: ${{ steps.version.outputs.version }}
-    
+      ok:  ${{ steps.check.outputs.ok }}
+      tag: ${{ steps.check.outputs.tag }}
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Detect file changes
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            backend:
-              - 'Backend/**'
-            frontend:
-              - 'frontend/**'
-            lms:
-              - 'LMS/**'
-
-      - name: Determine what to deploy
-        id: should_deploy
+      - name: Evaluate
+        id: check
         run: |
-          MANUAL_SERVICE="${{ github.event.inputs.service }}"
-          
-          # If manual trigger with specific service
-          if [ -n "$MANUAL_SERVICE" ] && [ "$MANUAL_SERVICE" != "all" ]; then
-            echo "backend=$( [ '$MANUAL_SERVICE' = 'backend' ] && echo 'true' || echo 'false' )" >> $GITHUB_OUTPUT
-            echo "frontend=$( [ '$MANUAL_SERVICE' = 'frontend' ] && echo 'true' || echo 'false' )" >> $GITHUB_OUTPUT
-            echo "lms=$( [ '$MANUAL_SERVICE' = 'lms' ] && echo 'true' || echo 'false' )" >> $GITHUB_OUTPUT
-          # If manual trigger with "all" or auto trigger
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "ok=true"  >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.inputs.image_tag || 'latest' }}" >> $GITHUB_OUTPUT
+            echo "✅ Manual trigger"
+          elif [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            echo "ok=true"  >> $GITHUB_OUTPUT
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "✅ CI passed"
           else
-            # Auto-detect or deploy all
-            if [ "$MANUAL_SERVICE" = "all" ]; then
-              echo "backend=true" >> $GITHUB_OUTPUT
-              echo "frontend=true" >> $GITHUB_OUTPUT
-              echo "lms=true" >> $GITHUB_OUTPUT
-            else
-              # Deploy based on file changes
-              echo "backend=${{ steps.filter.outputs.backend }}" >> $GITHUB_OUTPUT
-              echo "frontend=${{ steps.filter.outputs.frontend }}" >> $GITHUB_OUTPUT
-              echo "lms=${{ steps.filter.outputs.lms }}" >> $GITHUB_OUTPUT
-            fi
+            echo "ok=false" >> $GITHUB_OUTPUT
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "⏭️ CI không pass (${{ github.event.workflow_run.conclusion }}) — skip"
           fi
 
-      - name: Generate version
-        id: version
-        run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "version=main-${SHORT_SHA}" >> $GITHUB_OUTPUT
+  deploy:
+    name: 🚀 Deploy Production
+    runs-on: [self-hosted, linux, production, deploy]
+    needs: gate
+    if: needs.gate.outputs.ok == 'true'
 
-  # STAGE 2: Deploy Services (Self-Hosted Runner)
-  deploy-production:
-    name: 🚀 Deploy to Production
-    runs-on: self-hosted
-    needs: detect-changes
     environment:
       name: production
       url: https://bdc.hpcc.vn
-    
+
     steps:
-      - name: Deployment notification
-        run: |
-          echo "🚀 Starting production deployment..."
-          echo "📌 Version: ${{ needs.detect-changes.outputs.version }}"
-          echo "📖 Commit: ${{ github.sha }}"
-          echo "👤 Author: ${{ github.actor }}"
-          echo "🏠 Runner: $(hostname)"
-          echo ""
-          echo "Services to deploy:"
-          echo "  - Backend: ${{ needs.detect-changes.outputs.deploy_backend }}"
-          echo "  - Frontend: ${{ needs.detect-changes.outputs.deploy_frontend }}"
-          echo "  - LMS: ${{ needs.detect-changes.outputs.deploy_lms }}"
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          clean: true
 
-      - name: Check deployment directory
+      - name: Cập nhật IMAGE_TAG
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          IMAGE_TAG: ${{ needs.gate.outputs.tag }}
         run: |
-          if [ ! -d "${{ env.DEPLOY_PATH }}" ]; then
-            echo "❌ Deployment directory not found: ${{ env.DEPLOY_PATH }}"
-            exit 1
-          fi
-          cd ${{ env.DEPLOY_PATH }}
-          echo "✅ Deployment directory exists"
-          ls -la
+          ENV_FILE="${{ env.APP_DIR }}/.env"
+          [[ -f "$ENV_FILE" ]] || { echo "❌ .env không tồn tại tại $ENV_FILE"; exit 1; }
+          sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|"                   "$ENV_FILE"
+          sed -i "s|^DOCKER_USERNAME=.*|DOCKER_USERNAME=${DOCKER_USERNAME}|" "$ENV_FILE"
+          echo "📌 IMAGE_TAG=${IMAGE_TAG}, DOCKER_USERNAME=${DOCKER_USERNAME}"
 
-      # Backup current state
-      - name: Create backup
-        working-directory: ${{ env.DEPLOY_PATH }}
+      - name: Force stop stack
+        if: ${{ github.event.inputs.force_restart == 'true' }}
         run: |
-          echo "💾 Creating backup before deployment..."
-          ./manage.sh backup || echo "⚠️ Backup script not found or failed"
+          cd ${{ env.APP_DIR }}
+          echo "🔴 Force restart — dừng toàn bộ stack..."
+          docker compose down --remove-orphans --timeout 30
+          echo "✅ Đã dừng"
 
-      # Pull latest Docker images
-      - name: Pull latest images
-        working-directory: ${{ env.DEPLOY_PATH }}
-        run: |
-          echo "📥 Pulling latest Docker images..."
-          
-          # Load environment variables
-          source .env
-          
-          # Pull images based on what changed
-          if [ "${{ needs.detect-changes.outputs.deploy_backend }}" == "true" ]; then
-            echo "Pulling backend image..."
-            docker pull ${DOCKER_USERNAME}/bdc-backend:latest
-          fi
-          
-          if [ "${{ needs.detect-changes.outputs.deploy_frontend }}" == "true" ]; then
-            echo "Pulling frontend image..."
-            docker pull ${DOCKER_USERNAME}/bdc-frontend:latest
-          fi
-          
-          if [ "${{ needs.detect-changes.outputs.deploy_lms }}" == "true" ]; then
-            echo "Pulling LMS image..."
-            docker pull ${DOCKER_USERNAME}/bdc-lms:latest
-          fi
-          
-          echo "✅ Images pulled successfully"
+      - name: Deploy
+        run: bash ${{ env.APP_DIR }}/deploy.sh
 
-      # Deploy Backend
-      - name: Deploy Backend
-        if: needs.detect-changes.outputs.deploy_backend == 'true'
-        working-directory: ${{ env.DEPLOY_PATH }}
+      - name: Health check
         run: |
-          echo "🔄 Deploying backend service..."
-          
-          # Recreate only backend container
-          docker compose up -d --no-deps --force-recreate backend
-          
-          echo "⏳ Waiting for backend to be healthy..."
-          sleep 10
-          
-          # Wait for backend health check
-          for i in {1..24}; do
-            if docker compose ps | grep "backend" | grep -q "healthy"; then
-              echo "✅ Backend is healthy!"
-              break
-            fi
-            if [ $i -eq 24 ]; then
-              echo "❌ Timeout waiting for backend health"
-              docker compose logs backend --tail=50
-              exit 1
-            fi
-            echo "⏳ Waiting... ($i/24)"
-            sleep 5
-          done
-
-      # Deploy LMS
-      - name: Deploy LMS
-        if: needs.detect-changes.outputs.deploy_lms == 'true'
-        working-directory: ${{ env.DEPLOY_PATH }}
-        run: |
-          echo "🔄 Deploying LMS service..."
-          
-          # Recreate only LMS container
-          docker compose up -d --no-deps --force-recreate lms-backend
-          
-          echo "⏳ Waiting for LMS to be healthy..."
-          sleep 10
-          
-          # Wait for LMS health check
-          for i in {1..24}; do
-            if docker compose ps | grep "lms-backend" | grep -q "healthy"; then
-              echo "✅ LMS is healthy!"
-              break
-            fi
-            if [ $i -eq 24 ]; then
-              echo "❌ Timeout waiting for LMS health"
-              docker compose logs lms-backend --tail=50
-              exit 1
-            fi
-            echo "⏳ Waiting... ($i/24)"
-            sleep 5
-          done
-
-      # Deploy Frontend
-      - name: Deploy Frontend
-        if: needs.detect-changes.outputs.deploy_frontend == 'true'
-        working-directory: ${{ env.DEPLOY_PATH }}
-        run: |
-          echo "🔄 Deploying frontend service..."
-          
-          # Recreate only frontend container
-          docker compose up -d --no-deps --force-recreate frontend
-          
-          echo "⏳ Waiting for frontend to be healthy..."
-          sleep 10
-          
-          # Wait for frontend health check
-          for i in {1..24}; do
-            if docker compose ps | grep "frontend" | grep -q "healthy"; then
-              echo "✅ Frontend is healthy!"
-              break
-            fi
-            if [ $i -eq 24 ]; then
-              echo "❌ Timeout waiting for frontend health"
-              docker compose logs frontend --tail=50
-              exit 1
-            fi
-            echo "⏳ Waiting... ($i/24)"
-            sleep 5
-          done
-
-      # Post-deployment checks
-      - name: Show deployment status
-        working-directory: ${{ env.DEPLOY_PATH }}
-        run: |
-          echo "📊 Deployment Status:"
-          echo "===================="
-          docker compose ps
-          echo ""
-          
-          echo "📊 Container Stats:"
-          docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
-          echo ""
-          
-          echo "💾 Disk Usage:"
-          df -h / | grep -v tmpfs
-
-      - name: Clean up old Docker resources
-        working-directory: ${{ env.DEPLOY_PATH }}
-        run: |
-          echo "🧹 Cleaning up old Docker resources..."
-          
-          # Remove old images (keep last 24h)
-          docker image prune -f --filter "until=24h" || true
-          
-          # Remove unused volumes (be careful!)
-          # docker volume prune -f || true
-          
-          echo "✅ Cleanup completed"
-
-      - name: Deployment complete
-        run: |
-          echo "✅ Production Deployment Successful!"
-          echo "===================================="
-          echo "🕐 Time: $(date)"
-          echo "📖 Commit: ${{ github.sha }}"
-          echo "📌 Version: ${{ needs.detect-changes.outputs.version }}"
-          echo "🌐 URL: https://bdc.hpcc.vn"
-          echo "🏠 Server: $(hostname)"
-          echo ""
-          echo "Deployed services:"
-          echo "  - Backend: ${{ needs.detect-changes.outputs.deploy_backend }}"
-          echo "  - Frontend: ${{ needs.detect-changes.outputs.deploy_frontend }}"
-          echo "  - LMS: ${{ needs.detect-changes.outputs.deploy_lms }}"
-
-  # STAGE 3: Health Checks & Notifications
-  verify-deployment:
-    name: ✅ Verify Deployment
-    runs-on: ubuntu-latest
-    needs: [detect-changes, deploy-production]
-    if: always() && needs.deploy-production.result == 'success'
-    
-    steps:
-      - name: Wait for services to stabilize
-        run: |
-          echo "⏳ Waiting for services to stabilize..."
+          echo "⏳ Chờ services ổn định (15s)..."
           sleep 15
 
-      - name: Health check - Frontend
-        if: needs.detect-changes.outputs.deploy_frontend == 'true'
-        run: |
-          echo "🏥 Checking Frontend health..."
-          for i in {1..5}; do
-            if curl -f -s https://bdc.hpcc.vn/api/health > /dev/null; then
-              echo "✅ Frontend is healthy!"
-              exit 0
+          FAILED=0
+          _check() {
+            if curl -sf --max-time 10 "$1" > /dev/null 2>&1; then
+              echo "✅ $2"
+            else
+              echo "❌ $2 ($1)"
+              FAILED=1
             fi
-            echo "⏳ Attempt $i/5 failed, retrying in 10s..."
-            sleep 10
-          done
-          echo "❌ Frontend health check failed"
-          exit 1
+          }
 
-      - name: Health check - Backend
-        if: needs.detect-changes.outputs.deploy_backend == 'true'
-        run: |
-          echo "🏥 Checking Backend health..."
-          for i in {1..5}; do
-            if curl -f -s https://bdc.hpcc.vn/apiv1/actuator/health > /dev/null; then
-              echo "✅ Backend is healthy!"
-              HEALTH=$(curl -s https://bdc.hpcc.vn/apiv1/actuator/health)
-              echo "$HEALTH" | jq . || echo "$HEALTH"
-              exit 0
-            fi
-            echo "⏳ Attempt $i/5 failed, retrying in 10s..."
-            sleep 10
-          done
-          echo "❌ Backend health check failed"
-          exit 1
+          _check "http://localhost:3000/api/health"      "Frontend"
+          _check "http://localhost:8080/actuator/health" "Backend"
+          _check "http://localhost:8081/health"          "LMS"
 
-      - name: Health check - LMS
-        if: needs.detect-changes.outputs.deploy_lms == 'true'
-        run: |
-          echo "🏥 Checking LMS health..."
-          for i in {1..5}; do
-            if curl -f -s https://bdc.hpcc.vn/lmsapiv1/health > /dev/null; then
-              echo "✅ LMS is healthy!"
-              exit 0
-            fi
-            echo "⏳ Attempt $i/5 failed, retrying in 10s..."
-            sleep 10
-          done
-          echo "❌ LMS health check failed"
-          exit 1
-
-      - name: Generate deployment report
-        run: |
-          echo "## 🚀 Production Deployment Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ✅ Successful" >> $GITHUB_STEP_SUMMARY
-          echo "**Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ needs.detect-changes.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Deployed by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Deployed Services" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Service | Status | Health Check |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|--------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Frontend | ${{ needs.detect-changes.outputs.deploy_frontend == 'true' && '✅ Deployed' || '⏭️ Skipped' }} | ✅ Healthy |" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend | ${{ needs.detect-changes.outputs.deploy_backend == 'true' && '✅ Deployed' || '⏭️ Skipped' }} | ✅ Healthy |" >> $GITHUB_STEP_SUMMARY
-          echo "| LMS | ${{ needs.detect-changes.outputs.deploy_lms == 'true' && '✅ Deployed' || '⏭️ Skipped' }} | ✅ Healthy |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**🌐 Live URL:** https://bdc.hpcc.vn" >> $GITHUB_STEP_SUMMARY
-
-  # STAGE 4: Rollback on Failure
-  rollback-on-failure:
-    name: 🔄 Rollback
-    runs-on: self-hosted
-    needs: [detect-changes, deploy-production, verify-deployment]
-    if: failure() && needs.deploy-production.result == 'success'
-    
-    steps:
-      - name: Rollback notification
-        run: |
-          echo "⚠️ Deployment verification failed - initiating rollback..."
-          echo "📖 Commit: ${{ github.sha }}"
-
-      - name: Restore from backup
-        working-directory: ${{ env.DEPLOY_PATH }}
-        run: |
-          echo "🔄 Rolling back to previous version..."
-          
-          # Find latest backup
-          LATEST_BACKUP=$(ls -t backups/ | head -1)
-          
-          if [ -z "$LATEST_BACKUP" ]; then
-            echo "❌ No backup found for rollback"
+          if [[ $FAILED -eq 1 ]]; then
+            echo ""
+            echo "Container status:"
+            docker compose -f ${{ env.APP_DIR }}/docker-compose.yml ps
             exit 1
           fi
-          
-          echo "📦 Rolling back using backup: $LATEST_BACKUP"
-          
-          # Restore databases if needed
-          # docker compose exec -T postgres psql -U postgres club_db < "backups/$LATEST_BACKUP/auth_db.sql"
-          
-          # Restart services with previous images
-          docker compose restart
-          
-          echo "✅ Rollback completed"
+          echo "✅ Tất cả healthy!"
 
-      - name: Verify rollback
-        working-directory: ${{ env.DEPLOY_PATH }}
+      - name: Docker logout
+        if: always()
+        run: docker logout || true
+
+      - name: Summary
+        if: always()
         run: |
-          echo "⏳ Verifying rollback..."
-          sleep 10
-          docker compose ps
+          STATUS="${{ job.status }}"
+          [[ "$STATUS" == "success" ]] && ICON="✅" || ICON="❌"
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## ${ICON} Deploy ${STATUS}
+          | | |
+          |---|---|
+          | **URL** | https://bdc.hpcc.vn |
+          | **Tag** | \`${{ needs.gate.outputs.tag }}\` |
+          | **Commit** | \`${{ github.sha }}\` |
+          | **Time** | $(date '+%Y-%m-%d %H:%M:%S %Z') |
 
-  # ============================================================================
-  # STAGE 5: Notifications
-  # ============================================================================
-  notify:
-    name: 📬 Send Notifications
-    runs-on: ubuntu-latest
-    needs: [detect-changes, deploy-production, verify-deployment]
-    if: always()
-    
-    steps:
-      - name: Deployment status summary
-        run: |
-          if [ "${{ needs.verify-deployment.result }}" == "success" ]; then
-            echo "✅ Production deployment successful!"
-            echo ""
-            echo "Deployed services:"
-            echo "  - Frontend: ${{ needs.detect-changes.outputs.deploy_frontend }}"
-            echo "  - Backend: ${{ needs.detect-changes.outputs.deploy_backend }}"
-            echo "  - LMS: ${{ needs.detect-changes.outputs.deploy_lms }}"
-            echo ""
-            echo "🌐 Live at: https://bdc.hpcc.vn"
-          else
-            echo "❌ Production deployment failed!"
-            echo "📋 Check the deployment logs for details"
-          fi
-
-      # Add your notification integrations here:
-      # - Slack webhook
-      # - Discord webhook
-      # - Email notification
-      # - MS Teams webhook
-      # etc.
-      
-      # Example Slack notification:
-      # - name: Notify Slack
-      #   if: always()
-      #   uses: slackapi/slack-github-action@v1
-      #   with:
-      #     webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-      #     payload: |
-      #       {
-      #         "text": "Deployment ${{ needs.verify-deployment.result }}"
-      #       }
+          \`\`\`
+          $(docker compose -f ${{ env.APP_DIR }}/docker-compose.yml ps 2>&1 || true)
+          \`\`\`
+          EOF
