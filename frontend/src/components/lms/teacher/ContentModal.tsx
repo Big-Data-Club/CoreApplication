@@ -26,7 +26,7 @@ export default function ContentModal({
     type: "TEXT" as ContentType,
     title: "",
     description: "",
-    order_index: existingContents.length,
+    order_index: existingContents.length + 1,
     is_mandatory: false,
     metadata: {} as Record<string, any>,
   });

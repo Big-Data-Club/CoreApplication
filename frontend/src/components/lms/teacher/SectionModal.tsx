@@ -13,7 +13,7 @@ export function SectionModal({ courseId, section, onClose, onSuccess, existingSe
   const [formData, setFormData] = useState({
     title: section?.title || "",
     description: section?.description || "",
-    order_index: section?.order_index ?? existingSections.length,
+    order_index: section?.order_index ?? existingSections.length + 1,
   });
   const [loading, setLoading] = useState(false);
 

@@ -181,7 +181,7 @@ config.setAllowedOrigins(List.of(
     "http://localhost:3000",
     "http://localhost:8080",
     "https://bdc.hpcc.vn",
-    "http://frontend:3000"   // ← Phải khớp với CorsConfig
+    "http://frontend:3000"
 ));
 ```
 
