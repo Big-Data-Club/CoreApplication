@@ -239,7 +239,6 @@ class AutoIndexService:
                 file_bytes, file_type, content_id
             )
 
-            # BƯỚC MỚI: Vision enrichment 
             # Chỉ dành cho PDF, async, fail-safe
             if file_type == "pdf" and settings.groq_api_key:
                 _progress("vision_enrichment", 18)
@@ -253,6 +252,11 @@ class AutoIndexService:
                     raw_text = "\n\n".join(c.text for c in structured_chunks)
                 except Exception as e:
                     logger.warning(f"Vision enrichment failed (non-fatal): {e}")
+
+            import gc
+            del file_bytes
+            file_bytes = None  # type: ignore[assignment]
+            gc.collect()
 
             if not raw_text.strip():
                 await self._update_content_status(content_id, "failed", "Empty document text")
@@ -289,8 +293,6 @@ class AutoIndexService:
             _progress("chunk_embed", 60)
 
             n_chunks = await self._chunk_and_store(
-                file_bytes=file_bytes,
-                file_type=file_type,
                 structured_chunks=structured_chunks,
                 content_id=content_id,
                 course_id=course_id,
@@ -324,7 +326,7 @@ class AutoIndexService:
             await self._update_content_status(content_id, "failed", str(e)[:300])
             raise
 
-    # Step 1: Download 
+    # ── Step 1: Download ──────────────────────────────────────────────────────
 
     async def _download_bytes(self, file_url: str) -> bytes:
         loop = asyncio.get_event_loop()
@@ -350,7 +352,7 @@ class AutoIndexService:
 
         return await loop.run_in_executor(None, _sync_download)
 
-    # Step 2: Extract text + structured chunks 
+    # ── Step 2: Extract text + structured chunks ──────────────────────────────
 
     async def _extract_text_and_chunks(
         self,
@@ -395,7 +397,7 @@ class AutoIndexService:
         raw_text = "\n\n".join(c.text for c in chunks)
         return raw_text, chunks
 
-    # Step 2B (NEW): Vision enrichment 
+    # ── Step 2B (NEW): Vision enrichment ─────────────────────────────────────
 
     async def _enrich_chunks_with_vision(
         self,
@@ -479,7 +481,7 @@ class AutoIndexService:
         )
         return enriched
 
-    # Step 3: LLM extract nodes + prerequisites 
+    # ── Step 3: LLM extract nodes + prerequisites ─────────────────────────────
 
     async def _extract_nodes_and_relations(
         self,
@@ -565,7 +567,7 @@ class AutoIndexService:
         logger.info(f"LLM extracted {len(nodes)} nodes, {len(relations)} relations")
         return nodes, relations
 
-    # Step 4: Create nodes in DB 
+    # ── Step 4: Create nodes in DB ────────────────────────────────────────────
 
     async def _create_knowledge_nodes_batch(
         self,
@@ -605,7 +607,7 @@ class AutoIndexService:
         logger.info(f"Created {len(node_ids)} knowledge nodes (batch)")
         return node_ids
 
-    # Step 5: Create LLM-derived relations 
+    # ── Step 5: Create LLM-derived relations ──────────────────────────────────
 
     async def _create_llm_relations(
         self,
@@ -642,12 +644,10 @@ class AutoIndexService:
 
         logger.info(f"Created {len(relations)} LLM-derived relations")
 
-    # Step 6: Chunk + embed + assign + store 
+    # ── Step 6: Chunk + embed + assign + store ────────────────────────────────
 
     async def _chunk_and_store(
         self,
-        file_bytes: bytes,
-        file_type: str,
         structured_chunks: list[DocumentChunk],
         content_id: int,
         course_id: int,
@@ -728,7 +728,7 @@ class AutoIndexService:
 
         return stored
 
-    # Step 7: Cross-document graph edges 
+    # ── Step 7: Cross-document graph edges ───────────────────────────────────
 
     async def _build_graph_edges(
         self,
@@ -850,7 +850,7 @@ class AutoIndexService:
                         course_id, src, tgt, round(strength, 3),
                     )
 
-    # Utility 
+    # ── Utility ───────────────────────────────────────────────────────────────
 
     async def _update_content_status(
         self,
