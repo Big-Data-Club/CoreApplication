@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # llama-3.3-70b-versatile → 280 tok/s, tốt hơn, dùng cho quiz gen
     chat_model: str = "llama-3.1-8b-instant"
     quiz_model: str = "llama-3.3-70b-versatile"
+    vlm_model:  str = "meta-llama/llama-4-scout-17b-16e-instruct"
 
     # Embedding (FastEmbed - chạy local, không cần server)
     embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"

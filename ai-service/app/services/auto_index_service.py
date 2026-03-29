@@ -30,7 +30,7 @@ from app.services.chunker import (
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-#  Tuning constants 
+#  Tuning constants
 RELATION_SIMILARITY_THRESHOLD = 0.62
 MAX_NODES_PER_DOCUMENT = 8
 MIN_NODES_PER_DOCUMENT = 2
@@ -38,8 +38,13 @@ EMBED_BATCH_SIZE = 16
 MAX_EXCERPT_CHARS = 9000
 MAX_EXISTING_NODES_FOR_GRAPH = 200
 
+# Vision enrichment: chỉ dùng cho PDF, giới hạn số trang để tránh tốn quota
+VISION_MAX_PAGES = 15
+# Chỉ enrich trang có ít text hơn ngưỡng này (trang đã có nhiều text thì skip VLM)
+VISION_MIN_TEXT_LEN_TO_SKIP = 400
 
-#  Data classes 
+
+#  Data classes
 
 @dataclass
 class ExtractedNode:
@@ -55,12 +60,12 @@ class ExtractedNode:
 class ExtractedRelation:
     source_index: int
     target_index: int
-    relation_type: str   # 'prerequisite' | 'related'
+    relation_type: str
     reason: str
     strength: float = 0.85
 
 
-#  LLM Prompts 
+#  LLM Prompts
 
 NODE_EXTRACTION_SYSTEM = """\
 Bạn là chuyên gia phân tích giáo trình đại học và thiết kế chương trình học.
@@ -82,10 +87,6 @@ def build_node_extraction_prompt(
     detected_headings: list[str],
     max_nodes: int,
 ) -> str:
-    """
-    Xây dựng prompt giàu ngữ cảnh cho node extraction + prerequisite trong 1 lần gọi.
-    Gộp 2 prompt cũ thành 1 để tiết kiệm ~50% LLM latency.
-    """
     lang_hint = "Tên chủ đề ưu tiên tiếng Việt" if language == "vi" else "Topic names in English preferred"
     file_hint_map = {
         "pdf": "tài liệu PDF (có thể là giáo trình, bài giảng, báo cáo)",
@@ -100,7 +101,7 @@ def build_node_extraction_prompt(
     heading_context = ""
     if detected_headings:
         tops = detected_headings[:20]
-        heading_context = f"\nCÁC TIÊU ĐỀ/HEADING PHÁT HIỆN ĐƯỢC:\n" + "\n".join(f"  - {h}" for h in tops) + "\n"
+        heading_context = "\nCÁC TIÊU ĐỀ/HEADING PHÁT HIỆN ĐƯỢC:\n" + "\n".join(f"  - {h}" for h in tops) + "\n"
 
     title_context = f"\nTIÊU ĐỀ TÀI LIỆU: {doc_title}\n" if doc_title else ""
 
@@ -139,12 +140,9 @@ Trả về JSON theo schema (không thêm bất kỳ text nào ngoài JSON):
 {schema}"""
 
 
-#  File extension → file_type mapping 
-
 def _detect_file_type(file_url: str, content_type: str) -> str:
     url_lower = file_url.lower()
     ct_lower = content_type.lower()
-
     if url_lower.endswith(".pdf") or "pdf" in ct_lower:
         return "pdf"
     if url_lower.endswith(".docx") or url_lower.endswith(".doc") or "word" in ct_lower:
@@ -158,21 +156,14 @@ def _detect_file_type(file_url: str, content_type: str) -> str:
     return "txt"
 
 
-#  Heading extractor (để cung cấp thêm context cho LLM) 
-
 def _extract_headings(text: str, max_headings: int = 30) -> list[str]:
-    """
-    Heuristic: dòng ngắn (<= 80 ký tự) kết thúc không bằng dấu chấm,
-    bắt đầu bằng chữ hoa, hoặc là heading dạng số (I. II. 1. 2. 1.1 ...).
-    Dùng để cung cấp cấu trúc tài liệu cho LLM mà không tốn nhiều token.
-    """
     import re
     headings: list[str] = []
     heading_pattern = re.compile(
         r'^(?:'
-        r'\d+[\.\)]\s+'           # 1. hoặc 1)
-        r'|[IVXivx]+[\.\)]\s+'    # I. II. III.
-        r'|[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴĐÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸ]'  # Hoa
+        r'\d+[\.\)]\s+'
+        r'|[IVXivx]+[\.\)]\s+'
+        r'|[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴĐÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸ]'
         r')'
     )
     for line in text.split("\n"):
@@ -187,7 +178,6 @@ def _extract_headings(text: str, max_headings: int = 30) -> list[str]:
 
 
 def _extract_doc_title(text: str) -> str | None:
-    """Lấy dòng đầu tiên không rỗng làm title hint."""
     for line in text.split("\n")[:10]:
         line = line.strip()
         if line and 5 < len(line) < 120:
@@ -195,39 +185,26 @@ def _extract_doc_title(text: str) -> str | None:
     return None
 
 
-#  Smart excerpt: đầu + đều các đoạn giữa + cuối 
-
 def _smart_excerpt(text: str, max_chars: int = MAX_EXCERPT_CHARS) -> str:
-    """
-    Cải tiến: lấy mẫu đồng đều từ toàn bộ tài liệu.
-    Phân chia text thành N window, lấy đoạn đầu của mỗi window.
-    Kết quả đại diện cho cấu trúc toàn bộ tài liệu tốt hơn là đầu+giữa+cuối.
-    """
     if len(text) <= max_chars:
         return text
-
-    # Chia thành 5 phần, mỗi phần lấy 1/5 * max_chars
     n_parts = 5
     part_size = max_chars // n_parts
     total_len = len(text)
     step = total_len // n_parts
     parts: list[str] = []
-
     for i in range(n_parts):
         start = i * step
         end = min(start + part_size, total_len)
         snippet = text[start:end].strip()
         if snippet:
             parts.append(snippet)
-
     return "\n\n[...]\n\n".join(parts)
 
 
-#  Main Service 
+#  Main Service
 
 class AutoIndexService:
-
-    #  Public entry point 
 
     async def auto_index(
         self,
@@ -235,14 +212,9 @@ class AutoIndexService:
         course_id: int,
         file_url: str,
         content_type: str,
-        file_bytes: bytes | None = None,                     # NEW: tránh download lại
-        progress_callback: Callable[[str, int], None] | None = None,  # NEW: progress reporting
+        file_bytes: bytes | None = None,
+        progress_callback: Callable[[str, int], None] | None = None,
     ) -> dict:
-        """
-        Full auto-index pipeline.
-        - `file_bytes`: nếu Celery task đã download, truyền thẳng vào để tránh download lần 2.
-        - `progress_callback(stage, pct)`: được gọi sau mỗi bước (stage=tên bước, pct=0-100).
-        """
         logger.info(f"AutoIndex start: content_id={content_id}, course_id={course_id}, type={content_type}")
 
         def _progress(stage: str, pct: int):
@@ -253,7 +225,6 @@ class AutoIndexService:
         try:
             _progress("download", 0)
 
-            # 1. Download file bytes (một lần duy nhất)
             if file_bytes is None:
                 file_bytes = await self._download_bytes(file_url)
 
@@ -263,11 +234,25 @@ class AutoIndexService:
 
             _progress("extract", 10)
 
-            # 2. Detect file type + extract text + structured chunks
             file_type = _detect_file_type(file_url, content_type)
             raw_text, structured_chunks = await self._extract_text_and_chunks(
                 file_bytes, file_type, content_id
             )
+
+            # BƯỚC MỚI: Vision enrichment 
+            # Chỉ dành cho PDF, async, fail-safe
+            if file_type == "pdf" and settings.groq_api_key:
+                _progress("vision_enrichment", 18)
+                try:
+                    structured_chunks = await self._enrich_chunks_with_vision(
+                        pdf_bytes=file_bytes,
+                        chunks=structured_chunks,
+                        doc_title=_extract_doc_title(raw_text),
+                    )
+                    # Cập nhật lại raw_text từ chunks đã enriched
+                    raw_text = "\n\n".join(c.text for c in structured_chunks)
+                except Exception as e:
+                    logger.warning(f"Vision enrichment failed (non-fatal): {e}")
 
             if not raw_text.strip():
                 await self._update_content_status(content_id, "failed", "Empty document text")
@@ -275,10 +260,8 @@ class AutoIndexService:
 
             _progress("llm_analysis", 20)
 
-            # 3. Detect language từ sample đầu tài liệu
             language = detect_language(raw_text[:3000])
 
-            # 4. LLM: extract nodes + prerequisites trong 1 lần gọi
             nodes, relations = await self._extract_nodes_and_relations(
                 raw_text, file_type, language, file_url
             )
@@ -289,7 +272,6 @@ class AutoIndexService:
 
             _progress("embed_nodes", 40)
 
-            # 5. Embed node descriptions (batch)
             node_desc_texts = [
                 f"{n.name_vi or n.name}: {n.description} Từ khóa: {', '.join(n.keywords)}"
                 for n in nodes
@@ -298,17 +280,14 @@ class AutoIndexService:
 
             _progress("create_nodes", 50)
 
-            # 6. Tạo knowledge_nodes trong DB (batch)
             node_ids = await self._create_knowledge_nodes_batch(
                 nodes, node_embeddings, course_id, content_id
             )
 
-            # 7. Tạo prerequisite/related relations từ LLM output
             await self._create_llm_relations(relations, node_ids, course_id)
 
             _progress("chunk_embed", 60)
 
-            # 8. Chunk + embed + assign chunks → nodes
             n_chunks = await self._chunk_and_store(
                 file_bytes=file_bytes,
                 file_type=file_type,
@@ -322,12 +301,9 @@ class AutoIndexService:
 
             _progress("build_graph", 90)
 
-            # 9. Build cross-document graph edges
             await self._build_graph_edges(node_ids, node_embeddings, course_id)
 
-            # 10. Mark indexed
             await self._update_content_status(content_id, "indexed")
-
             _progress("done", 100)
 
             logger.info(
@@ -348,13 +324,9 @@ class AutoIndexService:
             await self._update_content_status(content_id, "failed", str(e)[:300])
             raise
 
-    #  Step 1: Download 
+    # Step 1: Download 
 
     async def _download_bytes(self, file_url: str) -> bytes:
-        """
-        Download file từ MinIO, trả về raw bytes.
-        Dùng streaming để tránh spike bộ nhớ với file lớn.
-        """
         loop = asyncio.get_event_loop()
 
         def _sync_download() -> bytes:
@@ -369,7 +341,7 @@ class AutoIndexService:
             response = client.get_object(bucket, file_url)
             try:
                 buf = io.BytesIO()
-                for chunk in response.stream(1 * 1024 * 1024):  # 1MB chunks
+                for chunk in response.stream(1 * 1024 * 1024):
                     buf.write(chunk)
                 return buf.getvalue()
             finally:
@@ -378,7 +350,7 @@ class AutoIndexService:
 
         return await loop.run_in_executor(None, _sync_download)
 
-    #  Step 2: Extract text + structured chunks 
+    # Step 2: Extract text + structured chunks 
 
     async def _extract_text_and_chunks(
         self,
@@ -387,8 +359,8 @@ class AutoIndexService:
         content_id: int,
     ) -> tuple[str, list[DocumentChunk]]:
         """
-        Trích xuất text thuần và danh sách DocumentChunk (với page_number/timestamp).
-        Dùng chunker gốc để đảm bảo page metadata được giữ nguyên.
+        Trích xuất text và chunks từ file.
+        Dùng chunker mới với pymupdf4llm + table extraction.
         """
         loop = asyncio.get_event_loop()
 
@@ -403,8 +375,6 @@ class AutoIndexService:
                 return chunker_map[file_type].chunk_bytes(file_bytes)
 
             if file_type == "video":
-                # Transcript phải được load từ DB hoặc Whisper (xử lý ở Celery task)
-                # Ở đây fallback về empty để auto_index không crash
                 logger.warning(f"Video type: transcript must be pre-generated (content_id={content_id})")
                 return []
 
@@ -422,12 +392,94 @@ class AutoIndexService:
             ]
 
         chunks = await loop.run_in_executor(None, _sync_extract)
-
-        # Ghép lại thành raw_text để gửi cho LLM (dùng chunk text thay vì re-parse)
         raw_text = "\n\n".join(c.text for c in chunks)
         return raw_text, chunks
 
-    #  Step 3: LLM - Extract nodes + prerequisites (1 call) 
+    # Step 2B (NEW): Vision enrichment 
+
+    async def _enrich_chunks_with_vision(
+        self,
+        pdf_bytes: bytes,
+        chunks: list[DocumentChunk],
+        doc_title: str | None = None,
+    ) -> list[DocumentChunk]:
+        """
+        Enrich chunks PDF bằng cách:
+        1. Phân tích từng trang với document_intelligence
+        2. Với trang được OCR: thay text của chunk nếu OCR tốt hơn
+        3. Với trang được VLM mô tả: thêm mô tả vào cuối text của chunk tương ứng
+
+        Nguyên tắc: chỉ enrich trang có ít text hoặc là scan.
+        Không thay đổi chunks của trang đã có đủ text.
+        """
+        from app.services.document_intelligence import analyze_pdf_pages
+
+        # Phân tích tất cả trang PDF
+        page_intel_list = await analyze_pdf_pages(
+            pdf_bytes=pdf_bytes,
+            groq_api_key=settings.groq_api_key,
+            doc_title=doc_title or "",
+            max_vision_pages=VISION_MAX_PAGES,
+        )
+
+        if not page_intel_list:
+            return chunks
+
+        # Build lookup: page_num → PageIntelligence
+        page_intel = {p.page_num: p for p in page_intel_list}
+
+        enriched: list[DocumentChunk] = []
+        enrichment_count = 0
+
+        for chunk in chunks:
+            pnum = chunk.page_number
+            intel = page_intel.get(pnum)
+
+            if intel is None:
+                enriched.append(chunk)
+                continue
+
+            original_text_len = len(chunk.text.strip())
+
+            # Quyết định có enrich hay không
+            should_enrich = (
+                intel.is_scanned
+                or intel.image_descriptions
+                or intel.tables_md
+                or original_text_len < VISION_MIN_TEXT_LEN_TO_SKIP
+            )
+
+            if not should_enrich:
+                enriched.append(chunk)
+                continue
+
+            # Lấy full_text đã enriched từ PageIntelligence
+            enriched_text = intel.full_text.strip()
+
+            if not enriched_text or len(enriched_text) <= original_text_len:
+                # Enrichment không cải thiện → giữ nguyên
+                enriched.append(chunk)
+                continue
+
+            # Tạo chunk mới với text đã được enriched
+            new_chunk = DocumentChunk(
+                text=sanitize_text(enriched_text),
+                index=chunk.index,
+                source_type=chunk.source_type,
+                page_number=chunk.page_number,
+                start_time_sec=chunk.start_time_sec,
+                end_time_sec=chunk.end_time_sec,
+                language=detect_language(enriched_text),
+            )
+            enriched.append(new_chunk)
+            enrichment_count += 1
+
+        logger.info(
+            f"Vision enrichment: {enrichment_count}/{len(chunks)} chunks enriched"
+        )
+        return enriched
+
+    # Step 3: LLM extract nodes + prerequisites 
 
     async def _extract_nodes_and_relations(
         self,
@@ -436,21 +488,12 @@ class AutoIndexService:
         language: str,
         file_url: str,
     ) -> tuple[list[ExtractedNode], list[ExtractedRelation]]:
-        """
-        Gộp node extraction + prerequisite detection thành 1 LLM call.
-        Cải tiến vs cũ: cung cấp thêm headings, title, file type → LLM hiểu ngữ cảnh tốt hơn.
-        """
-        # Tính số nodes hợp lý dựa trên độ dài tài liệu
         n_nodes = min(
             MAX_NODES_PER_DOCUMENT,
             max(MIN_NODES_PER_DOCUMENT, len(raw_text) // 1500),
         )
-
-        # Lấy metadata cấu trúc tài liệu (không tốn token nhiều)
         doc_title = _extract_doc_title(raw_text)
         headings = _extract_headings(raw_text)
-
-        # Lấy excerpt thông minh
         excerpt = _smart_excerpt(raw_text, MAX_EXCERPT_CHARS)
 
         prompt = build_node_extraction_prompt(
@@ -470,13 +513,12 @@ class AutoIndexService:
         try:
             result = await chat_complete_json(
                 messages=messages,
-                model=settings.quiz_model,   # Dùng model mạnh hơn cho analysis
-                temperature=0.15,            # Gần như deterministic để consistent
+                model=settings.quiz_model,
+                temperature=0.15,
                 max_tokens=2048,
             )
         except Exception as e:
             logger.error(f"LLM node extraction failed: {e}", exc_info=True)
-            # Fallback: tạo 1 node generic từ title
             fallback_name = doc_title or "Nội dung tài liệu"
             return (
                 [ExtractedNode(
@@ -487,7 +529,6 @@ class AutoIndexService:
                 [],
             )
 
-        # Parse nodes
         raw_nodes = result.get("nodes", [])
         nodes: list[ExtractedNode] = []
         for i, n in enumerate(raw_nodes[:MAX_NODES_PER_DOCUMENT]):
@@ -504,7 +545,6 @@ class AutoIndexService:
                 order_index=i,
             ))
 
-        # Parse relations (prerequisites từ LLM)
         raw_rels = result.get("prerequisites", [])
         relations: list[ExtractedRelation] = []
         for r in raw_rels:
@@ -525,7 +565,7 @@ class AutoIndexService:
         logger.info(f"LLM extracted {len(nodes)} nodes, {len(relations)} relations")
         return nodes, relations
 
-    #  Step 4: Create nodes in DB (batch) 
+    # Step 4: Create nodes in DB 
 
     async def _create_knowledge_nodes_batch(
         self,
@@ -534,10 +574,6 @@ class AutoIndexService:
         course_id: int,
         content_id: int,
     ) -> list[int]:
-        """
-        Batch insert knowledge_nodes bằng asyncpg executemany.
-        Nhanh hơn loop đơn lẻ với nhiều nodes.
-        """
         if not nodes:
             return []
 
@@ -545,19 +581,12 @@ class AutoIndexService:
         for node, embedding in zip(nodes, embeddings):
             embedding_str = "[" + ",".join(str(v) for v in embedding) + "]"
             records.append((
-                course_id,
-                node.name,
-                node.name_vi,
-                node.name_en,
-                node.description,
-                embedding_str,
-                node.order_index,
-                content_id,
+                course_id, node.name, node.name_vi, node.name_en,
+                node.description, embedding_str, node.order_index, content_id,
             ))
 
         node_ids: list[int] = []
         async with get_async_conn() as conn:
-            # asyncpg không có executemany returning → dùng vòng lặp trong 1 transaction
             async with conn.transaction():
                 for rec in records:
                     row = await conn.fetchrow(
@@ -576,7 +605,7 @@ class AutoIndexService:
         logger.info(f"Created {len(node_ids)} knowledge nodes (batch)")
         return node_ids
 
-    #  Step 5: Create LLM-derived relations 
+    # Step 5: Create LLM-derived relations 
 
     async def _create_llm_relations(
         self,
@@ -584,7 +613,6 @@ class AutoIndexService:
         node_ids: list[int],
         course_id: int,
     ) -> None:
-        """Lưu prerequisite/related relations từ kết quả LLM."""
         if not relations:
             return
 
@@ -614,7 +642,7 @@ class AutoIndexService:
 
         logger.info(f"Created {len(relations)} LLM-derived relations")
 
-    #  Step 6: Chunk + embed + assign + store 
+    # Step 6: Chunk + embed + assign + store 
 
     async def _chunk_and_store(
         self,
@@ -627,34 +655,24 @@ class AutoIndexService:
         node_embeddings: list[list[float]],
         language: str,
     ) -> int:
-        """
-        Dùng structured_chunks (đã có page_number/timestamp) thay vì re-chunk từ text.
-        Embed tất cả chunks theo batch → assign mỗi chunk → node gần nhất (vectorized).
-        """
         if not structured_chunks:
             return 0
 
         chunk_texts = [c.text for c in structured_chunks]
-
-        # Embed chunks theo sub-batches để tránh OOM
         chunk_embeddings = await _batch_embed(chunk_texts)
 
-        # Assign chunk → closest node (numpy vectorized, O(n_chunks * n_nodes))
-        node_emb_matrix = np.array(node_embeddings)  # (n_nodes, dim)
-        # Normalize rows để cosine = dot product
+        node_emb_matrix = np.array(node_embeddings)
         node_norms = np.linalg.norm(node_emb_matrix, axis=1, keepdims=True) + 1e-8
         node_emb_norm = node_emb_matrix / node_norms
 
-        chunk_emb_matrix = np.array(chunk_embeddings)   # (n_chunks, dim)
+        chunk_emb_matrix = np.array(chunk_embeddings)
         chunk_norms = np.linalg.norm(chunk_emb_matrix, axis=1, keepdims=True) + 1e-8
         chunk_emb_norm = chunk_emb_matrix / chunk_norms
 
-        # (n_chunks, n_nodes) cosine similarities
         sims = chunk_emb_norm @ node_emb_norm.T
-        best_node_local = sims.argmax(axis=1)  # shape: (n_chunks,)
+        best_node_local = sims.argmax(axis=1)
         assigned_node_ids = [node_ids[i] for i in best_node_local.tolist()]
 
-        # Batch insert chunks vào DB trong 1 transaction
         stored = await self._batch_insert_chunks(
             content_id=content_id,
             course_id=course_id,
@@ -674,10 +692,6 @@ class AutoIndexService:
         embeddings: list[list[float]],
         assigned_node_ids: list[int],
     ) -> int:
-        """
-        Insert tất cả chunks trong 1 transaction để đảm bảo atomicity.
-        Dùng ON CONFLICT DO UPDATE để idempotent khi re-index.
-        """
         from app.services.rag_service import _sanitize
 
         stored = 0
@@ -707,17 +721,14 @@ class AutoIndexService:
                         """,
                         content_id, course_id, node_id,
                         chunk_text, chunk.index, chunk_hash, embedding_str,
-                        chunk.source_type,
-                        chunk.page_number,
-                        chunk.start_time_sec,
-                        chunk.end_time_sec,
-                        chunk.language,
+                        chunk.source_type, chunk.page_number,
+                        chunk.start_time_sec, chunk.end_time_sec, chunk.language,
                     )
                     stored += 1
 
         return stored
 
-    #  Step 7: Cross-document graph edges 
+    # Step 7: Cross-document graph edges 
 
     async def _build_graph_edges(
         self,
@@ -725,10 +736,6 @@ class AutoIndexService:
         new_node_embeddings: list[list[float]],
         course_id: int,
     ) -> None:
-        """
-        So sánh nodes mới với existing nodes trong course.
-        Giới hạn MAX_EXISTING_NODES_FOR_GRAPH để tránh N² explosion.
-        """
         if not new_node_ids:
             return
 
@@ -743,51 +750,38 @@ class AutoIndexService:
                 ORDER BY created_at DESC
                 LIMIT $3
                 """,
-                course_id,
-                new_node_ids,
-                MAX_EXISTING_NODES_FOR_GRAPH,
+                course_id, new_node_ids, MAX_EXISTING_NODES_FOR_GRAPH,
             )
 
         if not existing_rows:
-            # Không có existing nodes → chỉ tạo edges giữa nodes mới với nhau
             await self._create_intra_document_edges(new_node_ids, new_node_embeddings, course_id)
             return
 
-        # Parse embeddings từ DB
         existing_ids: list[int] = []
         existing_embs: list[list[float]] = []
         for r in existing_rows:
             emb_str = r["description_embedding"]
-            if isinstance(emb_str, str):
-                emb = [float(x) for x in emb_str.strip("[]").split(",")]
-            else:
-                emb = list(emb_str)
+            emb = [float(x) for x in emb_str.strip("[]").split(",")] if isinstance(emb_str, str) else list(emb_str)
             existing_ids.append(r["id"])
             existing_embs.append(emb)
 
-        # Vectorized cosine similarity
         new_matrix = np.array(new_node_embeddings)
         existing_matrix = np.array(existing_embs)
 
-        # Normalize
         new_norms = np.linalg.norm(new_matrix, axis=1, keepdims=True) + 1e-8
         exist_norms = np.linalg.norm(existing_matrix, axis=1, keepdims=True) + 1e-8
         new_norm = new_matrix / new_norms
         exist_norm = existing_matrix / exist_norms
 
-        # (n_new, n_existing)
         cross_sims = new_norm @ exist_norm.T
-
         edges: list[tuple[int, int, float]] = []
 
-        # Cross-document edges
         for i, new_id in enumerate(new_node_ids):
             for j, exist_id in enumerate(existing_ids):
                 sim = float(cross_sims[i, j])
                 if sim >= RELATION_SIMILARITY_THRESHOLD:
                     edges.append((new_id, exist_id, sim))
 
-        # Intra-document edges (new nodes với nhau)
         intra_sims = new_norm @ new_norm.T
         for i in range(len(new_node_ids)):
             for j in range(i + 1, len(new_node_ids)):
@@ -824,7 +818,6 @@ class AutoIndexService:
         embeddings: list[list[float]],
         course_id: int,
     ) -> None:
-        """Tạo edges giữa các nodes trong cùng tài liệu."""
         if len(node_ids) < 2:
             return
 
@@ -857,7 +850,7 @@ class AutoIndexService:
                         course_id, src, tgt, round(strength, 3),
                     )
 
-    #  Utility 
+    # Utility 
 
     async def _update_content_status(
         self,
@@ -874,12 +867,9 @@ class AutoIndexService:
             logger.warning(f"content_id={content_id} → {status}: {error_msg}")
 
 
-#  Embedding helper với sub-batching 
+#  Embedding helper
 
 async def _batch_embed(texts: list[str]) -> list[list[float]]:
-    """
-    Embed danh sách texts theo sub-batch để tránh OOM với tài liệu lớn.
-    """
     results: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH_SIZE):
         sub = texts[i: i + EMBED_BATCH_SIZE]

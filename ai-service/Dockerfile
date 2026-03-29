@@ -17,6 +17,9 @@ FROM python:3.12-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
+        tesseract-ocr \
+        tesseract-ocr-vie \
+        tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 1001 appuser \
@@ -38,7 +41,8 @@ COPY --chown=appuser:appuser . .
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
-    FASTEMBED_CACHE_PATH=/app/.cache/fastembed
+    FASTEMBED_CACHE_PATH=/app/.cache/fastembed \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 
 RUN mkdir -p /app/.cache/fastembed \
  && chown -R appuser:appuser /app/.cache
