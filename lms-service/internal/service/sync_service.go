@@ -10,16 +10,23 @@ import (
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
+	"example/hello/pkg/cache"
 	"example/hello/pkg/logger"
 )
 
+// UserSyncService propagates user/role state from the auth service into LMS.
+// It holds a *cache.RedisCache so role changes invalidate the cached
+// /me/roles answer immediately — without this, freshly granted roles would
+// take up to userRolesTTL to become effective.
 type UserSyncService struct {
 	userRepo *repository.UserRepository
+	cache    *cache.RedisCache
 }
 
-func NewUserSyncService(userRepo *repository.UserRepository) *UserSyncService {
+func NewUserSyncService(userRepo *repository.UserRepository, c *cache.RedisCache) *UserSyncService {
 	return &UserSyncService{
 		userRepo: userRepo,
+		cache:    c,
 	}
 }
 
@@ -80,6 +87,12 @@ func (s *UserSyncService) SyncUser(ctx context.Context, req *dto.UserSyncRequest
 	}
 
 	logger.Info(fmt.Sprintf("Synced user %s with roles: %v", req.Email, rolesAssigned))
+
+	// Roles changed — drop the cached /me/roles answer so the next request
+	// reflects the new state instead of waiting for the TTL.
+	if s.cache != nil {
+		cache.Invalidate(ctx, s.cache, cache.KeyUserRoles(req.UserID))
+	}
 
 	return &dto.UserSyncResponse{
 		UserID:        user.ID,
@@ -151,6 +164,9 @@ func (s *UserSyncService) DeleteUser(ctx context.Context, userID int64) error {
 
 	// Note: We don't actually delete the user record to maintain referential integrity
 	// Just removing all roles effectively "deactivates" them from LMS perspective
+	if s.cache != nil {
+		cache.Invalidate(ctx, s.cache, cache.KeyUserRoles(userID))
+	}
 	logger.Info(fmt.Sprintf("Removed all roles from user %d", userID))
 
 	return nil

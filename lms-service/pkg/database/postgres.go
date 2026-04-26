@@ -30,10 +30,24 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Set connection pool settings
+	// Set connection pool settings.
+	//
+	// Sizing rationale for an HTTP service on top of pgx/lib-pq:
+	//   - MaxOpenConns caps concurrent in-flight queries and protects Postgres
+	//     from connection storms during traffic spikes.
+	//   - MaxIdleConns is kept high enough to absorb bursty traffic without
+	//     paying the TCP/TLS handshake on every request, but low enough to free
+	//     server resources during idle periods.
+	//   - ConnMaxLifetime forces periodic reconnects so PgBouncer/HAProxy can
+	//     rebalance and prepared-statement plans don't grow unboundedly.
+	//   - ConnMaxIdleTime trims the pool back to MaxIdleConns between bursts,
+	//     which matters for multi-tenant deployments that share one Postgres.
 	db.SetMaxOpenConns(cfg.MaxOpenConns)
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
 	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	if cfg.ConnMaxIdleTime > 0 {
+		db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
+	}
 
 	// Verify connection
 	if err := db.Ping(); err != nil {

@@ -13,13 +13,15 @@ import (
 // Cache key prefixes
 const (
 	PrefixCourse      = "course:"
+	PrefixSection     = "section:"
+	PrefixContent     = "content:"
 	PrefixEnrollment  = "enrollment:"
 	PrefixProgress    = "progress:"
 	PrefixQuiz        = "quiz:"
 	PrefixAssignment  = "assignment:"
 	PrefixUser        = "user:"
 	PrefixSession     = "session:"
-	
+
 	KeyCourseList     = "courses:list:published"
 )
 
@@ -40,6 +42,28 @@ func KeyCourseAnnouncements(courseID int64) string {
 	return fmt.Sprintf("%s%d:announcements", PrefixCourse, courseID)
 }
 
+// KeyCourseSections caches the list of sections (metadata only) for a course.
+// Used by the lazy-loading pattern: clients fetch the section list cheaply and
+// only request individual content lists when a section expands in the UI.
+func KeyCourseSections(courseID int64) string {
+	return fmt.Sprintf("%s%d:sections", PrefixCourse, courseID)
+}
+
+func KeySection(sectionID int64) string {
+	return fmt.Sprintf("%s%d", PrefixSection, sectionID)
+}
+
+// KeySectionContents caches the list of content items inside a section. The
+// per-section grain keeps invalidation cheap when an instructor edits a single
+// section without touching the rest of the course.
+func KeySectionContents(sectionID int64) string {
+	return fmt.Sprintf("%s%d:contents", PrefixSection, sectionID)
+}
+
+func KeyContent(contentID int64) string {
+	return fmt.Sprintf("%s%d", PrefixContent, contentID)
+}
+
 func KeyEnrollment(enrollmentID int64) string {
 	return fmt.Sprintf("%s%d", PrefixEnrollment, enrollmentID)
 }
@@ -52,8 +76,20 @@ func KeyCourseEnrollments(courseID int64) string {
 	return fmt.Sprintf("%scourse:%d", PrefixEnrollment, courseID)
 }
 
+// KeyStudentCourseEnrollment is the membership lookup hit on virtually every
+// authenticated request that touches a course (VerifyAccess, ListSections,
+// content visibility checks). Caching it removes a heavy hot-path query.
+func KeyStudentCourseEnrollment(studentID, courseID int64) string {
+	return fmt.Sprintf("%sstudent:%d:course:%d", PrefixEnrollment, studentID, courseID)
+}
+
 func KeyStudentProgress(enrollmentID int64) string {
 	return fmt.Sprintf("%senrollment:%d", PrefixProgress, enrollmentID)
+}
+
+// KeyCourseProgress caches a student's aggregate progress for a course.
+func KeyCourseProgress(courseID, studentID int64) string {
+	return fmt.Sprintf("%scourse:%d:student:%d", PrefixProgress, courseID, studentID)
 }
 
 func KeyQuiz(quizID int64) string {
@@ -85,22 +121,60 @@ type RedisCache struct {
 	client *redis.Client
 }
 
-// NewRedisClient creates a new Redis client with config and tests connection
-func NewRedisClient(cfg config.RedisConfig) (*RedisCache, error) {  // Giữ tên NewRedisClient
-    client := redis.NewClient(&redis.Options{
-        Addr:     fmt.Sprintf("%s:%s", cfg.Host, cfg.Port),
-        Password: cfg.Password,
-        DB:       cfg.DB,
-    })
+// NewRedisClient creates a new Redis client with config and tests connection.
+//
+// The pool/timeout knobs are intentionally surfaced through config: under load,
+// the LMS service issues many concurrent Redis ops per HTTP request (rate
+// limit, cache lookup, optional invalidation). Without a pool large enough to
+// match in-flight Goroutines we'd see PoolTimeout errors before the database
+// is even involved.
+func NewRedisClient(cfg config.RedisConfig) (*RedisCache, error) {
+	opts := &redis.Options{
+		Addr:         fmt.Sprintf("%s:%s", cfg.Host, cfg.Port),
+		Password:     cfg.Password,
+		DB:           cfg.DB,
+		PoolSize:     cfg.PoolSize,
+		MinIdleConns: cfg.MinIdleConns,
+		DialTimeout:  cfg.DialTimeout,
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+		PoolTimeout:  cfg.PoolTimeout,
+	}
 
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
+	// Defensive defaults if the caller passed a zero-value RedisConfig (e.g.
+	// from older tests). These mirror the production tuning from config.Load.
+	if opts.PoolSize == 0 {
+		opts.PoolSize = 50
+	}
+	if opts.DialTimeout == 0 {
+		opts.DialTimeout = 3 * time.Second
+	}
+	if opts.ReadTimeout == 0 {
+		opts.ReadTimeout = 500 * time.Millisecond
+	}
+	if opts.WriteTimeout == 0 {
+		opts.WriteTimeout = 500 * time.Millisecond
+	}
+	if opts.PoolTimeout == 0 {
+		opts.PoolTimeout = 1 * time.Second
+	}
 
-    if err := client.Ping(ctx).Err(); err != nil {
-        return nil, fmt.Errorf("failed to connect to Redis: %w", err)
-    }
+	client := redis.NewClient(opts)
 
-    return &RedisCache{client: client}, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+	}
+
+	return &RedisCache{client: client}, nil
+}
+
+// PoolStats exposes the underlying pool counters so the operator can wire them
+// into Prometheus / health endpoints without leaking the redis client type.
+func (c *RedisCache) PoolStats() *redis.PoolStats {
+	return c.client.PoolStats()
 }
 
 // Get retrieves value from cache
@@ -231,4 +305,27 @@ func (c *RedisCache) Close() error {
 // HealthCheck checks if Redis is healthy
 func (c *RedisCache) HealthCheck(ctx context.Context) error {
 	return c.client.Ping(ctx).Err()
+}
+
+// MGet fetches multiple keys in one round-trip. Missing keys are returned as
+// empty strings in the matching index, matching the upstream go-redis MGET
+// semantics. Used for batch loaders (e.g. resolving N course IDs at once).
+func (c *RedisCache) MGet(ctx context.Context, keys ...string) ([]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	raw, err := c.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(raw))
+	for i, v := range raw {
+		if v == nil {
+			continue
+		}
+		if s, ok := v.(string); ok {
+			out[i] = s
+		}
+	}
+	return out, nil
 }

@@ -46,14 +46,24 @@ type DatabaseConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
 }
 
-// RedisConfig holds Redis configuration
+// RedisConfig holds Redis configuration. Pooling and timeout settings are
+// surfaced because the LMS service runs many short, concurrent CRUD requests
+// that talk to Redis on every hop (rate limit, cache lookup, invalidation).
+// Tuning these prevents head-of-line blocking under load.
 type RedisConfig struct {
-	Host     string
-	Port     string
-	Password string
-	DB       int
+	Host         string
+	Port         string
+	Password     string
+	DB           int
+	PoolSize     int
+	MinIdleConns int
+	DialTimeout  time.Duration
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	PoolTimeout  time.Duration
 }
 
 // JWTConfig holds JWT configuration
@@ -149,16 +159,32 @@ func Load() (*Config, error) {
 			Password:        getEnv("DB_PASSWORD", "lms_password"),
 			Name:            getEnv("DB_NAME", "lms_db"),
 			SSLMode:         getEnv("DB_SSL_MODE", "disable"),
-			MaxOpenConns:    getEnvAsInt("DB_MAX_OPEN_CONNS", 25),
-			MaxIdleConns:    getEnvAsInt("DB_MAX_IDLE_CONNS", 5),
-			ConnMaxLifetime: getEnvAsDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
+			// Default pool sizing assumes a single LMS replica behind ~200 RPS.
+			// MaxOpenConns is bounded so we do not exhaust Postgres' max_connections
+			// when scaled horizontally (replicas * MaxOpenConns ≤ pg max_connections).
+			MaxOpenConns:    getEnvAsInt("DB_MAX_OPEN_CONNS", 50),
+			MaxIdleConns:    getEnvAsInt("DB_MAX_IDLE_CONNS", 10),
+			ConnMaxLifetime: getEnvAsDuration("DB_CONN_MAX_LIFETIME", 30*time.Minute),
+			// ConnMaxIdleTime reaps idle conns faster than ConnMaxLifetime so the
+			// pool shrinks between traffic spikes and we don't hold onto stale
+			// server-side state (e.g. prepared-statement plans on the backend).
+			ConnMaxIdleTime: getEnvAsDuration("DB_CONN_MAX_IDLE_TIME", 5*time.Minute),
 		},
 
 		Redis: RedisConfig{
-			Host:     getEnv("REDIS_HOST", "localhost"),
-			Port:     getEnv("REDIS_PORT", "6379"),
-			Password: getEnv("REDIS_PASSWORD", ""),
-			DB:       getEnvAsInt("REDIS_DB", 0),
+			Host:         getEnv("REDIS_HOST", "localhost"),
+			Port:         getEnv("REDIS_PORT", "6379"),
+			Password:     getEnv("REDIS_PASSWORD", ""),
+			DB:           getEnvAsInt("REDIS_DB", 0),
+			PoolSize:     getEnvAsInt("REDIS_POOL_SIZE", 50),
+			MinIdleConns: getEnvAsInt("REDIS_MIN_IDLE_CONNS", 10),
+			DialTimeout:  getEnvAsDuration("REDIS_DIAL_TIMEOUT", 3*time.Second),
+			ReadTimeout:  getEnvAsDuration("REDIS_READ_TIMEOUT", 500*time.Millisecond),
+			WriteTimeout: getEnvAsDuration("REDIS_WRITE_TIMEOUT", 500*time.Millisecond),
+			// PoolTimeout caps how long a goroutine waits for a free conn before
+			// giving up — short timeout fails fast and lets the caller fall back
+			// to the database instead of stalling all handlers.
+			PoolTimeout:  getEnvAsDuration("REDIS_POOL_TIMEOUT", 1*time.Second),
 		},
 
 		JWT: JWTConfig{

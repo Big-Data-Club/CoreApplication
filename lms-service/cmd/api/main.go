@@ -125,15 +125,18 @@ func main() {
 		return redisClient.Set(ctx, redisKey, data, 24*time.Hour) // Keep for 24 hours
 	})
 
-	// Initialize services
-	userService := service.NewUserService(userRepo)
+	// Initialize services. Services that benefit from caching (read-heavy CRUD
+	// paths) receive the shared *cache.RedisCache; each service builds its own
+	// singleflight-backed Loader internally so cache stampedes on hot keys
+	// only ever produce one DB query per process.
+	userService := service.NewUserService(userRepo, redisClient)
 	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, redisClient)
-	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo)
+	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, redisClient)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient)
-	userSyncService := service.NewUserSyncService(userRepo)
+	userSyncService := service.NewUserSyncService(userRepo, redisClient)
 	forumService := service.NewForumService(forumRepo, courseRepo)
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
-	progressService := service.NewProgressService(progressRepo, enrollmentRepo)
+	progressService := service.NewProgressService(progressRepo, enrollmentRepo, redisClient)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient)
 	flashcardService := service.NewFlashcardService(flashcardRepo, aiClient, redisClient)
 

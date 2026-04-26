@@ -3,23 +3,36 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"example/hello/internal/dto"
 	"example/hello/internal/repository"
+	"example/hello/pkg/cache"
 )
+
+// progressSummaryTTL keeps the cached aggregate fresh enough that a student
+// completing a content item sees their bar move within a minute, while still
+// absorbing the per-page-load /my-progress fan-out from a class of 200+
+// students hitting the same course at once.
+const progressSummaryTTL = 1 * time.Minute
 
 type ProgressService struct {
 	progressRepo   *repository.ProgressRepository
 	enrollmentRepo *repository.EnrollmentRepository
+	cache          *cache.RedisCache
+	loader         *cache.Loader
 }
 
 func NewProgressService(
 	progressRepo *repository.ProgressRepository,
 	enrollmentRepo *repository.EnrollmentRepository,
+	c *cache.RedisCache,
 ) *ProgressService {
 	return &ProgressService{
 		progressRepo:   progressRepo,
 		enrollmentRepo: enrollmentRepo,
+		cache:          c,
+		loader:         cache.NewLoader(c),
 	}
 }
 
@@ -58,28 +71,48 @@ func (s *ProgressService) MarkContentComplete(ctx context.Context, contentID, st
 	}
 
 	// 4. Persist (idempotent)
-	return s.progressRepo.MarkComplete(ctx, contentID, studentID)
+	if err := s.progressRepo.MarkComplete(ctx, contentID, studentID); err != nil {
+		return err
+	}
+
+	// Drop the cached aggregate for this (course, student) pair so the
+	// "progress %" updates immediately on the student's next page load.
+	cache.Invalidate(ctx, s.cache, cache.KeyCourseProgress(courseID, studentID))
+	return nil
 }
 
 // GetMyCourseProgress returns a summary of mandatory-content completion.
+//
+// Read-heavy on student dashboards. The cache wins are highest when many
+// students load the same course page simultaneously: each student is a
+// distinct cache key, so we don't get cross-user cache pollution, but each
+// individual student's repeated requests collapse to a single DB query per
+// minute.
 func (s *ProgressService) GetMyCourseProgress(ctx context.Context, courseID, studentID int64) (*dto.CourseProgressResponse, error) {
-	result, err := s.progressRepo.GetCourseProgress(ctx, courseID, studentID)
+	resp, err := cache.GetOrLoad(ctx, s.loader, cache.KeyCourseProgress(courseID, studentID), progressSummaryTTL,
+		func(ctx context.Context) (*dto.CourseProgressResponse, error) {
+			result, err := s.progressRepo.GetCourseProgress(ctx, courseID, studentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get progress: %w", err)
+			}
+
+			ids := result.CompletedContentIDs
+			if ids == nil {
+				ids = []int64{}
+			}
+
+			return &dto.CourseProgressResponse{
+				CourseID:            courseID,
+				TotalMandatory:      result.TotalMandatory,
+				CompletedCount:      result.CompletedCount,
+				ProgressPercent:     result.ProgressPercent,
+				CompletedContentIDs: ids,
+			}, nil
+		})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get progress: %w", err)
+		return nil, err
 	}
-
-	ids := result.CompletedContentIDs
-	if ids == nil {
-		ids = []int64{}
-	}
-
-	return &dto.CourseProgressResponse{
-		CourseID:            courseID,
-		TotalMandatory:      result.TotalMandatory,
-		CompletedCount:      result.CompletedCount,
-		ProgressPercent:     result.ProgressPercent,
-		CompletedContentIDs: ids,
-	}, nil
+	return resp, nil
 }
 
 // GetMyCourseProgressDetail returns per-item completion status.

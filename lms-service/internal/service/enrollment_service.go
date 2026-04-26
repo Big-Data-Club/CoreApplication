@@ -9,13 +9,21 @@ import (
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
+	"example/hello/pkg/cache"
 )
+
+// enrollmentMembershipTTL caps how long a "is X enrolled in Y?" answer can
+// stay cached. The endpoint is hit on most authenticated requests, but a
+// teacher accept/reject must take effect quickly.
+const enrollmentMembershipTTL = 1 * time.Minute
 
 type EnrollmentService struct {
 	enrollmentRepo *repository.EnrollmentRepository
 	courseRepo     *repository.CourseRepository
 	userRepo       *repository.UserRepository
 	progressRepo   *repository.ProgressRepository
+	cache          *cache.RedisCache
+	loader         *cache.Loader
 }
 
 func NewEnrollmentService(
@@ -23,13 +31,66 @@ func NewEnrollmentService(
 	courseRepo *repository.CourseRepository,
 	userRepo *repository.UserRepository,
 	progressRepo *repository.ProgressRepository,
+	c *cache.RedisCache,
 ) *EnrollmentService {
 	return &EnrollmentService{
 		enrollmentRepo: enrollmentRepo,
 		courseRepo:     courseRepo,
 		userRepo:       userRepo,
 		progressRepo:   progressRepo,
+		cache:          c,
+		loader:         cache.NewLoader(c),
 	}
+}
+
+// CachedMembership is the small payload we cache for the membership check —
+// it's intentionally narrower than the full enrollment row so that unrelated
+// changes (rejected_at, updated_at, …) do not invalidate it.
+//
+// Exported because CourseService reads the same cache key directly when
+// checking section/content visibility for students.
+type CachedMembership struct {
+	ID     int64  `json:"id"`
+	Status string `json:"status"`
+	Found  bool   `json:"found"`
+}
+
+// LoadMembership returns the cached membership for (student, course), loading
+// from the repository on a miss. A "not enrolled" answer is cached as
+// `Found=false` so a missing row doesn't keep hitting the database every time
+// a guest browses a public course.
+//
+// Exported as a package-level function on the cache layer so any service that
+// holds a *cache.RedisCache + enrollment repo can answer the same question
+// with the same payload shape — keeping the Redis key contract uniform across
+// callers.
+func LoadMembership(
+	ctx context.Context,
+	loader *cache.Loader,
+	repo *repository.EnrollmentRepository,
+	studentID, courseID int64,
+) (CachedMembership, error) {
+	return cache.GetOrLoad(ctx, loader,
+		cache.KeyStudentCourseEnrollment(studentID, courseID),
+		enrollmentMembershipTTL,
+		func(ctx context.Context) (CachedMembership, error) {
+			e, err := repo.GetByStudentAndCourse(ctx, studentID, courseID)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return CachedMembership{Found: false}, nil
+				}
+				return CachedMembership{}, err
+			}
+			return CachedMembership{ID: e.ID, Status: e.Status, Found: true}, nil
+		})
+}
+
+func (s *EnrollmentService) getMembershipCached(ctx context.Context, studentID, courseID int64) (CachedMembership, error) {
+	return LoadMembership(ctx, s.loader, s.enrollmentRepo, studentID, courseID)
+}
+
+func (s *EnrollmentService) invalidateMembership(ctx context.Context, studentID, courseID int64) {
+	cache.Invalidate(ctx, s.cache, cache.KeyStudentCourseEnrollment(studentID, courseID))
 }
 
 // EnrollCourse enrolls a student in a course.
@@ -38,6 +99,9 @@ func (s *EnrollmentService) EnrollCourse(ctx context.Context, courseID, studentI
 		return nil, fmt.Errorf("course not found")
 	}
 
+	// Use the live repository (not the cache) for the duplicate check: stale
+	// "not enrolled" entries in Redis would otherwise let the same student
+	// attempt to enroll twice within the cache window.
 	if existing, _ := s.enrollmentRepo.GetByStudentAndCourse(ctx, studentID, courseID); existing != nil {
 		return nil, fmt.Errorf("student already enrolled in this course")
 	}
@@ -53,6 +117,7 @@ func (s *EnrollmentService) EnrollCourse(ctx context.Context, courseID, studentI
 		return nil, err
 	}
 
+	s.invalidateMembership(ctx, studentID, courseID)
 	return toEnrollmentResponse(result), nil
 }
 
@@ -144,7 +209,13 @@ func (s *EnrollmentService) AcceptEnrollment(ctx context.Context, enrollmentID, 
 		return fmt.Errorf("unauthorized")
 	}
 
-	return s.enrollmentRepo.UpdateStatus(ctx, enrollmentID, models.EnrollmentAccepted)
+	if err := s.enrollmentRepo.UpdateStatus(ctx, enrollmentID, models.EnrollmentAccepted); err != nil {
+		return err
+	}
+	if e, _ := s.enrollmentRepo.GetByID(ctx, enrollmentID); e != nil {
+		s.invalidateMembership(ctx, e.StudentID, e.CourseID)
+	}
+	return nil
 }
 
 // RejectEnrollment rejects a student's enrollment request.
@@ -158,7 +229,13 @@ func (s *EnrollmentService) RejectEnrollment(ctx context.Context, enrollmentID, 
 		return fmt.Errorf("unauthorized")
 	}
 
-	return s.enrollmentRepo.UpdateStatus(ctx, enrollmentID, models.EnrollmentRejected)
+	if err := s.enrollmentRepo.UpdateStatus(ctx, enrollmentID, models.EnrollmentRejected); err != nil {
+		return err
+	}
+	if e, _ := s.enrollmentRepo.GetByID(ctx, enrollmentID); e != nil {
+		s.invalidateMembership(ctx, e.StudentID, e.CourseID)
+	}
+	return nil
 }
 
 // BulkEnroll enrolls multiple students in a course with a single batch INSERT.
@@ -196,6 +273,7 @@ func (s *EnrollmentService) BulkEnroll(
 	insertedSet := make(map[int64]struct{}, len(inserted))
 	for _, sid := range inserted {
 		insertedSet[sid] = struct{}{}
+		s.invalidateMembership(ctx, sid, courseID)
 	}
 
 	failed := make([]dto.EnrollmentError, 0, total-len(inserted))
@@ -226,10 +304,17 @@ func (s *EnrollmentService) CancelEnrollment(ctx context.Context, enrollmentID i
 		return fmt.Errorf("unauthorized")
 	}
 
-	return s.enrollmentRepo.Delete(ctx, enrollmentID)
+	if err := s.enrollmentRepo.Delete(ctx, enrollmentID); err != nil {
+		return err
+	}
+	s.invalidateMembership(ctx, enrollment.StudentID, enrollment.CourseID)
+	return nil
 }
 
-// VerifyAccess checks if a user has access to a course (enrolled ACCEPTED, creator, or ADMIN).
+// VerifyAccess checks if a user has access to a course (enrolled ACCEPTED,
+// creator, or ADMIN). This is the gate behind every protected resource view,
+// so it sits behind the membership cache to avoid a database round-trip per
+// request.
 func (s *EnrollmentService) VerifyAccess(ctx context.Context, userID, courseID int64, role string) error {
 	if role == "ADMIN" {
 		return nil
@@ -243,14 +328,16 @@ func (s *EnrollmentService) VerifyAccess(ctx context.Context, userID, courseID i
 		return nil
 	}
 
-	enrollment, err := s.enrollmentRepo.GetByStudentAndCourse(ctx, userID, courseID)
+	mem, err := s.getMembershipCached(ctx, userID, courseID)
 	if err != nil {
+		return fmt.Errorf("failed to verify membership: %w", err)
+	}
+	if !mem.Found {
 		return fmt.Errorf("student not enrolled")
 	}
-	if enrollment.Status != models.EnrollmentAccepted {
-		return fmt.Errorf("enrollment is %s, not ACCEPTED", enrollment.Status)
+	if mem.Status != models.EnrollmentAccepted {
+		return fmt.Errorf("enrollment is %s, not ACCEPTED", mem.Status)
 	}
-
 	return nil
 }
 
