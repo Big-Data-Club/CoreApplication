@@ -114,40 +114,72 @@ async def _pdf_to_markdown(
             continue
         images_by_page.setdefault(img.page_number, []).append(img)
 
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    total_pages = len(doc)
-    out_parts: list[str] = []
-    ocr_pages = 0
+    # ── Phase 1: sync PyMuPDF page parsing in a thread ──────────────────
+    # PyMuPDF's get_text("dict") + font-size heuristics are CPU-bound and
+    # block the asyncio event loop for large documents. Running in a thread
+    # keeps Kafka heartbeats alive.
+    import asyncio
+    from dataclasses import dataclass as _dc
 
-    try:
-        for page_idx in range(total_pages):
-            page = doc[page_idx]
-            page_no = page_idx + 1
-            page_md = _pdf_page_to_markdown(page)
+    @_dc
+    class _PageResult:
+        page_no: int
+        markdown: str
+        needs_ocr: bool           # page text too short → send to VLM
 
-            if len(page_md.strip()) < _OCR_TEXT_THRESHOLD_CHARS and ocr_pages < _OCR_MAX_PAGES:
-                # Scanned page — render and OCR via VLM
-                ocr_md = await _vlm_ocr_pdf_page(
-                    page=page,
+    def _sync_parse_pages() -> tuple[list[_PageResult], int]:
+        try:
+            doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        except Exception as exc:
+            logger.error("Cannot open PDF for markdown: %s", exc)
+            return [], 0
+
+        total = len(doc)
+        results: list[_PageResult] = []
+        try:
+            for page_idx in range(total):
+                page = doc[page_idx]
+                page_no = page_idx + 1
+                page_md = _pdf_page_to_markdown(page)
+
+                needs_ocr = len(page_md.strip()) < _OCR_TEXT_THRESHOLD_CHARS
+                results.append(_PageResult(
                     page_no=page_no,
-                    storage_prefix=storage_prefix,
-                    language=language,
-                )
-                if ocr_md:
-                    page_md = ocr_md
-                    ocr_pages += 1
+                    markdown=page_md,
+                    needs_ocr=needs_ocr,
+                ))
+        finally:
+            doc.close()
+        return results, total
 
-            if not page_md.strip():
-                continue
+    page_results, total_pages = await asyncio.to_thread(_sync_parse_pages)
 
-            out_parts.append(f"\n\n## Trang {page_no}\n\n")
-            out_parts.append(page_md.rstrip())
+    # ── Phase 2: async VLM OCR for scanned pages (back on event loop) ──
+    ocr_pages = 0
+    for pr in page_results:
+        if pr.needs_ocr and ocr_pages < _OCR_MAX_PAGES:
+            ocr_md = await _vlm_ocr_pdf_page_from_bytes(
+                pdf_bytes=pdf_bytes,
+                page_idx=pr.page_no - 1,
+                page_no=pr.page_no,
+                storage_prefix=storage_prefix,
+                language=language,
+            )
+            if ocr_md:
+                pr.markdown = ocr_md
+                ocr_pages += 1
 
-            for img in images_by_page.get(page_no, []):
-                alt = img.caption_hint or f"Hình minh họa trang {page_no}"
-                out_parts.append(f"\n\n![{alt}]({img.url})\n")
-    finally:
-        doc.close()
+    # ── Phase 3: assemble output ────────────────────────────────────────
+    out_parts: list[str] = []
+    for pr in page_results:
+        if not pr.markdown.strip():
+            continue
+        out_parts.append(f"\n\n## Trang {pr.page_no}\n\n")
+        out_parts.append(pr.markdown.rstrip())
+
+        for img in images_by_page.get(pr.page_no, []):
+            alt = img.caption_hint or f"Hình minh họa trang {pr.page_no}"
+            out_parts.append(f"\n\n![{alt}]({img.url})\n")
 
     return ConvertedDocument(
         markdown="".join(out_parts).strip(),
@@ -233,6 +265,91 @@ async def _vlm_ocr_pdf_page(
         pix = None
     except Exception as exc:
         logger.warning("OCR render failed page=%d: %s", page_no, exc)
+        return None
+
+    try:
+        from groq import AsyncGroq
+        import base64
+
+        if not settings.groq_api_key:
+            return None
+
+        prompt = (
+            "Bạn nhận được ảnh chụp một trang tài liệu học thuật bị scan (không có "
+            "lớp text). Hãy trích xuất TOÀN BỘ nội dung trang dưới dạng Markdown:\n"
+            "- Giữ nguyên các tiêu đề lớn / nhỏ (dùng ##, ###).\n"
+            "- Giữ danh sách (ordered/unordered) đúng định dạng.\n"
+            "- Bảng phải dùng cú pháp bảng Markdown (| col | col |).\n"
+            "- KHÔNG thêm câu mở đầu kiểu 'Đây là nội dung trang…'. Bắt đầu thẳng vào nội dung.\n"
+            "- Nếu trang trống, trả về chuỗi rỗng."
+            if language == "vi"
+            else
+            "You are given a page from a scanned academic document with no text layer. "
+            "Transcribe the full page as Markdown:\n"
+            "- Keep heading hierarchy (##, ###).\n"
+            "- Preserve ordered/unordered lists.\n"
+            "- Tables must use Markdown table syntax.\n"
+            "- Do not add any preamble like 'This page contains…'. Start with the content.\n"
+            "- If the page is blank, return an empty string."
+        )
+
+        b64 = base64.b64encode(png_bytes).decode("utf-8")
+        client = AsyncGroq(api_key=settings.groq_api_key)
+        response = await client.chat.completions.create(
+            model=settings.vlm_model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ],
+            temperature=0.0,
+            max_tokens=2048,
+        )
+        return (response.choices[0].message.content or "").strip()
+    except Exception as exc:
+        logger.warning("VLM OCR failed page=%d: %s", page_no, exc)
+        return None
+
+
+async def _vlm_ocr_pdf_page_from_bytes(
+    pdf_bytes: bytes,
+    page_idx: int,
+    page_no: int,
+    storage_prefix: str,
+    language: str,
+) -> Optional[str]:
+    """
+    Thread-safe variant of _vlm_ocr_pdf_page that re-opens the PDF from
+    raw bytes, renders one page to PNG in a background thread, then sends
+    the image to the VLM asynchronously.
+    """
+    import asyncio
+
+    def _render_page() -> Optional[bytes]:
+        try:
+            import pymupdf
+            doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+            try:
+                if page_idx >= len(doc):
+                    return None
+                page = doc[page_idx]
+                zoom = _OCR_RENDER_DPI / 72.0
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
+                png = pix.tobytes("png")
+                pix = None
+                return png
+            finally:
+                doc.close()
+        except Exception as exc:
+            logger.warning("OCR render failed page=%d: %s", page_no, exc)
+            return None
+
+    png_bytes = await asyncio.to_thread(_render_page)
+    if not png_bytes:
         return None
 
     try:

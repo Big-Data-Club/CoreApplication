@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # Google Gemini
     gemini_api_key: str = ""
 
+    # Anthropic Claude
+    anthropic_api_key: str = ""
+
     # Embedding
     embedding_model: str = "BAAI/bge-m3"
     embedding_dimensions: int = 1024

@@ -216,6 +216,48 @@ _DEFAULT_GEMINI_MODELS = [
         "output_cost_per_1k": 0.0004,
     },
 ]
+# ── Anthropic Claude models (April 2026) ──────────────────────────────────────
+_DEFAULT_CLAUDE_MODELS = [
+    {
+        "model_name": "claude-4.7-opus-latest",
+        "display_name": "Claude Opus 4.7",
+        "family": "claude-4",
+        "context_window": 1048576,
+        "supports_tools": True,
+        "supports_json": True,
+        "supports_vision": True,
+        "default_temperature": 0.3,
+        "default_max_tokens": 128000,
+        "input_cost_per_1k": 0.005,
+        "output_cost_per_1k": 0.025,
+    },
+    {
+        "model_name": "claude-4.6-sonnet-latest",
+        "display_name": "Claude Sonnet 4.6",
+        "family": "claude-4",
+        "context_window": 1048576,
+        "supports_tools": True,
+        "supports_json": True,
+        "supports_vision": True,
+        "default_temperature": 0.3,
+        "default_max_tokens": 64000,
+        "input_cost_per_1k": 0.003,
+        "output_cost_per_1k": 0.015,
+    },
+    {
+        "model_name": "claude-4.5-haiku-latest",
+        "display_name": "Claude Haiku 4.5",
+        "family": "claude-4",
+        "context_window": 200000,
+        "supports_tools": True,
+        "supports_json": True,
+        "supports_vision": True,
+        "default_temperature": 0.3,
+        "default_max_tokens": 64000,
+        "input_cost_per_1k": 0.001,
+        "output_cost_per_1k": 0.005,
+    },
+]
 
 
 async def bootstrap_llm_registry() -> None:
@@ -306,6 +348,34 @@ async def bootstrap_llm_registry() -> None:
             logger.warning("Could not seed Gemini env key: %s", exc)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Anthropic provider + models
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    anthropic_provider = await registry.upsert_provider(
+        code="anthropic",
+        display_name="Anthropic Claude",
+        adapter_type="anthropic",
+        base_url=None,
+        enabled=True,
+    )
+
+    for spec in _DEFAULT_CLAUDE_MODELS:
+        await registry.upsert_model(provider_id=anthropic_provider.id, **spec)
+        total_models += 1
+
+    # Seed Anthropic API key from env
+    anthropic_keys = await registry.list_api_keys(provider_id=anthropic_provider.id)
+    if not anthropic_keys and settings.anthropic_api_key:
+        try:
+            await registry.create_api_key(
+                provider_id=anthropic_provider.id,
+                alias="anthropic-env",
+                plaintext_key=settings.anthropic_api_key,
+            )
+            logger.info("Migrated ANTHROPIC_API_KEY from env into llm_api_keys (alias=anthropic-env)")
+        except Exception as exc:
+            logger.warning("Could not seed Anthropic env key: %s", exc)
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Default task bindings (Groq only — admins bind Gemini via the Admin UI)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     default_bindings: list[tuple[str, int]] = [
@@ -352,6 +422,6 @@ async def bootstrap_llm_registry() -> None:
             logger.warning("Could not warm binding cache for task=%s: %s", task_code, exc)
 
     logger.info(
-        "LLM registry bootstrapped: providers=[groq, gemini] models=%d warmed=%s",
+        "LLM registry bootstrapped: providers=[groq, gemini, anthropic] models=%d warmed=%s",
         total_models, warmed,
     )

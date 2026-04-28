@@ -55,6 +55,10 @@ async def extract_pdf_images(
     Tiny icons / decorative slivers (smaller than `min_dimension` on either
     side) are skipped — they create noise in the lesson Markdown without
     adding pedagogical value.
+
+    The CPU-heavy PyMuPDF work (page iteration, pixmap extraction, colour
+    space conversion) runs in a background thread via asyncio.to_thread()
+    to avoid blocking the Kafka heartbeat loop.
     """
     try:
         import pymupdf
@@ -62,64 +66,92 @@ async def extract_pdf_images(
         logger.error("PyMuPDF not installed; cannot extract PDF images")
         return []
 
-    images: list[ExtractedImage] = []
-    try:
-        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    except Exception as exc:
-        logger.error("Cannot open PDF for image extraction: %s", exc)
-        return []
+    # ── Phase 1: sync extraction in a thread (CPU-bound, event-loop-safe) ──
+    @dataclass
+    class _RawImage:
+        img_bytes: bytes
+        page_no: int
+        ord_idx: int
+        width: int
+        height: int
+        caption: str
 
-    try:
-        for page_idx in range(len(doc)):
-            page = doc[page_idx]
-            xrefs = page.get_images(full=True)
-            if not xrefs:
-                continue
+    def _sync_extract() -> list[_RawImage]:
+        raw_images: list[_RawImage] = []
+        try:
+            doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        except Exception as exc:
+            logger.error("Cannot open PDF for image extraction: %s", exc)
+            return []
 
-            page_text = ""
-            try:
-                page_text = page.get_text("text") or ""
-            except Exception:
-                pass
+        try:
+            for page_idx in range(len(doc)):
+                page = doc[page_idx]
+                xrefs = page.get_images(full=True)
+                if not xrefs:
+                    continue
 
-            for ord_idx, info in enumerate(xrefs[:max_per_page]):
-                xref = info[0]
+                page_text = ""
                 try:
-                    pix = pymupdf.Pixmap(doc, xref)
-                    if pix.width < min_dimension or pix.height < min_dimension:
+                    page_text = page.get_text("text") or ""
+                except Exception:
+                    pass
+
+                for ord_idx, info in enumerate(xrefs[:max_per_page]):
+                    xref = info[0]
+                    try:
+                        pix = pymupdf.Pixmap(doc, xref)
+                        if pix.width < min_dimension or pix.height < min_dimension:
+                            pix = None
+                            continue
+
+                        # Convert CMYK / weird colourspace to RGB before PNG export
+                        if pix.colorspace and pix.colorspace.n >= 4:
+                            pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+
+                        img_bytes = pix.tobytes("png")
+                        width, height = pix.width, pix.height
                         pix = None
+                    except Exception as exc:
+                        logger.warning("PDF image extract failed xref=%s: %s", xref, exc)
                         continue
 
-                    # Convert CMYK / weird colourspace to RGB before PNG export
-                    if pix.colorspace and pix.colorspace.n >= 4:
-                        pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+                    caption = _nearest_caption(page_text, page_idx + 1, ord_idx + 1)
+                    raw_images.append(_RawImage(
+                        img_bytes=img_bytes,
+                        page_no=page_idx + 1,
+                        ord_idx=ord_idx + 1,
+                        width=width,
+                        height=height,
+                        caption=caption,
+                    ))
+        finally:
+            doc.close()
 
-                    img_bytes = pix.tobytes("png")
-                    width, height = pix.width, pix.height
-                    pix = None
-                except Exception as exc:
-                    logger.warning("PDF image extract failed xref=%s: %s", xref, exc)
-                    continue
+        return raw_images
 
-                key = f"{storage_prefix}/p{page_idx + 1}-{ord_idx + 1}-{uuid.uuid4().hex[:8]}.png"
-                rel_url = await upload_bytes(key, img_bytes, content_type="image/png")
-                if not rel_url:
-                    continue
+    import asyncio
+    raw_images = await asyncio.to_thread(_sync_extract)
 
-                caption = _nearest_caption(page_text, page_idx + 1, ord_idx + 1)
-                images.append(ExtractedImage(
-                    key=key,
-                    url=rel_url,
-                    page_number=page_idx + 1,
-                    order_in_page=ord_idx + 1,
-                    caption_hint=caption,
-                    width=width,
-                    height=height,
-                    mime_type="image/png",
-                    placeholder=_placeholder_token(len(images)),
-                ))
-    finally:
-        doc.close()
+    # ── Phase 2: async upload to MinIO (I/O-bound, back on event loop) ──
+    images: list[ExtractedImage] = []
+    for raw in raw_images:
+        key = f"{storage_prefix}/p{raw.page_no}-{raw.ord_idx}-{uuid.uuid4().hex[:8]}.png"
+        rel_url = await upload_bytes(key, raw.img_bytes, content_type="image/png")
+        if not rel_url:
+            continue
+
+        images.append(ExtractedImage(
+            key=key,
+            url=rel_url,
+            page_number=raw.page_no,
+            order_in_page=raw.ord_idx,
+            caption_hint=raw.caption,
+            width=raw.width,
+            height=raw.height,
+            mime_type="image/png",
+            placeholder=_placeholder_token(len(images)),
+        ))
 
     logger.info("PDF image extraction: %d images uploaded", len(images))
     return images

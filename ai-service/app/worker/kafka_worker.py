@@ -242,6 +242,14 @@ async def main():
         group_id="ai-worker-group",
         value_deserializer=lambda x: json.loads(x.decode("utf-8")),
         auto_offset_reset="earliest",
+        # ── Tuned for long-running document processing (95+ image PDFs) ───
+        # Default max_poll_interval_ms=300s is too tight: heavy PDFs can
+        # take 5+ min for image extraction + VLM calls. Raising to 10 min
+        # prevents Kafka from ejecting the worker mid-job.
+        max_poll_interval_ms=600_000,    # 10 minutes
+        session_timeout_ms=60_000,       # 60 seconds (default 10s)
+        heartbeat_interval_ms=10_000,    # 10 seconds (default 3s)
+        request_timeout_ms=70_000,       # must be > session_timeout_ms
     )
 
     await consumer.start()

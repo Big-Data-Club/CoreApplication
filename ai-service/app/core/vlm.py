@@ -21,6 +21,15 @@ _MAX_CACHE = 2000
 VLM_MODEL = settings.vlm_model
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB safety limit
 
+# Global concurrency limiter for VLM calls — prevents rate-limit storms
+# when processing PDFs with many embedded images (95+ images → 95 parallel
+# VLM requests → instant 429 from Groq's 30k TPM quota).
+_VLM_SEMAPHORE = asyncio.Semaphore(3)
+
+# Rate-limit retry config
+_VLM_MAX_RETRIES = 3
+_VLM_BASE_BACKOFF = 2.0  # seconds
+
 # ── System prompts ────────────────────────────────────────────────────────────
 
 _SYSTEM_VI = (
@@ -157,33 +166,54 @@ async def _fetch_image_base64(url: str) -> tuple[Optional[str], str]:
 async def _call_vlm(image_b64: str, mime_type: str, language: str = "vi") -> str:
     """
     Call Groq vision API and return the text description.
-    Raises on API error so caller can handle gracefully.
+
+    Guarded by _VLM_SEMAPHORE to cap concurrency and includes exponential
+    backoff for 429 rate-limit errors.
     """
     from groq import AsyncGroq
 
-    client = AsyncGroq(api_key=settings.groq_api_key)
-    system = _SYSTEM_VI if language == "vi" else _SYSTEM_EN
-    prompt = _PROMPT_VI if language == "vi" else _PROMPT_EN
+    async with _VLM_SEMAPHORE:
+        client = AsyncGroq(api_key=settings.groq_api_key)
+        system = _SYSTEM_VI if language == "vi" else _SYSTEM_EN
+        prompt = _PROMPT_VI if language == "vi" else _PROMPT_EN
 
-    # Groq vision expects data URL format
-    data_url = f"data:{mime_type};base64,{image_b64}"
+        # Groq vision expects data URL format
+        data_url = f"data:{mime_type};base64,{image_b64}"
 
-    response = await client.chat.completions.create(
-        model=VLM_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                    {"type": "text", "text": prompt},
-                ],
-            },
-        ],
-        temperature=0.1,
-        max_tokens=512,
-    )
-    return response.choices[0].message.content.strip()
+        last_exc: Exception | None = None
+        for attempt in range(_VLM_MAX_RETRIES + 1):
+            try:
+                response = await client.chat.completions.create(
+                    model=VLM_MODEL,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": data_url}},
+                                {"type": "text", "text": prompt},
+                            ],
+                        },
+                    ],
+                    temperature=0.1,
+                    max_tokens=512,
+                )
+                return response.choices[0].message.content.strip()
+            except Exception as exc:
+                last_exc = exc
+                # Check for rate-limit (429) error
+                status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+                if status == 429 and attempt < _VLM_MAX_RETRIES:
+                    wait = _VLM_BASE_BACKOFF * (2 ** attempt)
+                    logger.warning(
+                        "VLM rate limited (429), retrying in %.1fs (attempt %d/%d)",
+                        wait, attempt + 1, _VLM_MAX_RETRIES,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+
+        raise last_exc  # type: ignore[misc]
 
 
 def _cache_key(prefix: str, value: str) -> str:

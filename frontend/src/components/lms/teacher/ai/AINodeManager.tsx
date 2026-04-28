@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, ChevronDown, ChevronRight, BookOpen, AlertCircle, Network } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, BookOpen, AlertCircle, Network, Trash2 } from "lucide-react";
 import aiService, { KnowledgeNode, KnowledgeGraphEdge } from "@/services/aiService";
 import { cn } from "@/lib/utils";
 import lmsService from "@/services/lmsService";
 import { ContentPickerModal } from "../ContentPickerModal";
 import KnowledgeGraph from "../KnowledgeGraph";
+import toast from "react-hot-toast";
 
 interface Props {
   courseId: number;
@@ -115,6 +116,22 @@ export function AINodeManager({ courseId, nodes, graphEdges = [], onNodesChange 
       }
     };
 
+    const handleDeleteNode = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const confirmed = window.confirm(
+        `Bạn có chắc chắn muốn xóa node "${node.name_vi || node.name}"?\nHành động này sẽ xóa vĩnh viễn node khỏi cơ sở dữ liệu và các liên kết liên quan.`
+      );
+      if (!confirmed) return;
+      
+      try {
+        await aiService.deleteKnowledgeNode(courseId, node.id);
+        toast.success("Đã xóa node kiến thức thành công");
+        onNodesChange();
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || "Không thể xóa node. Vui lòng thử lại sau.");
+      }
+    };
+
     return (
       <div>
         <div
@@ -153,6 +170,13 @@ export function AINodeManager({ courseId, nodes, graphEdges = [], onNodesChange 
             title="Liên kết tài liệu với node"
           >
             📎 Liên kết
+          </button>
+          <button
+            onClick={handleDeleteNode}
+            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Xóa node"
+          >
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
         {/* Content picker modal */}
