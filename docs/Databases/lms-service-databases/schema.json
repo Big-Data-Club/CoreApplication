@@ -1,0 +1,4195 @@
+{
+  "name": "postgres",
+  "tables": [
+    {
+      "name": "public.users",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('users_id_seq'::regclass)"
+        },
+        {
+          "name": "email",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "full_name",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "users_pkey",
+          "def": "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
+          "table": "public.users",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "users_email_key",
+          "def": "CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)",
+          "table": "public.users",
+          "columns": [
+            "email"
+          ]
+        },
+        {
+          "name": "idx_users_email",
+          "def": "CREATE INDEX idx_users_email ON public.users USING btree (email)",
+          "table": "public.users",
+          "columns": [
+            "email"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "users_email_not_null",
+          "type": "n",
+          "def": "NOT NULL email",
+          "table": "public.users",
+          "referenced_table": "",
+          "columns": [
+            "email"
+          ]
+        },
+        {
+          "name": "users_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.users",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "users_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.users",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "users_email_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (email)",
+          "table": "public.users",
+          "referenced_table": "",
+          "columns": [
+            "email"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_users_updated_at",
+          "def": "CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.user_roles",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('user_roles_id_seq'::regclass)"
+        },
+        {
+          "name": "user_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "role",
+          "type": "varchar(50)",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "user_roles_pkey",
+          "def": "CREATE UNIQUE INDEX user_roles_pkey ON public.user_roles USING btree (id)",
+          "table": "public.user_roles",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "user_roles_user_id_role_key",
+          "def": "CREATE UNIQUE INDEX user_roles_user_id_role_key ON public.user_roles USING btree (user_id, role)",
+          "table": "public.user_roles",
+          "columns": [
+            "user_id",
+            "role"
+          ]
+        },
+        {
+          "name": "idx_user_roles_user",
+          "def": "CREATE INDEX idx_user_roles_user ON public.user_roles USING btree (user_id)",
+          "table": "public.user_roles",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "idx_user_roles_role",
+          "def": "CREATE INDEX idx_user_roles_role ON public.user_roles USING btree (role)",
+          "table": "public.user_roles",
+          "columns": [
+            "role"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "user_roles_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.user_roles",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "user_roles_role_check",
+          "type": "CHECK",
+          "def": "CHECK (((role)::text = ANY ((ARRAY['STUDENT'::character varying, 'TEACHER'::character varying, 'ADMIN'::character varying])::text[])))",
+          "table": "public.user_roles",
+          "referenced_table": "",
+          "columns": [
+            "role"
+          ]
+        },
+        {
+          "name": "user_roles_role_not_null",
+          "type": "n",
+          "def": "NOT NULL role",
+          "table": "public.user_roles",
+          "referenced_table": "",
+          "columns": [
+            "role"
+          ]
+        },
+        {
+          "name": "user_roles_user_id_not_null",
+          "type": "n",
+          "def": "NOT NULL user_id",
+          "table": "public.user_roles",
+          "referenced_table": "",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "user_roles_user_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "table": "public.user_roles",
+          "referenced_table": "public.users",
+          "columns": [
+            "user_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "user_roles_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.user_roles",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "user_roles_user_id_role_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (user_id, role)",
+          "table": "public.user_roles",
+          "referenced_table": "",
+          "columns": [
+            "user_id",
+            "role"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.courses",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('courses_id_seq'::regclass)"
+        },
+        {
+          "name": "title",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "category",
+          "type": "varchar(100)",
+          "nullable": true
+        },
+        {
+          "name": "level",
+          "type": "varchar(50)",
+          "nullable": true
+        },
+        {
+          "name": "thumbnail_url",
+          "type": "varchar(500)",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "varchar(50)",
+          "nullable": true,
+          "default": "'DRAFT'::character varying"
+        },
+        {
+          "name": "created_by",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "published_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "courses_pkey",
+          "def": "CREATE UNIQUE INDEX courses_pkey ON public.courses USING btree (id)",
+          "table": "public.courses",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_courses_status",
+          "def": "CREATE INDEX idx_courses_status ON public.courses USING btree (status)",
+          "table": "public.courses",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "idx_courses_category",
+          "def": "CREATE INDEX idx_courses_category ON public.courses USING btree (category)",
+          "table": "public.courses",
+          "columns": [
+            "category"
+          ]
+        },
+        {
+          "name": "idx_courses_created_by",
+          "def": "CREATE INDEX idx_courses_created_by ON public.courses USING btree (created_by)",
+          "table": "public.courses",
+          "columns": [
+            "created_by"
+          ]
+        },
+        {
+          "name": "idx_courses_level",
+          "def": "CREATE INDEX idx_courses_level ON public.courses USING btree (level)",
+          "table": "public.courses",
+          "columns": [
+            "level"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "courses_created_by_not_null",
+          "type": "n",
+          "def": "NOT NULL created_by",
+          "table": "public.courses",
+          "referenced_table": "",
+          "columns": [
+            "created_by"
+          ]
+        },
+        {
+          "name": "courses_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.courses",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "courses_level_check",
+          "type": "CHECK",
+          "def": "CHECK (((level)::text = ANY ((ARRAY['BEGINNER'::character varying, 'INTERMEDIATE'::character varying, 'ADVANCED'::character varying, 'ALL_LEVELS'::character varying])::text[])))",
+          "table": "public.courses",
+          "referenced_table": "",
+          "columns": [
+            "level"
+          ]
+        },
+        {
+          "name": "courses_status_check",
+          "type": "CHECK",
+          "def": "CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'PUBLISHED'::character varying, 'ARCHIVED'::character varying])::text[])))",
+          "table": "public.courses",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "courses_title_not_null",
+          "type": "n",
+          "def": "NOT NULL title",
+          "table": "public.courses",
+          "referenced_table": "",
+          "columns": [
+            "title"
+          ]
+        },
+        {
+          "name": "courses_created_by_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (created_by) REFERENCES users(id)",
+          "table": "public.courses",
+          "referenced_table": "public.users",
+          "columns": [
+            "created_by"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "courses_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.courses",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_courses_updated_at",
+          "def": "CREATE TRIGGER update_courses_updated_at BEFORE UPDATE ON public.courses FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.course_sections",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('course_sections_id_seq'::regclass)"
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "order_index",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "is_published",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "course_sections_pkey",
+          "def": "CREATE UNIQUE INDEX course_sections_pkey ON public.course_sections USING btree (id)",
+          "table": "public.course_sections",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_sections_course",
+          "def": "CREATE INDEX idx_sections_course ON public.course_sections USING btree (course_id)",
+          "table": "public.course_sections",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_sections_order",
+          "def": "CREATE INDEX idx_sections_order ON public.course_sections USING btree (course_id, order_index)",
+          "table": "public.course_sections",
+          "columns": [
+            "course_id",
+            "order_index"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "course_sections_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.course_sections",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "course_sections_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.course_sections",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "course_sections_order_index_not_null",
+          "type": "n",
+          "def": "NOT NULL order_index",
+          "table": "public.course_sections",
+          "referenced_table": "",
+          "columns": [
+            "order_index"
+          ]
+        },
+        {
+          "name": "course_sections_title_not_null",
+          "type": "n",
+          "def": "NOT NULL title",
+          "table": "public.course_sections",
+          "referenced_table": "",
+          "columns": [
+            "title"
+          ]
+        },
+        {
+          "name": "course_sections_course_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE",
+          "table": "public.course_sections",
+          "referenced_table": "public.courses",
+          "columns": [
+            "course_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "course_sections_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.course_sections",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_course_sections_updated_at",
+          "def": "CREATE TRIGGER update_course_sections_updated_at BEFORE UPDATE ON public.course_sections FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.section_content",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('section_content_id_seq'::regclass)"
+        },
+        {
+          "name": "section_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "type",
+          "type": "varchar(50)",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "order_index",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "metadata",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "is_published",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "is_mandatory",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "file_path",
+          "type": "varchar(1000)",
+          "nullable": true
+        },
+        {
+          "name": "file_size",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "file_type",
+          "type": "varchar(100)",
+          "nullable": true
+        },
+        {
+          "name": "ai_index_status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "default": "'not_indexed'::character varying"
+        },
+        {
+          "name": "ai_index_job_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "ai_indexed_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "embedding_model",
+          "type": "varchar(64)",
+          "nullable": true,
+          "default": "'bge-m3'::character varying"
+        },
+        {
+          "name": "created_by",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "section_content_pkey",
+          "def": "CREATE UNIQUE INDEX section_content_pkey ON public.section_content USING btree (id)",
+          "table": "public.section_content",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_content_section",
+          "def": "CREATE INDEX idx_content_section ON public.section_content USING btree (section_id)",
+          "table": "public.section_content",
+          "columns": [
+            "section_id"
+          ]
+        },
+        {
+          "name": "idx_content_type",
+          "def": "CREATE INDEX idx_content_type ON public.section_content USING btree (type)",
+          "table": "public.section_content",
+          "columns": [
+            "type"
+          ]
+        },
+        {
+          "name": "idx_content_order",
+          "def": "CREATE INDEX idx_content_order ON public.section_content USING btree (section_id, order_index)",
+          "table": "public.section_content",
+          "columns": [
+            "section_id",
+            "order_index"
+          ]
+        },
+        {
+          "name": "idx_content_ai_status",
+          "def": "CREATE INDEX idx_content_ai_status ON public.section_content USING btree (ai_index_status) WHERE ((ai_index_status)::text = ANY ((ARRAY['processing'::character varying, 'indexed'::character varying])::text[]))",
+          "table": "public.section_content",
+          "columns": [
+            "ai_index_status"
+          ]
+        },
+        {
+          "name": "idx_section_content_section_mandatory",
+          "def": "CREATE INDEX idx_section_content_section_mandatory ON public.section_content USING btree (section_id, id, is_mandatory) WHERE (is_mandatory = true)",
+          "table": "public.section_content",
+          "columns": [
+            "section_id",
+            "id",
+            "is_mandatory"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "section_content_ai_index_status_check",
+          "type": "CHECK",
+          "def": "CHECK (((ai_index_status)::text = ANY ((ARRAY['not_indexed'::character varying, 'processing'::character varying, 'indexed'::character varying, 'failed'::character varying])::text[])))",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "ai_index_status"
+          ]
+        },
+        {
+          "name": "section_content_created_by_not_null",
+          "type": "n",
+          "def": "NOT NULL created_by",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "created_by"
+          ]
+        },
+        {
+          "name": "section_content_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "section_content_order_index_not_null",
+          "type": "n",
+          "def": "NOT NULL order_index",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "order_index"
+          ]
+        },
+        {
+          "name": "section_content_section_id_not_null",
+          "type": "n",
+          "def": "NOT NULL section_id",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "section_id"
+          ]
+        },
+        {
+          "name": "section_content_title_not_null",
+          "type": "n",
+          "def": "NOT NULL title",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "title"
+          ]
+        },
+        {
+          "name": "section_content_type_check",
+          "type": "CHECK",
+          "def": "CHECK (((type)::text = ANY ((ARRAY['TEXT'::character varying, 'VIDEO'::character varying, 'DOCUMENT'::character varying, 'IMAGE'::character varying, 'QUIZ'::character varying, 'FORUM'::character varying, 'ANNOUNCEMENT'::character varying])::text[])))",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "type"
+          ]
+        },
+        {
+          "name": "section_content_type_not_null",
+          "type": "n",
+          "def": "NOT NULL type",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "type"
+          ]
+        },
+        {
+          "name": "section_content_created_by_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (created_by) REFERENCES users(id)",
+          "table": "public.section_content",
+          "referenced_table": "public.users",
+          "columns": [
+            "created_by"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "section_content_section_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (section_id) REFERENCES course_sections(id) ON DELETE CASCADE",
+          "table": "public.section_content",
+          "referenced_table": "public.course_sections",
+          "columns": [
+            "section_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "section_content_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.section_content",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_section_content_updated_at",
+          "def": "CREATE TRIGGER update_section_content_updated_at BEFORE UPDATE ON public.section_content FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        },
+        {
+          "name": "trigger_reset_ai_index_timestamp",
+          "def": "CREATE TRIGGER trigger_reset_ai_index_timestamp BEFORE UPDATE OF ai_index_status ON public.section_content FOR EACH ROW EXECUTE FUNCTION reset_ai_index_timestamp()"
+        }
+      ]
+    },
+    {
+      "name": "public.enrollments",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('enrollments_id_seq'::regclass)"
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "student_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": false,
+          "default": "'ACCEPTED'::character varying"
+        },
+        {
+          "name": "enrolled_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "accepted_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "rejected_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "enrollments_pkey",
+          "def": "CREATE UNIQUE INDEX enrollments_pkey ON public.enrollments USING btree (id)",
+          "table": "public.enrollments",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "enrollments_course_id_student_id_key",
+          "def": "CREATE UNIQUE INDEX enrollments_course_id_student_id_key ON public.enrollments USING btree (course_id, student_id)",
+          "table": "public.enrollments",
+          "columns": [
+            "course_id",
+            "student_id"
+          ]
+        },
+        {
+          "name": "idx_enrollments_course",
+          "def": "CREATE INDEX idx_enrollments_course ON public.enrollments USING btree (course_id)",
+          "table": "public.enrollments",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_enrollments_student",
+          "def": "CREATE INDEX idx_enrollments_student ON public.enrollments USING btree (student_id)",
+          "table": "public.enrollments",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "idx_enrollments_status",
+          "def": "CREATE INDEX idx_enrollments_status ON public.enrollments USING btree (status)",
+          "table": "public.enrollments",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "idx_enrollments_course_status",
+          "def": "CREATE INDEX idx_enrollments_course_status ON public.enrollments USING btree (course_id, status)",
+          "table": "public.enrollments",
+          "columns": [
+            "course_id",
+            "status"
+          ]
+        },
+        {
+          "name": "idx_enrollments_student_status",
+          "def": "CREATE INDEX idx_enrollments_student_status ON public.enrollments USING btree (student_id, status)",
+          "table": "public.enrollments",
+          "columns": [
+            "student_id",
+            "status"
+          ]
+        },
+        {
+          "name": "idx_enrollments_course_accepted",
+          "def": "CREATE INDEX idx_enrollments_course_accepted ON public.enrollments USING btree (course_id, student_id) WHERE ((status)::text = 'ACCEPTED'::text)",
+          "table": "public.enrollments",
+          "columns": [
+            "course_id",
+            "student_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "enrollments_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.enrollments",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "enrollments_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.enrollments",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "enrollments_status_not_null",
+          "type": "n",
+          "def": "NOT NULL status",
+          "table": "public.enrollments",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "enrollments_student_id_not_null",
+          "type": "n",
+          "def": "NOT NULL student_id",
+          "table": "public.enrollments",
+          "referenced_table": "",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "enrollments_course_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE",
+          "table": "public.enrollments",
+          "referenced_table": "public.courses",
+          "columns": [
+            "course_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "enrollments_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.enrollments",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "enrollments_course_id_student_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (course_id, student_id)",
+          "table": "public.enrollments",
+          "referenced_table": "",
+          "columns": [
+            "course_id",
+            "student_id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_enrollments_updated_at",
+          "def": "CREATE TRIGGER update_enrollments_updated_at BEFORE UPDATE ON public.enrollments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        },
+        {
+          "name": "trigger_auto_accept_enrollment",
+          "def": "CREATE TRIGGER trigger_auto_accept_enrollment BEFORE INSERT ON public.enrollments FOR EACH ROW EXECUTE FUNCTION auto_accept_enrollment()"
+        }
+      ]
+    },
+    {
+      "name": "public.bulk_enrollment_logs",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('bulk_enrollment_logs_id_seq'::regclass)"
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "teacher_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "total_count",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "success_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "failed_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "default": "'PROCESSING'::character varying"
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "completed_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "bulk_enrollment_logs_pkey",
+          "def": "CREATE UNIQUE INDEX bulk_enrollment_logs_pkey ON public.bulk_enrollment_logs USING btree (id)",
+          "table": "public.bulk_enrollment_logs",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_bulk_logs_course",
+          "def": "CREATE INDEX idx_bulk_logs_course ON public.bulk_enrollment_logs USING btree (course_id)",
+          "table": "public.bulk_enrollment_logs",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_bulk_logs_teacher",
+          "def": "CREATE INDEX idx_bulk_logs_teacher ON public.bulk_enrollment_logs USING btree (teacher_id)",
+          "table": "public.bulk_enrollment_logs",
+          "columns": [
+            "teacher_id"
+          ]
+        },
+        {
+          "name": "idx_bulk_logs_status",
+          "def": "CREATE INDEX idx_bulk_logs_status ON public.bulk_enrollment_logs USING btree (status)",
+          "table": "public.bulk_enrollment_logs",
+          "columns": [
+            "status"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "bulk_enrollment_logs_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.bulk_enrollment_logs",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "bulk_enrollment_logs_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.bulk_enrollment_logs",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "bulk_enrollment_logs_teacher_id_not_null",
+          "type": "n",
+          "def": "NOT NULL teacher_id",
+          "table": "public.bulk_enrollment_logs",
+          "referenced_table": "",
+          "columns": [
+            "teacher_id"
+          ]
+        },
+        {
+          "name": "bulk_enrollment_logs_total_count_not_null",
+          "type": "n",
+          "def": "NOT NULL total_count",
+          "table": "public.bulk_enrollment_logs",
+          "referenced_table": "",
+          "columns": [
+            "total_count"
+          ]
+        },
+        {
+          "name": "bulk_enrollment_logs_course_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE",
+          "table": "public.bulk_enrollment_logs",
+          "referenced_table": "public.courses",
+          "columns": [
+            "course_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "bulk_enrollment_logs_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.bulk_enrollment_logs",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.quizzes",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('quizzes_id_seq'::regclass)"
+        },
+        {
+          "name": "content_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": "varchar(500)",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "instructions",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "time_limit_minutes",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "available_from",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "available_until",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "max_attempts",
+          "type": "integer",
+          "nullable": true,
+          "default": "1"
+        },
+        {
+          "name": "shuffle_questions",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "shuffle_answers",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "passing_score",
+          "type": "numeric(5,2)",
+          "nullable": true
+        },
+        {
+          "name": "total_points",
+          "type": "numeric(10,2)",
+          "nullable": true,
+          "default": "100.00"
+        },
+        {
+          "name": "auto_grade",
+          "type": "boolean",
+          "nullable": true,
+          "default": "true"
+        },
+        {
+          "name": "show_results_immediately",
+          "type": "boolean",
+          "nullable": true,
+          "default": "true"
+        },
+        {
+          "name": "show_correct_answers",
+          "type": "boolean",
+          "nullable": true,
+          "default": "true"
+        },
+        {
+          "name": "allow_review",
+          "type": "boolean",
+          "nullable": true,
+          "default": "true"
+        },
+        {
+          "name": "show_feedback",
+          "type": "boolean",
+          "nullable": true,
+          "default": "true"
+        },
+        {
+          "name": "is_published",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "created_by",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "quizzes_pkey",
+          "def": "CREATE UNIQUE INDEX quizzes_pkey ON public.quizzes USING btree (id)",
+          "table": "public.quizzes",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_quizzes_content",
+          "def": "CREATE INDEX idx_quizzes_content ON public.quizzes USING btree (content_id)",
+          "table": "public.quizzes",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "idx_quizzes_published",
+          "def": "CREATE INDEX idx_quizzes_published ON public.quizzes USING btree (is_published)",
+          "table": "public.quizzes",
+          "columns": [
+            "is_published"
+          ]
+        },
+        {
+          "name": "idx_quizzes_available",
+          "def": "CREATE INDEX idx_quizzes_available ON public.quizzes USING btree (available_from, available_until)",
+          "table": "public.quizzes",
+          "columns": [
+            "available_from",
+            "available_until"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "quizzes_content_id_not_null",
+          "type": "n",
+          "def": "NOT NULL content_id",
+          "table": "public.quizzes",
+          "referenced_table": "",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "quizzes_created_by_not_null",
+          "type": "n",
+          "def": "NOT NULL created_by",
+          "table": "public.quizzes",
+          "referenced_table": "",
+          "columns": [
+            "created_by"
+          ]
+        },
+        {
+          "name": "quizzes_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.quizzes",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quizzes_title_not_null",
+          "type": "n",
+          "def": "NOT NULL title",
+          "table": "public.quizzes",
+          "referenced_table": "",
+          "columns": [
+            "title"
+          ]
+        },
+        {
+          "name": "quizzes_created_by_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (created_by) REFERENCES users(id)",
+          "table": "public.quizzes",
+          "referenced_table": "public.users",
+          "columns": [
+            "created_by"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quizzes_content_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (content_id) REFERENCES section_content(id) ON DELETE CASCADE",
+          "table": "public.quizzes",
+          "referenced_table": "public.section_content",
+          "columns": [
+            "content_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quizzes_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.quizzes",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_quizzes_updated_at",
+          "def": "CREATE TRIGGER update_quizzes_updated_at BEFORE UPDATE ON public.quizzes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.quiz_questions",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('quiz_questions_id_seq'::regclass)"
+        },
+        {
+          "name": "quiz_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "question_type",
+          "type": "varchar(50)",
+          "nullable": false
+        },
+        {
+          "name": "question_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "question_html",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "explanation",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "points",
+          "type": "numeric(10,2)",
+          "nullable": true,
+          "default": "10.00"
+        },
+        {
+          "name": "order_index",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "settings",
+          "type": "jsonb",
+          "nullable": true,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "is_required",
+          "type": "boolean",
+          "nullable": true,
+          "default": "true"
+        },
+        {
+          "name": "node_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "bloom_level",
+          "type": "varchar(20)",
+          "nullable": true
+        },
+        {
+          "name": "reference_chunk_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "quiz_questions_pkey",
+          "def": "CREATE UNIQUE INDEX quiz_questions_pkey ON public.quiz_questions USING btree (id)",
+          "table": "public.quiz_questions",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_quiz_questions_quiz",
+          "def": "CREATE INDEX idx_quiz_questions_quiz ON public.quiz_questions USING btree (quiz_id)",
+          "table": "public.quiz_questions",
+          "columns": [
+            "quiz_id"
+          ]
+        },
+        {
+          "name": "idx_quiz_questions_order",
+          "def": "CREATE INDEX idx_quiz_questions_order ON public.quiz_questions USING btree (quiz_id, order_index)",
+          "table": "public.quiz_questions",
+          "columns": [
+            "quiz_id",
+            "order_index"
+          ]
+        },
+        {
+          "name": "idx_quiz_questions_type",
+          "def": "CREATE INDEX idx_quiz_questions_type ON public.quiz_questions USING btree (question_type)",
+          "table": "public.quiz_questions",
+          "columns": [
+            "question_type"
+          ]
+        },
+        {
+          "name": "idx_quiz_questions_node",
+          "def": "CREATE INDEX idx_quiz_questions_node ON public.quiz_questions USING btree (node_id) WHERE (node_id IS NOT NULL)",
+          "table": "public.quiz_questions",
+          "columns": [
+            "node_id"
+          ]
+        },
+        {
+          "name": "idx_quiz_questions_bloom",
+          "def": "CREATE INDEX idx_quiz_questions_bloom ON public.quiz_questions USING btree (bloom_level) WHERE (bloom_level IS NOT NULL)",
+          "table": "public.quiz_questions",
+          "columns": [
+            "bloom_level"
+          ]
+        },
+        {
+          "name": "idx_quiz_questions_settings",
+          "def": "CREATE INDEX idx_quiz_questions_settings ON public.quiz_questions USING gin (settings)",
+          "table": "public.quiz_questions",
+          "columns": [
+            "settings"
+          ]
+        },
+        {
+          "name": "idx_quiz_questions_quiz_order",
+          "def": "CREATE INDEX idx_quiz_questions_quiz_order ON public.quiz_questions USING btree (quiz_id, order_index) INCLUDE (points, question_type, node_id)",
+          "table": "public.quiz_questions",
+          "columns": [
+            "quiz_id",
+            "order_index",
+            "points",
+            "question_type",
+            "node_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "quiz_questions_bloom_level_check",
+          "type": "CHECK",
+          "def": "CHECK (((bloom_level)::text = ANY ((ARRAY['remember'::character varying, 'understand'::character varying, 'apply'::character varying, 'analyze'::character varying, 'evaluate'::character varying, 'create'::character varying])::text[])))",
+          "table": "public.quiz_questions",
+          "referenced_table": "",
+          "columns": [
+            "bloom_level"
+          ]
+        },
+        {
+          "name": "quiz_questions_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.quiz_questions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_questions_order_index_not_null",
+          "type": "n",
+          "def": "NOT NULL order_index",
+          "table": "public.quiz_questions",
+          "referenced_table": "",
+          "columns": [
+            "order_index"
+          ]
+        },
+        {
+          "name": "quiz_questions_question_text_not_null",
+          "type": "n",
+          "def": "NOT NULL question_text",
+          "table": "public.quiz_questions",
+          "referenced_table": "",
+          "columns": [
+            "question_text"
+          ]
+        },
+        {
+          "name": "quiz_questions_question_type_check",
+          "type": "CHECK",
+          "def": "CHECK (((question_type)::text = ANY ((ARRAY['SINGLE_CHOICE'::character varying, 'MULTIPLE_CHOICE'::character varying, 'SHORT_ANSWER'::character varying, 'ESSAY'::character varying, 'FILE_UPLOAD'::character varying, 'FILL_BLANK_TEXT'::character varying, 'FILL_BLANK_DROPDOWN'::character varying])::text[])))",
+          "table": "public.quiz_questions",
+          "referenced_table": "",
+          "columns": [
+            "question_type"
+          ]
+        },
+        {
+          "name": "quiz_questions_question_type_not_null",
+          "type": "n",
+          "def": "NOT NULL question_type",
+          "table": "public.quiz_questions",
+          "referenced_table": "",
+          "columns": [
+            "question_type"
+          ]
+        },
+        {
+          "name": "quiz_questions_quiz_id_not_null",
+          "type": "n",
+          "def": "NOT NULL quiz_id",
+          "table": "public.quiz_questions",
+          "referenced_table": "",
+          "columns": [
+            "quiz_id"
+          ]
+        },
+        {
+          "name": "quiz_questions_quiz_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE",
+          "table": "public.quiz_questions",
+          "referenced_table": "public.quizzes",
+          "columns": [
+            "quiz_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_questions_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.quiz_questions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_quiz_questions_updated_at",
+          "def": "CREATE TRIGGER update_quiz_questions_updated_at BEFORE UPDATE ON public.quiz_questions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.quiz_answer_options",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('quiz_answer_options_id_seq'::regclass)"
+        },
+        {
+          "name": "question_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "option_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "option_html",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "is_correct",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "order_index",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "blank_id",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "settings",
+          "type": "jsonb",
+          "nullable": true,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "quiz_answer_options_pkey",
+          "def": "CREATE UNIQUE INDEX quiz_answer_options_pkey ON public.quiz_answer_options USING btree (id)",
+          "table": "public.quiz_answer_options",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_answer_options_question",
+          "def": "CREATE INDEX idx_answer_options_question ON public.quiz_answer_options USING btree (question_id)",
+          "table": "public.quiz_answer_options",
+          "columns": [
+            "question_id"
+          ]
+        },
+        {
+          "name": "idx_answer_options_blank",
+          "def": "CREATE INDEX idx_answer_options_blank ON public.quiz_answer_options USING btree (question_id, blank_id)",
+          "table": "public.quiz_answer_options",
+          "columns": [
+            "question_id",
+            "blank_id"
+          ]
+        },
+        {
+          "name": "idx_answer_options_blank_id",
+          "def": "CREATE INDEX idx_answer_options_blank_id ON public.quiz_answer_options USING btree (blank_id) WHERE (blank_id IS NOT NULL)",
+          "table": "public.quiz_answer_options",
+          "columns": [
+            "blank_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "quiz_answer_options_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.quiz_answer_options",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_answer_options_option_text_not_null",
+          "type": "n",
+          "def": "NOT NULL option_text",
+          "table": "public.quiz_answer_options",
+          "referenced_table": "",
+          "columns": [
+            "option_text"
+          ]
+        },
+        {
+          "name": "quiz_answer_options_order_index_not_null",
+          "type": "n",
+          "def": "NOT NULL order_index",
+          "table": "public.quiz_answer_options",
+          "referenced_table": "",
+          "columns": [
+            "order_index"
+          ]
+        },
+        {
+          "name": "quiz_answer_options_question_id_not_null",
+          "type": "n",
+          "def": "NOT NULL question_id",
+          "table": "public.quiz_answer_options",
+          "referenced_table": "",
+          "columns": [
+            "question_id"
+          ]
+        },
+        {
+          "name": "quiz_answer_options_question_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE",
+          "table": "public.quiz_answer_options",
+          "referenced_table": "public.quiz_questions",
+          "columns": [
+            "question_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_answer_options_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.quiz_answer_options",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.quiz_correct_answers",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('quiz_correct_answers_id_seq'::regclass)"
+        },
+        {
+          "name": "question_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "answer_text",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "blank_id",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "blank_position",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "case_sensitive",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "exact_match",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "quiz_correct_answers_pkey",
+          "def": "CREATE UNIQUE INDEX quiz_correct_answers_pkey ON public.quiz_correct_answers USING btree (id)",
+          "table": "public.quiz_correct_answers",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_correct_answers_question",
+          "def": "CREATE INDEX idx_correct_answers_question ON public.quiz_correct_answers USING btree (question_id)",
+          "table": "public.quiz_correct_answers",
+          "columns": [
+            "question_id"
+          ]
+        },
+        {
+          "name": "idx_correct_answers_blank_id",
+          "def": "CREATE INDEX idx_correct_answers_blank_id ON public.quiz_correct_answers USING btree (blank_id) WHERE (blank_id IS NOT NULL)",
+          "table": "public.quiz_correct_answers",
+          "columns": [
+            "blank_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "quiz_correct_answers_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.quiz_correct_answers",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_correct_answers_question_id_not_null",
+          "type": "n",
+          "def": "NOT NULL question_id",
+          "table": "public.quiz_correct_answers",
+          "referenced_table": "",
+          "columns": [
+            "question_id"
+          ]
+        },
+        {
+          "name": "quiz_correct_answers_question_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE",
+          "table": "public.quiz_correct_answers",
+          "referenced_table": "public.quiz_questions",
+          "columns": [
+            "question_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_correct_answers_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.quiz_correct_answers",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.quiz_attempts",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('quiz_attempts_id_seq'::regclass)"
+        },
+        {
+          "name": "quiz_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "student_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "attempt_number",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "name": "started_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "submitted_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "time_spent_seconds",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "total_points",
+          "type": "numeric(10,2)",
+          "nullable": true
+        },
+        {
+          "name": "earned_points",
+          "type": "numeric(10,2)",
+          "nullable": true
+        },
+        {
+          "name": "percentage",
+          "type": "numeric(5,2)",
+          "nullable": true
+        },
+        {
+          "name": "is_passed",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "default": "'IN_PROGRESS'::character varying"
+        },
+        {
+          "name": "auto_graded_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "manually_graded_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "graded_by",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "ip_address",
+          "type": "varchar(45)",
+          "nullable": true
+        },
+        {
+          "name": "user_agent",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "quiz_attempts_pkey",
+          "def": "CREATE UNIQUE INDEX quiz_attempts_pkey ON public.quiz_attempts USING btree (id)",
+          "table": "public.quiz_attempts",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_attempts_quiz_id_student_id_attempt_number_key",
+          "def": "CREATE UNIQUE INDEX quiz_attempts_quiz_id_student_id_attempt_number_key ON public.quiz_attempts USING btree (quiz_id, student_id, attempt_number)",
+          "table": "public.quiz_attempts",
+          "columns": [
+            "quiz_id",
+            "student_id",
+            "attempt_number"
+          ]
+        },
+        {
+          "name": "idx_quiz_attempts_quiz",
+          "def": "CREATE INDEX idx_quiz_attempts_quiz ON public.quiz_attempts USING btree (quiz_id)",
+          "table": "public.quiz_attempts",
+          "columns": [
+            "quiz_id"
+          ]
+        },
+        {
+          "name": "idx_quiz_attempts_student",
+          "def": "CREATE INDEX idx_quiz_attempts_student ON public.quiz_attempts USING btree (student_id)",
+          "table": "public.quiz_attempts",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "idx_quiz_attempts_status",
+          "def": "CREATE INDEX idx_quiz_attempts_status ON public.quiz_attempts USING btree (status)",
+          "table": "public.quiz_attempts",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "idx_quiz_attempts_quiz_student",
+          "def": "CREATE INDEX idx_quiz_attempts_quiz_student ON public.quiz_attempts USING btree (quiz_id, student_id)",
+          "table": "public.quiz_attempts",
+          "columns": [
+            "quiz_id",
+            "student_id"
+          ]
+        },
+        {
+          "name": "idx_quiz_attempts_analytics",
+          "def": "CREATE INDEX idx_quiz_attempts_analytics ON public.quiz_attempts USING btree (quiz_id, student_id, status, percentage, is_passed) WHERE ((status)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'GRADED'::character varying])::text[]))",
+          "table": "public.quiz_attempts",
+          "columns": [
+            "quiz_id",
+            "student_id",
+            "status",
+            "percentage",
+            "is_passed"
+          ]
+        },
+        {
+          "name": "idx_quiz_attempts_student_status",
+          "def": "CREATE INDEX idx_quiz_attempts_student_status ON public.quiz_attempts USING btree (student_id, quiz_id, status, submitted_at) WHERE ((status)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'GRADED'::character varying])::text[]))",
+          "table": "public.quiz_attempts",
+          "columns": [
+            "student_id",
+            "quiz_id",
+            "status",
+            "submitted_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "quiz_attempts_attempt_number_not_null",
+          "type": "n",
+          "def": "NOT NULL attempt_number",
+          "table": "public.quiz_attempts",
+          "referenced_table": "",
+          "columns": [
+            "attempt_number"
+          ]
+        },
+        {
+          "name": "quiz_attempts_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.quiz_attempts",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_attempts_quiz_id_not_null",
+          "type": "n",
+          "def": "NOT NULL quiz_id",
+          "table": "public.quiz_attempts",
+          "referenced_table": "",
+          "columns": [
+            "quiz_id"
+          ]
+        },
+        {
+          "name": "quiz_attempts_status_check",
+          "type": "CHECK",
+          "def": "CHECK (((status)::text = ANY ((ARRAY['IN_PROGRESS'::character varying, 'SUBMITTED'::character varying, 'GRADED'::character varying, 'ABANDONED'::character varying])::text[])))",
+          "table": "public.quiz_attempts",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "quiz_attempts_student_id_not_null",
+          "type": "n",
+          "def": "NOT NULL student_id",
+          "table": "public.quiz_attempts",
+          "referenced_table": "",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "quiz_attempts_graded_by_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (graded_by) REFERENCES users(id)",
+          "table": "public.quiz_attempts",
+          "referenced_table": "public.users",
+          "columns": [
+            "graded_by"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_attempts_student_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE",
+          "table": "public.quiz_attempts",
+          "referenced_table": "public.users",
+          "columns": [
+            "student_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_attempts_quiz_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE",
+          "table": "public.quiz_attempts",
+          "referenced_table": "public.quizzes",
+          "columns": [
+            "quiz_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_attempts_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.quiz_attempts",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_attempts_quiz_id_student_id_attempt_number_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (quiz_id, student_id, attempt_number)",
+          "table": "public.quiz_attempts",
+          "referenced_table": "",
+          "columns": [
+            "quiz_id",
+            "student_id",
+            "attempt_number"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_quiz_attempts_updated_at",
+          "def": "CREATE TRIGGER update_quiz_attempts_updated_at BEFORE UPDATE ON public.quiz_attempts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.quiz_student_answers",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('quiz_student_answers_id_seq'::regclass)"
+        },
+        {
+          "name": "attempt_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "question_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "answer_data",
+          "type": "jsonb",
+          "nullable": false
+        },
+        {
+          "name": "points_earned",
+          "type": "numeric(10,2)",
+          "nullable": true
+        },
+        {
+          "name": "is_correct",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "grader_feedback",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "graded_by",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "graded_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "answered_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "time_spent_seconds",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "quiz_student_answers_pkey",
+          "def": "CREATE UNIQUE INDEX quiz_student_answers_pkey ON public.quiz_student_answers USING btree (id)",
+          "table": "public.quiz_student_answers",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_attempt_id_question_id_key",
+          "def": "CREATE UNIQUE INDEX quiz_student_answers_attempt_id_question_id_key ON public.quiz_student_answers USING btree (attempt_id, question_id)",
+          "table": "public.quiz_student_answers",
+          "columns": [
+            "attempt_id",
+            "question_id"
+          ]
+        },
+        {
+          "name": "idx_student_answers_attempt",
+          "def": "CREATE INDEX idx_student_answers_attempt ON public.quiz_student_answers USING btree (attempt_id)",
+          "table": "public.quiz_student_answers",
+          "columns": [
+            "attempt_id"
+          ]
+        },
+        {
+          "name": "idx_student_answers_question",
+          "def": "CREATE INDEX idx_student_answers_question ON public.quiz_student_answers USING btree (question_id)",
+          "table": "public.quiz_student_answers",
+          "columns": [
+            "question_id"
+          ]
+        },
+        {
+          "name": "idx_student_answers_data",
+          "def": "CREATE INDEX idx_student_answers_data ON public.quiz_student_answers USING gin (answer_data)",
+          "table": "public.quiz_student_answers",
+          "columns": [
+            "answer_data"
+          ]
+        },
+        {
+          "name": "idx_student_answers_attempt_grading",
+          "def": "CREATE INDEX idx_student_answers_attempt_grading ON public.quiz_student_answers USING btree (attempt_id, is_correct, points_earned) WHERE (is_correct IS NOT NULL)",
+          "table": "public.quiz_student_answers",
+          "columns": [
+            "attempt_id",
+            "is_correct",
+            "points_earned"
+          ]
+        },
+        {
+          "name": "idx_student_answers_ungraded",
+          "def": "CREATE INDEX idx_student_answers_ungraded ON public.quiz_student_answers USING btree (attempt_id, question_id) WHERE (points_earned IS NULL)",
+          "table": "public.quiz_student_answers",
+          "columns": [
+            "attempt_id",
+            "question_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "quiz_student_answers_answer_data_not_null",
+          "type": "n",
+          "def": "NOT NULL answer_data",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "",
+          "columns": [
+            "answer_data"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_attempt_id_not_null",
+          "type": "n",
+          "def": "NOT NULL attempt_id",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "",
+          "columns": [
+            "attempt_id"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_question_id_not_null",
+          "type": "n",
+          "def": "NOT NULL question_id",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "",
+          "columns": [
+            "question_id"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_graded_by_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (graded_by) REFERENCES users(id)",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "public.users",
+          "columns": [
+            "graded_by"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_question_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "public.quiz_questions",
+          "columns": [
+            "question_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_attempt_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (attempt_id) REFERENCES quiz_attempts(id) ON DELETE CASCADE",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "public.quiz_attempts",
+          "columns": [
+            "attempt_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_student_answers_attempt_id_question_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (attempt_id, question_id)",
+          "table": "public.quiz_student_answers",
+          "referenced_table": "",
+          "columns": [
+            "attempt_id",
+            "question_id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_quiz_student_answers_updated_at",
+          "def": "CREATE TRIGGER update_quiz_student_answers_updated_at BEFORE UPDATE ON public.quiz_student_answers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.quiz_analytics",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('quiz_analytics_id_seq'::regclass)"
+        },
+        {
+          "name": "quiz_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "question_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "total_attempts",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "correct_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "incorrect_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "average_score",
+          "type": "numeric(5,2)",
+          "nullable": true
+        },
+        {
+          "name": "difficulty_rating",
+          "type": "varchar(20)",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "quiz_analytics_pkey",
+          "def": "CREATE UNIQUE INDEX quiz_analytics_pkey ON public.quiz_analytics USING btree (id)",
+          "table": "public.quiz_analytics",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_analytics_quiz_id_question_id_key",
+          "def": "CREATE UNIQUE INDEX quiz_analytics_quiz_id_question_id_key ON public.quiz_analytics USING btree (quiz_id, question_id)",
+          "table": "public.quiz_analytics",
+          "columns": [
+            "quiz_id",
+            "question_id"
+          ]
+        },
+        {
+          "name": "idx_quiz_analytics_quiz",
+          "def": "CREATE INDEX idx_quiz_analytics_quiz ON public.quiz_analytics USING btree (quiz_id)",
+          "table": "public.quiz_analytics",
+          "columns": [
+            "quiz_id"
+          ]
+        },
+        {
+          "name": "idx_quiz_analytics_question",
+          "def": "CREATE INDEX idx_quiz_analytics_question ON public.quiz_analytics USING btree (question_id)",
+          "table": "public.quiz_analytics",
+          "columns": [
+            "question_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "quiz_analytics_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.quiz_analytics",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_analytics_quiz_id_not_null",
+          "type": "n",
+          "def": "NOT NULL quiz_id",
+          "table": "public.quiz_analytics",
+          "referenced_table": "",
+          "columns": [
+            "quiz_id"
+          ]
+        },
+        {
+          "name": "quiz_analytics_quiz_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE",
+          "table": "public.quiz_analytics",
+          "referenced_table": "public.quizzes",
+          "columns": [
+            "quiz_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_analytics_question_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE",
+          "table": "public.quiz_analytics",
+          "referenced_table": "public.quiz_questions",
+          "columns": [
+            "question_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_analytics_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.quiz_analytics",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "quiz_analytics_quiz_id_question_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (quiz_id, question_id)",
+          "table": "public.quiz_analytics",
+          "referenced_table": "",
+          "columns": [
+            "quiz_id",
+            "question_id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.content_progress",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('content_progress_id_seq'::regclass)"
+        },
+        {
+          "name": "content_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "student_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "completed_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "content_progress_pkey",
+          "def": "CREATE UNIQUE INDEX content_progress_pkey ON public.content_progress USING btree (id)",
+          "table": "public.content_progress",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "content_progress_content_id_student_id_key",
+          "def": "CREATE UNIQUE INDEX content_progress_content_id_student_id_key ON public.content_progress USING btree (content_id, student_id)",
+          "table": "public.content_progress",
+          "columns": [
+            "content_id",
+            "student_id"
+          ]
+        },
+        {
+          "name": "idx_content_progress_student",
+          "def": "CREATE INDEX idx_content_progress_student ON public.content_progress USING btree (student_id)",
+          "table": "public.content_progress",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "idx_content_progress_content",
+          "def": "CREATE INDEX idx_content_progress_content ON public.content_progress USING btree (content_id)",
+          "table": "public.content_progress",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "idx_content_progress_student_content",
+          "def": "CREATE INDEX idx_content_progress_student_content ON public.content_progress USING btree (student_id, content_id)",
+          "table": "public.content_progress",
+          "columns": [
+            "student_id",
+            "content_id"
+          ]
+        },
+        {
+          "name": "idx_content_progress_content_student",
+          "def": "CREATE INDEX idx_content_progress_content_student ON public.content_progress USING btree (content_id, student_id) INCLUDE (completed_at)",
+          "table": "public.content_progress",
+          "columns": [
+            "content_id",
+            "student_id",
+            "completed_at"
+          ]
+        },
+        {
+          "name": "idx_content_progress_student_course",
+          "def": "CREATE INDEX idx_content_progress_student_course ON public.content_progress USING btree (student_id, content_id)",
+          "table": "public.content_progress",
+          "columns": [
+            "student_id",
+            "content_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "content_progress_content_id_not_null",
+          "type": "n",
+          "def": "NOT NULL content_id",
+          "table": "public.content_progress",
+          "referenced_table": "",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "content_progress_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.content_progress",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "content_progress_student_id_not_null",
+          "type": "n",
+          "def": "NOT NULL student_id",
+          "table": "public.content_progress",
+          "referenced_table": "",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "content_progress_student_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE",
+          "table": "public.content_progress",
+          "referenced_table": "public.users",
+          "columns": [
+            "student_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "content_progress_content_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (content_id) REFERENCES section_content(id) ON DELETE CASCADE",
+          "table": "public.content_progress",
+          "referenced_table": "public.section_content",
+          "columns": [
+            "content_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "content_progress_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.content_progress",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "content_progress_content_id_student_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (content_id, student_id)",
+          "table": "public.content_progress",
+          "referenced_table": "",
+          "columns": [
+            "content_id",
+            "student_id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.quiz_summary_view",
+      "type": "VIEW",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "content_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "title",
+          "type": "varchar(500)",
+          "nullable": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "instructions",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "time_limit_minutes",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "available_from",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "available_until",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "max_attempts",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "shuffle_questions",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "shuffle_answers",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "passing_score",
+          "type": "numeric(5,2)",
+          "nullable": true
+        },
+        {
+          "name": "total_points",
+          "type": "numeric(10,2)",
+          "nullable": true
+        },
+        {
+          "name": "auto_grade",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "show_results_immediately",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "show_correct_answers",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "allow_review",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "show_feedback",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "is_published",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "creator_name",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "creator_email",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "question_count",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "attempt_count",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "student_count",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "average_score",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "passed_count",
+          "type": "bigint",
+          "nullable": true
+        }
+      ],
+      "def": "CREATE VIEW quiz_summary_view AS (\n SELECT q.id,\n    q.content_id,\n    q.title,\n    q.description,\n    q.instructions,\n    q.time_limit_minutes,\n    q.available_from,\n    q.available_until,\n    q.max_attempts,\n    q.shuffle_questions,\n    q.shuffle_answers,\n    q.passing_score,\n    q.total_points,\n    q.auto_grade,\n    q.show_results_immediately,\n    q.show_correct_answers,\n    q.allow_review,\n    q.show_feedback,\n    q.is_published,\n    q.created_by,\n    q.created_at,\n    q.updated_at,\n    u.full_name AS creator_name,\n    u.email AS creator_email,\n    count(DISTINCT qq.id) AS question_count,\n    count(DISTINCT qa.id) AS attempt_count,\n    count(DISTINCT qa.student_id) AS student_count,\n    avg(qa.percentage) AS average_score,\n    count(DISTINCT qa.id) FILTER (WHERE (qa.is_passed = true)) AS passed_count\n   FROM (((quizzes q\n     LEFT JOIN users u ON ((q.created_by = u.id)))\n     LEFT JOIN quiz_questions qq ON ((q.id = qq.quiz_id)))\n     LEFT JOIN quiz_attempts qa ON (((q.id = qa.quiz_id) AND ((qa.status)::text = 'GRADED'::text))))\n  GROUP BY q.id, u.full_name, u.email\n)",
+      "referenced_tables": [
+        "public.quizzes",
+        "public.users",
+        "public.quiz_questions",
+        "public.quiz_attempts"
+      ]
+    },
+    {
+      "name": "public.forum_posts",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('forum_posts_id_seq'::regclass)"
+        },
+        {
+          "name": "content_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "tags",
+          "type": "varchar(100)[]",
+          "nullable": true,
+          "default": "'{}'::character varying[]"
+        },
+        {
+          "name": "upvotes",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "downvotes",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "comment_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "view_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "is_pinned",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "is_locked",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "forum_posts_pkey",
+          "def": "CREATE UNIQUE INDEX forum_posts_pkey ON public.forum_posts USING btree (id)",
+          "table": "public.forum_posts",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_forum_posts_content",
+          "def": "CREATE INDEX idx_forum_posts_content ON public.forum_posts USING btree (content_id)",
+          "table": "public.forum_posts",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "idx_forum_posts_user",
+          "def": "CREATE INDEX idx_forum_posts_user ON public.forum_posts USING btree (user_id)",
+          "table": "public.forum_posts",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "idx_forum_posts_created",
+          "def": "CREATE INDEX idx_forum_posts_created ON public.forum_posts USING btree (content_id, created_at DESC)",
+          "table": "public.forum_posts",
+          "columns": [
+            "content_id",
+            "created_at"
+          ]
+        },
+        {
+          "name": "idx_forum_posts_pinned",
+          "def": "CREATE INDEX idx_forum_posts_pinned ON public.forum_posts USING btree (content_id, is_pinned DESC, created_at DESC)",
+          "table": "public.forum_posts",
+          "columns": [
+            "content_id",
+            "is_pinned",
+            "created_at"
+          ]
+        },
+        {
+          "name": "idx_forum_posts_tags",
+          "def": "CREATE INDEX idx_forum_posts_tags ON public.forum_posts USING gin (tags)",
+          "table": "public.forum_posts",
+          "columns": [
+            "tags"
+          ]
+        },
+        {
+          "name": "idx_forum_posts_search",
+          "def": "CREATE INDEX idx_forum_posts_search ON public.forum_posts USING gin (to_tsvector('english'::regconfig, (((title)::text || ' '::text) || body)))",
+          "table": "public.forum_posts",
+          "columns": [
+            "to_tsvector"
+          ]
+        },
+        {
+          "name": "idx_forum_posts_score",
+          "def": "CREATE INDEX idx_forum_posts_score ON public.forum_posts USING btree (content_id, ((upvotes - downvotes)) DESC, created_at DESC) WHERE (is_pinned = false)",
+          "table": "public.forum_posts",
+          "columns": [
+            "content_id",
+            "expr",
+            "created_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "forum_posts_body_not_null",
+          "type": "n",
+          "def": "NOT NULL body",
+          "table": "public.forum_posts",
+          "referenced_table": "",
+          "columns": [
+            "body"
+          ]
+        },
+        {
+          "name": "forum_posts_content_id_not_null",
+          "type": "n",
+          "def": "NOT NULL content_id",
+          "table": "public.forum_posts",
+          "referenced_table": "",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "forum_posts_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.forum_posts",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_posts_title_not_null",
+          "type": "n",
+          "def": "NOT NULL title",
+          "table": "public.forum_posts",
+          "referenced_table": "",
+          "columns": [
+            "title"
+          ]
+        },
+        {
+          "name": "forum_posts_user_id_not_null",
+          "type": "n",
+          "def": "NOT NULL user_id",
+          "table": "public.forum_posts",
+          "referenced_table": "",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "forum_posts_user_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "table": "public.forum_posts",
+          "referenced_table": "public.users",
+          "columns": [
+            "user_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_posts_content_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (content_id) REFERENCES section_content(id) ON DELETE CASCADE",
+          "table": "public.forum_posts",
+          "referenced_table": "public.section_content",
+          "columns": [
+            "content_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_posts_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.forum_posts",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_forum_posts_updated_at",
+          "def": "CREATE TRIGGER update_forum_posts_updated_at BEFORE UPDATE ON public.forum_posts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.forum_comments",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('forum_comments_id_seq'::regclass)"
+        },
+        {
+          "name": "post_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "parent_comment_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "user_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "upvotes",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "downvotes",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "is_accepted",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "depth",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "forum_comments_pkey",
+          "def": "CREATE UNIQUE INDEX forum_comments_pkey ON public.forum_comments USING btree (id)",
+          "table": "public.forum_comments",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_forum_comments_post",
+          "def": "CREATE INDEX idx_forum_comments_post ON public.forum_comments USING btree (post_id)",
+          "table": "public.forum_comments",
+          "columns": [
+            "post_id"
+          ]
+        },
+        {
+          "name": "idx_forum_comments_parent",
+          "def": "CREATE INDEX idx_forum_comments_parent ON public.forum_comments USING btree (parent_comment_id)",
+          "table": "public.forum_comments",
+          "columns": [
+            "parent_comment_id"
+          ]
+        },
+        {
+          "name": "idx_forum_comments_user",
+          "def": "CREATE INDEX idx_forum_comments_user ON public.forum_comments USING btree (user_id)",
+          "table": "public.forum_comments",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "idx_forum_comments_accepted",
+          "def": "CREATE INDEX idx_forum_comments_accepted ON public.forum_comments USING btree (post_id, is_accepted DESC)",
+          "table": "public.forum_comments",
+          "columns": [
+            "post_id",
+            "is_accepted"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "forum_comments_body_not_null",
+          "type": "n",
+          "def": "NOT NULL body",
+          "table": "public.forum_comments",
+          "referenced_table": "",
+          "columns": [
+            "body"
+          ]
+        },
+        {
+          "name": "forum_comments_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.forum_comments",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_comments_post_id_not_null",
+          "type": "n",
+          "def": "NOT NULL post_id",
+          "table": "public.forum_comments",
+          "referenced_table": "",
+          "columns": [
+            "post_id"
+          ]
+        },
+        {
+          "name": "forum_comments_user_id_not_null",
+          "type": "n",
+          "def": "NOT NULL user_id",
+          "table": "public.forum_comments",
+          "referenced_table": "",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "forum_comments_user_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "table": "public.forum_comments",
+          "referenced_table": "public.users",
+          "columns": [
+            "user_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_comments_post_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (post_id) REFERENCES forum_posts(id) ON DELETE CASCADE",
+          "table": "public.forum_comments",
+          "referenced_table": "public.forum_posts",
+          "columns": [
+            "post_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_comments_parent_comment_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (parent_comment_id) REFERENCES forum_comments(id) ON DELETE CASCADE",
+          "table": "public.forum_comments",
+          "referenced_table": "public.forum_comments",
+          "columns": [
+            "parent_comment_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_comments_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.forum_comments",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "update_forum_comments_updated_at",
+          "def": "CREATE TRIGGER update_forum_comments_updated_at BEFORE UPDATE ON public.forum_comments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        },
+        {
+          "name": "trigger_update_post_comment_count",
+          "def": "CREATE TRIGGER trigger_update_post_comment_count AFTER INSERT OR DELETE ON public.forum_comments FOR EACH ROW EXECUTE FUNCTION update_post_comment_count()"
+        }
+      ]
+    },
+    {
+      "name": "public.forum_votes",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('forum_votes_id_seq'::regclass)"
+        },
+        {
+          "name": "user_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "votable_type",
+          "type": "varchar(20)",
+          "nullable": false
+        },
+        {
+          "name": "votable_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "vote_type",
+          "type": "varchar(10)",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "forum_votes_pkey",
+          "def": "CREATE UNIQUE INDEX forum_votes_pkey ON public.forum_votes USING btree (id)",
+          "table": "public.forum_votes",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_votes_user_id_votable_type_votable_id_key",
+          "def": "CREATE UNIQUE INDEX forum_votes_user_id_votable_type_votable_id_key ON public.forum_votes USING btree (user_id, votable_type, votable_id)",
+          "table": "public.forum_votes",
+          "columns": [
+            "user_id",
+            "votable_type",
+            "votable_id"
+          ]
+        },
+        {
+          "name": "idx_forum_votes_votable",
+          "def": "CREATE INDEX idx_forum_votes_votable ON public.forum_votes USING btree (votable_type, votable_id)",
+          "table": "public.forum_votes",
+          "columns": [
+            "votable_type",
+            "votable_id"
+          ]
+        },
+        {
+          "name": "idx_forum_votes_user",
+          "def": "CREATE INDEX idx_forum_votes_user ON public.forum_votes USING btree (user_id)",
+          "table": "public.forum_votes",
+          "columns": [
+            "user_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "forum_votes_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_votes_user_id_not_null",
+          "type": "n",
+          "def": "NOT NULL user_id",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "forum_votes_votable_id_not_null",
+          "type": "n",
+          "def": "NOT NULL votable_id",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "votable_id"
+          ]
+        },
+        {
+          "name": "forum_votes_votable_type_check",
+          "type": "CHECK",
+          "def": "CHECK (((votable_type)::text = ANY ((ARRAY['post'::character varying, 'comment'::character varying])::text[])))",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "votable_type"
+          ]
+        },
+        {
+          "name": "forum_votes_votable_type_not_null",
+          "type": "n",
+          "def": "NOT NULL votable_type",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "votable_type"
+          ]
+        },
+        {
+          "name": "forum_votes_vote_type_check",
+          "type": "CHECK",
+          "def": "CHECK (((vote_type)::text = ANY ((ARRAY['upvote'::character varying, 'downvote'::character varying])::text[])))",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "vote_type"
+          ]
+        },
+        {
+          "name": "forum_votes_vote_type_not_null",
+          "type": "n",
+          "def": "NOT NULL vote_type",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "vote_type"
+          ]
+        },
+        {
+          "name": "forum_votes_user_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "table": "public.forum_votes",
+          "referenced_table": "public.users",
+          "columns": [
+            "user_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_votes_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "forum_votes_user_id_votable_type_votable_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (user_id, votable_type, votable_id)",
+          "table": "public.forum_votes",
+          "referenced_table": "",
+          "columns": [
+            "user_id",
+            "votable_type",
+            "votable_id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trigger_update_vote_counts",
+          "def": "CREATE TRIGGER trigger_update_vote_counts AFTER INSERT OR DELETE OR UPDATE ON public.forum_votes FOR EACH ROW EXECUTE FUNCTION update_vote_counts()"
+        }
+      ]
+    },
+    {
+      "name": "public.v_content_ai_status",
+      "type": "VIEW",
+      "columns": [
+        {
+          "name": "content_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "title",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "type",
+          "type": "varchar(50)",
+          "nullable": true
+        },
+        {
+          "name": "ai_index_status",
+          "type": "varchar(20)",
+          "nullable": true
+        },
+        {
+          "name": "ai_indexed_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "embedding_model",
+          "type": "varchar(64)",
+          "nullable": true
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "course_title",
+          "type": "varchar(255)",
+          "nullable": true
+        }
+      ],
+      "def": "CREATE VIEW v_content_ai_status AS (\n SELECT sc.id AS content_id,\n    sc.title,\n    sc.type,\n    sc.ai_index_status,\n    sc.ai_indexed_at,\n    sc.embedding_model,\n    cs.course_id,\n    c.title AS course_title\n   FROM ((section_content sc\n     JOIN course_sections cs ON ((cs.id = sc.section_id)))\n     JOIN courses c ON ((c.id = cs.course_id)))\n  WHERE ((sc.type)::text \u003c\u003e ALL ((ARRAY['QUIZ'::character varying, 'FORUM'::character varying, 'ANNOUNCEMENT'::character varying])::text[]))\n  ORDER BY sc.ai_index_status, sc.updated_at DESC\n)",
+      "referenced_tables": [
+        "public.section_content",
+        "public.course_sections",
+        "public.courses"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "table": "public.user_roles",
+      "columns": [
+        "user_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.courses",
+      "columns": [
+        "created_by"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "table": "public.course_sections",
+      "columns": [
+        "course_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.courses",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.section_content",
+      "columns": [
+        "created_by"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "table": "public.section_content",
+      "columns": [
+        "section_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.course_sections",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (section_id) REFERENCES course_sections(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.enrollments",
+      "columns": [
+        "course_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.courses",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.bulk_enrollment_logs",
+      "columns": [
+        "course_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.courses",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quizzes",
+      "columns": [
+        "created_by"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "table": "public.quizzes",
+      "columns": [
+        "content_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.section_content",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (content_id) REFERENCES section_content(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_questions",
+      "columns": [
+        "quiz_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.quizzes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_answer_options",
+      "columns": [
+        "question_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.quiz_questions",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_correct_answers",
+      "columns": [
+        "question_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.quiz_questions",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_attempts",
+      "columns": [
+        "graded_by"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (graded_by) REFERENCES users(id)"
+    },
+    {
+      "table": "public.quiz_attempts",
+      "columns": [
+        "student_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_attempts",
+      "columns": [
+        "quiz_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.quizzes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_student_answers",
+      "columns": [
+        "graded_by"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (graded_by) REFERENCES users(id)"
+    },
+    {
+      "table": "public.quiz_student_answers",
+      "columns": [
+        "question_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.quiz_questions",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_student_answers",
+      "columns": [
+        "attempt_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.quiz_attempts",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (attempt_id) REFERENCES quiz_attempts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_analytics",
+      "columns": [
+        "quiz_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.quizzes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.quiz_analytics",
+      "columns": [
+        "question_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.quiz_questions",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.content_progress",
+      "columns": [
+        "student_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.content_progress",
+      "columns": [
+        "content_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.section_content",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (content_id) REFERENCES section_content(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.forum_posts",
+      "columns": [
+        "user_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.forum_posts",
+      "columns": [
+        "content_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.section_content",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (content_id) REFERENCES section_content(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.forum_comments",
+      "columns": [
+        "user_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.forum_comments",
+      "columns": [
+        "post_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.forum_posts",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (post_id) REFERENCES forum_posts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.forum_comments",
+      "columns": [
+        "parent_comment_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.forum_comments",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (parent_comment_id) REFERENCES forum_comments(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.forum_votes",
+      "columns": [
+        "user_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    }
+  ],
+  "functions": [
+    {
+      "name": "public.update_updated_at_column",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.auto_accept_enrollment",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.count_question_blanks",
+      "return_type": "int4",
+      "arguments": "question_text text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.calculate_attempt_score",
+      "return_type": "void",
+      "arguments": "p_attempt_id bigint",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.update_post_comment_count",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.update_vote_counts",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.reset_ai_index_timestamp",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    }
+  ],
+  "driver": {
+    "name": "postgres",
+    "database_version": "PostgreSQL 18.3 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+    "meta": {
+      "current_schema": "public",
+      "search_paths": [
+        "postgres",
+        "public"
+      ],
+      "dict": {
+        "Functions": "Stored procedures and functions"
+      }
+    }
+  }
+}

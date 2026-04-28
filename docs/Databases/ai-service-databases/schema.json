@@ -1,0 +1,4607 @@
+{
+  "name": "postgres",
+  "tables": [
+    {
+      "name": "public.knowledge_nodes",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('knowledge_nodes_id_seq'::regclass)"
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "parent_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "name_vi",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "name_en",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "level",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "order_index",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "source_content_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "source_content_title",
+          "type": "text",
+          "nullable": true,
+          "default": "''::text"
+        },
+        {
+          "name": "auto_generated",
+          "type": "boolean",
+          "nullable": true,
+          "default": "false"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "knowledge_nodes_pkey",
+          "def": "CREATE UNIQUE INDEX knowledge_nodes_pkey ON public.knowledge_nodes USING btree (id)",
+          "table": "public.knowledge_nodes",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_kn_course",
+          "def": "CREATE INDEX idx_kn_course ON public.knowledge_nodes USING btree (course_id)",
+          "table": "public.knowledge_nodes",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_kn_parent",
+          "def": "CREATE INDEX idx_kn_parent ON public.knowledge_nodes USING btree (parent_id)",
+          "table": "public.knowledge_nodes",
+          "columns": [
+            "parent_id"
+          ]
+        },
+        {
+          "name": "idx_kn_level",
+          "def": "CREATE INDEX idx_kn_level ON public.knowledge_nodes USING btree (course_id, level)",
+          "table": "public.knowledge_nodes",
+          "columns": [
+            "course_id",
+            "level"
+          ]
+        },
+        {
+          "name": "idx_kn_source",
+          "def": "CREATE INDEX idx_kn_source ON public.knowledge_nodes USING btree (source_content_id) WHERE (source_content_id IS NOT NULL)",
+          "table": "public.knowledge_nodes",
+          "columns": [
+            "source_content_id"
+          ]
+        },
+        {
+          "name": "idx_kn_source_content",
+          "def": "CREATE INDEX idx_kn_source_content ON public.knowledge_nodes USING btree (source_content_id, source_content_title) WHERE (source_content_id IS NOT NULL)",
+          "table": "public.knowledge_nodes",
+          "columns": [
+            "source_content_id",
+            "source_content_title"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "knowledge_nodes_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.knowledge_nodes",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "knowledge_nodes_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.knowledge_nodes",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "knowledge_nodes_name_not_null",
+          "type": "n",
+          "def": "NOT NULL name",
+          "table": "public.knowledge_nodes",
+          "referenced_table": "",
+          "columns": [
+            "name"
+          ]
+        },
+        {
+          "name": "knowledge_nodes_parent_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (parent_id) REFERENCES knowledge_nodes(id) ON DELETE SET NULL",
+          "table": "public.knowledge_nodes",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "parent_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "knowledge_nodes_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.knowledge_nodes",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "tr_kn_updated",
+          "def": "CREATE TRIGGER tr_kn_updated BEFORE UPDATE ON public.knowledge_nodes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.knowledge_node_relations",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('knowledge_node_relations_id_seq'::regclass)"
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "source_node_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "target_node_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "relation_type",
+          "type": "varchar(30)",
+          "nullable": true,
+          "default": "'related'::character varying"
+        },
+        {
+          "name": "strength",
+          "type": "double precision",
+          "nullable": true,
+          "default": "1.0"
+        },
+        {
+          "name": "auto_generated",
+          "type": "boolean",
+          "nullable": true,
+          "default": "true"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "knowledge_node_relations_pkey",
+          "def": "CREATE UNIQUE INDEX knowledge_node_relations_pkey ON public.knowledge_node_relations USING btree (id)",
+          "table": "public.knowledge_node_relations",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_source_node_id_target_node_id_rela_key",
+          "def": "CREATE UNIQUE INDEX knowledge_node_relations_source_node_id_target_node_id_rela_key ON public.knowledge_node_relations USING btree (source_node_id, target_node_id, relation_type)",
+          "table": "public.knowledge_node_relations",
+          "columns": [
+            "source_node_id",
+            "target_node_id",
+            "relation_type"
+          ]
+        },
+        {
+          "name": "idx_knr_source",
+          "def": "CREATE INDEX idx_knr_source ON public.knowledge_node_relations USING btree (source_node_id)",
+          "table": "public.knowledge_node_relations",
+          "columns": [
+            "source_node_id"
+          ]
+        },
+        {
+          "name": "idx_knr_target",
+          "def": "CREATE INDEX idx_knr_target ON public.knowledge_node_relations USING btree (target_node_id)",
+          "table": "public.knowledge_node_relations",
+          "columns": [
+            "target_node_id"
+          ]
+        },
+        {
+          "name": "idx_knr_course",
+          "def": "CREATE INDEX idx_knr_course ON public.knowledge_node_relations USING btree (course_id)",
+          "table": "public.knowledge_node_relations",
+          "columns": [
+            "course_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "knowledge_node_relations_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_relation_type_check",
+          "type": "CHECK",
+          "def": "CHECK (((relation_type)::text = ANY ((ARRAY['prerequisite'::character varying, 'related'::character varying, 'extends'::character varying])::text[])))",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "",
+          "columns": [
+            "relation_type"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_source_node_id_not_null",
+          "type": "n",
+          "def": "NOT NULL source_node_id",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "",
+          "columns": [
+            "source_node_id"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_strength_check",
+          "type": "CHECK",
+          "def": "CHECK (((strength \u003e= (0.0)::double precision) AND (strength \u003c= (1.0)::double precision)))",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "",
+          "columns": [
+            "strength"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_target_node_id_not_null",
+          "type": "n",
+          "def": "NOT NULL target_node_id",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "",
+          "columns": [
+            "target_node_id"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_source_node_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (source_node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "source_node_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_target_node_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (target_node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "target_node_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "knowledge_node_relations_source_node_id_target_node_id_rela_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (source_node_id, target_node_id, relation_type)",
+          "table": "public.knowledge_node_relations",
+          "referenced_table": "",
+          "columns": [
+            "source_node_id",
+            "target_node_id",
+            "relation_type"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.document_chunks",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('document_chunks_id_seq'::regclass)"
+        },
+        {
+          "name": "node_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "content_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "chunk_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "chunk_index",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "chunk_hash",
+          "type": "varchar(64)",
+          "nullable": true
+        },
+        {
+          "name": "embedding_model",
+          "type": "varchar(64)",
+          "nullable": true,
+          "default": "'bge-m3'::character varying"
+        },
+        {
+          "name": "source_type",
+          "type": "varchar(20)",
+          "nullable": true,
+          "default": "'document'::character varying"
+        },
+        {
+          "name": "page_number",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "start_time_sec",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "end_time_sec",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "language",
+          "type": "varchar(10)",
+          "nullable": true,
+          "default": "'vi'::character varying"
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "default": "'ready'::character varying"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "document_chunks_pkey",
+          "def": "CREATE UNIQUE INDEX document_chunks_pkey ON public.document_chunks USING btree (id)",
+          "table": "public.document_chunks",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "document_chunks_chunk_hash_key",
+          "def": "CREATE UNIQUE INDEX document_chunks_chunk_hash_key ON public.document_chunks USING btree (chunk_hash)",
+          "table": "public.document_chunks",
+          "columns": [
+            "chunk_hash"
+          ]
+        },
+        {
+          "name": "idx_dc_content",
+          "def": "CREATE INDEX idx_dc_content ON public.document_chunks USING btree (content_id)",
+          "table": "public.document_chunks",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "idx_dc_node",
+          "def": "CREATE INDEX idx_dc_node ON public.document_chunks USING btree (node_id)",
+          "table": "public.document_chunks",
+          "columns": [
+            "node_id"
+          ]
+        },
+        {
+          "name": "idx_dc_course",
+          "def": "CREATE INDEX idx_dc_course ON public.document_chunks USING btree (course_id)",
+          "table": "public.document_chunks",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_dc_status",
+          "def": "CREATE INDEX idx_dc_status ON public.document_chunks USING btree (status)",
+          "table": "public.document_chunks",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "idx_dc_hash",
+          "def": "CREATE INDEX idx_dc_hash ON public.document_chunks USING btree (chunk_hash)",
+          "table": "public.document_chunks",
+          "columns": [
+            "chunk_hash"
+          ]
+        },
+        {
+          "name": "idx_dc_content_status",
+          "def": "CREATE INDEX idx_dc_content_status ON public.document_chunks USING btree (content_id, status)",
+          "table": "public.document_chunks",
+          "columns": [
+            "content_id",
+            "status"
+          ]
+        },
+        {
+          "name": "idx_dc_node_status",
+          "def": "CREATE INDEX idx_dc_node_status ON public.document_chunks USING btree (node_id, status) WHERE (node_id IS NOT NULL)",
+          "table": "public.document_chunks",
+          "columns": [
+            "node_id",
+            "status"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "document_chunks_chunk_index_not_null",
+          "type": "n",
+          "def": "NOT NULL chunk_index",
+          "table": "public.document_chunks",
+          "referenced_table": "",
+          "columns": [
+            "chunk_index"
+          ]
+        },
+        {
+          "name": "document_chunks_chunk_text_not_null",
+          "type": "n",
+          "def": "NOT NULL chunk_text",
+          "table": "public.document_chunks",
+          "referenced_table": "",
+          "columns": [
+            "chunk_text"
+          ]
+        },
+        {
+          "name": "document_chunks_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.document_chunks",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "document_chunks_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.document_chunks",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "document_chunks_source_type_check",
+          "type": "CHECK",
+          "def": "CHECK (((source_type)::text = ANY ((ARRAY['document'::character varying, 'video'::character varying])::text[])))",
+          "table": "public.document_chunks",
+          "referenced_table": "",
+          "columns": [
+            "source_type"
+          ]
+        },
+        {
+          "name": "document_chunks_status_check",
+          "type": "CHECK",
+          "def": "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'ready'::character varying, 'error'::character varying])::text[])))",
+          "table": "public.document_chunks",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "document_chunks_node_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE SET NULL",
+          "table": "public.document_chunks",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "node_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "document_chunks_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.document_chunks",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "document_chunks_chunk_hash_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (chunk_hash)",
+          "table": "public.document_chunks",
+          "referenced_table": "",
+          "columns": [
+            "chunk_hash"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.ai_diagnoses",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('ai_diagnoses_id_seq'::regclass)"
+        },
+        {
+          "name": "student_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "attempt_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "question_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "node_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "wrong_answer",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "correct_answer",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "explanation",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "gap_type",
+          "type": "varchar(50)",
+          "nullable": true
+        },
+        {
+          "name": "knowledge_gap",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "study_suggestion",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "suggested_docs_json",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "confidence",
+          "type": "double precision",
+          "nullable": true,
+          "default": "0.8"
+        },
+        {
+          "name": "source_chunk_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "language",
+          "type": "varchar(10)",
+          "nullable": true,
+          "default": "'vi'::character varying"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ai_diagnoses_pkey",
+          "def": "CREATE UNIQUE INDEX ai_diagnoses_pkey ON public.ai_diagnoses USING btree (id)",
+          "table": "public.ai_diagnoses",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_ad_student",
+          "def": "CREATE INDEX idx_ad_student ON public.ai_diagnoses USING btree (student_id)",
+          "table": "public.ai_diagnoses",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "idx_ad_question",
+          "def": "CREATE INDEX idx_ad_question ON public.ai_diagnoses USING btree (question_id)",
+          "table": "public.ai_diagnoses",
+          "columns": [
+            "question_id"
+          ]
+        },
+        {
+          "name": "idx_ad_node",
+          "def": "CREATE INDEX idx_ad_node ON public.ai_diagnoses USING btree (node_id)",
+          "table": "public.ai_diagnoses",
+          "columns": [
+            "node_id"
+          ]
+        },
+        {
+          "name": "idx_ad_cache_lookup",
+          "def": "CREATE INDEX idx_ad_cache_lookup ON public.ai_diagnoses USING btree (question_id, md5(wrong_answer)) WHERE (question_id IS NOT NULL)",
+          "table": "public.ai_diagnoses",
+          "columns": [
+            "question_id",
+            "md5"
+          ]
+        },
+        {
+          "name": "idx_ad_student_node",
+          "def": "CREATE INDEX idx_ad_student_node ON public.ai_diagnoses USING btree (student_id, node_id, created_at DESC) WHERE (node_id IS NOT NULL)",
+          "table": "public.ai_diagnoses",
+          "columns": [
+            "student_id",
+            "node_id",
+            "created_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "ai_diagnoses_explanation_not_null",
+          "type": "n",
+          "def": "NOT NULL explanation",
+          "table": "public.ai_diagnoses",
+          "referenced_table": "",
+          "columns": [
+            "explanation"
+          ]
+        },
+        {
+          "name": "ai_diagnoses_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.ai_diagnoses",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "ai_diagnoses_student_id_not_null",
+          "type": "n",
+          "def": "NOT NULL student_id",
+          "table": "public.ai_diagnoses",
+          "referenced_table": "",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "ai_diagnoses_node_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE SET NULL",
+          "table": "public.ai_diagnoses",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "node_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "ai_diagnoses_source_chunk_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (source_chunk_id) REFERENCES document_chunks(id) ON DELETE SET NULL",
+          "table": "public.ai_diagnoses",
+          "referenced_table": "public.document_chunks",
+          "columns": [
+            "source_chunk_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "ai_diagnoses_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.ai_diagnoses",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.content_index_status",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "content_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "nullable": true,
+          "default": "''::text"
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": false,
+          "default": "'pending'::character varying"
+        },
+        {
+          "name": "error",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "content_index_status_pkey",
+          "def": "CREATE UNIQUE INDEX content_index_status_pkey ON public.content_index_status USING btree (content_id)",
+          "table": "public.content_index_status",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "idx_cis_course",
+          "def": "CREATE INDEX idx_cis_course ON public.content_index_status USING btree (course_id)",
+          "table": "public.content_index_status",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_cis_status",
+          "def": "CREATE INDEX idx_cis_status ON public.content_index_status USING btree (status)",
+          "table": "public.content_index_status",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "idx_cis_course_status",
+          "def": "CREATE INDEX idx_cis_course_status ON public.content_index_status USING btree (course_id, status)",
+          "table": "public.content_index_status",
+          "columns": [
+            "course_id",
+            "status"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "content_index_status_content_id_not_null",
+          "type": "n",
+          "def": "NOT NULL content_id",
+          "table": "public.content_index_status",
+          "referenced_table": "",
+          "columns": [
+            "content_id"
+          ]
+        },
+        {
+          "name": "content_index_status_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.content_index_status",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "content_index_status_status_not_null",
+          "type": "n",
+          "def": "NOT NULL status",
+          "table": "public.content_index_status",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "content_index_status_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (content_id)",
+          "table": "public.content_index_status",
+          "referenced_table": "",
+          "columns": [
+            "content_id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.student_knowledge_progress",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('student_knowledge_progress_id_seq'::regclass)"
+        },
+        {
+          "name": "student_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "node_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "total_attempts",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "correct_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "wrong_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "mastery_level",
+          "type": "double precision",
+          "nullable": true,
+          "default": "0.0"
+        },
+        {
+          "name": "last_tested_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "student_knowledge_progress_pkey",
+          "def": "CREATE UNIQUE INDEX student_knowledge_progress_pkey ON public.student_knowledge_progress USING btree (id)",
+          "table": "public.student_knowledge_progress",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "student_knowledge_progress_student_id_node_id_key",
+          "def": "CREATE UNIQUE INDEX student_knowledge_progress_student_id_node_id_key ON public.student_knowledge_progress USING btree (student_id, node_id)",
+          "table": "public.student_knowledge_progress",
+          "columns": [
+            "student_id",
+            "node_id"
+          ]
+        },
+        {
+          "name": "idx_skp_student_course",
+          "def": "CREATE INDEX idx_skp_student_course ON public.student_knowledge_progress USING btree (student_id, course_id)",
+          "table": "public.student_knowledge_progress",
+          "columns": [
+            "student_id",
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_skp_node",
+          "def": "CREATE INDEX idx_skp_node ON public.student_knowledge_progress USING btree (node_id)",
+          "table": "public.student_knowledge_progress",
+          "columns": [
+            "node_id"
+          ]
+        },
+        {
+          "name": "idx_skp_mastery",
+          "def": "CREATE INDEX idx_skp_mastery ON public.student_knowledge_progress USING btree (mastery_level)",
+          "table": "public.student_knowledge_progress",
+          "columns": [
+            "mastery_level"
+          ]
+        },
+        {
+          "name": "idx_skp_node_course",
+          "def": "CREATE INDEX idx_skp_node_course ON public.student_knowledge_progress USING btree (node_id, course_id)",
+          "table": "public.student_knowledge_progress",
+          "columns": [
+            "node_id",
+            "course_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "student_knowledge_progress_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.student_knowledge_progress",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "student_knowledge_progress_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.student_knowledge_progress",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "student_knowledge_progress_node_id_not_null",
+          "type": "n",
+          "def": "NOT NULL node_id",
+          "table": "public.student_knowledge_progress",
+          "referenced_table": "",
+          "columns": [
+            "node_id"
+          ]
+        },
+        {
+          "name": "student_knowledge_progress_student_id_not_null",
+          "type": "n",
+          "def": "NOT NULL student_id",
+          "table": "public.student_knowledge_progress",
+          "referenced_table": "",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "student_knowledge_progress_node_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE",
+          "table": "public.student_knowledge_progress",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "node_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "student_knowledge_progress_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.student_knowledge_progress",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "student_knowledge_progress_student_id_node_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (student_id, node_id)",
+          "table": "public.student_knowledge_progress",
+          "referenced_table": "",
+          "columns": [
+            "student_id",
+            "node_id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "tr_skp_updated",
+          "def": "CREATE TRIGGER tr_skp_updated BEFORE UPDATE ON public.student_knowledge_progress FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.spaced_repetitions",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('spaced_repetitions_id_seq'::regclass)"
+        },
+        {
+          "name": "student_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "question_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "node_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "easiness_factor",
+          "type": "double precision",
+          "nullable": true,
+          "default": "2.5"
+        },
+        {
+          "name": "interval_days",
+          "type": "integer",
+          "nullable": true,
+          "default": "1"
+        },
+        {
+          "name": "repetitions",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "quality_last",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "next_review_date",
+          "type": "date",
+          "nullable": false,
+          "default": "CURRENT_DATE"
+        },
+        {
+          "name": "last_reviewed_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "spaced_repetitions_pkey",
+          "def": "CREATE UNIQUE INDEX spaced_repetitions_pkey ON public.spaced_repetitions USING btree (id)",
+          "table": "public.spaced_repetitions",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "spaced_repetitions_student_id_question_id_key",
+          "def": "CREATE UNIQUE INDEX spaced_repetitions_student_id_question_id_key ON public.spaced_repetitions USING btree (student_id, question_id)",
+          "table": "public.spaced_repetitions",
+          "columns": [
+            "student_id",
+            "question_id"
+          ]
+        },
+        {
+          "name": "idx_sr_due",
+          "def": "CREATE INDEX idx_sr_due ON public.spaced_repetitions USING btree (student_id, next_review_date)",
+          "table": "public.spaced_repetitions",
+          "columns": [
+            "student_id",
+            "next_review_date"
+          ]
+        },
+        {
+          "name": "idx_sr_course",
+          "def": "CREATE INDEX idx_sr_course ON public.spaced_repetitions USING btree (student_id, course_id)",
+          "table": "public.spaced_repetitions",
+          "columns": [
+            "student_id",
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_sr_student_due_today",
+          "def": "CREATE INDEX idx_sr_student_due_today ON public.spaced_repetitions USING btree (student_id, course_id, next_review_date) INCLUDE (question_id, easiness_factor, interval_days, repetitions) WHERE (next_review_date \u003c= '2026-01-01'::date)",
+          "table": "public.spaced_repetitions",
+          "columns": [
+            "student_id",
+            "course_id",
+            "next_review_date",
+            "question_id",
+            "easiness_factor",
+            "interval_days",
+            "repetitions"
+          ]
+        },
+        {
+          "name": "idx_sr_course_date",
+          "def": "CREATE INDEX idx_sr_course_date ON public.spaced_repetitions USING btree (student_id, course_id, next_review_date)",
+          "table": "public.spaced_repetitions",
+          "columns": [
+            "student_id",
+            "course_id",
+            "next_review_date"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "spaced_repetitions_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.spaced_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "spaced_repetitions_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.spaced_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "spaced_repetitions_next_review_date_not_null",
+          "type": "n",
+          "def": "NOT NULL next_review_date",
+          "table": "public.spaced_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "next_review_date"
+          ]
+        },
+        {
+          "name": "spaced_repetitions_student_id_not_null",
+          "type": "n",
+          "def": "NOT NULL student_id",
+          "table": "public.spaced_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "spaced_repetitions_node_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE",
+          "table": "public.spaced_repetitions",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "node_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "spaced_repetitions_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.spaced_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "spaced_repetitions_student_id_question_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (student_id, question_id)",
+          "table": "public.spaced_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "student_id",
+            "question_id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "tr_sr_updated",
+          "def": "CREATE TRIGGER tr_sr_updated BEFORE UPDATE ON public.spaced_repetitions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.ai_quiz_generations",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('ai_quiz_generations_id_seq'::regclass)"
+        },
+        {
+          "name": "node_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "created_by",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "bloom_level",
+          "type": "varchar(20)",
+          "nullable": true
+        },
+        {
+          "name": "question_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "question_type",
+          "type": "varchar(50)",
+          "nullable": false
+        },
+        {
+          "name": "answer_options",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "correct_answer",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "explanation",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "source_quote",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "source_chunk_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "language",
+          "type": "varchar(10)",
+          "nullable": true,
+          "default": "'vi'::character varying"
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "default": "'DRAFT'::character varying"
+        },
+        {
+          "name": "review_note",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "reviewed_by",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "reviewed_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "quiz_question_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ai_quiz_generations_pkey",
+          "def": "CREATE UNIQUE INDEX ai_quiz_generations_pkey ON public.ai_quiz_generations USING btree (id)",
+          "table": "public.ai_quiz_generations",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_aiqg_node",
+          "def": "CREATE INDEX idx_aiqg_node ON public.ai_quiz_generations USING btree (node_id)",
+          "table": "public.ai_quiz_generations",
+          "columns": [
+            "node_id"
+          ]
+        },
+        {
+          "name": "idx_aiqg_status",
+          "def": "CREATE INDEX idx_aiqg_status ON public.ai_quiz_generations USING btree (status)",
+          "table": "public.ai_quiz_generations",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "idx_aiqg_course",
+          "def": "CREATE INDEX idx_aiqg_course ON public.ai_quiz_generations USING btree (course_id)",
+          "table": "public.ai_quiz_generations",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_aiqg_course_status_node",
+          "def": "CREATE INDEX idx_aiqg_course_status_node ON public.ai_quiz_generations USING btree (course_id, status, node_id)",
+          "table": "public.ai_quiz_generations",
+          "columns": [
+            "course_id",
+            "status",
+            "node_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "ai_quiz_generations_bloom_level_check",
+          "type": "CHECK",
+          "def": "CHECK (((bloom_level)::text = ANY ((ARRAY['remember'::character varying, 'understand'::character varying, 'apply'::character varying, 'analyze'::character varying, 'evaluate'::character varying, 'create'::character varying])::text[])))",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "",
+          "columns": [
+            "bloom_level"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_created_by_not_null",
+          "type": "n",
+          "def": "NOT NULL created_by",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "",
+          "columns": [
+            "created_by"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_question_text_not_null",
+          "type": "n",
+          "def": "NOT NULL question_text",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "",
+          "columns": [
+            "question_text"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_question_type_not_null",
+          "type": "n",
+          "def": "NOT NULL question_type",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "",
+          "columns": [
+            "question_type"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_status_check",
+          "type": "CHECK",
+          "def": "CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying, 'PUBLISHED'::character varying])::text[])))",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_node_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "node_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_source_chunk_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (source_chunk_id) REFERENCES document_chunks(id) ON DELETE SET NULL",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "public.document_chunks",
+          "columns": [
+            "source_chunk_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "ai_quiz_generations_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.ai_quiz_generations",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "tr_aiqg_updated",
+          "def": "CREATE TRIGGER tr_aiqg_updated BEFORE UPDATE ON public.ai_quiz_generations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.flashcards",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('flashcards_id_seq'::regclass)"
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "node_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "student_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "front_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "back_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "source_diagnosis_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "default": "'ACTIVE'::character varying"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "flashcards_pkey",
+          "def": "CREATE UNIQUE INDEX flashcards_pkey ON public.flashcards USING btree (id)",
+          "table": "public.flashcards",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_fc_student_node",
+          "def": "CREATE INDEX idx_fc_student_node ON public.flashcards USING btree (student_id, node_id)",
+          "table": "public.flashcards",
+          "columns": [
+            "student_id",
+            "node_id"
+          ]
+        },
+        {
+          "name": "idx_fc_course",
+          "def": "CREATE INDEX idx_fc_course ON public.flashcards USING btree (course_id)",
+          "table": "public.flashcards",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_fc_student_course_node",
+          "def": "CREATE INDEX idx_fc_student_course_node ON public.flashcards USING btree (student_id, course_id, node_id) WHERE ((status)::text = 'ACTIVE'::text)",
+          "table": "public.flashcards",
+          "columns": [
+            "student_id",
+            "course_id",
+            "node_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "flashcards_back_text_not_null",
+          "type": "n",
+          "def": "NOT NULL back_text",
+          "table": "public.flashcards",
+          "referenced_table": "",
+          "columns": [
+            "back_text"
+          ]
+        },
+        {
+          "name": "flashcards_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.flashcards",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "flashcards_front_text_not_null",
+          "type": "n",
+          "def": "NOT NULL front_text",
+          "table": "public.flashcards",
+          "referenced_table": "",
+          "columns": [
+            "front_text"
+          ]
+        },
+        {
+          "name": "flashcards_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.flashcards",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "flashcards_node_id_not_null",
+          "type": "n",
+          "def": "NOT NULL node_id",
+          "table": "public.flashcards",
+          "referenced_table": "",
+          "columns": [
+            "node_id"
+          ]
+        },
+        {
+          "name": "flashcards_status_check",
+          "type": "CHECK",
+          "def": "CHECK (((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'INACTIVE'::character varying, 'ARCHIVED'::character varying])::text[])))",
+          "table": "public.flashcards",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "flashcards_student_id_not_null",
+          "type": "n",
+          "def": "NOT NULL student_id",
+          "table": "public.flashcards",
+          "referenced_table": "",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "flashcards_node_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE",
+          "table": "public.flashcards",
+          "referenced_table": "public.knowledge_nodes",
+          "columns": [
+            "node_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "flashcards_source_diagnosis_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (source_diagnosis_id) REFERENCES ai_diagnoses(id) ON DELETE SET NULL",
+          "table": "public.flashcards",
+          "referenced_table": "public.ai_diagnoses",
+          "columns": [
+            "source_diagnosis_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "flashcards_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.flashcards",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "tr_fc_updated",
+          "def": "CREATE TRIGGER tr_fc_updated BEFORE UPDATE ON public.flashcards FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.flashcard_repetitions",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('flashcard_repetitions_id_seq'::regclass)"
+        },
+        {
+          "name": "student_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "flashcard_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "easiness_factor",
+          "type": "double precision",
+          "nullable": true,
+          "default": "2.5"
+        },
+        {
+          "name": "interval_days",
+          "type": "integer",
+          "nullable": true,
+          "default": "1"
+        },
+        {
+          "name": "repetitions",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "quality_last",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "next_review_date",
+          "type": "date",
+          "nullable": false,
+          "default": "CURRENT_DATE"
+        },
+        {
+          "name": "last_reviewed_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "flashcard_repetitions_pkey",
+          "def": "CREATE UNIQUE INDEX flashcard_repetitions_pkey ON public.flashcard_repetitions USING btree (id)",
+          "table": "public.flashcard_repetitions",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "flashcard_repetitions_student_id_flashcard_id_key",
+          "def": "CREATE UNIQUE INDEX flashcard_repetitions_student_id_flashcard_id_key ON public.flashcard_repetitions USING btree (student_id, flashcard_id)",
+          "table": "public.flashcard_repetitions",
+          "columns": [
+            "student_id",
+            "flashcard_id"
+          ]
+        },
+        {
+          "name": "idx_fcr_due",
+          "def": "CREATE INDEX idx_fcr_due ON public.flashcard_repetitions USING btree (student_id, course_id, next_review_date)",
+          "table": "public.flashcard_repetitions",
+          "columns": [
+            "student_id",
+            "course_id",
+            "next_review_date"
+          ]
+        },
+        {
+          "name": "idx_fcr_student_due_today",
+          "def": "CREATE INDEX idx_fcr_student_due_today ON public.flashcard_repetitions USING btree (student_id, course_id, next_review_date) INCLUDE (flashcard_id, easiness_factor, interval_days, repetitions) WHERE (next_review_date \u003c= '2026-01-01'::date)",
+          "table": "public.flashcard_repetitions",
+          "columns": [
+            "student_id",
+            "course_id",
+            "next_review_date",
+            "flashcard_id",
+            "easiness_factor",
+            "interval_days",
+            "repetitions"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "flashcard_repetitions_course_id_not_null",
+          "type": "n",
+          "def": "NOT NULL course_id",
+          "table": "public.flashcard_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "flashcard_repetitions_flashcard_id_not_null",
+          "type": "n",
+          "def": "NOT NULL flashcard_id",
+          "table": "public.flashcard_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "flashcard_id"
+          ]
+        },
+        {
+          "name": "flashcard_repetitions_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.flashcard_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "flashcard_repetitions_next_review_date_not_null",
+          "type": "n",
+          "def": "NOT NULL next_review_date",
+          "table": "public.flashcard_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "next_review_date"
+          ]
+        },
+        {
+          "name": "flashcard_repetitions_student_id_not_null",
+          "type": "n",
+          "def": "NOT NULL student_id",
+          "table": "public.flashcard_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "student_id"
+          ]
+        },
+        {
+          "name": "flashcard_repetitions_flashcard_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (flashcard_id) REFERENCES flashcards(id) ON DELETE CASCADE",
+          "table": "public.flashcard_repetitions",
+          "referenced_table": "public.flashcards",
+          "columns": [
+            "flashcard_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "flashcard_repetitions_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.flashcard_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "flashcard_repetitions_student_id_flashcard_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (student_id, flashcard_id)",
+          "table": "public.flashcard_repetitions",
+          "referenced_table": "",
+          "columns": [
+            "student_id",
+            "flashcard_id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "tr_fcr_updated",
+          "def": "CREATE TRIGGER tr_fcr_updated BEFORE UPDATE ON public.flashcard_repetitions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.embedding_reindex_jobs",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('embedding_reindex_jobs_id_seq'::regclass)"
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "content_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": true,
+          "default": "'pending'::character varying"
+        },
+        {
+          "name": "chunks_total",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "chunks_done",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "started_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "completed_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "embedding_reindex_jobs_pkey",
+          "def": "CREATE UNIQUE INDEX embedding_reindex_jobs_pkey ON public.embedding_reindex_jobs USING btree (id)",
+          "table": "public.embedding_reindex_jobs",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_erj_status",
+          "def": "CREATE INDEX idx_erj_status ON public.embedding_reindex_jobs USING btree (status)",
+          "table": "public.embedding_reindex_jobs",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "idx_erj_course",
+          "def": "CREATE INDEX idx_erj_course ON public.embedding_reindex_jobs USING btree (course_id)",
+          "table": "public.embedding_reindex_jobs",
+          "columns": [
+            "course_id"
+          ]
+        },
+        {
+          "name": "idx_erj_content",
+          "def": "CREATE INDEX idx_erj_content ON public.embedding_reindex_jobs USING btree (content_id)",
+          "table": "public.embedding_reindex_jobs",
+          "columns": [
+            "content_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "embedding_reindex_jobs_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.embedding_reindex_jobs",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "embedding_reindex_jobs_status_check",
+          "type": "CHECK",
+          "def": "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'done'::character varying, 'failed'::character varying])::text[])))",
+          "table": "public.embedding_reindex_jobs",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "embedding_reindex_jobs_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.embedding_reindex_jobs",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "tr_erj_updated",
+          "def": "CREATE TRIGGER tr_erj_updated BEFORE UPDATE ON public.embedding_reindex_jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.v_reindex_progress",
+      "type": "VIEW",
+      "columns": [
+        {
+          "name": "total_jobs",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "done",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "pending",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "processing",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "failed",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "pct_done",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "total_chunks",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "reindexed_chunks",
+          "type": "bigint",
+          "nullable": true
+        }
+      ],
+      "def": "CREATE VIEW v_reindex_progress AS (\n SELECT count(*) AS total_jobs,\n    count(*) FILTER (WHERE ((status)::text = 'done'::text)) AS done,\n    count(*) FILTER (WHERE ((status)::text = 'pending'::text)) AS pending,\n    count(*) FILTER (WHERE ((status)::text = 'processing'::text)) AS processing,\n    count(*) FILTER (WHERE ((status)::text = 'failed'::text)) AS failed,\n    round((((count(*) FILTER (WHERE ((status)::text = 'done'::text)))::numeric / (NULLIF(count(*), 0))::numeric) * (100)::numeric), 1) AS pct_done,\n    sum(chunks_total) AS total_chunks,\n    sum(chunks_done) AS reindexed_chunks\n   FROM embedding_reindex_jobs\n)",
+      "referenced_tables": [
+        "public.embedding_reindex_jobs"
+      ]
+    },
+    {
+      "name": "public.knowledge_graph_view",
+      "type": "VIEW",
+      "columns": [
+        {
+          "name": "node_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "name_vi",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "level",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "auto_generated",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "source_content_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "chunk_count",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "out_edges",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "in_edges",
+          "type": "bigint",
+          "nullable": true
+        }
+      ],
+      "def": "CREATE VIEW knowledge_graph_view AS (\n SELECT kn.id AS node_id,\n    kn.course_id,\n    kn.name,\n    kn.name_vi,\n    kn.level,\n    kn.auto_generated,\n    kn.source_content_id,\n    count(DISTINCT dc.id) AS chunk_count,\n    count(DISTINCT knr_out.id) AS out_edges,\n    count(DISTINCT knr_in.id) AS in_edges\n   FROM (((knowledge_nodes kn\n     LEFT JOIN document_chunks dc ON ((dc.node_id = kn.id)))\n     LEFT JOIN knowledge_node_relations knr_out ON ((knr_out.source_node_id = kn.id)))\n     LEFT JOIN knowledge_node_relations knr_in ON ((knr_in.target_node_id = kn.id)))\n  GROUP BY kn.id, kn.course_id, kn.name, kn.name_vi, kn.level, kn.auto_generated, kn.source_content_id\n)",
+      "referenced_tables": [
+        "public.knowledge_nodes",
+        "public.document_chunks",
+        "public.knowledge_node_relations"
+      ]
+    },
+    {
+      "name": "public.agent_sessions",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "user_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "agent_type",
+          "type": "varchar(20)",
+          "nullable": false
+        },
+        {
+          "name": "course_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "compressed_ctx",
+          "type": "jsonb",
+          "nullable": false,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "turn_count",
+          "type": "integer",
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "last_active_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": "now()"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": "now()"
+        },
+        {
+          "name": "title",
+          "type": "varchar(200)",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "agent_sessions_pkey",
+          "def": "CREATE UNIQUE INDEX agent_sessions_pkey ON public.agent_sessions USING btree (id)",
+          "table": "public.agent_sessions",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_as_user",
+          "def": "CREATE INDEX idx_as_user ON public.agent_sessions USING btree (user_id, agent_type)",
+          "table": "public.agent_sessions",
+          "columns": [
+            "user_id",
+            "agent_type"
+          ]
+        },
+        {
+          "name": "idx_as_active",
+          "def": "CREATE INDEX idx_as_active ON public.agent_sessions USING btree (last_active_at)",
+          "table": "public.agent_sessions",
+          "columns": [
+            "last_active_at"
+          ]
+        },
+        {
+          "name": "idx_as_course",
+          "def": "CREATE INDEX idx_as_course ON public.agent_sessions USING btree (course_id) WHERE (course_id IS NOT NULL)",
+          "table": "public.agent_sessions",
+          "columns": [
+            "course_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "agent_sessions_agent_type_check",
+          "type": "CHECK",
+          "def": "CHECK (((agent_type)::text = ANY ((ARRAY['teacher'::character varying, 'mentor'::character varying])::text[])))",
+          "table": "public.agent_sessions",
+          "referenced_table": "",
+          "columns": [
+            "agent_type"
+          ]
+        },
+        {
+          "name": "agent_sessions_agent_type_not_null",
+          "type": "n",
+          "def": "NOT NULL agent_type",
+          "table": "public.agent_sessions",
+          "referenced_table": "",
+          "columns": [
+            "agent_type"
+          ]
+        },
+        {
+          "name": "agent_sessions_compressed_ctx_not_null",
+          "type": "n",
+          "def": "NOT NULL compressed_ctx",
+          "table": "public.agent_sessions",
+          "referenced_table": "",
+          "columns": [
+            "compressed_ctx"
+          ]
+        },
+        {
+          "name": "agent_sessions_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.agent_sessions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "agent_sessions_user_id_not_null",
+          "type": "n",
+          "def": "NOT NULL user_id",
+          "table": "public.agent_sessions",
+          "referenced_table": "",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "agent_sessions_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.agent_sessions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.agent_episodes",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "session_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "user_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "agent_type",
+          "type": "varchar(20)",
+          "nullable": false
+        },
+        {
+          "name": "summary",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "qdrant_point_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "agent_episodes_pkey",
+          "def": "CREATE UNIQUE INDEX agent_episodes_pkey ON public.agent_episodes USING btree (id)",
+          "table": "public.agent_episodes",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_ae_user",
+          "def": "CREATE INDEX idx_ae_user ON public.agent_episodes USING btree (user_id, agent_type)",
+          "table": "public.agent_episodes",
+          "columns": [
+            "user_id",
+            "agent_type"
+          ]
+        },
+        {
+          "name": "idx_ae_session",
+          "def": "CREATE INDEX idx_ae_session ON public.agent_episodes USING btree (session_id)",
+          "table": "public.agent_episodes",
+          "columns": [
+            "session_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "agent_episodes_agent_type_check",
+          "type": "CHECK",
+          "def": "CHECK (((agent_type)::text = ANY ((ARRAY['teacher'::character varying, 'mentor'::character varying])::text[])))",
+          "table": "public.agent_episodes",
+          "referenced_table": "",
+          "columns": [
+            "agent_type"
+          ]
+        },
+        {
+          "name": "agent_episodes_agent_type_not_null",
+          "type": "n",
+          "def": "NOT NULL agent_type",
+          "table": "public.agent_episodes",
+          "referenced_table": "",
+          "columns": [
+            "agent_type"
+          ]
+        },
+        {
+          "name": "agent_episodes_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.agent_episodes",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "agent_episodes_summary_not_null",
+          "type": "n",
+          "def": "NOT NULL summary",
+          "table": "public.agent_episodes",
+          "referenced_table": "",
+          "columns": [
+            "summary"
+          ]
+        },
+        {
+          "name": "agent_episodes_user_id_not_null",
+          "type": "n",
+          "def": "NOT NULL user_id",
+          "table": "public.agent_episodes",
+          "referenced_table": "",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "agent_episodes_session_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE",
+          "table": "public.agent_episodes",
+          "referenced_table": "public.agent_sessions",
+          "columns": [
+            "session_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "agent_episodes_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.agent_episodes",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.agent_messages",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('agent_messages_id_seq'::regclass)"
+        },
+        {
+          "name": "session_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "role",
+          "type": "varchar(20)",
+          "nullable": false
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "name": "metadata",
+          "type": "jsonb",
+          "nullable": true,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "agent_messages_pkey",
+          "def": "CREATE UNIQUE INDEX agent_messages_pkey ON public.agent_messages USING btree (id)",
+          "table": "public.agent_messages",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_am_session",
+          "def": "CREATE INDEX idx_am_session ON public.agent_messages USING btree (session_id, created_at)",
+          "table": "public.agent_messages",
+          "columns": [
+            "session_id",
+            "created_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "agent_messages_content_not_null",
+          "type": "n",
+          "def": "NOT NULL content",
+          "table": "public.agent_messages",
+          "referenced_table": "",
+          "columns": [
+            "content"
+          ]
+        },
+        {
+          "name": "agent_messages_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.agent_messages",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "agent_messages_role_check",
+          "type": "CHECK",
+          "def": "CHECK (((role)::text = ANY ((ARRAY['user'::character varying, 'assistant'::character varying, 'system'::character varying, 'tool'::character varying])::text[])))",
+          "table": "public.agent_messages",
+          "referenced_table": "",
+          "columns": [
+            "role"
+          ]
+        },
+        {
+          "name": "agent_messages_role_not_null",
+          "type": "n",
+          "def": "NOT NULL role",
+          "table": "public.agent_messages",
+          "referenced_table": "",
+          "columns": [
+            "role"
+          ]
+        },
+        {
+          "name": "agent_messages_session_id_not_null",
+          "type": "n",
+          "def": "NOT NULL session_id",
+          "table": "public.agent_messages",
+          "referenced_table": "",
+          "columns": [
+            "session_id"
+          ]
+        },
+        {
+          "name": "agent_messages_session_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE",
+          "table": "public.agent_messages",
+          "referenced_table": "public.agent_sessions",
+          "columns": [
+            "session_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "agent_messages_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.agent_messages",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.llm_providers",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('llm_providers_id_seq'::regclass)"
+        },
+        {
+          "name": "code",
+          "type": "varchar(40)",
+          "nullable": false
+        },
+        {
+          "name": "display_name",
+          "type": "varchar(120)",
+          "nullable": false
+        },
+        {
+          "name": "adapter_type",
+          "type": "varchar(40)",
+          "nullable": false
+        },
+        {
+          "name": "base_url",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "name": "config",
+          "type": "jsonb",
+          "nullable": false,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "llm_providers_pkey",
+          "def": "CREATE UNIQUE INDEX llm_providers_pkey ON public.llm_providers USING btree (id)",
+          "table": "public.llm_providers",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_providers_code_key",
+          "def": "CREATE UNIQUE INDEX llm_providers_code_key ON public.llm_providers USING btree (code)",
+          "table": "public.llm_providers",
+          "columns": [
+            "code"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "llm_providers_adapter_type_not_null",
+          "type": "n",
+          "def": "NOT NULL adapter_type",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "adapter_type"
+          ]
+        },
+        {
+          "name": "llm_providers_code_not_null",
+          "type": "n",
+          "def": "NOT NULL code",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "code"
+          ]
+        },
+        {
+          "name": "llm_providers_config_not_null",
+          "type": "n",
+          "def": "NOT NULL config",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "config"
+          ]
+        },
+        {
+          "name": "llm_providers_created_at_not_null",
+          "type": "n",
+          "def": "NOT NULL created_at",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "llm_providers_display_name_not_null",
+          "type": "n",
+          "def": "NOT NULL display_name",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "display_name"
+          ]
+        },
+        {
+          "name": "llm_providers_enabled_not_null",
+          "type": "n",
+          "def": "NOT NULL enabled",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "enabled"
+          ]
+        },
+        {
+          "name": "llm_providers_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_providers_updated_at_not_null",
+          "type": "n",
+          "def": "NOT NULL updated_at",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "updated_at"
+          ]
+        },
+        {
+          "name": "llm_providers_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_providers_code_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (code)",
+          "table": "public.llm_providers",
+          "referenced_table": "",
+          "columns": [
+            "code"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_llm_providers_updated",
+          "def": "CREATE TRIGGER trg_llm_providers_updated BEFORE UPDATE ON public.llm_providers FOR EACH ROW EXECUTE FUNCTION trg_llm_touch_updated_at()"
+        }
+      ]
+    },
+    {
+      "name": "public.llm_api_keys",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('llm_api_keys_id_seq'::regclass)"
+        },
+        {
+          "name": "provider_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "alias",
+          "type": "varchar(80)",
+          "nullable": false
+        },
+        {
+          "name": "encrypted_key",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "key_fingerprint",
+          "type": "varchar(32)",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "varchar(20)",
+          "nullable": false,
+          "default": "'active'::character varying"
+        },
+        {
+          "name": "rpm_limit",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "tpm_limit",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "daily_token_limit",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "used_today_requests",
+          "type": "bigint",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "used_today_tokens",
+          "type": "bigint",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "used_window_start",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "cooldown_until",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "consecutive_failures",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "last_error",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "llm_api_keys_pkey",
+          "def": "CREATE UNIQUE INDEX llm_api_keys_pkey ON public.llm_api_keys USING btree (id)",
+          "table": "public.llm_api_keys",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_api_keys_provider_id_alias_key",
+          "def": "CREATE UNIQUE INDEX llm_api_keys_provider_id_alias_key ON public.llm_api_keys USING btree (provider_id, alias)",
+          "table": "public.llm_api_keys",
+          "columns": [
+            "provider_id",
+            "alias"
+          ]
+        },
+        {
+          "name": "idx_llm_api_keys_pool",
+          "def": "CREATE INDEX idx_llm_api_keys_pool ON public.llm_api_keys USING btree (provider_id, status, cooldown_until)",
+          "table": "public.llm_api_keys",
+          "columns": [
+            "provider_id",
+            "status",
+            "cooldown_until"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "llm_api_keys_alias_not_null",
+          "type": "n",
+          "def": "NOT NULL alias",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "alias"
+          ]
+        },
+        {
+          "name": "llm_api_keys_consecutive_failures_not_null",
+          "type": "n",
+          "def": "NOT NULL consecutive_failures",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "consecutive_failures"
+          ]
+        },
+        {
+          "name": "llm_api_keys_created_at_not_null",
+          "type": "n",
+          "def": "NOT NULL created_at",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "llm_api_keys_encrypted_key_not_null",
+          "type": "n",
+          "def": "NOT NULL encrypted_key",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "encrypted_key"
+          ]
+        },
+        {
+          "name": "llm_api_keys_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_api_keys_key_fingerprint_not_null",
+          "type": "n",
+          "def": "NOT NULL key_fingerprint",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "key_fingerprint"
+          ]
+        },
+        {
+          "name": "llm_api_keys_provider_id_not_null",
+          "type": "n",
+          "def": "NOT NULL provider_id",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "provider_id"
+          ]
+        },
+        {
+          "name": "llm_api_keys_status_check",
+          "type": "CHECK",
+          "def": "CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'cooldown'::character varying, 'disabled'::character varying, 'invalid'::character varying])::text[])))",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "llm_api_keys_status_not_null",
+          "type": "n",
+          "def": "NOT NULL status",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "status"
+          ]
+        },
+        {
+          "name": "llm_api_keys_updated_at_not_null",
+          "type": "n",
+          "def": "NOT NULL updated_at",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "updated_at"
+          ]
+        },
+        {
+          "name": "llm_api_keys_used_today_requests_not_null",
+          "type": "n",
+          "def": "NOT NULL used_today_requests",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "used_today_requests"
+          ]
+        },
+        {
+          "name": "llm_api_keys_used_today_tokens_not_null",
+          "type": "n",
+          "def": "NOT NULL used_today_tokens",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "used_today_tokens"
+          ]
+        },
+        {
+          "name": "llm_api_keys_used_window_start_not_null",
+          "type": "n",
+          "def": "NOT NULL used_window_start",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "used_window_start"
+          ]
+        },
+        {
+          "name": "llm_api_keys_provider_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE",
+          "table": "public.llm_api_keys",
+          "referenced_table": "public.llm_providers",
+          "columns": [
+            "provider_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_api_keys_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_api_keys_provider_id_alias_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (provider_id, alias)",
+          "table": "public.llm_api_keys",
+          "referenced_table": "",
+          "columns": [
+            "provider_id",
+            "alias"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_llm_api_keys_updated",
+          "def": "CREATE TRIGGER trg_llm_api_keys_updated BEFORE UPDATE ON public.llm_api_keys FOR EACH ROW EXECUTE FUNCTION trg_llm_touch_updated_at()"
+        }
+      ]
+    },
+    {
+      "name": "public.llm_models",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('llm_models_id_seq'::regclass)"
+        },
+        {
+          "name": "provider_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "model_name",
+          "type": "varchar(120)",
+          "nullable": false
+        },
+        {
+          "name": "display_name",
+          "type": "varchar(160)",
+          "nullable": true
+        },
+        {
+          "name": "family",
+          "type": "varchar(40)",
+          "nullable": true
+        },
+        {
+          "name": "context_window",
+          "type": "integer",
+          "nullable": false,
+          "default": "8192"
+        },
+        {
+          "name": "supports_json",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "name": "supports_tools",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "name": "supports_streaming",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "name": "supports_vision",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "name": "input_cost_per_1k",
+          "type": "numeric(10,6)",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "output_cost_per_1k",
+          "type": "numeric(10,6)",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "default_temperature",
+          "type": "numeric(4,3)",
+          "nullable": false,
+          "default": "0.3"
+        },
+        {
+          "name": "default_max_tokens",
+          "type": "integer",
+          "nullable": false,
+          "default": "1024"
+        },
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "name": "config",
+          "type": "jsonb",
+          "nullable": false,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "llm_models_pkey",
+          "def": "CREATE UNIQUE INDEX llm_models_pkey ON public.llm_models USING btree (id)",
+          "table": "public.llm_models",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_models_provider_id_model_name_key",
+          "def": "CREATE UNIQUE INDEX llm_models_provider_id_model_name_key ON public.llm_models USING btree (provider_id, model_name)",
+          "table": "public.llm_models",
+          "columns": [
+            "provider_id",
+            "model_name"
+          ]
+        },
+        {
+          "name": "idx_llm_models_provider",
+          "def": "CREATE INDEX idx_llm_models_provider ON public.llm_models USING btree (provider_id, enabled)",
+          "table": "public.llm_models",
+          "columns": [
+            "provider_id",
+            "enabled"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "llm_models_config_not_null",
+          "type": "n",
+          "def": "NOT NULL config",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "config"
+          ]
+        },
+        {
+          "name": "llm_models_context_window_not_null",
+          "type": "n",
+          "def": "NOT NULL context_window",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "context_window"
+          ]
+        },
+        {
+          "name": "llm_models_created_at_not_null",
+          "type": "n",
+          "def": "NOT NULL created_at",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "llm_models_default_max_tokens_not_null",
+          "type": "n",
+          "def": "NOT NULL default_max_tokens",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "default_max_tokens"
+          ]
+        },
+        {
+          "name": "llm_models_default_temperature_not_null",
+          "type": "n",
+          "def": "NOT NULL default_temperature",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "default_temperature"
+          ]
+        },
+        {
+          "name": "llm_models_enabled_not_null",
+          "type": "n",
+          "def": "NOT NULL enabled",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "enabled"
+          ]
+        },
+        {
+          "name": "llm_models_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_models_input_cost_per_1k_not_null",
+          "type": "n",
+          "def": "NOT NULL input_cost_per_1k",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "input_cost_per_1k"
+          ]
+        },
+        {
+          "name": "llm_models_model_name_not_null",
+          "type": "n",
+          "def": "NOT NULL model_name",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "model_name"
+          ]
+        },
+        {
+          "name": "llm_models_output_cost_per_1k_not_null",
+          "type": "n",
+          "def": "NOT NULL output_cost_per_1k",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "output_cost_per_1k"
+          ]
+        },
+        {
+          "name": "llm_models_provider_id_not_null",
+          "type": "n",
+          "def": "NOT NULL provider_id",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "provider_id"
+          ]
+        },
+        {
+          "name": "llm_models_supports_json_not_null",
+          "type": "n",
+          "def": "NOT NULL supports_json",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "supports_json"
+          ]
+        },
+        {
+          "name": "llm_models_supports_streaming_not_null",
+          "type": "n",
+          "def": "NOT NULL supports_streaming",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "supports_streaming"
+          ]
+        },
+        {
+          "name": "llm_models_supports_tools_not_null",
+          "type": "n",
+          "def": "NOT NULL supports_tools",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "supports_tools"
+          ]
+        },
+        {
+          "name": "llm_models_supports_vision_not_null",
+          "type": "n",
+          "def": "NOT NULL supports_vision",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "supports_vision"
+          ]
+        },
+        {
+          "name": "llm_models_updated_at_not_null",
+          "type": "n",
+          "def": "NOT NULL updated_at",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "updated_at"
+          ]
+        },
+        {
+          "name": "llm_models_provider_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE",
+          "table": "public.llm_models",
+          "referenced_table": "public.llm_providers",
+          "columns": [
+            "provider_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_models_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_models_provider_id_model_name_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (provider_id, model_name)",
+          "table": "public.llm_models",
+          "referenced_table": "",
+          "columns": [
+            "provider_id",
+            "model_name"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_llm_models_updated",
+          "def": "CREATE TRIGGER trg_llm_models_updated BEFORE UPDATE ON public.llm_models FOR EACH ROW EXECUTE FUNCTION trg_llm_touch_updated_at()"
+        }
+      ]
+    },
+    {
+      "name": "public.task_model_bindings",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('task_model_bindings_id_seq'::regclass)"
+        },
+        {
+          "name": "task_code",
+          "type": "varchar(80)",
+          "nullable": false
+        },
+        {
+          "name": "model_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "type": "integer",
+          "nullable": false,
+          "default": "100"
+        },
+        {
+          "name": "temperature",
+          "type": "numeric(4,3)",
+          "nullable": true
+        },
+        {
+          "name": "max_tokens",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "json_mode",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "name": "pinned",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "task_model_bindings_pkey",
+          "def": "CREATE UNIQUE INDEX task_model_bindings_pkey ON public.task_model_bindings USING btree (id)",
+          "table": "public.task_model_bindings",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "task_model_bindings_task_code_model_id_key",
+          "def": "CREATE UNIQUE INDEX task_model_bindings_task_code_model_id_key ON public.task_model_bindings USING btree (task_code, model_id)",
+          "table": "public.task_model_bindings",
+          "columns": [
+            "task_code",
+            "model_id"
+          ]
+        },
+        {
+          "name": "idx_task_bindings_chain",
+          "def": "CREATE INDEX idx_task_bindings_chain ON public.task_model_bindings USING btree (task_code, enabled, priority)",
+          "table": "public.task_model_bindings",
+          "columns": [
+            "task_code",
+            "enabled",
+            "priority"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "task_model_bindings_created_at_not_null",
+          "type": "n",
+          "def": "NOT NULL created_at",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "task_model_bindings_enabled_not_null",
+          "type": "n",
+          "def": "NOT NULL enabled",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "enabled"
+          ]
+        },
+        {
+          "name": "task_model_bindings_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "task_model_bindings_json_mode_not_null",
+          "type": "n",
+          "def": "NOT NULL json_mode",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "json_mode"
+          ]
+        },
+        {
+          "name": "task_model_bindings_model_id_not_null",
+          "type": "n",
+          "def": "NOT NULL model_id",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "model_id"
+          ]
+        },
+        {
+          "name": "task_model_bindings_pinned_not_null",
+          "type": "n",
+          "def": "NOT NULL pinned",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "pinned"
+          ]
+        },
+        {
+          "name": "task_model_bindings_priority_not_null",
+          "type": "n",
+          "def": "NOT NULL priority",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "priority"
+          ]
+        },
+        {
+          "name": "task_model_bindings_task_code_not_null",
+          "type": "n",
+          "def": "NOT NULL task_code",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "task_code"
+          ]
+        },
+        {
+          "name": "task_model_bindings_updated_at_not_null",
+          "type": "n",
+          "def": "NOT NULL updated_at",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "updated_at"
+          ]
+        },
+        {
+          "name": "task_model_bindings_model_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (model_id) REFERENCES llm_models(id) ON DELETE CASCADE",
+          "table": "public.task_model_bindings",
+          "referenced_table": "public.llm_models",
+          "columns": [
+            "model_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "task_model_bindings_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "task_model_bindings_task_code_model_id_key",
+          "type": "UNIQUE",
+          "def": "UNIQUE (task_code, model_id)",
+          "table": "public.task_model_bindings",
+          "referenced_table": "",
+          "columns": [
+            "task_code",
+            "model_id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_task_bindings_updated",
+          "def": "CREATE TRIGGER trg_task_bindings_updated BEFORE UPDATE ON public.task_model_bindings FOR EACH ROW EXECUTE FUNCTION trg_llm_touch_updated_at()"
+        }
+      ]
+    },
+    {
+      "name": "public.llm_usage_log",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "nullable": false,
+          "default": "nextval('llm_usage_log_id_seq'::regclass)"
+        },
+        {
+          "name": "task_code",
+          "type": "varchar(80)",
+          "nullable": false
+        },
+        {
+          "name": "model_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "api_key_id",
+          "type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "provider_code",
+          "type": "varchar(40)",
+          "nullable": true
+        },
+        {
+          "name": "model_name",
+          "type": "varchar(120)",
+          "nullable": true
+        },
+        {
+          "name": "prompt_tokens",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "completion_tokens",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "total_tokens",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "latency_ms",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "success",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "fallback_used",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "name": "attempt_no",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "name": "error_code",
+          "type": "varchar(60)",
+          "nullable": true
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "request_id",
+          "type": "varchar(120)",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "llm_usage_log_pkey",
+          "def": "CREATE UNIQUE INDEX llm_usage_log_pkey ON public.llm_usage_log USING btree (id)",
+          "table": "public.llm_usage_log",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_usage_log_created",
+          "def": "CREATE INDEX idx_usage_log_created ON public.llm_usage_log USING btree (created_at DESC)",
+          "table": "public.llm_usage_log",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "idx_usage_log_task",
+          "def": "CREATE INDEX idx_usage_log_task ON public.llm_usage_log USING btree (task_code, created_at DESC)",
+          "table": "public.llm_usage_log",
+          "columns": [
+            "task_code",
+            "created_at"
+          ]
+        },
+        {
+          "name": "idx_usage_log_model",
+          "def": "CREATE INDEX idx_usage_log_model ON public.llm_usage_log USING btree (model_id, created_at DESC)",
+          "table": "public.llm_usage_log",
+          "columns": [
+            "model_id",
+            "created_at"
+          ]
+        },
+        {
+          "name": "idx_usage_log_key",
+          "def": "CREATE INDEX idx_usage_log_key ON public.llm_usage_log USING btree (api_key_id, created_at DESC)",
+          "table": "public.llm_usage_log",
+          "columns": [
+            "api_key_id",
+            "created_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "llm_usage_log_attempt_no_not_null",
+          "type": "n",
+          "def": "NOT NULL attempt_no",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "attempt_no"
+          ]
+        },
+        {
+          "name": "llm_usage_log_completion_tokens_not_null",
+          "type": "n",
+          "def": "NOT NULL completion_tokens",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "completion_tokens"
+          ]
+        },
+        {
+          "name": "llm_usage_log_created_at_not_null",
+          "type": "n",
+          "def": "NOT NULL created_at",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "llm_usage_log_fallback_used_not_null",
+          "type": "n",
+          "def": "NOT NULL fallback_used",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "fallback_used"
+          ]
+        },
+        {
+          "name": "llm_usage_log_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_usage_log_latency_ms_not_null",
+          "type": "n",
+          "def": "NOT NULL latency_ms",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "latency_ms"
+          ]
+        },
+        {
+          "name": "llm_usage_log_prompt_tokens_not_null",
+          "type": "n",
+          "def": "NOT NULL prompt_tokens",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "prompt_tokens"
+          ]
+        },
+        {
+          "name": "llm_usage_log_success_not_null",
+          "type": "n",
+          "def": "NOT NULL success",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "success"
+          ]
+        },
+        {
+          "name": "llm_usage_log_task_code_not_null",
+          "type": "n",
+          "def": "NOT NULL task_code",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "task_code"
+          ]
+        },
+        {
+          "name": "llm_usage_log_total_tokens_not_null",
+          "type": "n",
+          "def": "NOT NULL total_tokens",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "total_tokens"
+          ]
+        },
+        {
+          "name": "llm_usage_log_api_key_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (api_key_id) REFERENCES llm_api_keys(id) ON DELETE SET NULL",
+          "table": "public.llm_usage_log",
+          "referenced_table": "public.llm_api_keys",
+          "columns": [
+            "api_key_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_usage_log_model_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (model_id) REFERENCES llm_models(id) ON DELETE SET NULL",
+          "table": "public.llm_usage_log",
+          "referenced_table": "public.llm_models",
+          "columns": [
+            "model_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "llm_usage_log_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.llm_usage_log",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "table": "public.knowledge_nodes",
+      "columns": [
+        "parent_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (parent_id) REFERENCES knowledge_nodes(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.knowledge_node_relations",
+      "columns": [
+        "source_node_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (source_node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.knowledge_node_relations",
+      "columns": [
+        "target_node_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (target_node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.document_chunks",
+      "columns": [
+        "node_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.ai_diagnoses",
+      "columns": [
+        "node_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.ai_diagnoses",
+      "columns": [
+        "source_chunk_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.document_chunks",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (source_chunk_id) REFERENCES document_chunks(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.student_knowledge_progress",
+      "columns": [
+        "node_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.spaced_repetitions",
+      "columns": [
+        "node_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.ai_quiz_generations",
+      "columns": [
+        "node_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.ai_quiz_generations",
+      "columns": [
+        "source_chunk_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.document_chunks",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (source_chunk_id) REFERENCES document_chunks(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.flashcards",
+      "columns": [
+        "node_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.knowledge_nodes",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (node_id) REFERENCES knowledge_nodes(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.flashcards",
+      "columns": [
+        "source_diagnosis_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.ai_diagnoses",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (source_diagnosis_id) REFERENCES ai_diagnoses(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.flashcard_repetitions",
+      "columns": [
+        "flashcard_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.flashcards",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (flashcard_id) REFERENCES flashcards(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.agent_episodes",
+      "columns": [
+        "session_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.agent_sessions",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.agent_messages",
+      "columns": [
+        "session_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.agent_sessions",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.llm_api_keys",
+      "columns": [
+        "provider_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.llm_providers",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.llm_models",
+      "columns": [
+        "provider_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.llm_providers",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.task_model_bindings",
+      "columns": [
+        "model_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.llm_models",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (model_id) REFERENCES llm_models(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.llm_usage_log",
+      "columns": [
+        "api_key_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.llm_api_keys",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (api_key_id) REFERENCES llm_api_keys(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.llm_usage_log",
+      "columns": [
+        "model_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.llm_models",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (model_id) REFERENCES llm_models(id) ON DELETE SET NULL"
+    }
+  ],
+  "functions": [
+    {
+      "name": "public.set_limit",
+      "return_type": "float4",
+      "arguments": "real",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.show_limit",
+      "return_type": "float4",
+      "arguments": "",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.show_trgm",
+      "return_type": "_text",
+      "arguments": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.similarity",
+      "return_type": "float4",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.similarity_op",
+      "return_type": "bool",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.word_similarity",
+      "return_type": "float4",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.word_similarity_op",
+      "return_type": "bool",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.word_similarity_commutator_op",
+      "return_type": "bool",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.similarity_dist",
+      "return_type": "float4",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.word_similarity_dist_op",
+      "return_type": "float4",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.word_similarity_dist_commutator_op",
+      "return_type": "float4",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_in",
+      "return_type": "gtrgm",
+      "arguments": "cstring",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_out",
+      "return_type": "cstring",
+      "arguments": "gtrgm",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_consistent",
+      "return_type": "bool",
+      "arguments": "internal, text, smallint, oid, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_distance",
+      "return_type": "float8",
+      "arguments": "internal, text, smallint, oid, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_compress",
+      "return_type": "internal",
+      "arguments": "internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_decompress",
+      "return_type": "internal",
+      "arguments": "internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_penalty",
+      "return_type": "internal",
+      "arguments": "internal, internal, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_picksplit",
+      "return_type": "internal",
+      "arguments": "internal, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_union",
+      "return_type": "gtrgm",
+      "arguments": "internal, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_same",
+      "return_type": "internal",
+      "arguments": "gtrgm, gtrgm, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gin_extract_value_trgm",
+      "return_type": "internal",
+      "arguments": "text, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gin_extract_query_trgm",
+      "return_type": "internal",
+      "arguments": "text, internal, smallint, internal, internal, internal, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gin_trgm_consistent",
+      "return_type": "bool",
+      "arguments": "internal, smallint, text, integer, internal, internal, internal, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gin_trgm_triconsistent",
+      "return_type": "char",
+      "arguments": "internal, smallint, text, integer, internal, internal, internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.strict_word_similarity",
+      "return_type": "float4",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.strict_word_similarity_op",
+      "return_type": "bool",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.strict_word_similarity_commutator_op",
+      "return_type": "bool",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.strict_word_similarity_dist_op",
+      "return_type": "float4",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.strict_word_similarity_dist_commutator_op",
+      "return_type": "float4",
+      "arguments": "text, text",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.gtrgm_options",
+      "return_type": "void",
+      "arguments": "internal",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.update_updated_at_column",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.trg_llm_touch_updated_at",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    }
+  ],
+  "driver": {
+    "name": "postgres",
+    "database_version": "PostgreSQL 18.3 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+    "meta": {
+      "current_schema": "public",
+      "search_paths": [
+        "postgres",
+        "public"
+      ],
+      "dict": {
+        "Functions": "Stored procedures and functions"
+      }
+    }
+  }
+}
