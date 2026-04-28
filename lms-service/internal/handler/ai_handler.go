@@ -1103,3 +1103,49 @@ func (h *AIHandler) DeleteKnowledgeNode(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Node deleted successfully"))
 }
+
+// ── Concept Check (Quick Action Panel) ──────────────────────────────────────
+
+// GenerateConceptCheck godoc
+// @Summary      Quick Action Panel — Concept Check
+// @Description  Generates 1–2 ultra-short MCQ questions for the Quick
+//               Action Panel. The FE either passes the verbatim micro-lesson
+//               text or just a node_id; the AI service handles RAG retrieval.
+// @Tags         AI - Quick Action Panel
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Router       /ai/concept-check [post]
+func (h *AIHandler) GenerateConceptCheck(c *gin.Context) {
+	var body struct {
+		TextChunk string `json:"text_chunk"`
+		NodeID    *int64 `json:"node_id"`
+		CourseID  *int64 `json:"course_id"`
+		Count     int    `json:"count"`
+		Language  string `json:"language"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+	if body.TextChunk == "" && body.NodeID == nil {
+		c.JSON(http.StatusBadRequest,
+			dto.NewErrorResponse("invalid_request", "text_chunk or node_id is required"))
+		return
+	}
+
+	resp, err := h.aiClient.GenerateConceptCheck(c.Request.Context(), ai.ConceptCheckRequest{
+		TextChunk: body.TextChunk,
+		NodeID:    body.NodeID,
+		CourseID:  body.CourseID,
+		Count:     body.Count,
+		Language:  body.Language,
+	})
+	if err != nil {
+		logger.Error("ConceptCheck failed", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(resp))
+}

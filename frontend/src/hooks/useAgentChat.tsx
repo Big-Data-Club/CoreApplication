@@ -28,6 +28,12 @@ interface UseAgentChatOptions {
   userId?: number;
   /** Structured in-page context fed by the ChatSidebar. */
   pageContext?: Record<string, any> | null;
+  /**
+   * Out-of-band context invisibly stitched into the agent's system
+   * prompt — used by the Quick Action Panel "Ask AI" button so the
+   * model knows exactly which micro-lesson the student is reading.
+   */
+  systemContext?: Record<string, any> | null;
   onSessionUpdated?: (update: {
     sessionId: string;
     title?: string;
@@ -35,7 +41,7 @@ interface UseAgentChatOptions {
   }) => void;
 }
  
-export function useAgentChat({ agentType, courseId, initialSessionId, userId, pageContext, onSessionUpdated }: UseAgentChatOptions) {
+export function useAgentChat({ agentType, courseId, initialSessionId, userId, pageContext, systemContext, onSessionUpdated }: UseAgentChatOptions) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId || null);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -163,6 +169,7 @@ export function useAgentChat({ agentType, courseId, initialSessionId, userId, pa
             course_id: courseId,
             session_id: sessionId,
             ...(pageContext ? { page_context: pageContext } : {}),
+            ...(systemContext ? { system_context: systemContext } : {}),
           }),
           signal: abortRef.current.signal,
         });
@@ -232,7 +239,7 @@ export function useAgentChat({ agentType, courseId, initialSessionId, userId, pa
         }));
       }
     },
-    [agentType, courseId, sessionId, isStreaming, pageContext],
+    [agentType, courseId, sessionId, isStreaming, pageContext, systemContext],
   );
 
   /**

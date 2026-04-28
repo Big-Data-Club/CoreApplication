@@ -97,6 +97,61 @@ export interface FlashcardStatsResponse {
   learning_count: number;
 }
 
+// ─── Quick Action Panel — Micro-Interaction tracking ──────────────────────
+
+export type MicroInteractionAction =
+  | "lesson_view"
+  | "lesson_complete"
+  | "flashcard_flip"
+  | "flashcard_rate"
+  | "quick_check_attempt"
+  | "quick_check_correct"
+  | "quick_check_incorrect"
+  | "ask_ai";
+
+export interface MicroInteractionRequest {
+  course_id: number;
+  lesson_id?: number | null;
+  node_id?: number | null;
+  action_type: MicroInteractionAction;
+  /** 0.0–1.0 fraction for `quick_check_attempt`. Optional otherwise. */
+  score?: number;
+  status?: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface MicroInteractionResponse {
+  interaction_id: number;
+  accepted_at: string;
+}
+
+// ─── Composite Heatmap (Bloom + Quick Action Panel) ──────────────────────
+
+export interface HeatmapWeights {
+  formal_quiz: number;
+  mini_quiz: number;
+  completion: number;
+  engagement: number;
+}
+
+export interface HeatmapNodeMastery {
+  node_id: number;
+  user_count: number;
+  mastery_level: number;
+  formal_quiz_score: number;
+  mini_quiz_score: number;
+  completion_score: number;
+  engagement_score: number;
+  status_level: "Rất tốt" | "TB" | "Yếu" | "Cần cải thiện";
+  last_interaction_at: string;
+}
+
+export interface HeatmapResponse {
+  course_id: number;
+  weights: HeatmapWeights;
+  nodes: HeatmapNodeMastery[];
+}
+
 class AnalyticsService {
   // ─── Teacher endpoints ──────────────────────────────────────────────────
 
@@ -141,6 +196,43 @@ class AnalyticsService {
   /** Get flashcard spaced repetition stats */
   async getFlashcardStats(courseId: number): Promise<{ data: FlashcardStatsResponse }> {
     const response = await lmsApiClient.get(`/courses/${courseId}/analytics/flashcard-stats`);
+    return response.data;
+  }
+
+  // ─── Quick Action Panel — micro-interaction tracking ──────────────────
+
+  /**
+   * Send a single Quick Action Panel interaction. The endpoint is
+   * fire-and-forget on the backend (raw row + Kafka publish), so
+   * the FE should also fire-and-forget — never block the UI on it.
+   */
+  async trackMicroInteraction(
+    payload: MicroInteractionRequest,
+  ): Promise<MicroInteractionResponse | null> {
+    try {
+      const response = await lmsApiClient.post(
+        "/analytics/micro-interaction",
+        payload,
+      );
+      return response.data?.data ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Class-wide heatmap (Bloom + Quick Action Panel composite). */
+  async getHeatmap(courseId: number): Promise<{ data: HeatmapResponse }> {
+    const response = await lmsApiClient.get("/analytics/heatmap", {
+      params: { course_id: courseId },
+    });
+    return response.data;
+  }
+
+  /** Heatmap filtered to the current student. */
+  async getMyHeatmap(courseId: number): Promise<{ data: HeatmapResponse }> {
+    const response = await lmsApiClient.get("/analytics/heatmap/me", {
+      params: { course_id: courseId },
+    });
     return response.data;
   }
 }

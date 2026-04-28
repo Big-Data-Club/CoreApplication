@@ -527,6 +527,51 @@ func (c *Client) GenerateMicroLessons(ctx context.Context, req GenerateMicroLess
 	return &resp, nil
 }
 
+// ── Concept Check (Quick Action Panel) ────────────────────────────────────────
+
+// ConceptCheckRequest asks the AI service for 1–2 ultra-short MCQ
+// questions grounded in the supplied micro-lesson text or knowledge node.
+type ConceptCheckRequest struct {
+	TextChunk string `json:"text_chunk,omitempty"`
+	NodeID    *int64 `json:"node_id,omitempty"`
+	CourseID  *int64 `json:"course_id,omitempty"`
+	Count     int    `json:"count"`
+	Language  string `json:"language"`
+}
+
+type ConceptCheckOption struct {
+	Text        string `json:"text"`
+	IsCorrect   bool   `json:"is_correct"`
+	Explanation string `json:"explanation"`
+}
+
+type ConceptCheckQuestion struct {
+	QuestionText  string               `json:"question_text"`
+	QuestionType  string               `json:"question_type"`
+	AnswerOptions []ConceptCheckOption `json:"answer_options"`
+}
+
+type ConceptCheckResponse struct {
+	NodeID    *int64                 `json:"node_id"`
+	Questions []ConceptCheckQuestion `json:"questions"`
+}
+
+// GenerateConceptCheck fans out to the AI service to build a quick-check
+// quiz for the Quick Action Panel.
+func (c *Client) GenerateConceptCheck(ctx context.Context, req ConceptCheckRequest) (*ConceptCheckResponse, error) {
+	if req.Count <= 0 {
+		req.Count = 2
+	}
+	if req.Language == "" {
+		req.Language = "vi"
+	}
+	var resp ConceptCheckResponse
+	if err := c.post(ctx, "/ai/concept-check/generate", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GenerateConceptCheck: %w", err)
+	}
+	return &resp, nil
+}
+
 // GenerateMicroLessonsFromYouTube fires the YouTube transcript micro-lesson pipeline.
 func (c *Client) GenerateMicroLessonsFromYouTube(ctx context.Context, req GenerateMicroLessonsFromYouTubeRequest) (*GenerateMicroLessonsResponse, error) {
 	var resp GenerateMicroLessonsResponse

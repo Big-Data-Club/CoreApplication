@@ -48,9 +48,11 @@ from app.core.prompts import (             # noqa: F401
     SYSTEM_PROMPT_TUTOR,
     SYSTEM_PROMPT_QUIZ_GEN,
     SYSTEM_PROMPT_FLASHCARD_GEN,
+    SYSTEM_PROMPT_CONCEPT_CHECK,
     build_diagnosis_prompt,
     build_quiz_generation_prompt,
     build_flashcard_generation_prompt,
+    build_concept_check_prompt,
 )
 
 logger = logging.getLogger(__name__)

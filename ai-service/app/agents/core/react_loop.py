@@ -107,6 +107,7 @@ async def run_react_loop(
     course_id: int | None = None,
     user_context: dict | None = None,
     page_context: dict | None = None,
+    system_context: dict | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """
     Execute the full ReAct loop for a single user turn.
@@ -330,6 +331,7 @@ async def run_react_loop(
         user_context=user_context,
         active_courses_section=active_courses_section,
         page_context=page_context,
+        system_context=system_context,
     )
 
     # Start with system prompt

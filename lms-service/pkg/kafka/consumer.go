@@ -95,6 +95,50 @@ func StartNodeMergedConsumer(ctx context.Context, onMerged NodeMergedFunc) {
 	}
 }
 
+type MicroInteractionFunc func(ctx context.Context, event MicroInteractionEvent) error
+
+// StartMicroInteractionConsumer subscribes to lms.analytics.interactions
+// and forwards each parsed event to the heatmap aggregator. Runs in
+// its own goroutine; cancel ctx to stop.
+func StartMicroInteractionConsumer(ctx context.Context, onEvent MicroInteractionFunc) {
+	brokers := os.Getenv("KAFKA_BROKERS")
+	if brokers == "" {
+		brokers = "localhost:9092"
+	}
+
+	r := kafka.NewReader(kafka.ReaderConfig{
+		Brokers: []string{brokers},
+		Topic:   TopicMicroInteractions,
+		GroupID: "lms-service-micro-interactions-group",
+	})
+
+	defer r.Close()
+	logger.Info("Kafka Consumer started for " + TopicMicroInteractions)
+
+	for {
+		m, err := r.ReadMessage(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			logger.Error("Failed to read kafka message on "+TopicMicroInteractions, err)
+			continue
+		}
+
+		var event MicroInteractionEvent
+		if err := json.Unmarshal(m.Value, &event); err != nil {
+			logger.Error("Failed to unmarshal MicroInteractionEvent", err)
+			continue
+		}
+
+		if err := onEvent(ctx, event); err != nil {
+			logger.Error(fmt.Sprintf(
+				"Failed to aggregate interaction id=%d action=%s",
+				event.InteractionID, event.ActionType), err)
+		}
+	}
+}
+
 type AIJobStatusUpdateFunc func(ctx context.Context, event AIJobStatusEvent) error
 
 func StartAIJobStatusConsumer(ctx context.Context, onStatusUpdate AIJobStatusUpdateFunc) {

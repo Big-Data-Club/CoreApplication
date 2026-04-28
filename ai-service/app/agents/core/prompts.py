@@ -98,6 +98,9 @@ anchor is already set.
 # In-Page Context
 {page_context}
 
+# Active Lesson (Quick Action Panel "Ask AI")
+{system_context}
+
 # Context Awareness
 {memory_context}
 
@@ -204,6 +207,9 @@ Instead of just giving answers:
 # In-Page Context
 {page_context}
 
+# Active Lesson (Quick Action Panel "Ask AI")
+{system_context}
+
 # Context Awareness
 {memory_context}
 
@@ -241,6 +247,7 @@ def build_system_prompt(
     # Backward-compatibility alias for the old parameter name.
     teacher_anchor_section: str | None = None,
     page_context: dict | None = None,
+    system_context: dict | None = None,
 ) -> str:
     """
     Build the final system prompt with memory and user context injected.
@@ -280,12 +287,14 @@ def build_system_prompt(
 
     user_section = _format_user_context(user_context, agent_type)
     page_section = _format_page_context(page_context)
+    sys_section  = _format_system_context(system_context)
 
     return template.format(
         active_courses_block=block,
         memory_context=memory_context,
         user_context=user_section,
         page_context=page_section,
+        system_context=sys_section,
     )
 
 
@@ -330,6 +339,47 @@ def _format_user_context(ctx: dict | None, agent_type: str) -> str:
         return "(User identity unknown)"
 
     return "\n".join(parts)
+
+
+def _format_system_context(ctx: dict | None) -> str:
+    """
+    Render the SystemContext payload supplied by the Quick Action Panel
+    "Ask AI" button. The student never sees this string verbatim — it
+    is only stitched into the system prompt so the agent grounds its
+    answer in the exact micro-lesson the student is reading.
+
+    Returns a no-op marker when the context is empty so the template
+    placeholder still renders cleanly.
+    """
+    if not ctx:
+        return "(No active micro-lesson context.)"
+
+    parts: list[str] = []
+    if ctx.get("lesson_title"):
+        parts.append(f"Lesson Title: {ctx['lesson_title']}")
+    if ctx.get("lesson_id"):
+        parts.append(f"Lesson ID: {ctx['lesson_id']}")
+    if ctx.get("node_id"):
+        parts.append(f"Knowledge Node ID: {ctx['node_id']}")
+    if ctx.get("course_id"):
+        parts.append(f"Course ID: {ctx['course_id']}")
+
+    text = (ctx.get("lesson_text") or "").strip()
+    if text:
+        if len(text) > 4000:
+            text = text[:4000] + "…"
+        parts.append("Lesson Content (verbatim, ground every answer here):")
+        parts.append(text)
+
+    if not parts:
+        return "(No active micro-lesson context.)"
+
+    return (
+        "The student is currently reading this micro-lesson. Ground every "
+        "answer in the lesson text below; if their question can be answered "
+        "from this content, do NOT call search tools.\n"
+        + "\n".join(parts)
+    )
 
 
 def _format_page_context(ctx: dict | None) -> str:

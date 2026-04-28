@@ -89,6 +89,23 @@ export interface AgentChatRequest {
 
   /** Structured in-page context fed by the ChatSidebar. */
   page_context?: Record<string, any>;
+
+  /**
+   * Out-of-band system context — used by the Quick Action Panel "Ask AI"
+   * button to invisibly inject the current micro-lesson body so the model
+   * grounds its answer in the exact lesson the student is reading.
+   */
+  system_context?: AgentSystemContext;
+}
+
+/** Hidden system context for the Quick Action Panel "Ask AI" flow. */
+export interface AgentSystemContext {
+  lesson_id?: number;
+  lesson_title?: string;
+  node_id?: number;
+  course_id?: number;
+  /** Verbatim Markdown body of the active micro-lesson. */
+  lesson_text?: string;
 }
 
 export interface AgentSession {

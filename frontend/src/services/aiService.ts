@@ -367,6 +367,48 @@ class AIService {
     const res = await lmsApiClient.post(`/courses/${courseId}/ai/consolidate-graph`);
     return res.data?.data ?? res.data;
   }
+
+  /**
+   * Quick Action Panel — generate 1–2 ultra-short MCQ "Concept Check"
+   * questions tied to a micro-lesson body or knowledge node.
+   */
+  async generateConceptCheck(req: ConceptCheckRequest): Promise<ConceptCheckResponse> {
+    const res = await lmsApiClient.post(`/ai/concept-check`, {
+      text_chunk: req.text_chunk ?? "",
+      node_id: req.node_id ?? null,
+      course_id: req.course_id ?? null,
+      count: req.count ?? 2,
+      language: req.language ?? "vi",
+    });
+    return res.data?.data ?? res.data;
+  }
+}
+
+// ─── Quick Action Panel — Concept Check ───────────────────────────────
+
+export interface ConceptCheckRequest {
+  text_chunk?: string;
+  node_id?: number | null;
+  course_id?: number | null;
+  count?: number;
+  language?: "vi" | "en";
+}
+
+export interface ConceptCheckOption {
+  text: string;
+  is_correct: boolean;
+  explanation: string;
+}
+
+export interface ConceptCheckQuestion {
+  question_text: string;
+  question_type: string;
+  answer_options: ConceptCheckOption[];
+}
+
+export interface ConceptCheckResponse {
+  node_id?: number | null;
+  questions: ConceptCheckQuestion[];
 }
 
 export const aiService = new AIService();

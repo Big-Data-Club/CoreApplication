@@ -49,3 +49,24 @@ type NodeMergedEvent struct {
 	SurvivorID  int64   `json:"survivor_id"`
 	AbsorbedIDs []int64 `json:"absorbed_ids"`
 }
+
+// Topic name for Quick Action Panel micro-interactions.
+const TopicMicroInteractions = "lms.analytics.interactions"
+
+// MicroInteractionEvent is published by the LMS service whenever a
+// student triggers an interaction in the Quick Action Panel
+// (flashcard flip, quick check, ask AI, lesson completion). The
+// analytics worker consumes these events and updates
+// `knowledge_node_mastery` using the weighted scheme described in
+// migration V008.
+type MicroInteractionEvent struct {
+	InteractionID int64     `json:"interaction_id"`
+	UserID        int64     `json:"user_id"`
+	CourseID      int64     `json:"course_id"`
+	LessonID      *int64    `json:"lesson_id,omitempty"`
+	NodeID        *int64    `json:"node_id,omitempty"`
+	ActionType    string    `json:"action_type"`
+	Score         *float64  `json:"score,omitempty"`
+	Status        string    `json:"status,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}

@@ -107,6 +107,7 @@ func main() {
 
 	flashcardRepo := repository.NewFlashcardRepository(db)
 	microLessonRepo := repository.NewMicroLessonRepository(db)
+	microInteractionRepo := repository.NewMicroInteractionRepository(db)
 
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
@@ -164,6 +165,13 @@ func main() {
 	progressService := service.NewProgressService(progressRepo, enrollmentRepo, redisClient)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient)
 	flashcardService := service.NewFlashcardService(flashcardRepo, aiClient, redisClient)
+	microInteractionService := service.NewMicroInteractionService(microInteractionRepo, microLessonRepo)
+
+	// Heatmap analytics worker: consumes Quick Action Panel interactions
+	// off `lms.analytics.interactions` and updates knowledge_node_mastery.
+	go kafka.StartMicroInteractionConsumer(context.Background(), func(ctx context.Context, ev kafka.MicroInteractionEvent) error {
+		return microInteractionService.ApplyEvent(ctx, ev)
+	})
 
 	// Initialize handlers
 	userHandler := handler.NewUserHandler(userService)
@@ -178,6 +186,7 @@ func main() {
 	aiHandler := handler.NewAIHandler(aiClient, courseRepo, quizRepo, redisClient)
 	flashcardHandler := handler.NewFlashcardHandler(flashcardService, enrollmentService)
 	microLessonHandler := handler.NewMicroLessonHandler(microLessonRepo, courseRepo, aiClient)
+	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -266,6 +275,21 @@ func main() {
 		{
 			// User role management
 			auth.GET("/me/roles", userHandler.GetMyRoles)
+
+			// ── Composite Analytics (Quick Action Panel + heatmap) ─────────
+			// POST /analytics/micro-interaction is hit by every flashcard
+			// flip, quick-check answer, "Ask AI" message and lesson
+			// completion. The endpoint persists a raw row + publishes a
+			// Kafka event; the consumer-side worker maintains the
+			// composite mastery scores read by GET /analytics/heatmap.
+			analytics := auth.Group("/analytics")
+			{
+				analytics.POST("/micro-interaction", microInteractionHandler.RecordInteraction)
+				analytics.GET("/heatmap",
+					middleware.RequireRoles("ADMIN", "TEACHER"),
+					microInteractionHandler.GetHeatmap)
+				analytics.GET("/heatmap/me", microInteractionHandler.GetStudentHeatmap)
+			}
 
 			// COURSE MANAGEMENT
 			courses := auth.Group("/courses")
@@ -454,6 +478,10 @@ func main() {
 				// System-wide Polling Endpoint for AI Jobs
 				aiGroup.GET("/jobs/:jobId/status",
 					aiHandler.GetJobStatus())
+
+				// Quick Action Panel — Concept Check
+				aiGroup.POST("/concept-check",
+					aiHandler.GenerateConceptCheck)
 			}
 
 			// Per-course AI routes (reuse courseId param)
