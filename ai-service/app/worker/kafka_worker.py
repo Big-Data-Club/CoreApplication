@@ -77,6 +77,25 @@ async def process_graph_command(payload: dict):
             count = await link_global_graph()
             await publish_graph_event(command, "completed", result_count=count)
             logger.info("Global linking complete", extra={"edges_created": count})
+        elif command == "CONSOLIDATE_GRAPH":
+            from app.services.graph_consolidation_service import consolidate_graph
+            course_id    = payload.get("course_id")
+            triggered_by = payload.get("triggered_by")
+            if course_id is None:
+                await publish_graph_event(command, "failed", error="missing course_id")
+                return
+            await publish_graph_event(command, "processing")
+            result = await consolidate_graph(int(course_id), triggered_by)
+            await publish_graph_event(
+                command, "completed",
+                result_count=result.get("absorbed_nodes", 0),
+            )
+            logger.info(
+                "Graph consolidation complete",
+                extra={"course_id": course_id,
+                       "merged_groups": result.get("merged_groups", 0),
+                       "absorbed_nodes": result.get("absorbed_nodes", 0)},
+            )
         else:
             logger.warning("Unknown graph command", extra={"command": command})
     except Exception as exc:

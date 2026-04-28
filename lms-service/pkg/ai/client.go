@@ -544,6 +544,27 @@ func (c *Client) LinkGlobalGraph(ctx context.Context) (map[string]interface{}, e
 	}
 	return resp, nil
 }
+
+// PreviewGraphConsolidation returns the dry-run merge plan for a course.
+func (c *Client) PreviewGraphConsolidation(ctx context.Context, courseID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	path := fmt.Sprintf("/ai/knowledge-graph/%d/consolidate/preview", courseID)
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("ai.PreviewGraphConsolidation: %w", err)
+	}
+	return resp, nil
+}
+
+// TriggerGraphConsolidation enqueues a "Compact Graph" Kafka command for a course.
+func (c *Client) TriggerGraphConsolidation(ctx context.Context, courseID int64, triggeredBy int64) (map[string]interface{}, error) {
+	body := map[string]interface{}{"triggered_by": triggeredBy}
+	var resp map[string]interface{}
+	path := fmt.Sprintf("/ai/knowledge-graph/%d/consolidate", courseID)
+	if err := c.post(ctx, path, body, &resp); err != nil {
+		return nil, fmt.Errorf("ai.TriggerGraphConsolidation: %w", err)
+	}
+	return resp, nil
+}
  
 // DeleteKnowledgeNode removes an auto-generated node.
 func (c *Client) DeleteKnowledgeNode(ctx context.Context, nodeID int64) error {

@@ -58,6 +58,30 @@ async def publish_graph_event(command: str, status: str, result_count: int = 0, 
     logger.info(f"Published graph event to {topic}: {command} -> {status}")
 
 
+async def publish_node_merged_event(
+    course_id: int,
+    survivor_id: int,
+    absorbed_ids: list[int],
+):
+    """Cross-service cascade: tell the LMS to repoint its `node_id` columns
+    (micro_lessons, quiz_questions) onto the survivor after a graph merge."""
+    if not absorbed_ids:
+        return
+    producer = await get_kafka_producer()
+    payload = {
+        "course_id":    course_id,
+        "survivor_id":  survivor_id,
+        "absorbed_ids": absorbed_ids,
+    }
+    topic = "ai.graph.node_merged"
+    key   = str(survivor_id).encode("utf-8")
+    await producer.send_and_wait(topic, value=payload, key=key)
+    logger.info(
+        "Published %s for course=%d survivor=%d (absorbed=%d)",
+        topic, course_id, survivor_id, len(absorbed_ids),
+    )
+
+
 async def publish_ai_job_status(job_id: str, status: str, result: dict | list | None = None, error: str = ""):
     """Send feedback about an async AI job (Quiz, Flashcard, Diagnosis)."""
     producer = await get_kafka_producer()

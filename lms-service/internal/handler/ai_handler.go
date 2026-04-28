@@ -992,6 +992,90 @@ func (h *AIHandler) GetNodeChunks(c *gin.Context) {
 
 }
 
+// PreviewGraphConsolidation godoc
+// @Summary      Preview "Compact Graph" merges
+// @Description  Returns a dry-run plan describing which nodes would be merged.
+// @Tags         AI - Knowledge Graph
+// @Produce      json
+// @Param        courseId path int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/consolidate-graph/preview [get]
+func (h *AIHandler) PreviewGraphConsolidation(c *gin.Context) {
+	courseID, _ := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err := h.assertCourseOwner(c, courseID); err != nil {
+		return
+	}
+
+	plan, err := h.aiClient.PreviewGraphConsolidation(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewDataResponse(plan))
+}
+
+// ConsolidateGraph godoc
+// @Summary      Trigger "Compact Graph" merge
+// @Description  Queues a Kafka job that merges duplicate / micro knowledge nodes.
+// @Tags         AI - Knowledge Graph
+// @Produce      json
+// @Param        courseId path int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/consolidate-graph [post]
+func (h *AIHandler) ConsolidateGraph(c *gin.Context) {
+	courseID, _ := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	userID := c.MustGet("user_id").(int64)
+	if err := h.assertCourseOwner(c, courseID); err != nil {
+		return
+	}
+
+	resp, err := h.aiClient.TriggerGraphConsolidation(c.Request.Context(), courseID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	jobID := fmt.Sprintf("consolidate-%d", courseID)
+	if v, ok := resp["job_id"].(string); ok && v != "" {
+		jobID = v
+	}
+
+	// Seed Redis with a "pending" entry so the existing job-status poller works.
+	pending := map[string]interface{}{
+		"job_id": jobID,
+		"status": "pending",
+	}
+	if data, err := json.Marshal(pending); err == nil {
+		_ = h.redisCache.Set(c.Request.Context(), "ai_job:"+jobID, data, 24*time.Hour)
+	}
+
+	c.JSON(http.StatusAccepted, dto.NewDataResponse(map[string]interface{}{
+		"job_id":  jobID,
+		"status":  "queued",
+		"message": "Graph consolidation queued",
+	}))
+}
+
+// assertCourseOwner allows ADMINs and the course's creator. Writes the
+// error response itself; callers should bail out on non-nil error.
+func (h *AIHandler) assertCourseOwner(c *gin.Context, courseID int64) error {
+	role := c.GetString("user_role")
+	if role == "ADMIN" {
+		return nil
+	}
+	userID := c.MustGet("user_id").(int64)
+	course, err := h.courseRepo.GetByID(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
+		return err
+	}
+	if course.CreatedBy != userID {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Only course owner can run this action"))
+		return fmt.Errorf("forbidden")
+	}
+	return nil
+}
+
 func (h *AIHandler) DeleteKnowledgeNode(c *gin.Context) {
 	nodeID, _ := strconv.ParseInt(c.Param("nodeId"), 10, 64)
 	courseID, _ := strconv.ParseInt(c.Param("courseId"), 10, 64)
