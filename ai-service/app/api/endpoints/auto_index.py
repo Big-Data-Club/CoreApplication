@@ -335,6 +335,46 @@ async def trigger_global_link(request: Request):
     return {"ok": True, "message": "Global linking command queued via Kafka"}
 
 
+# ── Compact Graph (intelligent node consolidation) ─────────────────────────────
+
+class ConsolidateRequest(BaseModel):
+    triggered_by: Optional[int] = None
+
+
+@graph_router.get("/{course_id}/consolidate/preview")
+async def preview_graph_consolidation(course_id: int, request: Request):
+    """Synchronous dry-run: returns the proposed merge plan, mutates nothing."""
+    _verify(request)
+
+    from app.services.graph_consolidation_service import graph_consolidation_service
+    plan = await graph_consolidation_service.analyze_graph(course_id)
+    return plan.to_dict()
+
+
+@graph_router.post("/{course_id}/consolidate")
+async def trigger_graph_consolidation(
+    course_id: int,
+    body: ConsolidateRequest,
+    request: Request,
+):
+    """Fire-and-forget: enqueue the merge job on Kafka. Returns 202."""
+    _verify(request)
+
+    from app.worker.kafka_producer import get_kafka_producer
+    producer = await get_kafka_producer()
+    await producer.send_and_wait("lms.graph.command", value={
+        "command":      "CONSOLIDATE_GRAPH",
+        "course_id":    course_id,
+        "triggered_by": body.triggered_by,
+    })
+    return {
+        "ok":      True,
+        "status":  "queued",
+        "job_id":  f"consolidate-{course_id}",
+        "message": "Graph consolidation queued via Kafka",
+    }
+
+
 @graph_router.get("/{course_id}", response_model=KnowledgeGraphResponse)
 async def get_knowledge_graph(course_id: int, request: Request):
     _verify(request)

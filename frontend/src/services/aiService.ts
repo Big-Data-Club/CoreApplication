@@ -152,6 +152,31 @@ export interface AIJobStatus<T = any> {
   error?: string;
 }
 
+// ─── Compact Graph (Consolidation) ───────────────────────────────────────
+
+export interface ConsolidationGroup {
+  survivor_id: number;
+  absorbed_ids: number[];
+  new_name: string;
+  new_name_vi: string;
+  new_description: string;
+  new_keywords: string[];
+  similarity: number;
+  reason: string;
+  /** "hard" | "soft" | "micro" */
+  kind: string;
+  /** Map of "<id>" → display name, including the survivor */
+  old_names: Record<string, string>;
+}
+
+export interface ConsolidationPreview {
+  course_id: number;
+  total_nodes_before: number;
+  total_nodes_after: number;
+  reduction_percent: number;
+  groups: ConsolidationGroup[];
+}
+
 class AIService {
   // ─── Polling Jobs ────────────────────────────────────────────────────────
   
@@ -310,6 +335,37 @@ class AIService {
    */
   async deleteKnowledgeNode(courseId: number, nodeId: number): Promise<void> {
     await lmsApiClient.delete(`/courses/${courseId}/ai/nodes/${nodeId}`);
+  }
+
+  // ─── Compact Graph (intelligent node consolidation) ──────────────────────
+
+  /**
+   * Dry-run preview of the merge plan. Mutates nothing on the server.
+   */
+  async previewGraphConsolidation(courseId: number): Promise<ConsolidationPreview> {
+    const res = await lmsApiClient.get(
+      `/courses/${courseId}/ai/consolidate-graph/preview`
+    );
+    return (
+      res.data?.data ?? res.data ?? {
+        course_id: courseId,
+        total_nodes_before: 0,
+        total_nodes_after: 0,
+        reduction_percent: 0,
+        groups: [],
+      }
+    );
+  }
+
+  /**
+   * Enqueue a "Compact Graph" Kafka job. Returns a job ID for polling
+   * via getJobStatus().
+   */
+  async triggerGraphConsolidation(
+    courseId: number
+  ): Promise<{ job_id: string; status: string; message?: string }> {
+    const res = await lmsApiClient.post(`/courses/${courseId}/ai/consolidate-graph`);
+    return res.data?.data ?? res.data;
   }
 }
 

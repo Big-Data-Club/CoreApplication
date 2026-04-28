@@ -24,6 +24,7 @@ import (
 	"example/hello/pkg/storage"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
@@ -124,6 +125,29 @@ func main() {
 		data, _ := json.Marshal(event)
 		redisKey := "ai_job:" + event.JobID
 		return redisClient.Set(ctx, redisKey, data, 24*time.Hour) // Keep for 24 hours
+	})
+
+	// "Compact Graph" cascade: when AI merges nodes, repoint our own node_id columns.
+	go kafka.StartNodeMergedConsumer(context.Background(), func(ctx context.Context, event kafka.NodeMergedEvent) error {
+		if len(event.AbsorbedIDs) == 0 {
+			return nil
+		}
+		logger.Info(fmt.Sprintf(
+			"Cascading node merge: survivor=%d absorbed=%d",
+			event.SurvivorID, len(event.AbsorbedIDs)))
+
+		absorbed := pq.Array(event.AbsorbedIDs)
+		if _, err := db.ExecContext(ctx,
+			`UPDATE micro_lessons SET node_id = $1 WHERE node_id = ANY($2)`,
+			event.SurvivorID, absorbed); err != nil {
+			return fmt.Errorf("micro_lessons cascade: %w", err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`UPDATE quiz_questions SET node_id = $1 WHERE node_id = ANY($2)`,
+			event.SurvivorID, absorbed); err != nil {
+			return fmt.Errorf("quiz_questions cascade: %w", err)
+		}
+		return nil
 	})
 
 	// Initialize services. Services that benefit from caching (read-heavy CRUD
@@ -471,6 +495,14 @@ func main() {
 					aiHandler.GetReviewStats)
 
 				aiCourses.GET("/knowledge-graph", aiHandler.GetCourseKnowledgeGraph)
+
+				// "Compact Graph" — teacher-triggered intelligent node consolidation.
+				aiCourses.GET("/consolidate-graph/preview",
+					middleware.RequireRoles("ADMIN", "TEACHER"),
+					aiHandler.PreviewGraphConsolidation)
+				aiCourses.POST("/consolidate-graph",
+					middleware.RequireRoles("ADMIN", "TEACHER"),
+					aiHandler.ConsolidateGraph)
 
 				aiCourses.GET("/nodes/:nodeId/chunks", aiHandler.GetNodeChunks)
 				aiCourses.DELETE("/nodes/:nodeId", aiHandler.DeleteKnowledgeNode)

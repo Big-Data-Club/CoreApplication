@@ -41,3 +41,11 @@ type AIJobStatusEvent struct {
 	Result  interface{} `json:"result,omitempty"`
 	Error   string      `json:"error,omitempty"`
 }
+
+// NodeMergedEvent is emitted by the AI service after a "Compact Graph"
+// merge so the LMS can rewrite its own `node_id` references.
+type NodeMergedEvent struct {
+	CourseID    int64   `json:"course_id"`
+	SurvivorID  int64   `json:"survivor_id"`
+	AbsorbedIDs []int64 `json:"absorbed_ids"`
+}
