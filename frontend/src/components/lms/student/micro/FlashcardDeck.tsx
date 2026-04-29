@@ -50,8 +50,7 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
           ctx.nodeId as number,
         );
         if (cancelled) return;
-        // Cap to 5 — the panel is meant for quick revision, not bulk study.
-        setCards((res.data ?? []).slice(0, 5));
+        setCards(res.data ?? []);
         setError("");
       } catch (e) {
         if (cancelled) return;
@@ -131,6 +130,20 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
     [cards.length, current, index, track],
   );
 
+  const handlePrev = useCallback(() => {
+    if (index > 0) {
+      setIndex((i) => i - 1);
+      setFlipped(false);
+    }
+  }, [index]);
+
+  const handleNext = useCallback(() => {
+    if (index < cards.length - 1) {
+      setIndex((i) => i + 1);
+      setFlipped(false);
+    }
+  }, [index, cards.length]);
+
   const labels = useMemo(
     () => ({
       front: lang === "vi" ? "Mặt trước" : "Front",
@@ -186,8 +199,33 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
   return (
     <div className="flex flex-col gap-4 px-6 py-5">
       <div className="flex items-center justify-between text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <span>{labels.counter(index + 1, cards.length)}</span>
-        <span>{flipped ? labels.back : labels.front}</span>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handlePrev}
+            disabled={index === 0}
+            className="hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+            title={lang === "vi" ? "Thẻ trước" : "Previous card"}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          
+          <span className="min-w-[40px] text-center font-medium tabular-nums">
+            {labels.counter(index + 1, cards.length)}
+          </span>
+
+          <button
+            type="button"
+            onClick={handleNext}
+            disabled={index === cards.length - 1}
+            className="hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+            title={lang === "vi" ? "Thẻ sau" : "Next card"}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        </div>
+        
+        <span className="font-medium">{flipped ? labels.back : labels.front}</span>
       </div>
 
       {/* Card surface — solid neutral, hairline border, no gradient. */}
