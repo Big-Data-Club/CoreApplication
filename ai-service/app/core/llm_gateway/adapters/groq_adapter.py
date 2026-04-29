@@ -56,8 +56,12 @@ class GroqAdapter(LLMAdapter):
                 raise AuthError(msg, status_code=status) from exc
             if status == 429:
                 raise RateLimitedError(msg) from exc
-            if status == 400 and "context_length" in msg.lower():
-                raise ContextLengthError(msg) from exc
+            if status == 400:
+                msg_lower = msg.lower()
+                if "context_length" in msg_lower:
+                    raise ContextLengthError(msg) from exc
+                if "organization_restricted" in msg_lower:
+                    raise AuthError(msg, status_code=status) from exc
             raise ProviderError(msg, status_code=status, retryable=(status or 0) >= 500) from exc
         finally:
             try:

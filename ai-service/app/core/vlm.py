@@ -142,10 +142,12 @@ async def _fetch_image_base64(url: str) -> tuple[Optional[str], str]:
     Returns (None, '') on failure.
     """
     try:
+        headers = {"X-API-Secret": settings.ai_service_secret}
         async with httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=True,
             limits=httpx.Limits(max_connections=10),
+            headers=headers,
         ) as client:
             response = await client.get(url)
             if response.status_code == 200:

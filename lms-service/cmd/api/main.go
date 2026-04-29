@@ -198,7 +198,7 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS(cfg.CORS))
-	router.Use(middleware.RateLimit(redisClient))
+	router.Use(middleware.RateLimit(redisClient, cfg.AIConf.Secret))
 
 	// Health check
 	healthHandler := func(c *gin.Context) {

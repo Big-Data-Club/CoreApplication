@@ -55,8 +55,6 @@ interface PollerContextValue {
 }
 
 const POLL_INTERVAL_MS = 6000;
-const TERMINAL_STATUSES = new Set<IndexStatus>(["indexed", "failed"]);
-
 const DEFAULT_STATUS: StatusInfo = {
   status: "not_indexed",
   nodes_created: 0,
@@ -89,15 +87,22 @@ export function AIIndexPollerProvider({
   const [, forceUpdate] = useState(0);
   const triggerRender = useCallback(() => forceUpdate((n) => n + 1), []);
 
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
   // ── Batch poll function ────────────────────────────────────────────────
   const doPoll = useCallback(async () => {
     const activeIds = Array.from(watchSetRef.current);
     if (activeIds.length === 0) return;
 
-    // Only poll IDs that are still "in-flight" (processing/pending/not_indexed)
+    // Only poll IDs that are still "in-flight" (processing/pending)
     const idsToFetch = activeIds.filter((id) => {
       const s = statusMapRef.current.get(id);
-      return !s || !TERMINAL_STATUSES.has(s.status);
+      return !s || s.status === "processing" || s.status === "pending";
     });
 
     // Also fetch IDs that are "indexed" but have no counts yet (initial load)
@@ -111,7 +116,10 @@ export function AIIndexPollerProvider({
     });
 
     const allIds = [...new Set([...idsToFetch, ...idsNeedingCounts])];
-    if (allIds.length === 0) return;
+    if (allIds.length === 0) {
+      stopTimer();
+      return;
+    }
 
     try {
       const res = await lmsApiClient.post<{
@@ -147,20 +155,13 @@ export function AIIndexPollerProvider({
     } catch (err) {
       console.error("[AIIndexPoller] batch poll failed:", err);
     }
-  }, [triggerRender]);
+  }, [triggerRender, stopTimer]);
 
   // ── Timer management ───────────────────────────────────────────────────
   const startTimer = useCallback(() => {
     if (timerRef.current) return; // already running
     timerRef.current = setInterval(doPoll, POLL_INTERVAL_MS);
   }, [doPoll]);
-
-  const stopTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
 
   // Cleanup on unmount
   useEffect(() => () => stopTimer(), [stopTimer]);

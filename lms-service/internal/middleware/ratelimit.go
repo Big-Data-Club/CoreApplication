@@ -11,8 +11,14 @@ import (
 )
 
 // RateLimit middleware limits requests per IP address
-func RateLimit(redisCache *cache.RedisCache) gin.HandlerFunc {
+func RateLimit(redisCache *cache.RedisCache, aiSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Bypass rate limit for internal AI service calls
+		if aiSecret != "" && c.GetHeader("X-API-Secret") == aiSecret {
+			c.Next()
+			return
+		}
+
 		// Get client IP
 		ip := c.ClientIP()
 		
