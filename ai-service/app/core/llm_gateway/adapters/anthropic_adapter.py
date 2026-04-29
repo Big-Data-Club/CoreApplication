@@ -102,7 +102,33 @@ def _normalise_messages(
         # Anthropic accepts 'user' and 'assistant' only.
         if role not in ("user", "assistant"):
             role = "user"
-        out.append({"role": role, "content": content if isinstance(content, list) else str(content)})
+            
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if item.get("type") == "text":
+                    parts.append({"type": "text", "text": item.get("text", "")})
+                elif item.get("type") == "image_url":
+                    url = item.get("image_url", {}).get("url", "")
+                    if url.startswith("data:"):
+                        try:
+                            header, b64 = url.split(",", 1)
+                            mime_type = header.split(";")[0].replace("data:", "")
+                            parts.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": mime_type,
+                                    "data": b64
+                                }
+                            })
+                        except Exception:
+                            parts.append({"type": "text", "text": f"[Image URL: {url}]"})
+                    else:
+                        parts.append({"type": "text", "text": f"[Image at {url}]"})
+            out.append({"role": role, "content": parts})
+        else:
+            out.append({"role": role, "content": str(content)})
  
     if json_mode:
         system_parts.append(

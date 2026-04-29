@@ -165,48 +165,49 @@ async def _fetch_image_base64(url: str) -> tuple[Optional[str], str]:
 
 async def _call_vlm(image_b64: str, mime_type: str, language: str = "vi") -> str:
     """
-    Call Groq vision API and return the text description.
+    Call LLMGateway for vision API and return the text description.
 
     Guarded by _VLM_SEMAPHORE to cap concurrency and includes exponential
-    backoff for 429 rate-limit errors.
+    backoff for rate-limit errors from the gateway.
     """
-    from groq import AsyncGroq
+    from app.core.llm_gateway.gateway import get_gateway
+    from app.core.llm_gateway.types import ChatRequest, TASK_VLM_DESCRIBE
+    from app.core.llm_gateway.errors import RateLimitedError, NoKeyAvailableError
 
     async with _VLM_SEMAPHORE:
-        client = AsyncGroq(api_key=settings.groq_api_key)
         system = _SYSTEM_VI if language == "vi" else _SYSTEM_EN
         prompt = _PROMPT_VI if language == "vi" else _PROMPT_EN
 
-        # Groq vision expects data URL format
         data_url = f"data:{mime_type};base64,{image_b64}"
+        req = ChatRequest(
+            task=TASK_VLM_DESCRIBE,
+            messages=[
+                {"role": "system", "content": system},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ],
+            temperature=0.1,
+            max_tokens=512,
+        )
 
         last_exc: Exception | None = None
         for attempt in range(_VLM_MAX_RETRIES + 1):
             try:
-                response = await client.chat.completions.create(
-                    model=VLM_MODEL,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "image_url", "image_url": {"url": data_url}},
-                                {"type": "text", "text": prompt},
-                            ],
-                        },
-                    ],
-                    temperature=0.1,
-                    max_tokens=512,
-                )
-                return response.choices[0].message.content.strip()
+                resp = await get_gateway().chat(req)
+                return resp.content.strip()
             except Exception as exc:
                 last_exc = exc
-                # Check for rate-limit (429) error
-                status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
-                if status == 429 and attempt < _VLM_MAX_RETRIES:
+                # Gateway throws specific errors. If we hit rate limits across all keys,
+                # or if no keys are available because they are all on cooldown, we wait and retry.
+                if isinstance(exc, (RateLimitedError, NoKeyAvailableError)) and attempt < _VLM_MAX_RETRIES:
                     wait = _VLM_BASE_BACKOFF * (2 ** attempt)
                     logger.warning(
-                        "VLM rate limited (429), retrying in %.1fs (attempt %d/%d)",
+                        "VLM gateway rate limited / no keys, retrying in %.1fs (attempt %d/%d)",
                         wait, attempt + 1, _VLM_MAX_RETRIES,
                     )
                     await asyncio.sleep(wait)

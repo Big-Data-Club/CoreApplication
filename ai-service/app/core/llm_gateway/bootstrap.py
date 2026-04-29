@@ -32,6 +32,7 @@ from app.core.llm_gateway.types import (
     TASK_NODE_EXTRACT,
     TASK_QUIZ_GEN,
     TASK_MICRO_LESSON_GEN,
+    TASK_VLM_DESCRIBE,
 )
  
 logger = logging.getLogger(__name__)
@@ -276,7 +277,8 @@ async def bootstrap_llm_registry() -> None:
     # 2. Models — upsert with current env-var names so the task map still works
     chat_env = settings.chat_model
     quiz_env = settings.quiz_model
- 
+    vlm_env = settings.vlm_model
+
     models_by_name: dict[str, int] = {}
     for spec in _DEFAULT_GROQ_MODELS:
         m = await registry.upsert_model(provider_id=provider.id, **spec)
@@ -284,9 +286,10 @@ async def bootstrap_llm_registry() -> None:
  
     # Make sure the exact env-var names exist even if they differ from the
     # hard-coded defaults above (operators may pin a specific slug).
-    for env_name, default_temp, default_max in (
-        (chat_env, 0.3, 1024),
-        (quiz_env, 0.3, 2048),
+    for env_name, default_temp, default_max, is_vision in (
+        (chat_env, 0.3, 1024, False),
+        (quiz_env, 0.3, 2048, False),
+        (vlm_env, 0.1, 512, True),
     ):
         if env_name and env_name not in models_by_name:
             m = await registry.upsert_model(
@@ -296,6 +299,7 @@ async def bootstrap_llm_registry() -> None:
                 family="llama",
                 context_window=131072,
                 supports_tools=True,
+                supports_vision=is_vision,
                 default_temperature=default_temp,
                 default_max_tokens=default_max,
             )
@@ -303,6 +307,7 @@ async def bootstrap_llm_registry() -> None:
  
     chat_model_id = models_by_name.get(chat_env) or next(iter(models_by_name.values()))
     quiz_model_id = models_by_name.get(quiz_env) or chat_model_id
+    vlm_model_id = models_by_name.get(vlm_env) or chat_model_id
  
     # 3. Seed Groq API key from env if pool is empty
     existing_keys = await registry.list_api_keys(provider_id=provider.id)
@@ -391,6 +396,7 @@ async def bootstrap_llm_registry() -> None:
         (TASK_QUIZ_GEN,         quiz_model_id),
         (TASK_MICRO_LESSON_GEN, quiz_model_id),
         (TASK_AGENT_REACT,      quiz_model_id),
+        (TASK_VLM_DESCRIBE,     vlm_model_id),
     ]
 
     existing = {(b.task_code, b.model.id) for b in await registry.list_bindings()}
