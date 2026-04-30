@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, ChevronDown, ChevronRight, BookOpen, AlertCircle, Network } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, BookOpen, AlertCircle, Network, Trash2, Sparkles } from "lucide-react";
 import aiService, { KnowledgeNode, KnowledgeGraphEdge } from "@/services/aiService";
 import { cn } from "@/lib/utils";
 import lmsService from "@/services/lmsService";
 import { ContentPickerModal } from "../ContentPickerModal";
 import KnowledgeGraph from "../KnowledgeGraph";
+import GraphConsolidateModal from "./GraphConsolidateModal";
+import toast from "react-hot-toast";
 
 interface Props {
   courseId: number;
@@ -22,6 +24,7 @@ export function AINodeManager({ courseId, nodes, graphEdges = [], onNodesChange 
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState(true);
   const [viewMode, setViewMode] = useState<"list" | "graph">("graph");
+  const [consolidateOpen, setConsolidateOpen] = useState(false);
 
   const graphData = useMemo(() => {
     const graphNodes = nodes.map(n => ({
@@ -115,6 +118,22 @@ export function AINodeManager({ courseId, nodes, graphEdges = [], onNodesChange 
       }
     };
 
+    const handleDeleteNode = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const confirmed = window.confirm(
+        `Bạn có chắc chắn muốn xóa node "${node.name_vi || node.name}"?\nHành động này sẽ xóa vĩnh viễn node khỏi cơ sở dữ liệu và các liên kết liên quan.`
+      );
+      if (!confirmed) return;
+      
+      try {
+        await aiService.deleteKnowledgeNode(courseId, node.id);
+        toast.success("Đã xóa node kiến thức thành công");
+        onNodesChange();
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || "Không thể xóa node. Vui lòng thử lại sau.");
+      }
+    };
+
     return (
       <div>
         <div
@@ -153,6 +172,13 @@ export function AINodeManager({ courseId, nodes, graphEdges = [], onNodesChange 
             title="Liên kết tài liệu với node"
           >
             📎 Liên kết
+          </button>
+          <button
+            onClick={handleDeleteNode}
+            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+            title="Xóa node"
+          >
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
         {/* Content picker modal */}
@@ -211,6 +237,18 @@ export function AINodeManager({ courseId, nodes, graphEdges = [], onNodesChange 
             </div>
           )}
           <button
+            onClick={() => setConsolidateOpen(true)}
+            disabled={nodes.length < 5}
+            title={
+              nodes.length < 5
+                ? "Cần ít nhất 5 nodes để chạy hợp nhất"
+                : "AI sẽ phân tích và gộp các node trùng lặp"
+            }
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 text-white rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Làm gọn Graph
+          </button>
+          <button
             onClick={() => { setCreating(v => !v); setError(""); }}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-all"
           >
@@ -218,6 +256,16 @@ export function AINodeManager({ courseId, nodes, graphEdges = [], onNodesChange 
           </button>
         </div>
       </div>
+
+      <GraphConsolidateModal
+        courseId={courseId}
+        open={consolidateOpen}
+        onClose={() => setConsolidateOpen(false)}
+        onCompleted={() => {
+          setConsolidateOpen(false);
+          onNodesChange();
+        }}
+      />
 
       {/* Create form */}
       {creating && (

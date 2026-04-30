@@ -113,6 +113,45 @@ class LLMGateway:
         raise NoModelAvailableError(
             f"All {len(chain)} models failed for task '{req.task}': {last_error!r}"
         )
+
+    async def stream(self, req: ChatRequest) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
+        """Stream the response from the first successful model in the chain."""
+        chain = await self._resolve_chain(req)
+        if not chain:
+            raise NoModelAvailableError(
+                f"No model bindings configured for task '{req.task}'"
+            )
+
+        last_error: Exception | None = None
+        for idx, binding in enumerate(chain):
+            attempt = idx + 1
+            fallback_used = idx > 0
+            try:
+                # We use a nested generator to allow catching errors before/during the stream
+                async for delta, usage, raw in self._stream_binding(
+                    binding=binding, req=req,
+                    attempt_no=attempt, fallback_used=fallback_used,
+                ):
+                    yield delta, usage, raw
+                return  # Success
+            except (AuthError, NoKeyAvailableError, RateLimitedError, ContextLengthError) as exc:
+                last_error = exc
+                logger.warning(
+                    "Model %s failed at stream start (task=%s, err=%s). Falling back.",
+                    binding.model.model_name, req.task, exc,
+                )
+                continue
+            except ProviderError as exc:
+                last_error = exc
+                if exc.retryable or idx + 1 < len(chain):
+                    continue
+                raise
+
+        if isinstance(last_error, LLMGatewayError):
+            raise last_error
+        raise NoModelAvailableError(
+            f"All {len(chain)} models failed for task '{req.task}': {last_error!r}"
+        )
  
     # ── Chain resolution ─────────────────────────────────────────────────────
     async def _resolve_chain(self, req: ChatRequest) -> list[TaskBinding]:
@@ -254,6 +293,90 @@ class LLMGateway:
                 f"No usable key for provider={model.provider_code}"
             )
         raise last_key_error
+
+    async def _stream_binding(
+        self,
+        *,
+        binding: TaskBinding,
+        req: ChatRequest,
+        attempt_no: int,
+        fallback_used: bool,
+    ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
+        model = binding.model
+        adapter_cls = get_adapter_class(model.adapter_type)
+
+        temperature = _resolve(
+            req.temperature, binding.temperature, model.default_temperature,
+        )
+        max_tokens = int(_resolve(
+            req.max_tokens, binding.max_tokens, model.default_max_tokens,
+        ))
+        json_mode = (
+            req.json_mode if req.json_mode is not None
+            else binding.json_mode
+        )
+
+        last_key_error: Exception | None = None
+        for _ in range(MAX_KEYS_PER_MODEL):
+            lease = await self.key_pool.lease(model.provider_id)
+            adapter = adapter_cls(
+                api_key=lease.plaintext,
+                base_url=model.base_url,
+                provider_config=model.config,
+            )
+            start = time.monotonic()
+            try:
+                first_chunk = True
+                total_usage = Usage()
+                async for delta, usage, raw in adapter.stream(
+                    model=model,
+                    messages=req.messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    json_mode=json_mode,
+                    extra=req.extra,
+                ):
+                    if first_chunk:
+                        first_chunk = False
+                    if usage:
+                        total_usage = usage
+                    yield delta, usage, raw
+
+                # Success path
+                elapsed = int((time.monotonic() - start) * 1000)
+                await self.key_pool.record_success(
+                    lease.id, tokens_used=total_usage.total_tokens,
+                )
+                await self._log(
+                    req=req, model=model, lease=lease, usage=total_usage,
+                    latency_ms=elapsed, success=True,
+                    fallback_used=fallback_used, attempt_no=attempt_no,
+                )
+                return
+
+            except RateLimitedError as exc:
+                if not first_chunk: raise
+                await self.key_pool.record_rate_limit(lease.id, retry_after_seconds=exc.retry_after)
+                last_key_error = exc
+                continue
+            except AuthError as exc:
+                if not first_chunk: raise
+                await self.key_pool.record_auth_failure(lease.id, str(exc))
+                last_key_error = exc
+                continue
+            except ProviderError as exc:
+                if not first_chunk: raise
+                await self.key_pool.record_generic_failure(lease.id, str(exc))
+                if exc.retryable:
+                    last_key_error = exc
+                    continue
+                raise
+            except Exception:
+                if not first_chunk: raise
+                raise
+
+        if last_key_error: raise last_key_error
+        raise NoKeyAvailableError(f"No usable key for provider={model.provider_code}")
  
     async def _log(self, **kwargs: Any) -> None:
         req: ChatRequest = kwargs.pop("req")

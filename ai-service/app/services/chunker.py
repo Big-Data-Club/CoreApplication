@@ -398,7 +398,7 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
     _RE_CODE_BLOCK = re.compile(r"```([^\n]*)\n([\s\S]*?)```", re.MULTILINE)
     _RE_BLANK_LINES = re.compile(r"\n{3,}")
  
-    _MIN_CHUNK_LEN = 30
+    _MIN_CHUNK_LEN = 80
  
     # ── Public interface ──────────────────────────────────────────────────────
  
@@ -494,11 +494,12 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
         # Rebuild text by replacing matches in reverse order (preserve indices)
         result = text
         for match, desc in zip(reversed(matches), reversed(results)):
+            url = match.group(2)
             if isinstance(desc, Exception) or not desc:
                 alt = match.group(1) or "hình ảnh"
-                replacement = f"\n[Hình ảnh: {alt}]\n"
+                replacement = f"\n[Hình ảnh: {alt}]\n![{alt}]({url})\n"
             else:
-                replacement = f"\n[Mô tả hình ảnh: {desc}]\n"
+                replacement = f"\n[Mô tả hình ảnh: {desc}]\n![Hình minh họa]({url})\n"
             result = result[: match.start()] + replacement + result[match.end() :]
  
         return result
@@ -507,7 +508,8 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
         """Sync fallback: replace images with alt text."""
         def _sub(m: re.Match) -> str:
             alt = m.group(1).strip()
-            return f"\n[Hình ảnh: {alt or 'không có mô tả'}]\n"
+            url = m.group(2)
+            return f"\n[Hình ảnh: {alt or 'không có mô tả'}]\n![{alt or 'Hình ảnh'}]({url})\n"
  
         return self._RE_IMAGE.sub(_sub, text)
  
@@ -539,6 +541,35 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
  
         return self._RE_TABLE_BLOCK.sub(_replace, text)
  
+    # ── Boilerplate detection ──────────────────────────────────────────────────
+
+    # Patterns that mark a chunk as boilerplate (copyright, page numbers, etc.)
+    _BOILERPLATE_RES = [
+        re.compile(r'Operating System Concepts', re.IGNORECASE),
+        re.compile(r'Silberschatz', re.IGNORECASE),
+        re.compile(r'©\s*\d{4}', re.IGNORECASE),
+        re.compile(r'All\s+rights?\s+reserved', re.IGNORECASE),
+        re.compile(r'^\s*\d{1,3}\s*$', re.MULTILINE),
+    ]
+
+    @classmethod
+    def _is_boilerplate(cls, text: str) -> bool:
+        """
+        Return True if the text is predominantly academic boilerplate
+        (copyright notices, page numbers, publisher attributions).
+        """
+        stripped = text.strip()
+        if not stripped:
+            return True
+        # Strip all boilerplate patterns and see what remains
+        cleaned = stripped
+        for pat in cls._BOILERPLATE_RES:
+            cleaned = pat.sub('', cleaned)
+        # Remove whitespace/punctuation to count real characters
+        cleaned = re.sub(r'[\s\n.,;:!?\-\u2013\u2014()\[\]{}"\'\\]', '', cleaned)
+        # If less than 30 chars of real content remain, it's boilerplate
+        return len(cleaned) < 30
+
     # ── Steps 4–5: heading-based semantic split ────────────────────────────────
  
     def _heading_split(self, text: str) -> list:  # list[DocumentChunk]
@@ -593,6 +624,9 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
             for sub in sub_texts:
                 sub = sanitize_text(sub.strip())  # type: ignore[name-defined]
                 if len(sub) < self._MIN_CHUNK_LEN:
+                    continue
+                # Skip boilerplate-only chunks
+                if self._is_boilerplate(sub):
                     continue
  
                 # Each sub-chunk still carries the breadcrumb if it was stripped

@@ -2,7 +2,9 @@ import { lmsApiClient } from "./lmsApiClient";
 
 export interface Flashcard {
   id: number;
-  node_id: number;
+  node_id: number | null;
+  lesson_id?: number | null;
+  content_id?: number | null;
   course_id: number;
   front_text: string;
   back_text: string;
@@ -22,7 +24,9 @@ export interface FlashcardRepetition {
 export interface FlashcardDueItem {
   id: number;
   course_id: number;
-  node_id: number;
+  node_id: number | null;
+  lesson_id?: number | null;
+  content_id?: number | null;
   front_text: string;
   back_text: string;
   status: string;
@@ -31,6 +35,16 @@ export interface FlashcardDueItem {
 
 export interface GenerateFlashcardsRequest {
   count: number;
+  lesson_id?: number | null;
+  content_id?: number | null;
+  text_chunk?: string;
+}
+
+export interface BulkSaveFlashcardsRequest {
+  node_id?: number | null;
+  lesson_id?: number | null;
+  content_id?: number | null;
+  flashcards: Array<{ front_text: string; back_text: string }>;
 }
 
 export interface FlashcardWithRepetition extends FlashcardDueItem {
@@ -43,18 +57,29 @@ export interface FlashcardWithRepetition extends FlashcardDueItem {
 
 class FlashcardService {
   /**
-   * Generate highly personalized flashcards given a node
+   * Generate highly personalized flashcards
    */
   async generateFlashcards(
     courseId: number,
-    nodeId: number,
+    nodeId: number | null,
     req: GenerateFlashcardsRequest
   ): Promise<{ job_id: string; status: string }> {
-    const response = await lmsApiClient.post(
-      `/courses/${courseId}/nodes/${nodeId}/flashcards/generate`,
-      req
-    );
+    const url = nodeId
+      ? `/courses/${courseId}/nodes/${nodeId}/flashcards/generate`
+      : `/courses/${courseId}/flashcards/generate`;
+    const response = await lmsApiClient.post(url, req);
     return response.data?.data ?? response.data;
+  }
+
+  /**
+   * Bulk save flashcards (e.g. from concept check)
+   */
+  async bulkSaveFlashcards(
+    courseId: number,
+    req: BulkSaveFlashcardsRequest
+  ): Promise<{ data: FlashcardWithRepetition[] }> {
+    const response = await lmsApiClient.post(`/courses/${courseId}/flashcards/bulk-save`, req);
+    return response.data;
   }
 
   /**
@@ -66,10 +91,15 @@ class FlashcardService {
   }
 
   /**
-   * List all flashcards for a specific node
+   * List all flashcards for a specific target (node or lesson)
    */
-  async listFlashcardsByNode(courseId: number, nodeId: number): Promise<{ data: FlashcardWithRepetition[] }> {
-    const response = await lmsApiClient.get(`/courses/${courseId}/nodes/${nodeId}/flashcards`);
+  async listFlashcards(courseId: number, nodeId?: number | null, lessonId?: number | null, contentId?: number | null): Promise<{ data: FlashcardWithRepetition[] }> {
+    const params = new URLSearchParams();
+    if (nodeId) params.append("nodeId", nodeId.toString());
+    if (lessonId) params.append("lessonId", lessonId.toString());
+    if (contentId) params.append("contentId", contentId.toString());
+    
+    const response = await lmsApiClient.get(`/courses/${courseId}/flashcards?${params.toString()}`);
     return response.data;
   }
 

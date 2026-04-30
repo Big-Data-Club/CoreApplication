@@ -105,7 +105,6 @@ export function AIHeatmapSection({ courseId, role }: Props) {
       const data = role === "teacher"
         ? await aiService.getClassHeatmap(courseId)
         : await aiService.getStudentHeatmap(courseId);
-      console.log(data)
       setNodes(data);
     } catch (e: any) {
       setError(e?.response?.data?.error ?? "Không thể tải heatmap. AI service có thể chưa khởi động.");

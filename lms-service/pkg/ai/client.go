@@ -265,23 +265,41 @@ func (c *Client) GetReviewStats(ctx context.Context, studentID, courseID int64) 
 
 type GenerateFlashcardsRequest struct {
 	StudentID      int64    `json:"student_id"`
-	NodeID         int64    `json:"node_id"`
+	NodeID         *int64   `json:"node_id,omitempty"`
+	LessonID       *int64   `json:"lesson_id,omitempty"`
+	ContentID      *int64   `json:"content_id,omitempty"`
 	CourseID       int64    `json:"course_id"`
+	TextChunk      string   `json:"text_chunk,omitempty"`
 	Count          int      `json:"count"`
 	ExistingFronts []string `json:"existing_fronts,omitempty"`
+}
+
+type BulkSaveFlashcardsRequest struct {
+	StudentID  int64                    `json:"student_id"`
+	CourseID   int64                    `json:"course_id"`
+	NodeID     *int64                   `json:"node_id,omitempty"`
+	LessonID   *int64                   `json:"lesson_id,omitempty"`
+	ContentID  *int64                   `json:"content_id,omitempty"`
+	Flashcards []map[string]interface{} `json:"flashcards"`
 }
 
 type AIFlashcard struct {
 	ID        int64     `json:"id"`
 	CourseID  int64     `json:"course_id"`
-	NodeID    int64     `json:"node_id"`
+	NodeID    *int64    `json:"node_id"`
+	LessonID  *int64    `json:"lesson_id"`
+	ContentID *int64    `json:"content_id"`
 	FrontText string    `json:"front_text"`
 	BackText  string    `json:"back_text"`
 	Status    string    `json:"status"`
-	CreatedAt string    `json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type GenerateFlashcardsResponse struct {
+	Flashcards []AIFlashcard `json:"flashcards"`
+}
+
+type FlashcardListResponse struct {
 	Flashcards []AIFlashcard `json:"flashcards"`
 }
 
@@ -289,6 +307,14 @@ func (c *Client) GenerateFlashcards(ctx context.Context, req GenerateFlashcardsR
 	var resp GenerateFlashcardsResponse
 	if err := c.post(ctx, "/ai/flashcards/generate", req, &resp); err != nil {
 		return nil, fmt.Errorf("ai.GenerateFlashcards: %w", err)
+	}
+	return &resp, nil
+}
+
+func (c *Client) BulkSaveFlashcards(ctx context.Context, req BulkSaveFlashcardsRequest) (*GenerateFlashcardsResponse, error) {
+	var resp GenerateFlashcardsResponse
+	if err := c.post(ctx, "/ai/flashcards/bulk-save", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.BulkSaveFlashcards: %w", err)
 	}
 	return &resp, nil
 }
@@ -302,13 +328,22 @@ func (c *Client) GetDueFlashcards(ctx context.Context, studentID, courseID int64
 	return resp, nil
 }
 
-func (c *Client) GetNodeFlashcards(ctx context.Context, nodeID, courseID, studentID int64) ([]map[string]interface{}, error) {
-	var resp []map[string]interface{}
-	path := fmt.Sprintf("/ai/flashcards/node/%d/course/%d/student/%d", nodeID, courseID, studentID)
-	if err := c.get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("ai.GetNodeFlashcards: %w", err)
+func (c *Client) ListFlashcards(ctx context.Context, studentID, courseID int64, nodeID, lessonID, contentID *int64) (*FlashcardListResponse, error) {
+	path := fmt.Sprintf("/ai/flashcards/list?student_id=%d&course_id=%d", studentID, courseID)
+	if nodeID != nil {
+		path += fmt.Sprintf("&node_id=%d", *nodeID)
 	}
-	return resp, nil
+	if lessonID != nil {
+		path += fmt.Sprintf("&lesson_id=%d", *lessonID)
+	}
+	if contentID != nil {
+		path += fmt.Sprintf("&content_id=%d", *contentID)
+	}
+	var resp FlashcardListResponse
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GetFlashcards: %w", err)
+	}
+	return &resp, nil
 }
 
 type ReviewFlashcardRequest struct {
@@ -423,6 +458,17 @@ func (c *Client) GetAutoIndexStatus(ctx context.Context, contentID int64) (*Auto
 	return &resp, nil
 }
 
+// BatchGetAutoIndexStatus fetches index status for multiple content IDs
+// in a single round-trip. Returns a map keyed by content_id string.
+func (c *Client) BatchGetAutoIndexStatus(ctx context.Context, contentIDs []int64) (map[string]*AutoIndexStatus, error) {
+	body := map[string][]int64{"content_ids": contentIDs}
+	var resp map[string]*AutoIndexStatus
+	if err := c.post(ctx, "/ai/auto-index/batch-status", body, &resp); err != nil {
+		return nil, fmt.Errorf("ai.BatchGetAutoIndexStatus: %w", err)
+	}
+	return resp, nil
+}
+
 func (c *Client) GetNodeChunks(ctx context.Context, nodeID int64, limit int) ([]ChunkItem, error) {
     var resp []ChunkItem
     return resp, c.get(ctx, fmt.Sprintf("/ai/knowledge-nodes/%d/chunks?limit=%d", nodeID, limit), &resp)
@@ -516,6 +562,51 @@ func (c *Client) GenerateMicroLessons(ctx context.Context, req GenerateMicroLess
 	return &resp, nil
 }
 
+// ── Concept Check (Quick Action Panel) ────────────────────────────────────────
+
+// ConceptCheckRequest asks the AI service for 1–2 ultra-short MCQ
+// questions grounded in the supplied micro-lesson text or knowledge node.
+type ConceptCheckRequest struct {
+	TextChunk string `json:"text_chunk,omitempty"`
+	NodeID    *int64 `json:"node_id,omitempty"`
+	CourseID  *int64 `json:"course_id,omitempty"`
+	Count     int    `json:"count"`
+	Language  string `json:"language"`
+}
+
+type ConceptCheckOption struct {
+	Text        string `json:"text"`
+	IsCorrect   bool   `json:"is_correct"`
+	Explanation string `json:"explanation"`
+}
+
+type ConceptCheckQuestion struct {
+	QuestionText  string               `json:"question_text"`
+	QuestionType  string               `json:"question_type"`
+	AnswerOptions []ConceptCheckOption `json:"answer_options"`
+}
+
+type ConceptCheckResponse struct {
+	NodeID    *int64                 `json:"node_id"`
+	Questions []ConceptCheckQuestion `json:"questions"`
+}
+
+// GenerateConceptCheck fans out to the AI service to build a quick-check
+// quiz for the Quick Action Panel.
+func (c *Client) GenerateConceptCheck(ctx context.Context, req ConceptCheckRequest) (*ConceptCheckResponse, error) {
+	if req.Count <= 0 {
+		req.Count = 2
+	}
+	if req.Language == "" {
+		req.Language = "vi"
+	}
+	var resp ConceptCheckResponse
+	if err := c.post(ctx, "/ai/concept-check/generate", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GenerateConceptCheck: %w", err)
+	}
+	return &resp, nil
+}
+
 // GenerateMicroLessonsFromYouTube fires the YouTube transcript micro-lesson pipeline.
 func (c *Client) GenerateMicroLessonsFromYouTube(ctx context.Context, req GenerateMicroLessonsFromYouTubeRequest) (*GenerateMicroLessonsResponse, error) {
 	var resp GenerateMicroLessonsResponse
@@ -530,6 +621,27 @@ func (c *Client) LinkGlobalGraph(ctx context.Context) (map[string]interface{}, e
 	var resp map[string]interface{}
 	if err := c.post(ctx, "/ai/knowledge-graph/link-global", nil, &resp); err != nil {
 		return nil, fmt.Errorf("ai.LinkGlobalGraph: %w", err)
+	}
+	return resp, nil
+}
+
+// PreviewGraphConsolidation returns the dry-run merge plan for a course.
+func (c *Client) PreviewGraphConsolidation(ctx context.Context, courseID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	path := fmt.Sprintf("/ai/knowledge-graph/%d/consolidate/preview", courseID)
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("ai.PreviewGraphConsolidation: %w", err)
+	}
+	return resp, nil
+}
+
+// TriggerGraphConsolidation enqueues a "Compact Graph" Kafka command for a course.
+func (c *Client) TriggerGraphConsolidation(ctx context.Context, courseID int64, triggeredBy int64) (map[string]interface{}, error) {
+	body := map[string]interface{}{"triggered_by": triggeredBy}
+	var resp map[string]interface{}
+	path := fmt.Sprintf("/ai/knowledge-graph/%d/consolidate", courseID)
+	if err := c.post(ctx, path, body, &resp); err != nil {
+		return nil, fmt.Errorf("ai.TriggerGraphConsolidation: %w", err)
 	}
 	return resp, nil
 }

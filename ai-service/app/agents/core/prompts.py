@@ -98,6 +98,9 @@ anchor is already set.
 # In-Page Context
 {page_context}
 
+# Active Lesson (Quick Action Panel "Ask AI")
+{system_context}
+
 # Context Awareness
 {memory_context}
 
@@ -169,13 +172,25 @@ The student is enrolled in many courses. NEVER silently pick one:
   `generate_flashcard`, `explain_concept`), and the message doesn't \
   pin a course, ask the student which course — do NOT guess.
 
+# Working Anchor & Lesson Context
+If an "Active Lesson" block or "In-Page Context" with "Page Content" is \
+present below, it is the EXACT content the student is reading.
+- Always prioritize this text to resolve deictic references like "bài học này", \
+  "đoạn này", "chỗ này".
+- Do NOT call `search_course_materials` if the information is already present \
+  in these context blocks.
+- If no active lesson or page content is present, use the "CURRENT ANCHOR" \
+  from memory.
+
 # Critical Rules
 1. NEVER make up facts. If you can't answer from course materials, say so \
    and suggest what the student should review.
-2. When explaining concepts, FIRST use `search_course_materials` to ground \
-   your answer in the actual course content. Pass `course_id` only when \
-   the student has pinned a course (Ground Truth single course, message, \
-   or CURRENT ANCHOR); otherwise omit it for a cross-course search.
+2. When explaining concepts, FIRST check the "Active Lesson" text below. If \
+   the answer is there, use it immediately. OTHERWISE, use \
+   `search_course_materials` to ground your answer in the broader course \
+   content. Pass `course_id` only when the student has pinned a course \
+   (Ground Truth single course, message, or CURRENT ANCHOR); otherwise \
+   omit it for a cross-course search.
 3. After explaining a concept, consider offering a mini-challenge to test \
    understanding (use `create_mini_challenge`).
 4. When a student seems confused about multiple topics, use \
@@ -203,6 +218,9 @@ Instead of just giving answers:
 
 # In-Page Context
 {page_context}
+
+# Active Lesson (Quick Action Panel "Ask AI")
+{system_context}
 
 # Context Awareness
 {memory_context}
@@ -241,6 +259,7 @@ def build_system_prompt(
     # Backward-compatibility alias for the old parameter name.
     teacher_anchor_section: str | None = None,
     page_context: dict | None = None,
+    system_context: dict | None = None,
 ) -> str:
     """
     Build the final system prompt with memory and user context injected.
@@ -280,29 +299,15 @@ def build_system_prompt(
 
     user_section = _format_user_context(user_context, agent_type)
     page_section = _format_page_context(page_context)
+    sys_section  = _format_system_context(system_context)
 
     return template.format(
         active_courses_block=block,
         memory_context=memory_context,
         user_context=user_section,
         page_context=page_section,
+        system_context=sys_section,
     )
-
-
-    fmt_kwargs: dict[str, str] = {
-        "memory_context": memory_context,
-        "user_context": user_section,
-    }
- 
-    if agent_type == "teacher":
-        fmt_kwargs["teacher_anchor"] = (
-            teacher_anchor_section
-            or "(No courses found for this teacher. Tell the teacher they "
-               "need to create or enroll in a course before we can generate "
-               "quizzes or content.)"
-        )
- 
-    return template.format(**fmt_kwargs)
 
 def _format_user_context(ctx: dict | None, agent_type: str) -> str:
     """Format user identity for system prompt injection."""
@@ -332,20 +337,77 @@ def _format_user_context(ctx: dict | None, agent_type: str) -> str:
     return "\n".join(parts)
 
 
+def _format_system_context(ctx: dict | None) -> str:
+    """
+    Render the SystemContext payload supplied by the Quick Action Panel
+    "Ask AI" button. The student never sees this string verbatim — it
+    is only stitched into the system prompt so the agent grounds its
+    answer in the exact micro-lesson the student is reading.
+
+    Returns a no-op marker when the context is empty so the template
+    placeholder still renders cleanly.
+    """
+    if not ctx:
+        return "(No active micro-lesson context.)"
+
+    parts: list[str] = []
+    if ctx.get("lesson_title"):
+        parts.append(f"Lesson Title: {ctx['lesson_title']}")
+    if ctx.get("lesson_id"):
+        parts.append(f"Lesson ID: {ctx['lesson_id']}")
+    if ctx.get("node_id"):
+        parts.append(f"Knowledge Node ID: {ctx['node_id']}")
+    if ctx.get("course_id"):
+        parts.append(f"Course ID: {ctx['course_id']}")
+
+    text = (ctx.get("lesson_text") or "").strip()
+    if text:
+        if len(text) > 4000:
+            text = text[:4000] + "…"
+        parts.append("Lesson Content (verbatim, ground every answer here):")
+        parts.append(text)
+
+    if not parts:
+        return "(No active micro-lesson context.)"
+
+    return (
+        "The student is currently reading this micro-lesson. Ground every "
+        "answer in the lesson text below; if their question can be answered "
+        "from this content, do NOT call search tools.\n"
+        + "\n".join(parts)
+    )
+
+
 def _format_page_context(ctx: dict | None) -> str:
     """Format page context for system prompt injection."""
     if not ctx:
         return "(User is not viewing any specific course page right now)"
     
     parts = []
-    if ctx.get("type"):
-        parts.append(f"Page Type: {ctx.get('type')}")
-    if ctx.get("courseId") or ctx.get("course_id"):
-        parts.append(f"Course ID: {ctx.get('courseId') or ctx.get('course_id')}")
-    if ctx.get("nodeId") or ctx.get("node_id"):
-        parts.append(f"Node ID: {ctx.get('nodeId') or ctx.get('node_id')}")
-    if ctx.get("title"):
-        parts.append(f"Title: {ctx.get('title')}")
+    # Handle both frontend camelCase and backend snake_case
+    ptype = ctx.get("pageType") or ctx.get("type") or ctx.get("page_type")
+    if ptype:
+        parts.append(f"Page Type: {ptype}")
+        
+    cid = ctx.get("courseId") or ctx.get("course_id")
+    if cid:
+        parts.append(f"Course ID: {cid}")
+        
+    nid = ctx.get("nodeId") or ctx.get("node_id")
+    if nid:
+        parts.append(f"Node ID: {nid}")
+        
+    title = ctx.get("contentTitle") or ctx.get("title") or ctx.get("name")
+    if title:
+        parts.append(f"Title: {title}")
+
+    # Handle content body (the actual lesson text)
+    body = ctx.get("contentBody") or ctx.get("content_body") or ctx.get("body")
+    if body:
+        # Cap at 3000 chars to avoid blowing context window in global sidebar
+        if len(body) > 3000:
+            body = body[:3000] + "..."
+        parts.append(f"\nPage Content:\n{body}")
         
     if not parts:
         return "(User is not viewing any specific course page right now)"

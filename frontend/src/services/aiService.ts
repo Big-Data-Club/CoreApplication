@@ -92,6 +92,7 @@ export interface KnowledgeNode {
   order_index: number;
   chunk_count: number;
   auto_generated?: boolean;
+  source_content_id?: number;
 }
 
 // ─── Knowledge Graph ──────────────────────────────────────────────────────────
@@ -152,6 +153,31 @@ export interface AIJobStatus<T = any> {
   error?: string;
 }
 
+// ─── Compact Graph (Consolidation) ───────────────────────────────────────
+
+export interface ConsolidationGroup {
+  survivor_id: number;
+  absorbed_ids: number[];
+  new_name: string;
+  new_name_vi: string;
+  new_description: string;
+  new_keywords: string[];
+  similarity: number;
+  reason: string;
+  /** "hard" | "soft" | "micro" */
+  kind: string;
+  /** Map of "<id>" → display name, including the survivor */
+  old_names: Record<string, string>;
+}
+
+export interface ConsolidationPreview {
+  course_id: number;
+  total_nodes_before: number;
+  total_nodes_after: number;
+  reduction_percent: number;
+  groups: ConsolidationGroup[];
+}
+
 class AIService {
   // ─── Polling Jobs ────────────────────────────────────────────────────────
   
@@ -180,13 +206,11 @@ class AIService {
 
   async getClassHeatmap(courseId: number): Promise<HeatmapNode[]> {
     const res = await lmsApiClient.get(`/courses/${courseId}/ai/heatmap`);
-    console.log(res)
     return res.data?.data ?? res.data ?? [];
   }
 
   async getStudentHeatmap(courseId: number): Promise<HeatmapNode[]> {
     const res = await lmsApiClient.get(`/courses/${courseId}/ai/my-heatmap`);
-    console.log(res)
     return res.data?.data ?? res.data ?? [];
   }
 
@@ -311,6 +335,79 @@ class AIService {
   async deleteKnowledgeNode(courseId: number, nodeId: number): Promise<void> {
     await lmsApiClient.delete(`/courses/${courseId}/ai/nodes/${nodeId}`);
   }
+
+  // ─── Compact Graph (intelligent node consolidation) ──────────────────────
+
+  /**
+   * Dry-run preview of the merge plan. Mutates nothing on the server.
+   */
+  async previewGraphConsolidation(courseId: number): Promise<ConsolidationPreview> {
+    const res = await lmsApiClient.get(
+      `/courses/${courseId}/ai/consolidate-graph/preview`
+    );
+    return (
+      res.data?.data ?? res.data ?? {
+        course_id: courseId,
+        total_nodes_before: 0,
+        total_nodes_after: 0,
+        reduction_percent: 0,
+        groups: [],
+      }
+    );
+  }
+
+  /**
+   * Enqueue a "Compact Graph" Kafka job. Returns a job ID for polling
+   * via getJobStatus().
+   */
+  async triggerGraphConsolidation(
+    courseId: number
+  ): Promise<{ job_id: string; status: string; message?: string }> {
+    const res = await lmsApiClient.post(`/courses/${courseId}/ai/consolidate-graph`);
+    return res.data?.data ?? res.data;
+  }
+
+  /**
+   * Quick Action Panel — generate 1–2 ultra-short MCQ "Concept Check"
+   * questions tied to a micro-lesson body or knowledge node.
+   */
+  async generateConceptCheck(req: ConceptCheckRequest): Promise<ConceptCheckResponse> {
+    const res = await lmsApiClient.post(`/ai/concept-check`, {
+      text_chunk: req.text_chunk ?? "",
+      node_id: req.node_id ?? null,
+      course_id: req.course_id ?? null,
+      count: req.count ?? 2,
+      language: req.language ?? "vi",
+    });
+    return res.data?.data ?? res.data;
+  }
+}
+
+// ─── Quick Action Panel — Concept Check ───────────────────────────────
+
+export interface ConceptCheckRequest {
+  text_chunk?: string;
+  node_id?: number | null;
+  course_id?: number | null;
+  count?: number;
+  language?: "vi" | "en";
+}
+
+export interface ConceptCheckOption {
+  text: string;
+  is_correct: boolean;
+  explanation: string;
+}
+
+export interface ConceptCheckQuestion {
+  question_text: string;
+  question_type: string;
+  answer_options: ConceptCheckOption[];
+}
+
+export interface ConceptCheckResponse {
+  node_id?: number | null;
+  questions: ConceptCheckQuestion[];
 }
 
 export const aiService = new AIService();

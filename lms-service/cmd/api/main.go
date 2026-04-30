@@ -24,6 +24,7 @@ import (
 	"example/hello/pkg/storage"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
@@ -106,6 +107,7 @@ func main() {
 
 	flashcardRepo := repository.NewFlashcardRepository(db)
 	microLessonRepo := repository.NewMicroLessonRepository(db)
+	microInteractionRepo := repository.NewMicroInteractionRepository(db)
 
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
@@ -126,6 +128,29 @@ func main() {
 		return redisClient.Set(ctx, redisKey, data, 24*time.Hour) // Keep for 24 hours
 	})
 
+	// "Compact Graph" cascade: when AI merges nodes, repoint our own node_id columns.
+	go kafka.StartNodeMergedConsumer(context.Background(), func(ctx context.Context, event kafka.NodeMergedEvent) error {
+		if len(event.AbsorbedIDs) == 0 {
+			return nil
+		}
+		logger.Info(fmt.Sprintf(
+			"Cascading node merge: survivor=%d absorbed=%d",
+			event.SurvivorID, len(event.AbsorbedIDs)))
+
+		absorbed := pq.Array(event.AbsorbedIDs)
+		if _, err := db.ExecContext(ctx,
+			`UPDATE micro_lessons SET node_id = $1 WHERE node_id = ANY($2)`,
+			event.SurvivorID, absorbed); err != nil {
+			return fmt.Errorf("micro_lessons cascade: %w", err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`UPDATE quiz_questions SET node_id = $1 WHERE node_id = ANY($2)`,
+			event.SurvivorID, absorbed); err != nil {
+			return fmt.Errorf("quiz_questions cascade: %w", err)
+		}
+		return nil
+	})
+
 	// Initialize services. Services that benefit from caching (read-heavy CRUD
 	// paths) receive the shared *cache.RedisCache; each service builds its own
 	// singleflight-backed Loader internally so cache stampedes on hot keys
@@ -140,6 +165,13 @@ func main() {
 	progressService := service.NewProgressService(progressRepo, enrollmentRepo, redisClient)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient)
 	flashcardService := service.NewFlashcardService(flashcardRepo, aiClient, redisClient)
+	microInteractionService := service.NewMicroInteractionService(microInteractionRepo, microLessonRepo)
+
+	// Heatmap analytics worker: consumes Quick Action Panel interactions
+	// off `lms.analytics.interactions` and updates knowledge_node_mastery.
+	go kafka.StartMicroInteractionConsumer(context.Background(), func(ctx context.Context, ev kafka.MicroInteractionEvent) error {
+		return microInteractionService.ApplyEvent(ctx, ev)
+	})
 
 	// Initialize handlers
 	userHandler := handler.NewUserHandler(userService)
@@ -154,6 +186,7 @@ func main() {
 	aiHandler := handler.NewAIHandler(aiClient, courseRepo, quizRepo, redisClient)
 	flashcardHandler := handler.NewFlashcardHandler(flashcardService, enrollmentService)
 	microLessonHandler := handler.NewMicroLessonHandler(microLessonRepo, courseRepo, aiClient)
+	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -165,7 +198,7 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS(cfg.CORS))
-	router.Use(middleware.RateLimit(redisClient))
+	router.Use(middleware.RateLimit(redisClient, cfg.AIConf.Secret))
 
 	// Health check
 	healthHandler := func(c *gin.Context) {
@@ -243,6 +276,21 @@ func main() {
 			// User role management
 			auth.GET("/me/roles", userHandler.GetMyRoles)
 
+			// ── Composite Analytics (Quick Action Panel + heatmap) ─────────
+			// POST /analytics/micro-interaction is hit by every flashcard
+			// flip, quick-check answer, "Ask AI" message and lesson
+			// completion. The endpoint persists a raw row + publishes a
+			// Kafka event; the consumer-side worker maintains the
+			// composite mastery scores read by GET /analytics/heatmap.
+			analytics := auth.Group("/analytics")
+			{
+				analytics.POST("/micro-interaction", microInteractionHandler.RecordInteraction)
+				analytics.GET("/heatmap",
+					middleware.RequireRoles("ADMIN", "TEACHER"),
+					microInteractionHandler.GetHeatmap)
+				analytics.GET("/heatmap/me", microInteractionHandler.GetStudentHeatmap)
+			}
+
 			// COURSE MANAGEMENT
 			courses := auth.Group("/courses")
 			{
@@ -273,8 +321,11 @@ func main() {
 
 				// ── Flashcards (Student) ──────────────────────────────────
 				courses.POST("/:courseId/nodes/:nodeId/flashcards/generate", flashcardHandler.GenerateFlashcards)
+				courses.POST("/:courseId/flashcards/generate", flashcardHandler.GenerateFlashcards)
 				courses.GET("/:courseId/flashcards/due", flashcardHandler.ListDueFlashcards)
-				courses.GET("/:courseId/nodes/:nodeId/flashcards", flashcardHandler.ListFlashcardsByNode)
+				courses.GET("/:courseId/nodes/:nodeId/flashcards", flashcardHandler.ListFlashcards)
+				courses.GET("/:courseId/flashcards", flashcardHandler.ListFlashcards)
+				courses.POST("/:courseId/flashcards/bulk-save", flashcardHandler.BulkSaveFlashcards)
 
 				// ── Progress tracking (Student) ───────────────────────────
 				courses.GET("/:courseId/my-progress", progressHandler.GetMyProgress)
@@ -312,6 +363,7 @@ func main() {
 
 				content.POST("/:contentId/ai-index", aiHandler.TriggerContentAutoIndex)
 				content.GET("/:contentId/ai-index-status", aiHandler.GetContentAutoIndexStatus)
+				content.POST("/batch-ai-index-status", aiHandler.BatchGetContentAutoIndexStatus)
 			}
 
 			// ENROLLMENT MANAGEMENT
@@ -429,6 +481,10 @@ func main() {
 				// System-wide Polling Endpoint for AI Jobs
 				aiGroup.GET("/jobs/:jobId/status",
 					aiHandler.GetJobStatus())
+
+				// Quick Action Panel — Concept Check
+				aiGroup.POST("/concept-check",
+					aiHandler.GenerateConceptCheck)
 			}
 
 			// Per-course AI routes (reuse courseId param)
@@ -470,6 +526,14 @@ func main() {
 					aiHandler.GetReviewStats)
 
 				aiCourses.GET("/knowledge-graph", aiHandler.GetCourseKnowledgeGraph)
+
+				// "Compact Graph" — teacher-triggered intelligent node consolidation.
+				aiCourses.GET("/consolidate-graph/preview",
+					middleware.RequireRoles("ADMIN", "TEACHER"),
+					aiHandler.PreviewGraphConsolidation)
+				aiCourses.POST("/consolidate-graph",
+					middleware.RequireRoles("ADMIN", "TEACHER"),
+					aiHandler.ConsolidateGraph)
 
 				aiCourses.GET("/nodes/:nodeId/chunks", aiHandler.GetNodeChunks)
 				aiCourses.DELETE("/nodes/:nodeId", aiHandler.DeleteKnowledgeNode)

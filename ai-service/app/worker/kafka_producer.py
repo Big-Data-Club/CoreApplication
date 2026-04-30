@@ -3,6 +3,13 @@ import logging
 import asyncio
 from aiokafka import AIOKafkaProducer
 import os
+from datetime import date, datetime
+
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +21,7 @@ async def get_kafka_producer() -> AIOKafkaProducer:
         brokers = os.getenv("KAFKA_BROKERS", "kafka:9092")
         _producer = AIOKafkaProducer(
             bootstrap_servers=brokers,
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            value_serializer=lambda v: json.dumps(v, cls=DateTimeEncoder).encode('utf-8')
         )
         await _producer.start()
         logger.info("Kafka Producer started")
@@ -56,6 +63,30 @@ async def publish_graph_event(command: str, status: str, result_count: int = 0, 
     topic = "ai.graph.status"
     await producer.send_and_wait(topic, value=payload)
     logger.info(f"Published graph event to {topic}: {command} -> {status}")
+
+
+async def publish_node_merged_event(
+    course_id: int,
+    survivor_id: int,
+    absorbed_ids: list[int],
+):
+    """Cross-service cascade: tell the LMS to repoint its `node_id` columns
+    (micro_lessons, quiz_questions) onto the survivor after a graph merge."""
+    if not absorbed_ids:
+        return
+    producer = await get_kafka_producer()
+    payload = {
+        "course_id":    course_id,
+        "survivor_id":  survivor_id,
+        "absorbed_ids": absorbed_ids,
+    }
+    topic = "ai.graph.node_merged"
+    key   = str(survivor_id).encode("utf-8")
+    await producer.send_and_wait(topic, value=payload, key=key)
+    logger.info(
+        "Published %s for course=%d survivor=%d (absorbed=%d)",
+        topic, course_id, survivor_id, len(absorbed_ids),
+    )
 
 
 async def publish_ai_job_status(job_id: str, status: str, result: dict | list | None = None, error: str = ""):

@@ -33,6 +33,21 @@ class LLMAdapter(abc.ABC):
     ) -> tuple[str, Usage, Any]:
         """Return (content, usage, raw_response)."""
         raise NotImplementedError
+
+    @abc.abstractmethod
+    async def stream(
+        self,
+        *,
+        model: Model,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+        extra: dict[str, Any],
+    ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
+        """Yield (delta_text, final_usage_if_any, raw_chunk)."""
+        raise NotImplementedError
+        yield  # type: ignore
  
     # ── Helpers ──────────────────────────────────────────────────────────────
     @staticmethod

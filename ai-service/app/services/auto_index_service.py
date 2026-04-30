@@ -45,14 +45,24 @@ settings = get_settings()
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
 RELATION_SIMILARITY_THRESHOLD = 0.62
-MAX_NODES_PER_BATCH = 8
+MAX_NODES_PER_BATCH = 5
 MIN_NODES_PER_BATCH = 2
 EMBED_BATCH_SIZE = 16
 MAX_EXCERPT_CHARS = 9000
 MAX_EXISTING_NODES_FOR_GRAPH = 200
 
-DEDUP_HARD_THRESHOLD = 0.92
-DEDUP_SOFT_THRESHOLD = 0.80
+# Cross-document dedup: aggressively merge to prevent node explosion
+DEDUP_HARD_THRESHOLD = 0.88   # was 0.92 — reuse nodes more aggressively
+DEDUP_SOFT_THRESHOLD = 0.72   # was 0.80 — wider merge window
+
+# Within the same indexing run, collapse near-duplicate nodes from different
+# batches before comparing against the DB. This is the #1 fix for node
+# explosion: batches A and B both extracting "System Call" as separate nodes.
+INTRA_RUN_DEDUP_THRESHOLD = 0.85
+
+# Minimum characters of real content a chunk must have to be worth sending
+# to the LLM for node extraction. Prevents wasting calls on boilerplate.
+MIN_CHUNK_CONTENT_CHARS = 100
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -87,6 +97,9 @@ Nguyên tắc quan trọng:
 - Một node phải đủ quan trọng để có thể đặt được ít nhất 3-5 câu hỏi kiểm tra dựa trên nội dung tệp.
 - Ưu tiên chất lượng hơn số lượng: Nếu tài liệu ngắn, chỉ cần trích xuất 2-3 node chất lượng thay vì cố lấy cho đủ số lượng.
 - Nếu một phần văn bản không chứa kiến thức học thuật rõ ràng, ĐỪNG tạo node cho nó.
+- BỎ QUA HOÀN TOÀN: thông tin bản quyền (©), số trang, tên nhà xuất bản, logo trường đại học, tên tác giả sách (Silberschatz, Galvin, v.v.). Đây KHÔNG phải là kiến thức.
+- Nếu TOÀN BỘ đoạn văn bản chỉ chứa bản quyền, số trang, hoặc metadata — hãy trả về {"nodes": [], "prerequisites": []}.
+- KHÔNG tạo node có tên trùng hoặc gần giống nhau. Nếu hai khái niệm liên quan chặt chẽ, hãy gộp thành MỘT node với mô tả đầy đủ hơn.
 CHỈ trả về JSON hợp lệ.\
 """
 
@@ -333,8 +346,11 @@ class AutoIndexService:
             )
 
             if not nodes:
-                await self._update_content_status(content_id, "failed", "No nodes extracted")
-                return {"ok": False, "error": "No nodes extracted"}
+                logger.info("AutoIndex: no nodes extracted for content_id=%d (may be boilerplate-only)", content_id)
+                await self._update_content_status(content_id, "indexed")
+                return {"ok": True, "node_ids": [], "new_nodes_created": 0,
+                        "nodes_reused": 0, "chunks_created": 0,
+                        "language": language, "file_type": file_type}
 
             _progress("embed_nodes", 40)
             node_desc_texts = [
@@ -457,8 +473,11 @@ class AutoIndexService:
             )
 
             if not nodes:
-                await self._update_content_status(content_id, "failed", "No nodes extracted")
-                return {"ok": False, "error": "No nodes extracted"}
+                logger.info("AutoIndexText: no nodes for content_id=%d (may be boilerplate-only)", content_id)
+                await self._update_content_status(content_id, "indexed")
+                return {"ok": True, "node_ids": [], "new_nodes_created": 0,
+                        "nodes_reused": 0, "chunks_created": 0,
+                        "language": language, "file_type": "text"}
 
             _progress("embed_nodes", 40)
             node_desc_texts = [
@@ -713,14 +732,31 @@ class AutoIndexService:
     ) -> tuple[list[ExtractedNode], list[ExtractedRelation]]:
         if not structured_chunks:
             return await self._extract_nodes_and_relations(raw_text, file_type, language, file_url, doc_title)
-            
+
+        # ── Pre-filter: discard boilerplate/thin chunks ────────────────
+        from app.services.chunker import MarkdownChunker
+        quality_chunks = [
+            c for c in structured_chunks
+            if len(c.text.strip()) >= MIN_CHUNK_CONTENT_CHARS
+            and not MarkdownChunker._is_boilerplate(c.text)
+        ]
+        skipped = len(structured_chunks) - len(quality_chunks)
+        if skipped:
+            logger.info(
+                "Pre-filter: skipped %d/%d boilerplate/thin chunks",
+                skipped, len(structured_chunks),
+            )
+        if not quality_chunks:
+            logger.warning("All chunks are boilerplate — no nodes to extract")
+            return [], []
+
         BATCH_SIZE = 15
         all_nodes = []
         all_relations = []
         node_offset = 0
         
-        for i in range(0, len(structured_chunks), BATCH_SIZE):
-            batch_chunks = structured_chunks[i:i+BATCH_SIZE]
+        for i in range(0, len(quality_chunks), BATCH_SIZE):
+            batch_chunks = quality_chunks[i:i+BATCH_SIZE]
             batch_text = "\n\n".join(c.text for c in batch_chunks)
             if not batch_text.strip():
                 continue
@@ -736,7 +772,15 @@ class AutoIndexService:
                 
             all_nodes.extend(nodes)
             node_offset += len(nodes)
-            
+
+        # ── Intra-run deduplication ────────────────────────────────────
+        # Collapse near-identical nodes extracted from different batches
+        # of the SAME document. This is the primary fix for node explosion.
+        if len(all_nodes) > 1:
+            all_nodes, all_relations = await self._intra_run_dedup(
+                all_nodes, all_relations
+            )
+
         return all_nodes, all_relations
 
     async def _extract_nodes_and_relations(
@@ -929,6 +973,128 @@ class AutoIndexService:
                 logger.debug("[dedup:new] '%s' (best=%.3f with '%s')", node.name, best_sim, existing_names[best_j])
 
         return truly_new_nodes, truly_new_embs, idx_to_existing
+
+    async def _intra_run_dedup(
+        self,
+        nodes: list[ExtractedNode],
+        relations: list[ExtractedRelation],
+    ) -> tuple[list[ExtractedNode], list[ExtractedRelation]]:
+        """
+        Collapse near-identical nodes extracted from different batches of the
+        SAME document.  This runs BEFORE the cross-document dedup step and
+        is the primary fix for node explosion within a single document.
+
+        Algorithm:
+          1. Embed all node descriptions.
+          2. Compute pairwise cosine similarity.
+          3. For each pair with sim > INTRA_RUN_DEDUP_THRESHOLD, merge the
+             shorter-description node into the longer-description one.
+          4. Re-index relations so they point at the surviving nodes.
+        """
+        if len(nodes) <= 1:
+            return nodes, relations
+
+        # 1. Embed
+        desc_texts = [
+            f"{n.name_vi or n.name}: {n.description} {', '.join(n.keywords)}"
+            for n in nodes
+        ]
+        embeddings = await _batch_embed(desc_texts)
+        emb_matrix = np.array(embeddings)
+        norms = np.linalg.norm(emb_matrix, axis=1, keepdims=True) + 1e-8
+        normed = emb_matrix / norms
+
+        # 2. Pairwise similarity
+        sims = normed @ normed.T
+
+        # 3. Build union-find for merging
+        parent = list(range(len(nodes)))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra == rb:
+                return
+            # Keep the node with the longer description as the root
+            if len(nodes[ra].description) >= len(nodes[rb].description):
+                parent[rb] = ra
+            else:
+                parent[ra] = rb
+
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                if float(sims[i, j]) >= INTRA_RUN_DEDUP_THRESHOLD:
+                    union(i, j)
+
+        # 4. Collect surviving nodes and build old→new index mapping
+        root_to_new_idx: dict[int, int] = {}
+        surviving_nodes: list[ExtractedNode] = []
+
+        for i in range(len(nodes)):
+            root = find(i)
+            if root not in root_to_new_idx:
+                root_to_new_idx[root] = len(surviving_nodes)
+                surviving_nodes.append(nodes[root])
+
+            # Merge description/keywords from non-root nodes into root
+            if i != root:
+                root_node = surviving_nodes[root_to_new_idx[root]]
+                merged_node = nodes[i]
+                # Append keywords that aren't already present
+                existing_kw = set(root_node.keywords)
+                for kw in merged_node.keywords:
+                    if kw not in existing_kw:
+                        root_node.keywords.append(kw)
+                        existing_kw.add(kw)
+                # Append description if different
+                if merged_node.description and merged_node.description not in root_node.description:
+                    root_node.description = (
+                        root_node.description + " | " + merged_node.description
+                    ).strip(" |")[:800]
+                logger.info(
+                    "[intra-dedup] merge '%s' → '%s' (sim=%.3f)",
+                    merged_node.name, root_node.name,
+                    float(sims[i, root]),
+                )
+
+        # Build old→new index mapping for ALL original indices
+        old_to_new: dict[int, int] = {}
+        for i in range(len(nodes)):
+            old_to_new[i] = root_to_new_idx[find(i)]
+
+        # 5. Re-index relations
+        surviving_relations: list[ExtractedRelation] = []
+        seen_rel_pairs: set[tuple[int, int, str]] = set()
+        for r in relations:
+            new_src = old_to_new.get(r.source_index)
+            new_tgt = old_to_new.get(r.target_index)
+            if new_src is None or new_tgt is None or new_src == new_tgt:
+                continue
+            key = (new_src, new_tgt, r.relation_type)
+            if key in seen_rel_pairs:
+                continue
+            seen_rel_pairs.add(key)
+            surviving_relations.append(ExtractedRelation(
+                source_index=new_src,
+                target_index=new_tgt,
+                relation_type=r.relation_type,
+                reason=r.reason,
+                strength=r.strength,
+            ))
+
+        merged_count = len(nodes) - len(surviving_nodes)
+        if merged_count > 0:
+            logger.info(
+                "[intra-dedup] collapsed %d → %d nodes (%d merged)",
+                len(nodes), len(surviving_nodes), merged_count,
+            )
+
+        return surviving_nodes, surviving_relations
 
     async def _merge_node_description(
         self, node_id: int, new_description: str, new_keywords: list[str]

@@ -30,14 +30,16 @@ func NewFlashcardService(flashcardRepo *repository.FlashcardRepository, aiClient
 	}
 }
 
-// GenerateFlashcards calls the AI service to create new flashcards asynchronously via Kafka
-func (s *FlashcardService) GenerateFlashcards(ctx context.Context, studentID, courseID, nodeID int64, req dto.GenerateFlashcardsRequest) (map[string]interface{}, error) {
+func (s *FlashcardService) GenerateFlashcards(ctx context.Context, studentID, courseID int64, nodeID *int64, req dto.GenerateFlashcardsRequest) (map[string]interface{}, error) {
 	jobID := uuid.New().String()
 
 	aiReq := ai.GenerateFlashcardsRequest{
 		StudentID: studentID,
-		NodeID:    nodeID,
 		CourseID:  courseID,
+		NodeID:    nodeID,
+		LessonID:  req.LessonID,
+		ContentID: req.ContentID,
+		TextChunk: req.TextChunk,
 		Count:     req.Count,
 	}
 
@@ -114,14 +116,61 @@ func (s *FlashcardService) ReviewFlashcard(ctx context.Context, studentID, flash
 	return result, nil
 }
 
-// ListFlashcardsByNode returns ALL flashcards for a student+course+node via AI
-func (s *FlashcardService) ListFlashcardsByNode(ctx context.Context, studentID, courseID, nodeID int64) ([]dto.FlashcardResponse, error) {
-	rows, err := s.aiClient.GetNodeFlashcards(ctx, nodeID, courseID, studentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch node flashcards from AI: %w", err)
+// BulkSaveFlashcards saves pre-generated flashcards directly without using Kafka/async
+func (s *FlashcardService) BulkSaveFlashcards(ctx context.Context, studentID, courseID int64, req dto.BulkSaveFlashcardsRequest) ([]dto.FlashcardResponse, error) {
+	aiReq := ai.BulkSaveFlashcardsRequest{
+		StudentID:  studentID,
+		CourseID:   courseID,
+		NodeID:     req.NodeID,
+		LessonID:   req.LessonID,
+		ContentID:  req.ContentID,
+		Flashcards: req.Flashcards,
 	}
 
-	return s.mapAIResultToDTO(rows), nil
+	resp, err := s.aiClient.BulkSaveFlashcards(ctx, aiReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bulk save flashcards via AI: %w", err)
+	}
+
+	var results []dto.FlashcardResponse
+	for _, fc := range resp.Flashcards {
+		results = append(results, dto.FlashcardResponse{
+			ID:        fc.ID,
+			CourseID:  fc.CourseID,
+			NodeID:    fc.NodeID,
+			LessonID:  fc.LessonID,
+			ContentID: fc.ContentID,
+			FrontText: fc.FrontText,
+			BackText:  fc.BackText,
+			Status:    fc.Status,
+			CreatedAt: fc.CreatedAt,
+		})
+	}
+	return results, nil
+}
+
+// ListFlashcards returns ALL flashcards for a student+course+target via AI
+func (s *FlashcardService) ListFlashcards(ctx context.Context, studentID, courseID int64, nodeID, lessonID, contentID *int64) ([]dto.FlashcardResponse, error) {
+	resp, err := s.aiClient.ListFlashcards(ctx, studentID, courseID, nodeID, lessonID, contentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch flashcards from AI: %w", err)
+	}
+
+	var results []dto.FlashcardResponse
+	for _, fc := range resp.Flashcards {
+		results = append(results, dto.FlashcardResponse{
+			ID:        fc.ID,
+			CourseID:  fc.CourseID,
+			NodeID:    fc.NodeID,
+			LessonID:  fc.LessonID,
+			ContentID: fc.ContentID,
+			FrontText: fc.FrontText,
+			BackText:  fc.BackText,
+			Status:    fc.Status,
+			CreatedAt: fc.CreatedAt,
+		})
+	}
+	return results, nil
 }
 
 // Helper to map map[string]interface{} rows to dto.FlashcardResponse
@@ -137,7 +186,12 @@ func (s *FlashcardService) mapAIResultToDTO(rows []map[string]interface{}) []dto
 			item.CourseID = int64(v)
 		}
 		if v, ok := r["node_id"].(float64); ok {
-			item.NodeID = int64(v)
+			val := int64(v)
+			item.NodeID = &val
+		}
+		if v, ok := r["lesson_id"].(float64); ok {
+			val := int64(v)
+			item.LessonID = &val
 		}
 		if v, ok := r["front_text"].(string); ok {
 			item.FrontText = v

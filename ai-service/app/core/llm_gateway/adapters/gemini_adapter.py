@@ -100,8 +100,32 @@ def _translate(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]
                 system_parts.append(content)
             continue
         gemini_role = "model" if role == "assistant" else "user"
-        text = content if isinstance(content, str) else str(content)
-        contents.append({"role": gemini_role, "parts": [{"text": text}]})
+        
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if item.get("type") == "text":
+                    parts.append({"text": item.get("text", "")})
+                elif item.get("type") == "image_url":
+                    url = item.get("image_url", {}).get("url", "")
+                    if url.startswith("data:"):
+                        try:
+                            header, b64 = url.split(",", 1)
+                            mime_type = header.split(";")[0].replace("data:", "")
+                            parts.append({
+                                "inlineData": {
+                                    "mimeType": mime_type,
+                                    "data": b64
+                                }
+                            })
+                        except Exception:
+                            parts.append({"text": f"[Image URL: {url}]"})
+                    else:
+                        parts.append({"text": f"[Image at {url}]"})
+            contents.append({"role": gemini_role, "parts": parts})
+        else:
+            text = str(content)
+            contents.append({"role": gemini_role, "parts": [{"text": text}]})
  
     if not contents:
         contents.append({"role": "user", "parts": [{"text": "Continue."}]})

@@ -18,7 +18,7 @@ import {
   Plus, Edit3, Upload, Eye, Trash2,
   Play, FileText, HelpCircle, MessageSquare,
   Megaphone, Image as ImageIcon, File,
-  ChevronDown, ChevronRight, Sparkles,
+  ChevronDown, ChevronRight, Sparkles, History,
 } from "lucide-react";
 import lmsService from "@/services/lmsService";
 import ContentViewer from "@/components/lms/student/ContentViewer";
@@ -27,8 +27,10 @@ import EditContentModal from "@/components/lms/teacher/EditContentModal";
 import BulkUploadModal from "@/components/lms/teacher/upload/BulkUploadModal";
 import { SectionModal } from "@/components/lms/teacher/SectionModal";
 import { AIIndexButton } from "@/components/lms/teacher/ai/AIIndexButton";
+import { AIIndexPollerProvider } from "@/hooks/useAIIndexPoller";
 import { GenerateMicroLessonsModal } from "@/components/lms/teacher/micro/GenerateMicroLessonsModal";
 import { MicroLessonsDrawer } from "@/components/lms/teacher/micro/MicroLessonsDrawer";
+import { MicroLessonHistoryModal } from "@/components/lms/teacher/micro/MicroLessonHistoryModal";
 import {
   Badge, ContentTypeBadge, EmptyState, PrimaryBtn, Spinner,
 } from "@/components/lms/shared";
@@ -78,6 +80,7 @@ export function ContentTab({ courseId, sections, onSectionsChange }: ContentTabP
 
   // Micro-lesson modal / drawer state
   const [showMicroModal, setShowMicroModal]       = useState(false);
+  const [showMicroHistoryModal, setShowMicroHistoryModal] = useState(false);
   const [microPresetContentId, setMicroPresetContentId] = useState<number | undefined>();
   const [microPresetSectionId, setMicroPresetSectionId] = useState<number | undefined>();
   const [activeMicroJobId, setActiveMicroJobId]   = useState<number | null>(null);
@@ -145,9 +148,21 @@ export function ContentTab({ courseId, sections, onSectionsChange }: ContentTabP
     } finally { setDeletingContent(null); }
   };
 
+  // ── onIndexed callback for the batch poller ─────────────────────────────────
+  const handleContentIndexed = useCallback((contentId: number) => {
+    // Find which section this content belongs to and reload it
+    for (const [sectionId, contents] of Object.entries(sectionContents)) {
+      if ((contents as Content[]).some(c => c.id === contentId)) {
+        reloadSectionContent(Number(sectionId));
+        break;
+      }
+    }
+  }, [sectionContents, reloadSectionContent]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
+    <AIIndexPollerProvider onIndexed={handleContentIndexed}>
     <div className="space-y-4">
       {/* Top action bar */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -155,6 +170,14 @@ export function ContentTab({ courseId, sections, onSectionsChange }: ContentTabP
           {sections.length} chương
         </p>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowMicroHistoryModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
+            title="Xem lại các tiến trình tạo bài học micro"
+          >
+            <History className="w-4 h-4" />
+            Lịch sử Job
+          </button>
           <button
             onClick={() => {
               setMicroPresetContentId(undefined);
@@ -324,7 +347,6 @@ export function ContentTab({ courseId, sections, onSectionsChange }: ContentTabP
                                 contentType={c.type}
                                 filePath={c.metadata?.file_path || null}
                                 initialStatus={c.ai_index_status || "not_indexed"}
-                                onIndexed={() => reloadSectionContent(sec.id)}
                               />
                             </div>
 
@@ -443,6 +465,17 @@ export function ContentTab({ courseId, sections, onSectionsChange }: ContentTabP
         />
       )}
 
+      {showMicroHistoryModal && (
+        <MicroLessonHistoryModal
+          courseId={courseId}
+          onClose={() => setShowMicroHistoryModal(false)}
+          onSelectJob={(jobId) => {
+            setShowMicroHistoryModal(false);
+            setActiveMicroJobId(jobId);
+          }}
+        />
+      )}
+
       {activeMicroJobId !== null && (
         <MicroLessonsDrawer
           jobId={activeMicroJobId}
@@ -473,5 +506,6 @@ export function ContentTab({ courseId, sections, onSectionsChange }: ContentTabP
         </div>
       )}
     </div>
+    </AIIndexPollerProvider>
   );
 }

@@ -1,15 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { lmsApiClient } from "@/services/lmsApiClient";
+import React, { useState } from "react";
+import { useAIIndexStatus } from "@/hooks/useAIIndexPoller";
 
 type IndexStatus = "not_indexed" | "unindexed" | "pending" | "processing" | "indexed" | "failed";
-
-interface StatusInfo {
-  status: IndexStatus;
-  nodes_created: number;
-  chunks_created: number;
-}
 
 interface AIIndexButtonProps {
   contentId: number;
@@ -20,74 +14,16 @@ interface AIIndexButtonProps {
 }
 
 const INDEXABLE_TYPES = new Set(["TEXT", "DOCUMENT", "VIDEO", "IMAGE"]);
-const POLL_INTERVAL_MS = 6000; // Increased from 4s to 6s
 
 export function AIIndexButton({
   contentId,
   contentType,
-  filePath,
   initialStatus = "not_indexed",
-  onIndexed,
 }: AIIndexButtonProps) {
-  const [status, setStatus] = useState<IndexStatus>(initialStatus);
-  const [info, setInfo] = useState<StatusInfo>({ status: initialStatus, nodes_created: 0, chunks_created: 0 });
+  const { status, info, triggerIndex } = useAIIndexStatus(contentId, initialStatus);
   const [loading, setLoading] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
-  const pollRef = useRef<NodeJS.Timeout | null>(null);
   const isIndexable = INDEXABLE_TYPES.has(contentType);
-
-  // ── Poll status khi đang processing ────────────────────────────────────────
-  const startPolling = useCallback(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await lmsApiClient.get<{ data: StatusInfo }>(
-          `/content/${contentId}/ai-index-status`
-        );
-        const s = res.data.data;
-        setInfo(s);
-        setStatus(s.status);
-
-        // Do not clear interval on 'not_indexed' or 'unindexed' because Kafka worker
-        // might take a few seconds to pick up the message and persist 'processing' to DB.
-        if (s.status === "indexed" || s.status === "failed") {
-          clearInterval(pollRef.current!);
-          pollRef.current = null;
-          if (s.status === "indexed") {
-            onIndexed?.(contentId);
-          }
-        }
-      } catch {
-        clearInterval(pollRef.current!);
-        pollRef.current = null;
-        setStatus("failed");
-      }
-    }, POLL_INTERVAL_MS);
-  }, [contentId, onIndexed]);
-
-  useEffect(() => {
-    if (status === "processing") {
-      startPolling();
-    } else if (status === "indexed" && info.nodes_created === 0 && info.chunks_created === 0) {
-      // Fetch counts for already indexed content with a small staggered delay
-      // to avoid flooding the server when many buttons mount (e.g. expand all)
-      const delay = Math.floor(Math.random() * 2000); // 0-2s delay
-      const timer = setTimeout(async () => {
-        try {
-          const res = await lmsApiClient.get<{ data: StatusInfo }>(
-            `/content/${contentId}/ai-index-status`
-          );
-          setInfo(res.data.data);
-        } catch (err) {
-          console.error("Failed to fetch initial AI index status:", err);
-        }
-      }, delay);
-      return () => clearTimeout(timer);
-    }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [status, startPolling, contentId, info.nodes_created, info.chunks_created]);
 
   if (!isIndexable) return null;
 
@@ -105,13 +41,10 @@ export function AIIndexButton({
     if (!confirm) return;
 
     setLoading(true);
-    setStatus("processing");
-
     try {
-      await lmsApiClient.post(`/content/${contentId}/ai-index`, {});
-      startPolling();
+      await triggerIndex();
     } catch {
-      setStatus("failed");
+      // Status will be updated by the poller
     } finally {
       setLoading(false);
     }

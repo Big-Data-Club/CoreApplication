@@ -58,6 +58,25 @@ class ActiveCourseHint(BaseModel):
     role: Optional[str] = None  # "owner" | "student"
 
 
+class SystemContext(BaseModel):
+    """
+    Out-of-band context the FE supplies when the user opens "Ask AI"
+    from inside a micro-lesson. This is invisibly stitched into the
+    agent's system prompt so the model knows exactly which lesson the
+    student is reading, without bloating the visible chat history.
+
+    Fields are optional — the FE typically provides ``lesson_text``
+    plus ``lesson_id`` / ``node_id``. The model never sees this dict
+    raw; it is rendered through ``_format_system_context`` in
+    ``agents/core/prompts.py``.
+    """
+    lesson_id: Optional[int] = None
+    lesson_title: Optional[str] = None
+    node_id: Optional[int] = None
+    course_id: Optional[int] = None
+    lesson_text: Optional[str] = Field(default=None, max_length=20000)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000)
     agent_type: str = Field(
@@ -70,6 +89,7 @@ class ChatRequest(BaseModel):
     user_context: Optional[UserContext] = None
     active_courses: Optional[list[ActiveCourseHint]] = None
     page_context: Optional[dict] = None
+    system_context: Optional[SystemContext] = None
 
 
 class SessionListResponse(BaseModel):
@@ -134,6 +154,7 @@ async def chat_endpoint(
                 user_context=body.user_context.model_dump() if body.user_context else None,
                 active_courses_hint=active_hint,
                 page_context=body.page_context,
+                system_context=body.system_context.model_dump() if body.system_context else None,
             ):
                 yield event.to_sse()
         except Exception as exc:

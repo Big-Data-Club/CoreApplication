@@ -219,6 +219,68 @@ async def get_auto_index_status(content_id: int, request: Request):
     )
 
 
+class BatchStatusRequest(BaseModel):
+    content_ids: list[int]
+
+
+@router.post("/batch-status")
+async def batch_get_auto_index_status(body: BatchStatusRequest, request: Request):
+    """
+    Batch-fetch index status for multiple content IDs in ONE round-trip.
+    This replaces N individual /status calls, eliminating rate limiting
+    when a teacher has many documents being indexed simultaneously.
+    """
+    _verify(request)
+
+    ids = body.content_ids[:100]  # cap at 100 to prevent abuse
+    if not ids:
+        return {}
+
+    async with get_ai_conn() as conn:
+        # 1. Batch-fetch statuses
+        status_rows = await conn.fetch(
+            "SELECT content_id, status, error FROM content_index_status WHERE content_id = ANY($1)",
+            ids,
+        )
+        status_map = {r["content_id"]: dict(r) for r in status_rows}
+
+        # 2. Batch-fetch node counts
+        node_rows = await conn.fetch(
+            """SELECT source_content_id, COUNT(*) AS n
+               FROM knowledge_nodes
+               WHERE source_content_id = ANY($1)
+               GROUP BY source_content_id""",
+            ids,
+        )
+        node_map = {r["source_content_id"]: r["n"] for r in node_rows}
+
+        # 3. Batch-fetch chunk counts
+        chunk_rows = await conn.fetch(
+            """SELECT content_id, COUNT(*) AS n
+               FROM document_chunks
+               WHERE content_id = ANY($1) AND status = 'ready'
+               GROUP BY content_id""",
+            ids,
+        )
+        chunk_map = {r["content_id"]: r["n"] for r in chunk_rows}
+
+    progress_map = {"pending": 5, "processing": 50, "indexed": 100, "failed": 0}
+    result = {}
+    for cid in ids:
+        sd = status_map.get(cid)
+        st = sd["status"] if sd else "unindexed"
+        result[str(cid)] = {
+            "content_id": cid,
+            "status": st,
+            "nodes_created": node_map.get(cid, 0),
+            "chunks_created": chunk_map.get(cid, 0),
+            "progress": progress_map.get(st, 0),
+            "error": sd.get("error") if sd else None,
+        }
+
+    return result
+
+
 # ── Knowledge Graph endpoints ──────────────────────────────────────────────────
 
 @graph_router.get("/global")
@@ -271,6 +333,46 @@ async def trigger_global_link(request: Request):
     producer = await get_kafka_producer()
     await producer.send_and_wait("lms.graph.command", value={"command": "GLOBAL_LINK"})
     return {"ok": True, "message": "Global linking command queued via Kafka"}
+
+
+# ── Compact Graph (intelligent node consolidation) ─────────────────────────────
+
+class ConsolidateRequest(BaseModel):
+    triggered_by: Optional[int] = None
+
+
+@graph_router.get("/{course_id}/consolidate/preview")
+async def preview_graph_consolidation(course_id: int, request: Request):
+    """Synchronous dry-run: returns the proposed merge plan, mutates nothing."""
+    _verify(request)
+
+    from app.services.graph_consolidation_service import graph_consolidation_service
+    plan = await graph_consolidation_service.analyze_graph(course_id)
+    return plan.to_dict()
+
+
+@graph_router.post("/{course_id}/consolidate")
+async def trigger_graph_consolidation(
+    course_id: int,
+    body: ConsolidateRequest,
+    request: Request,
+):
+    """Fire-and-forget: enqueue the merge job on Kafka. Returns 202."""
+    _verify(request)
+
+    from app.worker.kafka_producer import get_kafka_producer
+    producer = await get_kafka_producer()
+    await producer.send_and_wait("lms.graph.command", value={
+        "command":      "CONSOLIDATE_GRAPH",
+        "course_id":    course_id,
+        "triggered_by": body.triggered_by,
+    })
+    return {
+        "ok":      True,
+        "status":  "queued",
+        "job_id":  f"consolidate-{course_id}",
+        "message": "Graph consolidation queued via Kafka",
+    }
 
 
 @graph_router.get("/{course_id}", response_model=KnowledgeGraphResponse)

@@ -337,3 +337,69 @@ def build_flashcard_generation_prompt(
         *few_shot,
         {"role": "user", "content": user_msg},
     ]
+
+
+# ── Concept Check (Quick Action Panel mini-quiz) ───────────────────────────
+SYSTEM_PROMPT_CONCEPT_CHECK = {
+    "vi": (
+        "Bạn là chuyên gia thiết kế câu hỏi 'Concept Check' siêu ngắn cho micro-lesson. "
+        "Mỗi câu phải kiểm tra MỘT khái niệm cốt lõi vừa học, không hơn. "
+        "Câu hỏi và phương án phải ngắn gọn, KHÔNG dài hơn một dòng. "
+        "Tài liệu có thể bằng tiếng Anh — đọc hiểu và viết câu hỏi bằng tiếng Việt. "
+        "Chỉ trả về JSON hợp lệ theo đúng schema, không thêm text khác."
+    ),
+    "en": (
+        "You are an expert at designing ultra-short 'Concept Check' questions for a micro-lesson. "
+        "Each question must test ONE core concept just learned, nothing more. "
+        "Questions and options must be terse, no longer than one line. "
+        "Source materials may be in Vietnamese — read them and write questions in English. "
+        "Return ONLY valid JSON matching the schema, no extra text."
+    ),
+}
+
+
+def build_concept_check_prompt(
+    text_chunk: str,
+    node_name: str | None = None,
+    count: int = 2,
+    language: str = "vi",
+) -> list[dict]:
+    """
+    Build prompt messages for the Quick Action Panel concept-check endpoint.
+
+    The chatbot must produce 1–2 SINGLE_CHOICE multiple-choice questions
+    that are answerable from ``text_chunk`` alone. Used to power the
+    Quick Action Panel "Quick Check" button in the MicroLessonViewer.
+    """
+    schema = (
+        '{"questions":[{'
+        '"question_text":"...","question_type":"SINGLE_CHOICE",'
+        '"answer_options":['
+        '{"text":"...","is_correct":true,"explanation":"..."},'
+        '{"text":"...","is_correct":false,"explanation":"..."},'
+        '{"text":"...","is_correct":false,"explanation":"..."},'
+        '{"text":"...","is_correct":false,"explanation":"..."}'
+        ']}]}'
+    )
+    topic = node_name or ("Bài học" if language == "vi" else "Lesson")
+    if language == "vi":
+        user_msg = (
+            f"NỘI DUNG MICRO-LESSON:\n{text_chunk}\n\n"
+            f"CHỦ ĐỀ: {topic}\n"
+            f"Hãy tạo CHÍNH XÁC {count} câu hỏi 'Concept Check' kiểu trắc nghiệm "
+            f"(SINGLE_CHOICE, 4 lựa chọn) bám sát nội dung trên. "
+            f"Trả về JSON:\n{schema}"
+        )
+    else:
+        user_msg = (
+            f"MICRO-LESSON CONTENT:\n{text_chunk}\n\n"
+            f"TOPIC: {topic}\n"
+            f"Generate EXACTLY {count} SINGLE_CHOICE 'Concept Check' questions "
+            f"(4 options each) grounded in the content above. "
+            f"Return JSON:\n{schema}"
+        )
+
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT_CONCEPT_CHECK[language]},
+        {"role": "user", "content": user_msg},
+    ]

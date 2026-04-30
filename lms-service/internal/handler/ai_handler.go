@@ -855,6 +855,55 @@ func (h *AIHandler) GetContentAutoIndexStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(status))
 }
 
+// BatchGetContentAutoIndexStatus godoc
+// @Summary      Batch get auto-index status for multiple content items
+// @Description  Returns status for all requested content IDs in one round-trip.
+//
+//	Replaces N individual /ai-index-status calls to prevent rate limiting.
+//
+// @Tags         AI - Auto Index
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string]interface{}
+// @Router       /content/batch-ai-index-status [post]
+func (h *AIHandler) BatchGetContentAutoIndexStatus(c *gin.Context) {
+	var body struct {
+		ContentIDs []int64 `json:"content_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	// Cap at 100 to prevent abuse
+	ids := body.ContentIDs
+	if len(ids) > 100 {
+		ids = ids[:100]
+	}
+
+	result, err := h.aiClient.BatchGetAutoIndexStatus(c.Request.Context(), ids)
+	if err != nil {
+		// Fallback: return basic status from LMS DB for each content
+		logger.Warn(fmt.Sprintf("Batch status from AI failed, falling back to DB: %s", err.Error()))
+		fallback := make(map[string]interface{})
+		for _, id := range ids {
+			dbStatus, _, dbErr := h.courseRepo.GetContentAIIndexStatus(c.Request.Context(), id)
+			if dbErr != nil {
+				dbStatus = "unindexed"
+			}
+			fallback[fmt.Sprintf("%d", id)] = map[string]interface{}{
+				"content_id": id,
+				"status":     dbStatus,
+			}
+		}
+		c.JSON(http.StatusOK, dto.NewDataResponse(fallback))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(result))
+}
+
 // GetCourseKnowledgeGraph godoc
 // @Summary      Get knowledge graph for a course
 // @Tags         AI - Auto Index
@@ -943,6 +992,90 @@ func (h *AIHandler) GetNodeChunks(c *gin.Context) {
 
 }
 
+// PreviewGraphConsolidation godoc
+// @Summary      Preview "Compact Graph" merges
+// @Description  Returns a dry-run plan describing which nodes would be merged.
+// @Tags         AI - Knowledge Graph
+// @Produce      json
+// @Param        courseId path int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/consolidate-graph/preview [get]
+func (h *AIHandler) PreviewGraphConsolidation(c *gin.Context) {
+	courseID, _ := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err := h.assertCourseOwner(c, courseID); err != nil {
+		return
+	}
+
+	plan, err := h.aiClient.PreviewGraphConsolidation(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewDataResponse(plan))
+}
+
+// ConsolidateGraph godoc
+// @Summary      Trigger "Compact Graph" merge
+// @Description  Queues a Kafka job that merges duplicate / micro knowledge nodes.
+// @Tags         AI - Knowledge Graph
+// @Produce      json
+// @Param        courseId path int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/consolidate-graph [post]
+func (h *AIHandler) ConsolidateGraph(c *gin.Context) {
+	courseID, _ := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	userID := c.MustGet("user_id").(int64)
+	if err := h.assertCourseOwner(c, courseID); err != nil {
+		return
+	}
+
+	resp, err := h.aiClient.TriggerGraphConsolidation(c.Request.Context(), courseID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	jobID := fmt.Sprintf("consolidate-%d", courseID)
+	if v, ok := resp["job_id"].(string); ok && v != "" {
+		jobID = v
+	}
+
+	// Seed Redis with a "pending" entry so the existing job-status poller works.
+	pending := map[string]interface{}{
+		"job_id": jobID,
+		"status": "pending",
+	}
+	if data, err := json.Marshal(pending); err == nil {
+		_ = h.redisCache.Set(c.Request.Context(), "ai_job:"+jobID, data, 24*time.Hour)
+	}
+
+	c.JSON(http.StatusAccepted, dto.NewDataResponse(map[string]interface{}{
+		"job_id":  jobID,
+		"status":  "queued",
+		"message": "Graph consolidation queued",
+	}))
+}
+
+// assertCourseOwner allows ADMINs and the course's creator. Writes the
+// error response itself; callers should bail out on non-nil error.
+func (h *AIHandler) assertCourseOwner(c *gin.Context, courseID int64) error {
+	role := c.GetString("user_role")
+	if role == "ADMIN" {
+		return nil
+	}
+	userID := c.MustGet("user_id").(int64)
+	course, err := h.courseRepo.GetByID(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
+		return err
+	}
+	if course.CreatedBy != userID {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Only course owner can run this action"))
+		return fmt.Errorf("forbidden")
+	}
+	return nil
+}
+
 func (h *AIHandler) DeleteKnowledgeNode(c *gin.Context) {
 	nodeID, _ := strconv.ParseInt(c.Param("nodeId"), 10, 64)
 	courseID, _ := strconv.ParseInt(c.Param("courseId"), 10, 64)
@@ -969,4 +1102,50 @@ func (h *AIHandler) DeleteKnowledgeNode(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Node deleted successfully"))
+}
+
+// ── Concept Check (Quick Action Panel) ──────────────────────────────────────
+
+// GenerateConceptCheck godoc
+// @Summary      Quick Action Panel — Concept Check
+// @Description  Generates 1–2 ultra-short MCQ questions for the Quick
+//               Action Panel. The FE either passes the verbatim micro-lesson
+//               text or just a node_id; the AI service handles RAG retrieval.
+// @Tags         AI - Quick Action Panel
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Router       /ai/concept-check [post]
+func (h *AIHandler) GenerateConceptCheck(c *gin.Context) {
+	var body struct {
+		TextChunk string `json:"text_chunk"`
+		NodeID    *int64 `json:"node_id"`
+		CourseID  *int64 `json:"course_id"`
+		Count     int    `json:"count"`
+		Language  string `json:"language"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+	if body.TextChunk == "" && body.NodeID == nil {
+		c.JSON(http.StatusBadRequest,
+			dto.NewErrorResponse("invalid_request", "text_chunk or node_id is required"))
+		return
+	}
+
+	resp, err := h.aiClient.GenerateConceptCheck(c.Request.Context(), ai.ConceptCheckRequest{
+		TextChunk: body.TextChunk,
+		NodeID:    body.NodeID,
+		CourseID:  body.CourseID,
+		Count:     body.Count,
+		Language:  body.Language,
+	})
+	if err != nil {
+		logger.Error("ConceptCheck failed", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(resp))
 }

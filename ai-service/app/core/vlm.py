@@ -21,6 +21,15 @@ _MAX_CACHE = 2000
 VLM_MODEL = settings.vlm_model
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB safety limit
 
+# Global concurrency limiter for VLM calls — prevents rate-limit storms
+# when processing PDFs with many embedded images (95+ images → 95 parallel
+# VLM requests → instant 429 from Groq's 30k TPM quota).
+_VLM_SEMAPHORE = asyncio.Semaphore(3)
+
+# Rate-limit retry config
+_VLM_MAX_RETRIES = 3
+_VLM_BASE_BACKOFF = 2.0  # seconds
+
 # ── System prompts ────────────────────────────────────────────────────────────
 
 _SYSTEM_VI = (
@@ -133,10 +142,12 @@ async def _fetch_image_base64(url: str) -> tuple[Optional[str], str]:
     Returns (None, '') on failure.
     """
     try:
+        headers = {"X-API-Secret": settings.ai_service_secret}
         async with httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=True,
             limits=httpx.Limits(max_connections=10),
+            headers=headers,
         ) as client:
             response = await client.get(url)
             if response.status_code == 200:
@@ -156,34 +167,56 @@ async def _fetch_image_base64(url: str) -> tuple[Optional[str], str]:
 
 async def _call_vlm(image_b64: str, mime_type: str, language: str = "vi") -> str:
     """
-    Call Groq vision API and return the text description.
-    Raises on API error so caller can handle gracefully.
+    Call LLMGateway for vision API and return the text description.
+
+    Guarded by _VLM_SEMAPHORE to cap concurrency and includes exponential
+    backoff for rate-limit errors from the gateway.
     """
-    from groq import AsyncGroq
+    from app.core.llm_gateway.gateway import get_gateway
+    from app.core.llm_gateway.types import ChatRequest, TASK_VLM_DESCRIBE
+    from app.core.llm_gateway.errors import RateLimitedError, NoKeyAvailableError
 
-    client = AsyncGroq(api_key=settings.groq_api_key)
-    system = _SYSTEM_VI if language == "vi" else _SYSTEM_EN
-    prompt = _PROMPT_VI if language == "vi" else _PROMPT_EN
+    async with _VLM_SEMAPHORE:
+        system = _SYSTEM_VI if language == "vi" else _SYSTEM_EN
+        prompt = _PROMPT_VI if language == "vi" else _PROMPT_EN
 
-    # Groq vision expects data URL format
-    data_url = f"data:{mime_type};base64,{image_b64}"
+        data_url = f"data:{mime_type};base64,{image_b64}"
+        req = ChatRequest(
+            task=TASK_VLM_DESCRIBE,
+            messages=[
+                {"role": "system", "content": system},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ],
+            temperature=0.1,
+            max_tokens=512,
+        )
 
-    response = await client.chat.completions.create(
-        model=VLM_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                    {"type": "text", "text": prompt},
-                ],
-            },
-        ],
-        temperature=0.1,
-        max_tokens=512,
-    )
-    return response.choices[0].message.content.strip()
+        last_exc: Exception | None = None
+        for attempt in range(_VLM_MAX_RETRIES + 1):
+            try:
+                resp = await get_gateway().chat(req)
+                return resp.content.strip()
+            except Exception as exc:
+                last_exc = exc
+                # Gateway throws specific errors. If we hit rate limits across all keys,
+                # or if no keys are available because they are all on cooldown, we wait and retry.
+                if isinstance(exc, (RateLimitedError, NoKeyAvailableError)) and attempt < _VLM_MAX_RETRIES:
+                    wait = _VLM_BASE_BACKOFF * (2 ** attempt)
+                    logger.warning(
+                        "VLM gateway rate limited / no keys, retrying in %.1fs (attempt %d/%d)",
+                        wait, attempt + 1, _VLM_MAX_RETRIES,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+
+        raise last_exc  # type: ignore[misc]
 
 
 def _cache_key(prefix: str, value: str) -> str:

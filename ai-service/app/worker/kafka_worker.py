@@ -77,6 +77,25 @@ async def process_graph_command(payload: dict):
             count = await link_global_graph()
             await publish_graph_event(command, "completed", result_count=count)
             logger.info("Global linking complete", extra={"edges_created": count})
+        elif command == "CONSOLIDATE_GRAPH":
+            from app.services.graph_consolidation_service import consolidate_graph
+            course_id    = payload.get("course_id")
+            triggered_by = payload.get("triggered_by")
+            if course_id is None:
+                await publish_graph_event(command, "failed", error="missing course_id")
+                return
+            await publish_graph_event(command, "processing")
+            result = await consolidate_graph(int(course_id), triggered_by)
+            await publish_graph_event(
+                command, "completed",
+                result_count=result.get("absorbed_nodes", 0),
+            )
+            logger.info(
+                "Graph consolidation complete",
+                extra={"course_id": course_id,
+                       "merged_groups": result.get("merged_groups", 0),
+                       "absorbed_nodes": result.get("absorbed_nodes", 0)},
+            )
         else:
             logger.warning("Unknown graph command", extra={"command": command})
     except Exception as exc:
@@ -140,6 +159,8 @@ async def process_ai_command(payload: dict):
             flashcards = await flashcard_srv.generate_flashcards_with_llm(
                 student_id=job_payload.get("student_id"),
                 node_id=job_payload.get("node_id"),
+                lesson_id=job_payload.get("lesson_id"),
+                content_id=job_payload.get("content_id"),
                 course_id=job_payload.get("course_id"),
                 count=job_payload.get("count", 5),
                 language=job_payload.get("language", "vi"),
@@ -242,6 +263,14 @@ async def main():
         group_id="ai-worker-group",
         value_deserializer=lambda x: json.loads(x.decode("utf-8")),
         auto_offset_reset="earliest",
+        # ── Tuned for long-running document processing (95+ image PDFs) ───
+        # Default max_poll_interval_ms=300s is too tight: heavy PDFs can
+        # take 5+ min for image extraction + VLM calls. Raising to 10 min
+        # prevents Kafka from ejecting the worker mid-job.
+        max_poll_interval_ms=600_000,    # 10 minutes
+        session_timeout_ms=60_000,       # 60 seconds (default 10s)
+        heartbeat_interval_ms=10_000,    # 10 seconds (default 3s)
+        request_timeout_ms=70_000,       # must be > session_timeout_ms
     )
 
     await consumer.start()
