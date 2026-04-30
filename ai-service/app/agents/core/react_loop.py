@@ -88,7 +88,7 @@ from app.agents.tools.registry import (
     get_tool_schemas, get_tool_by_name, execute_tool,
 )
 from app.core.config import get_settings
-from app.core.llm import get_groq_client
+from app.core.llm_gateway import get_gateway, ChatRequest, TASK_AGENT_REACT
 from app.agents.tools.base_tool import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -375,35 +375,22 @@ async def run_react_loop(
 
         logger.debug("ReAct iteration %d/%d", iteration + 1, MAX_ITERATIONS)
 
-        # ── 5a. Call Groq with streaming ─────────────────────────────────────
-        client = get_groq_client()
-
-        try:
-            stream = await client.chat.completions.create(
-                model=settings.quiz_model,  # 70b for reasoning quality
-                messages=messages,
-                tools=tool_schemas if tool_schemas else None,
-                tool_choice="auto" if tool_schemas else None,
-                stream=True,
-                temperature=0.3,
-                max_tokens=2048,
-            )
-        except Exception as exc:
-            logger.error("Groq API call failed: %s", exc)
-            yield AgentEvent(
-                type=AgentEventType.ERROR,
-                data={"error": str(exc), "iteration": iteration},
-                session_id=session_id,
-                turn_id=turn_id,
-            )
-            return
+        # ── 5a. Call LLMGateway with streaming ───────────────────────────────
+        gateway = get_gateway()
+        req = ChatRequest(
+            task=TASK_AGENT_REACT,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=2048,
+            extra={"tools": tool_schemas, "tool_choice": "auto"} if tool_schemas else {},
+        )
 
         # ── 5b. Collect streaming response ───────────────────────────────────
         collected_text = ""
         collected_tool_calls: list[dict] = []
 
         try:
-            async for chunk in stream:
+            async for delta_text, usage, chunk in gateway.stream(req):
                 if not chunk.choices:
                     continue
 
@@ -412,12 +399,12 @@ async def run_react_loop(
                     continue
 
                 # Stream text deltas to frontend
-                if delta.content:
-                    collected_text += delta.content
-                    assistant_text += delta.content
+                if delta_text:
+                    collected_text += delta_text
+                    assistant_text += delta_text
                     yield AgentEvent(
                         type=AgentEventType.TEXT_DELTA,
-                        data={"delta": delta.content},
+                        data={"delta": delta_text},
                         session_id=session_id,
                         turn_id=iter_id,
                     )
@@ -488,6 +475,15 @@ async def run_react_loop(
                 })
                 # Drop any partial collected state and retry the iteration.
                 continue
+            else:
+                logger.error("LLM stream failed: %s", err_str)
+                yield AgentEvent(
+                    type=AgentEventType.ERROR,
+                    data={"error": err_str, "iteration": iteration},
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
+                return
 
         iter_ms = (time.monotonic() - iter_start) * 1000
         logger.debug(
@@ -940,8 +936,9 @@ async def _generate_session_title(first_message: str) -> str | None:
  
     Returns the cleaned title string, or None on failure.
     """
-    from app.core.llm import get_groq_client
- 
+    from app.core.llm import chat_complete
+    from app.core.llm_gateway import TASK_CHAT
+
     prompt = (
         "Tạo một tiêu đề ngắn gọn (3-6 từ, tối đa 50 ký tự) tóm tắt cuộc hội "
         "thoại dựa trên tin nhắn đầu tiên. "
@@ -950,19 +947,20 @@ async def _generate_session_title(first_message: str) -> str | None:
         "\"Tiêu đề:\". Chỉ trả về tiêu đề.\n\n"
         f"Tin nhắn: {first_message[:500]}"
     )
- 
-    client = get_groq_client()
-    res = await client.chat.completions.create(
-        model=settings.chat_model,  # fast 8b model is plenty for a title
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=24,
-        temperature=0.3,
-    )
-    if not (res.choices and res.choices[0].message
-            and res.choices[0].message.content):
+
+    try:
+        content = await chat_complete(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=24,
+            temperature=0.3,
+            task=TASK_CHAT,
+        )
+        if not content:
+            return None
+        title = content.strip()
+    except Exception as exc:
+        logger.warning("Title generation LLM call failed: %s", exc)
         return None
- 
-    title = res.choices[0].message.content.strip()
     # Strip common junk: quotes, trailing punctuation, label prefixes
     for prefix in ("Tiêu đề:", "Title:", "tiêu đề:", "title:"):
         if title.lower().startswith(prefix.lower()):

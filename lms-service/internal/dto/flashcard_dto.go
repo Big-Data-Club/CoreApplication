@@ -6,14 +6,27 @@ import "time"
 
 // GenerateFlashcardsRequest represents requesting AI to generate flashcards for a specific weak node
 type GenerateFlashcardsRequest struct {
-	Count int `json:"count" binding:"omitempty,min=1,max=20"`
+	Count     int    `json:"count" binding:"required,min=1,max=10"`
+	LessonID  *int64 `json:"lesson_id,omitempty"`
+	ContentID *int64 `json:"content_id,omitempty"`
+	TextChunk string `json:"text_chunk,omitempty"`
+}
+
+// BulkSaveFlashcardsRequest represents requesting AI to save pre-generated flashcards
+type BulkSaveFlashcardsRequest struct {
+	NodeID     *int64                   `json:"node_id,omitempty"`
+	LessonID   *int64                   `json:"lesson_id,omitempty"`
+	ContentID  *int64                   `json:"content_id,omitempty"`
+	Flashcards []map[string]interface{} `json:"flashcards" binding:"required"`
 }
 
 // FlashcardResponse represents a single flashcard
 type FlashcardResponse struct {
 	ID                int64      `json:"id"`
 	CourseID          int64      `json:"course_id"`
-	NodeID            int64      `json:"node_id"`
+	NodeID            *int64     `json:"node_id"`
+	LessonID          *int64     `json:"lesson_id,omitempty"`
+	ContentID         *int64     `json:"content_id,omitempty"`
 	FrontText         string     `json:"front_text"`
 	BackText          string     `json:"back_text"`
 	SourceDiagnosisID *int64     `json:"source_diagnosis_id,omitempty"`

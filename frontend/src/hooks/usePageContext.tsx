@@ -35,6 +35,8 @@ export interface PageContext {
   sectionName?: string;
   contentId?: number;
   contentTitle?: string;
+  /** Optional: the actual text content of the lesson/page. */
+  contentBody?: string;
 
   /** Free-form bag for page-specific extras (e.g. quiz id, forum post). */
   extra?: Record<string, any>;
@@ -45,6 +47,7 @@ export interface PageContext {
 interface PageContextValue {
   pageContext: PageContext | null;
   setPageContext: (ctx: PageContext) => void;
+  patchPageContext: (patch: Partial<PageContext>) => void;
   clearPageContext: () => void;
 }
 
@@ -59,12 +62,16 @@ export function PageContextProvider({ children }: { children: ReactNode }) {
     _setPageContext(ctx);
   }, []);
 
+  const patchPageContext = useCallback((patch: Partial<PageContext>) => {
+    _setPageContext((prev) => (prev ? { ...prev, ...patch } : (patch as PageContext)));
+  }, []);
+
   const clearPageContext = useCallback(() => {
     _setPageContext(null);
   }, []);
 
   return (
-    <PageCtx.Provider value={{ pageContext, setPageContext, clearPageContext }}>
+    <PageCtx.Provider value={{ pageContext, setPageContext, patchPageContext, clearPageContext }}>
       {children}
     </PageCtx.Provider>
   );
@@ -85,11 +92,13 @@ export function useSetPageContext() {
     // Outside provider — return noops so pages don't crash
     return {
       setPageContext: (_ctx: PageContext) => {},
+      patchPageContext: (_patch: Partial<PageContext>) => {},
       clearPageContext: () => {},
     };
   }
   return {
     setPageContext: ctx.setPageContext,
+    patchPageContext: ctx.patchPageContext,
     clearPageContext: ctx.clearPageContext,
   };
 }

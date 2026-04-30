@@ -24,6 +24,8 @@ export interface MicroLessonContext {
    * lessons have no node attached yet).
    */
   nodeId: number | null;
+  /** Primary content ID (from `contents` table). Used as fallback anchor if lessonId is null. */
+  contentId?: number | null;
   /** Display language: "vi" | "en". Defaults to "vi". */
   language?: "vi" | "en";
 }

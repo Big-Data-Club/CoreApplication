@@ -14,8 +14,8 @@ class FlashcardService:
         async with get_ai_conn() as conn:
             rows = await conn.fetch(
                 """
-                SELECT f.id, f.course_id, f.node_id, f.front_text, f.back_text, f.status,
-                       f.source_diagnosis_id, f.created_at,
+                SELECT f.id, f.course_id, f.node_id, f.lesson_id, f.content_id, f.front_text, f.back_text, f.status,
+                       f.source_diagnosis_id, (f.created_at AT TIME ZONE 'UTC') as created_at,
                        fr.easiness_factor, fr.interval_days, fr.repetitions,
                        fr.next_review_date, fr.last_reviewed_at
                 FROM flashcards f
@@ -29,21 +29,52 @@ class FlashcardService:
             )
         return [dict(r) for r in rows]
 
-    async def list_flashcards_by_node(self, student_id: int, course_id: int, node_id: int) -> list[dict]:
+    async def list_flashcards_by_target(self, student_id: int, course_id: int, node_id: Optional[int] = None, lesson_id: Optional[int] = None, content_id: Optional[int] = None) -> list[dict]:
         async with get_ai_conn() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT f.id, f.course_id, f.node_id, f.front_text, f.back_text, f.status,
-                       f.source_diagnosis_id, f.created_at,
-                       fr.easiness_factor, fr.interval_days, fr.repetitions,
-                       fr.next_review_date, fr.last_reviewed_at
-                FROM flashcards f
-                LEFT JOIN flashcard_repetitions fr ON fr.flashcard_id = f.id
-                WHERE f.student_id = $1 AND f.course_id = $2 AND f.node_id = $3
-                ORDER BY f.created_at DESC
-                """,
-                student_id, course_id, node_id,
-            )
+            if node_id is not None:
+                rows = await conn.fetch(
+                    """
+                    SELECT f.id, f.course_id, f.node_id, f.lesson_id, f.content_id, f.front_text, f.back_text, f.status,
+                           f.source_diagnosis_id, (f.created_at AT TIME ZONE 'UTC') as created_at,
+                           fr.easiness_factor, fr.interval_days, fr.repetitions,
+                           fr.next_review_date, fr.last_reviewed_at
+                    FROM flashcards f
+                    LEFT JOIN flashcard_repetitions fr ON fr.flashcard_id = f.id
+                    WHERE f.student_id = $1 AND f.course_id = $2 AND f.node_id = $3
+                    ORDER BY f.created_at DESC
+                    """,
+                    student_id, course_id, node_id,
+                )
+            elif lesson_id is not None:
+                rows = await conn.fetch(
+                    """
+                    SELECT f.id, f.course_id, f.node_id, f.lesson_id, f.content_id, f.front_text, f.back_text, f.status,
+                           f.source_diagnosis_id, (f.created_at AT TIME ZONE 'UTC') as created_at,
+                           fr.easiness_factor, fr.interval_days, fr.repetitions,
+                           fr.next_review_date, fr.last_reviewed_at
+                    FROM flashcards f
+                    LEFT JOIN flashcard_repetitions fr ON fr.flashcard_id = f.id
+                    WHERE f.student_id = $1 AND f.course_id = $2 AND f.lesson_id = $3
+                    ORDER BY f.created_at DESC
+                    """,
+                    student_id, course_id, lesson_id,
+                )
+            elif content_id is not None:
+                rows = await conn.fetch(
+                    """
+                    SELECT f.id, f.course_id, f.node_id, f.lesson_id, f.content_id, f.front_text, f.back_text, f.status,
+                           f.source_diagnosis_id, (f.created_at AT TIME ZONE 'UTC') as created_at,
+                           fr.easiness_factor, fr.interval_days, fr.repetitions,
+                           fr.next_review_date, fr.last_reviewed_at
+                    FROM flashcards f
+                    LEFT JOIN flashcard_repetitions fr ON fr.flashcard_id = f.id
+                    WHERE f.student_id = $1 AND f.course_id = $2 AND f.content_id = $3
+                    ORDER BY f.created_at DESC
+                    """,
+                    student_id, course_id, content_id,
+                )
+            else:
+                rows = []
         return [dict(r) for r in rows]
 
     # ── Write ─────────────────────────────────────────────────────────────────
@@ -53,18 +84,20 @@ class FlashcardService:
         flashcards_data: list[dict],
         student_id: int,
         course_id: int,
-        node_id: int,
+        node_id: Optional[int] = None,
+        lesson_id: Optional[int] = None,
+        content_id: Optional[int] = None,
     ) -> list[dict]:
         results = []
         async with get_ai_conn() as conn:
             for item in flashcards_data:
                 row = await conn.fetchrow(
                     """
-                    INSERT INTO flashcards (course_id, node_id, student_id, front_text, back_text, status)
-                    VALUES ($1, $2, $3, $4, $5, 'ACTIVE')
-                    RETURNING id, created_at
+                    INSERT INTO flashcards (course_id, node_id, lesson_id, content_id, student_id, front_text, back_text, status)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE')
+                    RETURNING id, (created_at AT TIME ZONE 'UTC') as created_at
                     """,
-                    course_id, node_id, student_id,
+                    course_id, node_id, lesson_id, content_id, student_id,
                     item.get("front_text", ""), item.get("back_text", ""),
                 )
                 fc_id = row["id"]
@@ -79,6 +112,8 @@ class FlashcardService:
                     "id":         fc_id,
                     "course_id":  course_id,
                     "node_id":    node_id,
+                    "lesson_id":  lesson_id,
+                    "content_id": content_id,
                     "front_text": item.get("front_text", ""),
                     "back_text":  item.get("back_text", ""),
                     "status":     "ACTIVE",
@@ -91,8 +126,11 @@ class FlashcardService:
     async def generate_flashcards_with_llm(
         self,
         student_id: int,
-        node_id: int,
         course_id: int,
+        node_id: Optional[int] = None,
+        lesson_id: Optional[int] = None,
+        content_id: Optional[int] = None,
+        text_chunk: Optional[str] = None,
         count: int = 3,
         language: str = "vi",
         existing_fronts: Optional[list[str]] = None,
@@ -110,47 +148,55 @@ class FlashcardService:
 
         settings = get_settings()
 
-        # 1. Get node metadata from AI DB
-        async with get_ai_conn() as conn:
-            node = await conn.fetchrow(
-                "SELECT id, name, name_vi, name_en FROM knowledge_nodes WHERE id = $1",
-                node_id,
+        # 1 & 2 & 3. Context gathering
+        node_name = "Concept"
+        wrong_answers_context = ""
+        context_texts = []
+
+        if node_id is not None:
+            async with get_ai_conn() as conn:
+                node = await conn.fetchrow(
+                    "SELECT id, name, name_vi, name_en FROM knowledge_nodes WHERE id = $1",
+                    node_id,
+                )
+            if not node:
+                raise ValueError(f"Knowledge node {node_id} not found")
+
+            node_name = node["name_vi"] if language == "vi" and node["name_vi"] else node["name"]
+
+            async with get_ai_conn() as conn:
+                mistakes = await conn.fetch(
+                    """
+                    SELECT explanation AS gap
+                    FROM ai_diagnoses
+                    WHERE student_id = $1 AND node_id = $2
+                      AND explanation IS NOT NULL AND explanation != ''
+                    ORDER BY created_at DESC
+                    LIMIT 3
+                    """,
+                    student_id, node_id,
+                )
+            wrong_answers_context = (
+                "\n".join(r["gap"] for r in mistakes if r["gap"])
+                if mistakes
+                else ("Không có thông tin lỗi sai cụ thể. Tập trung khái niệm nền tảng."
+                      if language == "vi"
+                      else "No specific error info available. Focus on foundational concepts.")
             )
-        if not node:
-            raise ValueError(f"Knowledge node {node_id} not found")
 
-        node_name = node["name_vi"] if language == "vi" and node["name_vi"] else node["name"]
-
-        # 2. Get wrong answers context from AI DB
-        async with get_ai_conn() as conn:
-            mistakes = await conn.fetch(
-                """
-                SELECT explanation AS gap
-                FROM ai_diagnoses
-                WHERE student_id = $1 AND node_id = $2
-                  AND explanation IS NOT NULL AND explanation != ''
-                ORDER BY created_at DESC
-                LIMIT 3
-                """,
-                student_id, node_id,
-            )
-        wrong_answers_context = (
-            "\n".join(r["gap"] for r in mistakes if r["gap"])
-            if mistakes
-            else ("Không có thông tin lỗi sai cụ thể. Tập trung khái niệm nền tảng."
-                  if language == "vi"
-                  else "No specific error info available. Focus on foundational concepts.")
-        )
-
-        # 3. RAG context
-        chunks = await rag_service.search_multilingual(
-            query=node_name, course_id=course_id, node_id=node_id, top_k=3,
-        )
-        if not chunks:
             chunks = await rag_service.search_multilingual(
-                query=node_name, course_id=course_id, top_k=2,
+                query=node_name, course_id=course_id, node_id=node_id, top_k=3,
             )
-        context_texts = [c.chunk_text for c in chunks] or [f"Chủ đề: {node_name}"]
+            if not chunks:
+                chunks = await rag_service.search_multilingual(
+                    query=node_name, course_id=course_id, top_k=2,
+                )
+            context_texts = [c.chunk_text for c in chunks] or [f"Chủ đề: {node_name}"]
+        else:
+            context_texts = [text_chunk or ""]
+            wrong_answers_context = ("Không có thông tin lỗi sai cụ thể. Tập trung khái niệm nền tảng."
+                                     if language == "vi"
+                                     else "No specific error info available. Focus on foundational concepts.")
 
         # 4. LLM generation
         messages = build_flashcard_generation_prompt(
@@ -176,6 +222,8 @@ class FlashcardService:
             student_id=student_id,
             course_id=course_id,
             node_id=node_id,
+            lesson_id=lesson_id,
+            content_id=content_id,
         )
 
     # ── SM-2 review ───────────────────────────────────────────────────────────

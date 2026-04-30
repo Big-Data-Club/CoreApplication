@@ -3,6 +3,13 @@ import logging
 import asyncio
 from aiokafka import AIOKafkaProducer
 import os
+from datetime import date, datetime
+
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +21,7 @@ async def get_kafka_producer() -> AIOKafkaProducer:
         brokers = os.getenv("KAFKA_BROKERS", "kafka:9092")
         _producer = AIOKafkaProducer(
             bootstrap_servers=brokers,
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            value_serializer=lambda v: json.dumps(v, cls=DateTimeEncoder).encode('utf-8')
         )
         await _producer.start()
         logger.info("Kafka Producer started")

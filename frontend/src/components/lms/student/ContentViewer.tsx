@@ -21,6 +21,7 @@ import type { MicroLessonContext } from "@/components/lms/student/micro/types";
 import quizService from "@/services/quizService";
 import aiService from "@/services/aiService";
 import { cn } from "@/lib/utils";
+import { useSetPageContext } from "@/hooks/usePageContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,18 @@ function TextRenderer({
   courseId?: number;
   userRole?: string;
 }) {
+  const { patchPageContext } = useSetPageContext();
+
+  const markdownBody = content.metadata?.content || "";
+  const showPanel = userRole === "STUDENT" && !!courseId && !!markdownBody;
+
+  // Sync lesson text to global PageContext for the Chat Sidebar
+  useEffect(() => {
+    if (showPanel) {
+      patchPageContext({ contentBody: markdownBody });
+    }
+  }, [showPanel, markdownBody, patchPageContext]);
+
   const [nodeId, setNodeId] = useState<number | null>(null);
 
   // Auto-lookup knowledge nodeId linked to this content.
@@ -129,9 +142,6 @@ function TextRenderer({
     };
   }, [courseId, content.id, content.title, content.metadata, userRole]);
 
-  const markdownBody = content.metadata?.content || "";
-  const showPanel = userRole === "STUDENT" && !!courseId && !!markdownBody;
-
   return (
     <>
       <MarkdownRenderer content={markdownBody} />
@@ -143,6 +153,7 @@ function TextRenderer({
             lessonText: markdownBody,
             courseId: courseId!,
             nodeId,
+            contentId: content.id,
           }}
         />
       )}

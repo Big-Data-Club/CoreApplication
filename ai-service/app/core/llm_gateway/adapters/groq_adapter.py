@@ -46,7 +46,7 @@ class GroqAdapter(LLMAdapter):
         try:
             response = await client.chat.completions.create(**kwargs)
         except RateLimitError as exc:
-            raise RateLimitedError(str(exc)) from exc
+            raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
         except AuthenticationError as exc:
             raise AuthError(str(exc)) from exc
         except APIStatusError as exc:
@@ -55,20 +55,20 @@ class GroqAdapter(LLMAdapter):
             if status in (401, 403):
                 raise AuthError(msg, status_code=status) from exc
             if status == 429:
-                raise RateLimitedError(msg) from exc
+                raise RateLimitedError(msg, retry_after=self._get_retry_after(exc)) from exc
             if status == 400:
                 msg_lower = msg.lower()
                 if "context_length" in msg_lower:
                     raise ContextLengthError(msg) from exc
                 if "organization_restricted" in msg_lower:
                     raise AuthError(msg, status_code=status) from exc
-            raise ProviderError(msg, status_code=status, retryable=(status or 0) >= 500) from exc
+            raise ProviderError(msg, status_code=status) from exc
         finally:
             try:
                 await client.close()
             except Exception:
                 pass
- 
+
         choice = response.choices[0]
         content = choice.message.content or ""
         usage_obj = getattr(response, "usage", None)
@@ -78,3 +78,70 @@ class GroqAdapter(LLMAdapter):
             total_tokens=getattr(usage_obj, "total_tokens", 0) or 0,
         )
         return content, usage, response
+
+    async def stream(
+        self,
+        *,
+        model: Model,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+        extra: dict[str, Any],
+    ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
+        client = AsyncGroq(api_key=self.api_key, base_url=self.base_url, max_retries=0) if self.base_url \
+            else AsyncGroq(api_key=self.api_key, max_retries=0)
+
+        kwargs: dict[str, Any] = {
+            "model": model.model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if json_mode and model.supports_json:
+            kwargs["response_format"] = {"type": "json_object"}
+        for k in ("tools", "tool_choice", "stop", "top_p"):
+            if k in extra:
+                kwargs[k] = extra[k]
+
+        try:
+            stream = await client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                content = delta.content if delta else None
+                usage = None
+                if hasattr(chunk, "usage") and chunk.usage:
+                    usage = Usage(
+                        prompt_tokens=chunk.usage.prompt_tokens,
+                        completion_tokens=chunk.usage.completion_tokens,
+                        total_tokens=chunk.usage.total_tokens,
+                    )
+                yield content, usage, chunk
+        except RateLimitError as exc:
+            raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
+        except AuthenticationError as exc:
+            raise AuthError(str(exc)) from exc
+        except APIStatusError as exc:
+            status = getattr(exc, "status_code", None)
+            if status == 429:
+                raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
+            raise ProviderError(str(exc), status_code=status) from exc
+        finally:
+            try:
+                await client.close()
+            except Exception:
+                pass
+
+    def _get_retry_after(self, exc: Any) -> float | None:
+        """Extract retry-after from Groq error headers."""
+        try:
+            headers = getattr(exc, "headers", {})
+            # Groq often uses 'retry-after-ms' or 'retry-after'
+            if "retry-after-ms" in headers:
+                return float(headers["retry-after-ms"]) / 1000.0
+            if "retry-after" in headers:
+                return float(headers["retry-after"])
+        except (ValueError, TypeError):
+            pass
+        return None

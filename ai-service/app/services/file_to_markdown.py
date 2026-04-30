@@ -357,9 +357,9 @@ async def _vlm_ocr_pdf_page(
         )
 
         b64 = base64.b64encode(png_bytes).decode("utf-8")
-        client = AsyncGroq(api_key=settings.groq_api_key)
-        response = await client.chat.completions.create(
-            model=settings.vlm_model,
+        from app.core.llm import chat_complete
+        from app.core.llm_gateway import TASK_VLM_DESCRIBE
+        content = await chat_complete(
             messages=[
                 {
                     "role": "user",
@@ -371,8 +371,9 @@ async def _vlm_ocr_pdf_page(
             ],
             temperature=0.0,
             max_tokens=2048,
+            task=TASK_VLM_DESCRIBE,
         )
-        return (response.choices[0].message.content or "").strip()
+        return (content or "").strip()
     except Exception as exc:
         logger.warning("VLM OCR failed page=%d: %s", page_no, exc)
         return None
@@ -442,9 +443,9 @@ async def _vlm_ocr_pdf_page_from_bytes(
         )
 
         b64 = base64.b64encode(png_bytes).decode("utf-8")
-        client = AsyncGroq(api_key=settings.groq_api_key)
-        response = await client.chat.completions.create(
-            model=settings.vlm_model,
+        from app.core.llm import chat_complete
+        from app.core.llm_gateway import TASK_VLM_DESCRIBE
+        content = await chat_complete(
             messages=[
                 {
                     "role": "user",
@@ -456,8 +457,9 @@ async def _vlm_ocr_pdf_page_from_bytes(
             ],
             temperature=0.0,
             max_tokens=2048,
+            task=TASK_VLM_DESCRIBE,
         )
-        return (response.choices[0].message.content or "").strip()
+        return (content or "").strip()
     except Exception as exc:
         logger.warning("VLM OCR failed page=%d: %s", page_no, exc)
         return None

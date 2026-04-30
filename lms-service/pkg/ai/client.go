@@ -265,23 +265,41 @@ func (c *Client) GetReviewStats(ctx context.Context, studentID, courseID int64) 
 
 type GenerateFlashcardsRequest struct {
 	StudentID      int64    `json:"student_id"`
-	NodeID         int64    `json:"node_id"`
+	NodeID         *int64   `json:"node_id,omitempty"`
+	LessonID       *int64   `json:"lesson_id,omitempty"`
+	ContentID      *int64   `json:"content_id,omitempty"`
 	CourseID       int64    `json:"course_id"`
+	TextChunk      string   `json:"text_chunk,omitempty"`
 	Count          int      `json:"count"`
 	ExistingFronts []string `json:"existing_fronts,omitempty"`
+}
+
+type BulkSaveFlashcardsRequest struct {
+	StudentID  int64                    `json:"student_id"`
+	CourseID   int64                    `json:"course_id"`
+	NodeID     *int64                   `json:"node_id,omitempty"`
+	LessonID   *int64                   `json:"lesson_id,omitempty"`
+	ContentID  *int64                   `json:"content_id,omitempty"`
+	Flashcards []map[string]interface{} `json:"flashcards"`
 }
 
 type AIFlashcard struct {
 	ID        int64     `json:"id"`
 	CourseID  int64     `json:"course_id"`
-	NodeID    int64     `json:"node_id"`
+	NodeID    *int64    `json:"node_id"`
+	LessonID  *int64    `json:"lesson_id"`
+	ContentID *int64    `json:"content_id"`
 	FrontText string    `json:"front_text"`
 	BackText  string    `json:"back_text"`
 	Status    string    `json:"status"`
-	CreatedAt string    `json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type GenerateFlashcardsResponse struct {
+	Flashcards []AIFlashcard `json:"flashcards"`
+}
+
+type FlashcardListResponse struct {
 	Flashcards []AIFlashcard `json:"flashcards"`
 }
 
@@ -289,6 +307,14 @@ func (c *Client) GenerateFlashcards(ctx context.Context, req GenerateFlashcardsR
 	var resp GenerateFlashcardsResponse
 	if err := c.post(ctx, "/ai/flashcards/generate", req, &resp); err != nil {
 		return nil, fmt.Errorf("ai.GenerateFlashcards: %w", err)
+	}
+	return &resp, nil
+}
+
+func (c *Client) BulkSaveFlashcards(ctx context.Context, req BulkSaveFlashcardsRequest) (*GenerateFlashcardsResponse, error) {
+	var resp GenerateFlashcardsResponse
+	if err := c.post(ctx, "/ai/flashcards/bulk-save", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.BulkSaveFlashcards: %w", err)
 	}
 	return &resp, nil
 }
@@ -302,13 +328,22 @@ func (c *Client) GetDueFlashcards(ctx context.Context, studentID, courseID int64
 	return resp, nil
 }
 
-func (c *Client) GetNodeFlashcards(ctx context.Context, nodeID, courseID, studentID int64) ([]map[string]interface{}, error) {
-	var resp []map[string]interface{}
-	path := fmt.Sprintf("/ai/flashcards/node/%d/course/%d/student/%d", nodeID, courseID, studentID)
-	if err := c.get(ctx, path, &resp); err != nil {
-		return nil, fmt.Errorf("ai.GetNodeFlashcards: %w", err)
+func (c *Client) ListFlashcards(ctx context.Context, studentID, courseID int64, nodeID, lessonID, contentID *int64) (*FlashcardListResponse, error) {
+	path := fmt.Sprintf("/ai/flashcards/list?student_id=%d&course_id=%d", studentID, courseID)
+	if nodeID != nil {
+		path += fmt.Sprintf("&node_id=%d", *nodeID)
 	}
-	return resp, nil
+	if lessonID != nil {
+		path += fmt.Sprintf("&lesson_id=%d", *lessonID)
+	}
+	if contentID != nil {
+		path += fmt.Sprintf("&content_id=%d", *contentID)
+	}
+	var resp FlashcardListResponse
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GetFlashcards: %w", err)
+	}
+	return &resp, nil
 }
 
 type ReviewFlashcardRequest struct {

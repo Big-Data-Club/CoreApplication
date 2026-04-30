@@ -321,8 +321,11 @@ func main() {
 
 				// ── Flashcards (Student) ──────────────────────────────────
 				courses.POST("/:courseId/nodes/:nodeId/flashcards/generate", flashcardHandler.GenerateFlashcards)
+				courses.POST("/:courseId/flashcards/generate", flashcardHandler.GenerateFlashcards)
 				courses.GET("/:courseId/flashcards/due", flashcardHandler.ListDueFlashcards)
-				courses.GET("/:courseId/nodes/:nodeId/flashcards", flashcardHandler.ListFlashcardsByNode)
+				courses.GET("/:courseId/nodes/:nodeId/flashcards", flashcardHandler.ListFlashcards)
+				courses.GET("/:courseId/flashcards", flashcardHandler.ListFlashcards)
+				courses.POST("/:courseId/flashcards/bulk-save", flashcardHandler.BulkSaveFlashcards)
 
 				// ── Progress tracking (Student) ───────────────────────────
 				courses.GET("/:courseId/my-progress", progressHandler.GetMyProgress)

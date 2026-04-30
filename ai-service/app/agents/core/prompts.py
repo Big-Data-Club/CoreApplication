@@ -172,13 +172,25 @@ The student is enrolled in many courses. NEVER silently pick one:
   `generate_flashcard`, `explain_concept`), and the message doesn't \
   pin a course, ask the student which course — do NOT guess.
 
+# Working Anchor & Lesson Context
+If an "Active Lesson" block or "In-Page Context" with "Page Content" is \
+present below, it is the EXACT content the student is reading.
+- Always prioritize this text to resolve deictic references like "bài học này", \
+  "đoạn này", "chỗ này".
+- Do NOT call `search_course_materials` if the information is already present \
+  in these context blocks.
+- If no active lesson or page content is present, use the "CURRENT ANCHOR" \
+  from memory.
+
 # Critical Rules
 1. NEVER make up facts. If you can't answer from course materials, say so \
    and suggest what the student should review.
-2. When explaining concepts, FIRST use `search_course_materials` to ground \
-   your answer in the actual course content. Pass `course_id` only when \
-   the student has pinned a course (Ground Truth single course, message, \
-   or CURRENT ANCHOR); otherwise omit it for a cross-course search.
+2. When explaining concepts, FIRST check the "Active Lesson" text below. If \
+   the answer is there, use it immediately. OTHERWISE, use \
+   `search_course_materials` to ground your answer in the broader course \
+   content. Pass `course_id` only when the student has pinned a course \
+   (Ground Truth single course, message, or CURRENT ANCHOR); otherwise \
+   omit it for a cross-course search.
 3. After explaining a concept, consider offering a mini-challenge to test \
    understanding (use `create_mini_challenge`).
 4. When a student seems confused about multiple topics, use \
@@ -297,22 +309,6 @@ def build_system_prompt(
         system_context=sys_section,
     )
 
-
-    fmt_kwargs: dict[str, str] = {
-        "memory_context": memory_context,
-        "user_context": user_section,
-    }
- 
-    if agent_type == "teacher":
-        fmt_kwargs["teacher_anchor"] = (
-            teacher_anchor_section
-            or "(No courses found for this teacher. Tell the teacher they "
-               "need to create or enroll in a course before we can generate "
-               "quizzes or content.)"
-        )
- 
-    return template.format(**fmt_kwargs)
-
 def _format_user_context(ctx: dict | None, agent_type: str) -> str:
     """Format user identity for system prompt injection."""
     if not ctx:
@@ -388,14 +384,30 @@ def _format_page_context(ctx: dict | None) -> str:
         return "(User is not viewing any specific course page right now)"
     
     parts = []
-    if ctx.get("type"):
-        parts.append(f"Page Type: {ctx.get('type')}")
-    if ctx.get("courseId") or ctx.get("course_id"):
-        parts.append(f"Course ID: {ctx.get('courseId') or ctx.get('course_id')}")
-    if ctx.get("nodeId") or ctx.get("node_id"):
-        parts.append(f"Node ID: {ctx.get('nodeId') or ctx.get('node_id')}")
-    if ctx.get("title"):
-        parts.append(f"Title: {ctx.get('title')}")
+    # Handle both frontend camelCase and backend snake_case
+    ptype = ctx.get("pageType") or ctx.get("type") or ctx.get("page_type")
+    if ptype:
+        parts.append(f"Page Type: {ptype}")
+        
+    cid = ctx.get("courseId") or ctx.get("course_id")
+    if cid:
+        parts.append(f"Course ID: {cid}")
+        
+    nid = ctx.get("nodeId") or ctx.get("node_id")
+    if nid:
+        parts.append(f"Node ID: {nid}")
+        
+    title = ctx.get("contentTitle") or ctx.get("title") or ctx.get("name")
+    if title:
+        parts.append(f"Title: {title}")
+
+    # Handle content body (the actual lesson text)
+    body = ctx.get("contentBody") or ctx.get("content_body") or ctx.get("body")
+    if body:
+        # Cap at 3000 chars to avoid blowing context window in global sidebar
+        if len(body) > 3000:
+            body = body[:3000] + "..."
+        parts.append(f"\nPage Content:\n{body}")
         
     if not parts:
         return "(User is not viewing any specific course page right now)"

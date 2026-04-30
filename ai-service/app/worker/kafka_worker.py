@@ -159,6 +159,8 @@ async def process_ai_command(payload: dict):
             flashcards = await flashcard_srv.generate_flashcards_with_llm(
                 student_id=job_payload.get("student_id"),
                 node_id=job_payload.get("node_id"),
+                lesson_id=job_payload.get("lesson_id"),
+                content_id=job_payload.get("content_id"),
                 course_id=job_payload.get("course_id"),
                 count=job_payload.get("count", 5),
                 language=job_payload.get("language", "vi"),

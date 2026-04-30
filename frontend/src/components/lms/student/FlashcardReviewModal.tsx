@@ -43,7 +43,7 @@ export function FlashcardReviewModal({ courseId, nodeId, nodeName, isOpen, onClo
     setCurrent(0);
     setIsFlipped(false);
     try {
-      const res = await flashcardService.listFlashcardsByNode(courseId, nodeId);
+      const res = await flashcardService.listFlashcards(courseId, nodeId);
       setCards(res.data || []);
       setError("");
     } catch (e: any) {

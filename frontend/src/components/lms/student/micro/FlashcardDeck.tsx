@@ -33,10 +33,9 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
 
   const lang = ctx.language ?? "vi";
 
-  // Load 3–5 cards. Skip the network call entirely when no node_id is
-  // attached — flashcards are always node-anchored upstream.
+  // Load 3–5 cards. Skip the network call entirely when no node_id and no lesson_id is attached.
   useEffect(() => {
-    if (ctx.nodeId == null) {
+    if (ctx.nodeId == null && ctx.lessonId == null && ctx.contentId == null) {
       setLoading(false);
       setCards([]);
       return;
@@ -45,9 +44,11 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
     (async () => {
       setLoading(true);
       try {
-        const res = await flashcardService.listFlashcardsByNode(
+        const res = await flashcardService.listFlashcards(
           ctx.courseId,
-          ctx.nodeId as number,
+          ctx.nodeId,
+          ctx.lessonId,
+          ctx.contentId
         );
         if (cancelled) return;
         setCards(res.data ?? []);
@@ -66,15 +67,18 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
     return () => {
       cancelled = true;
     };
-  }, [ctx.courseId, ctx.nodeId, lang, reloadKey]);
+  }, [ctx.courseId, ctx.nodeId, ctx.lessonId, ctx.contentId, lang, reloadKey]);
 
   const handleGenerate = useCallback(async () => {
-    if (ctx.nodeId == null || generating) return;
+    if ((ctx.nodeId == null && ctx.lessonId == null && ctx.contentId == null) || generating) return;
     setGenerating(true);
     setError("");
     try {
-      await flashcardService.generateFlashcards(ctx.courseId, ctx.nodeId, {
+      await flashcardService.generateFlashcards(ctx.courseId, ctx.nodeId ?? null, {
         count: 5,
+        lesson_id: ctx.lessonId,
+        content_id: ctx.contentId,
+        text_chunk: ctx.lessonText,
       });
       // Reload the card list after generation
       setReloadKey((k) => k + 1);
@@ -87,7 +91,7 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
     } finally {
       setGenerating(false);
     }
-  }, [ctx.courseId, ctx.nodeId, generating, lang]);
+  }, [ctx.courseId, ctx.nodeId, ctx.lessonId, ctx.contentId, ctx.lessonText, generating, lang]);
 
   const current = cards[index];
 
@@ -180,7 +184,7 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
     return (
       <div className="px-6 py-10 text-sm text-slate-500 dark:text-slate-400 text-center flex flex-col items-center gap-3">
         <span>{labels.empty}</span>
-        {ctx.nodeId != null && (
+        {(ctx.nodeId != null || ctx.lessonId != null || ctx.contentId != null) && (
           <button
             type="button"
             onClick={handleGenerate}
@@ -265,8 +269,8 @@ export function FlashcardDeck({ ctx }: FlashcardDeckProps) {
         </div>
       </div>
 
-      {/* Generate more flashcards — always visible when nodeId exists */}
-      {ctx.nodeId != null && (
+      {/* Generate more flashcards */}
+      {(ctx.nodeId != null || ctx.lessonId != null || ctx.contentId != null) && (
         <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
           <button
             type="button"
