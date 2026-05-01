@@ -1,3 +1,5 @@
+import { getAccessToken, clearAccessTokenCache } from "./authToken";
+
 export class ApiClient {
   readonly baseURL: string;
 
@@ -6,14 +8,22 @@ export class ApiClient {
   }
 
   private async getHeaders(): Promise<HeadersInit> {
-    return {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "*/*",
     };
+
+    const token = await getAccessToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    return headers;
   }
 
   private async handleResponse<T>(response: Response, endpoint: string): Promise<T> {
     if (response.status === 401) {
+      clearAccessTokenCache();
       if (typeof window !== "undefined") {
         const { signOut } = await import("next-auth/react");
         signOut({ callbackUrl: "/login" });
@@ -75,6 +85,7 @@ export class ApiClient {
       credentials: "include",
     });
     if (response.status === 401) {
+       clearAccessTokenCache();
        const { signOut } = await import("next-auth/react");
        signOut({ callbackUrl: "/login" });
        return;
@@ -85,12 +96,19 @@ export class ApiClient {
   }
 
   async uploadFile<T>(endpoint: string, formData: FormData): Promise<T> {
+    const headers: Record<string, string> = {
+      Accept: "*/*",
+    };
+
+    const token = await getAccessToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: "POST",
       credentials: "include",
-      headers: {
-        Accept: "*/*",
-      },
+      headers,
       body: formData,
     });
     return this.handleResponse<T>(response, endpoint);
