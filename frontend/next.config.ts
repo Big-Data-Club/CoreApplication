@@ -138,7 +138,7 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/files/:path*',
-        destination: `${lmsUrl}/api/v1/files/serve/:path*`,
+        destination: '/api/files/:path*',
       },
     ];
   },
