@@ -29,6 +29,18 @@ const nextConfig: NextConfig = {
         pathname: '/api/v1/files/serve/**',
       },
       {
+        protocol: 'http',
+        hostname: '103.70.13.93',
+        port: '8081',
+        pathname: '/api/v1/files/serve/**',
+      },
+      {
+        protocol: 'http',
+        hostname: '103.70.13.93',
+        port: '8080',
+        pathname: '/uploads/**',
+      },
+      {
         protocol: 'https',
         hostname: '**',
       },

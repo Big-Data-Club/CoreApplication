@@ -69,14 +69,37 @@ public class AuthService {
     public List<User> bulkRegister(BulkRegisterRequest request) {
         var registrations = request.getUsers();
 
-        // 1. Validate trước: collect tất cả duplicate email
-        var duplicates = registrations.stream()
-                .map(r -> r.getEmail())
-                .filter(userRepository::existsByEmail)
-                .toList();
+        // 1. Collect all emails & codes from the incoming batch
+        var emails = registrations.stream().map(r -> r.getEmail()).toList();
+        var codes  = registrations.stream().map(r -> r.getCode()).filter(c -> c != null && !c.isBlank()).toList();
 
-        if (!duplicates.isEmpty()) {
-            throw new DuplicateResourceException("User", "email", String.join(", ", duplicates));
+        // 2. Batch-validate: find duplicates that already exist in DB
+        var duplicateEmails = userRepository.findExistingEmails(emails);
+        var duplicateCodes  = codes.isEmpty() ? java.util.Set.<String>of() : userRepository.findExistingCodes(codes);
+
+        // 3. Also check for duplicates within the batch itself
+        var seenEmails = new java.util.HashSet<String>();
+        var inBatchDupEmails = emails.stream().filter(e -> !seenEmails.add(e)).toList();
+        var seenCodes = new java.util.HashSet<String>();
+        var inBatchDupCodes = codes.stream().filter(c -> !seenCodes.add(c)).toList();
+
+        // 4. Build error message
+        List<String> errors = new java.util.ArrayList<>();
+        if (!duplicateEmails.isEmpty()) {
+            errors.add("Duplicate email(s) already in DB: " + String.join(", ", duplicateEmails));
+        }
+        if (!inBatchDupEmails.isEmpty()) {
+            errors.add("Duplicate email(s) within batch: " + String.join(", ", inBatchDupEmails));
+        }
+        if (!duplicateCodes.isEmpty()) {
+            errors.add("Duplicate code(s) already in DB: " + String.join(", ", duplicateCodes));
+        }
+        if (!inBatchDupCodes.isEmpty()) {
+            errors.add("Duplicate code(s) within batch: " + String.join(", ", inBatchDupCodes));
+        }
+
+        if (!errors.isEmpty()) {
+            throw new DuplicateResourceException("User", "email/code", String.join("; ", errors));
         }
 
         Map<String, String> emailToPassword = new java.util.LinkedHashMap<>();
