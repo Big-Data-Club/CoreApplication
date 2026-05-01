@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { FileInfo } from "@/types";
+import { getAccessToken } from "@/services/authToken";
 
 interface FileUploadProps {
   onFileUploaded: (fileInfo: FileInfo) => void;
@@ -68,11 +69,18 @@ export default function FileUpload({
       formData.append("file", file);
       formData.append("type", fileType);
 
-      // Upload via proxy - middleware handles auth token
+      // Upload via proxy
+      const headers: Record<string, string> = {};
+      const token = await getAccessToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`/lmsapiv1/files/upload`, {
         method: "POST",
         body: formData,
         credentials: "include",
+        headers,
       });
 
       if (!response.ok) {

@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import lmsService from "@/services/lmsService";
 import { FileToUpload } from "@/types";
+import { getAccessToken } from "@/services/authToken";
 
 
 interface BulkUploadModalProps {
@@ -168,10 +169,17 @@ export default function BulkUploadModal({
     formData.append("file", fileItem.file);
     formData.append("type", fileItem.type);
 
+    const headers: Record<string, string> = {};
+    const token = await getAccessToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const response = await fetch("/lmsapiv1/files/upload", {
       method: "POST",
       body: formData,
       credentials: "include",
+      headers,
     });
 
     if (!response.ok) {

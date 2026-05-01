@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, File as FileIcon, CheckCircle, XCircle, AlertCircle, Trash2, Download } from "lucide-react";
+import { getAccessToken } from "@/services/authToken";
 
 
 interface FileUploadQuestionProps {
@@ -99,11 +100,18 @@ export default function FileUploadQuestion({
       formData.append("file", file);
       formData.append("type", "document"); // File upload questions always use "document" type
 
-      // Upload via proxy - middleware handles auth token
+      // Upload via proxy
+      const headers: Record<string, string> = {};
+      const token = await getAccessToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`/lmsapiv1/files/upload`, {
         method: "POST",
         body: formData,
         credentials: "include",
+        headers,
       });
 
       if (!response.ok) {

@@ -1,10 +1,21 @@
 import { mapServerUserToClient } from "./mappers";
 import { User } from "@/types";
+import { getAccessToken } from "@/services/authToken";
+
+async function authHeaders(extra?: Record<string, string>): Promise<HeadersInit> {
+  const headers: Record<string, string> = { ...extra };
+  const token = await getAccessToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 export async function fetchUsers(): Promise<User[]> {
   const res = await fetch(`/apiv1/api/users`, {
     method: "GET",
     credentials: "include",
+    headers: await authHeaders(),
   });
 
   if (!res.ok) {
@@ -31,9 +42,8 @@ export async function postBulkRegister(
 ) {
   const res = await fetch(`/apiv1/api/auth/register/bulk`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    credentials: "include",
     body: JSON.stringify({ users: payload }),
   });
   if (!res.ok) {
@@ -67,9 +77,8 @@ export async function updateUser(
 ): Promise<User> {
   const res = await fetch(`/apiv1/api/users/${id}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    credentials: "include",
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -86,6 +95,7 @@ export async function updateUserStatus(id: number | string): Promise<User> {
   const res = await fetch(`/apiv1/api/users/${id}/status`, {
     method: "PATCH",
     credentials: "include",
+    headers: await authHeaders(),
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
@@ -100,9 +110,8 @@ export async function updateUserStatus(id: number | string): Promise<User> {
 export async function updateUserRole(id: number | string, role: string): Promise<User> {
   const res = await fetch(`/apiv1/api/users/${id}/role`, {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    credentials: "include",
     body: JSON.stringify({ role }),
   });
   if (!res.ok) {
