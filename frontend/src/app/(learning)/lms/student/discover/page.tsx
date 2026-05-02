@@ -8,7 +8,8 @@ import {
 import {
   Card, CourseCard, Badge,
   PrimaryBtn, GhostBtn,
-  EmptyState, PageLoader, Alert
+  EmptyState, PageLoader, Alert,
+  InfiniteScrollTrigger
 } from "@/components/lms/shared";
 import { BreadcrumbNav, type BreadcrumbItem } from "@/components/lms/BreadcrumbNav";
 import { Course, Enrollment } from "@/types";
@@ -23,6 +24,8 @@ export default function DiscoverPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
 
+  const [limit, setLimit] = useState(15);
+
   // ── Load data ──────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -30,11 +33,12 @@ export default function DiscoverPage() {
     setError("");
     try {
       const [courses, accepted] = await Promise.all([
-        lmsService.listPublishedCourses({ page_size: 50 }),
+        lmsService.listPublishedCourses({ page_size: 200 }),
         lmsService.getMyEnrollments("ACCEPTED"),
       ]);
       setPublishedCourses(courses || []);
       setEnrollments(accepted || []);
+      setLimit(15);
     } catch {
       setError("Không thể tải danh sách khóa học.");
     } finally {
@@ -67,6 +71,8 @@ export default function DiscoverPage() {
   const filtered = publishedCourses.filter(c =>
     c.title.toLowerCase().includes(search.toLowerCase())
   );
+
+  const displayedCourses = filtered.slice(0, limit);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -107,7 +113,7 @@ export default function DiscoverPage() {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setLimit(15); }}
             placeholder="Tìm kiếm khóa học..."
             className="w-full pl-10 pr-4 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm
                        bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100
@@ -125,7 +131,7 @@ export default function DiscoverPage() {
             icon={<Search className="w-12 h-12" />}
             title="Không tìm thấy"
             description={`Không có khóa học nào khớp với "${search}".`}
-            action={<GhostBtn onClick={() => setSearch("")}>Xóa bộ lọc</GhostBtn>}
+            action={<GhostBtn onClick={() => { setSearch(""); setLimit(15); }}>Xóa bộ lọc</GhostBtn>}
           />
         ) : (
           <EmptyState
@@ -135,35 +141,42 @@ export default function DiscoverPage() {
           />
         )
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filtered.map(course => {
-            const enrolled = enrolledIds.has(course.id);
-            return (
-              <CourseCard
-                key={course.id}
-                id={course.id}
-                title={course.title}
-                description={course.description}
-                category={course.category}
-                level={course.level}
-                teacherName={course.teacher_name}
-                thumbnailUrl={course.thumbnail_url}
-                actions={
-                  enrolled ? (
-                    <Badge variant="green">Đã đăng ký</Badge>
-                  ) : (
-                    <PrimaryBtn
-                      size="sm"
-                      loading={enrolling === course.id}
-                      onClick={e => { e.stopPropagation(); handleEnroll(course.id); }}
-                    >
-                      Đăng ký
-                    </PrimaryBtn>
-                  )
-                }
-              />
-            );
-          })}
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {displayedCourses.map(course => {
+              const enrolled = enrolledIds.has(course.id);
+              return (
+                <CourseCard
+                  key={course.id}
+                  id={course.id}
+                  title={course.title}
+                  description={course.description}
+                  category={course.category}
+                  level={course.level}
+                  teacherName={course.teacher_name}
+                  thumbnailUrl={course.thumbnail_url}
+                  actions={
+                    enrolled ? (
+                      <Badge variant="green">Đã đăng ký</Badge>
+                    ) : (
+                      <PrimaryBtn
+                        size="sm"
+                        loading={enrolling === course.id}
+                        onClick={e => { e.stopPropagation(); handleEnroll(course.id); }}
+                      >
+                        Đăng ký
+                      </PrimaryBtn>
+                    )
+                  }
+                />
+              );
+            })}
+          </div>
+          <InfiniteScrollTrigger
+            key={limit}
+            hasMore={limit < filtered.length}
+            onLoadMore={() => setLimit(l => l + 15)}
+          />
         </div>
       )}
     </div>

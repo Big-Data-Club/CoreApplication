@@ -103,12 +103,11 @@ export default function TeacherDashboard() {
       const draft = courses.filter(c => c.status === "DRAFT");
 
       let totalStudents = 0;
-      for (const course of published.slice(0, 10)) {
-        try {
-          const accepted = await lmsService.getCourseLearners(course.id, "ACCEPTED");
-          totalStudents += (accepted ?? []).length;
-        } catch { /* ignore */ }
-      }
+      const learnerPromises = published.slice(0, 10).map(course =>
+        lmsService.getCourseLearners(course.id, "ACCEPTED").catch(() => [])
+      );
+      const learnersArrays = await Promise.all(learnerPromises);
+      totalStudents = learnersArrays.reduce((sum, learners) => sum + (learners ?? []).length, 0);
 
       setStats({
         totalCourses: courses.length, publishedCourses: published.length,

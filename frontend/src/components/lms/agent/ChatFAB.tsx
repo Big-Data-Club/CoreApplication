@@ -5,23 +5,53 @@
  *
  * Fixed position, bottom-right. Shows a sparkle icon with a subtle
  * pulse animation. Manages the open/close state of the ChatSidebar.
+ *
+ * ChatSidebar (~14KB + deps) is lazy-loaded via next/dynamic and
+ * preloaded on hover/focus so the first click feels instant.
  */
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ChatSidebar } from "./ChatSidebar";
+
+// Lazy-load the heavy ChatSidebar — only fetched when FAB is clicked or hovered
+const ChatSidebar = dynamic(
+  () => import("./ChatSidebar").then((mod) => ({ default: mod.ChatSidebar })),
+  { ssr: false },
+);
+
+// Preload trigger — call import() once to warm the chunk cache
+let _preloaded = false;
+function preloadChatSidebar() {
+  if (_preloaded) return;
+  _preloaded = true;
+  import("./ChatSidebar");
+}
 
 export function ChatFAB() {
   const [isOpen, setIsOpen] = useState(false);
+  // Track if sidebar was ever opened — only mount after first open
+  const [hasOpened, setHasOpened] = useState(false);
+
+  const handleToggle = useCallback(() => {
+    setIsOpen((prev) => {
+      if (!prev) setHasOpened(true);
+      return !prev;
+    });
+  }, []);
 
   return (
     <>
-      {/* The sidebar */}
-      <ChatSidebar isOpen={isOpen} onClose={() => setIsOpen(false)} />
+      {/* Only mount the sidebar after user has opened it at least once */}
+      {hasOpened && (
+        <ChatSidebar isOpen={isOpen} onClose={() => setIsOpen(false)} />
+      )}
 
       {/* Floating action button */}
       <button
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={handleToggle}
+        onMouseEnter={preloadChatSidebar}
+        onFocus={preloadChatSidebar}
         className={cn(
           "fixed bottom-6 right-6 z-[62]",
           "w-14 h-14 rounded-full",

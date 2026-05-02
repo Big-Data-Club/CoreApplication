@@ -11,9 +11,13 @@
  *   courseId          – parent course id
  *   sections          – pre-fetched sections list (owner manages refresh)
  *   onSectionsChange  – called after any section create/update/delete
+ *
+ * Heavy modals are lazy-loaded via next/dynamic so the initial chunk
+ * stays lean. Each modal is only fetched when the user triggers it.
  */
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   Plus, Edit3, Upload, Eye, Trash2,
   Play, FileText, HelpCircle, MessageSquare,
@@ -21,20 +25,50 @@ import {
   ChevronDown, ChevronRight, Sparkles, History,
 } from "lucide-react";
 import lmsService from "@/services/lmsService";
-import ContentViewer from "@/components/lms/student/ContentViewer";
-import ContentModal from "@/components/lms/teacher/ContentModal";
-import EditContentModal from "@/components/lms/teacher/EditContentModal";
-import BulkUploadModal from "@/components/lms/teacher/upload/BulkUploadModal";
 import { SectionModal } from "@/components/lms/teacher/SectionModal";
 import { AIIndexButton } from "@/components/lms/teacher/ai/AIIndexButton";
 import { AIIndexPollerProvider } from "@/hooks/useAIIndexPoller";
-import { GenerateMicroLessonsModal } from "@/components/lms/teacher/micro/GenerateMicroLessonsModal";
-import { MicroLessonsDrawer } from "@/components/lms/teacher/micro/MicroLessonsDrawer";
-import { MicroLessonHistoryModal } from "@/components/lms/teacher/micro/MicroLessonHistoryModal";
 import {
   Badge, ContentTypeBadge, EmptyState, PrimaryBtn, Spinner,
 } from "@/components/lms/shared";
 import { Content, Section } from "@/types";
+
+// ─── Lazy-loaded heavy modals (only fetched when opened) ──────────────────────
+
+const ContentViewer = dynamic(
+  () => import("@/components/lms/student/ContentViewer"),
+  { ssr: false },
+);
+
+const ContentModal = dynamic(
+  () => import("@/components/lms/teacher/ContentModal").then(m => ({ default: m.default })),
+  { ssr: false },
+);
+
+const EditContentModal = dynamic(
+  () => import("@/components/lms/teacher/EditContentModal").then(m => ({ default: m.default })),
+  { ssr: false },
+);
+
+const BulkUploadModal = dynamic(
+  () => import("@/components/lms/teacher/upload/BulkUploadModal").then(m => ({ default: m.default })),
+  { ssr: false },
+);
+
+const GenerateMicroLessonsModal = dynamic(
+  () => import("@/components/lms/teacher/micro/GenerateMicroLessonsModal").then(m => ({ default: m.GenerateMicroLessonsModal })),
+  { ssr: false },
+);
+
+const MicroLessonsDrawer = dynamic(
+  () => import("@/components/lms/teacher/micro/MicroLessonsDrawer").then(m => ({ default: m.MicroLessonsDrawer })),
+  { ssr: false },
+);
+
+const MicroLessonHistoryModal = dynamic(
+  () => import("@/components/lms/teacher/micro/MicroLessonHistoryModal").then(m => ({ default: m.MicroLessonHistoryModal })),
+  { ssr: false },
+);
 
 // ─── Content type icon map ────────────────────────────────────────────────────
 

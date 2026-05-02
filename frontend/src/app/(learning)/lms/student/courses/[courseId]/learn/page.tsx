@@ -6,15 +6,24 @@
  *
  * Displays the content viewer with prev/next navigation.
  * Consumes StudentCourseContext from the parent layout.
+ *
+ * ContentViewer (~30KB) is lazy-loaded since it's only rendered
+ * when a content item is selected.
  */
 
 import { useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
   ArrowLeft, ChevronRight, BookOpen, BarChart3,
 } from "lucide-react";
 
-import ContentViewer from "@/components/lms/student/ContentViewer";
+// Lazy-load the heavy content viewer
+const ContentViewer = dynamic(
+  () => import("@/components/lms/student/ContentViewer"),
+  { ssr: false, loading: () => <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded-2xl animate-pulse" /> },
+);
+
 import { Badge, ContentTypeBadge } from "@/components/lms/shared";
 import { useStudentCourse } from "@/components/lms/student/StudentCourseContext";
 import { Content, Section } from "@/types";

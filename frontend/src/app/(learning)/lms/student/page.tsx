@@ -10,7 +10,8 @@ import {
 import {
   StatCard, Card,
   ProgressBar, PrimaryBtn, GhostBtn,
-  EmptyState, PageLoader, Alert
+  EmptyState, PageLoader, Alert,
+  InfiniteScrollTrigger
 } from "@/components/lms/shared";
 import { Enrollment } from "@/types";
 
@@ -92,6 +93,8 @@ export default function StudentDashboard() {
   const [loadingEnrolled, setLoadingEnrolled] = useState(true);
   const [error, setError] = useState("");
 
+  const [limit, setLimit] = useState(15);
+
   // ── Init ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -106,12 +109,15 @@ export default function StudentDashboard() {
       ]);
       setAcceptedEnrollments(accepted || []);
       setAllEnrollments([...(accepted || [])]);
+      setLimit(15);
     } catch {
       setError("Không thể tải dữ liệu. Vui lòng thử lại.");
     } finally {
       setLoadingEnrolled(false);
     }
   }, []);
+
+  const displayedEnrollments = acceptedEnrollments.slice(0, limit);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -181,13 +187,18 @@ export default function StudentDashboard() {
             />
           ) : (
             <div className="space-y-1 divide-y divide-slate-100 dark:divide-slate-800">
-              {acceptedEnrollments.map(en => (
+              {displayedEnrollments.map(en => (
                 <EnrolledCourseItem
                   key={en.id}
                   enrollment={en}
                   onOpen={id => router.push(`/lms/student/courses/${id}`)}
                 />
               ))}
+              <InfiniteScrollTrigger
+                key={limit}
+                hasMore={limit < acceptedEnrollments.length}
+                onLoadMore={() => setLimit(l => l + 15)}
+              />
             </div>
           )}
         </div>

@@ -1,14 +1,29 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { Plus, ChevronDown, ChevronRight, BookOpen, AlertCircle, Network, Trash2, Sparkles } from "lucide-react";
 import aiService, { KnowledgeNode, KnowledgeGraphEdge } from "@/services/aiService";
 import { cn } from "@/lib/utils";
 import lmsService from "@/services/lmsService";
-import { ContentPickerModal } from "../ContentPickerModal";
-import KnowledgeGraph from "../KnowledgeGraph";
-import GraphConsolidateModal from "./GraphConsolidateModal";
 import toast from "react-hot-toast";
+
+// ─── Lazy-loaded heavy components ─────────────────────────────────────────────
+
+const ContentPickerModal = dynamic(
+  () => import("../ContentPickerModal").then(m => ({ default: m.ContentPickerModal })),
+  { ssr: false },
+);
+
+const KnowledgeGraph = dynamic(
+  () => import("../KnowledgeGraph"),
+  { ssr: false, loading: () => <div className="h-[600px] bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse flex items-center justify-center text-sm text-slate-400">Đang tải Knowledge Graph…</div> },
+);
+
+const GraphConsolidateModal = dynamic(
+  () => import("./GraphConsolidateModal"),
+  { ssr: false },
+);
 
 interface Props {
   courseId: number;

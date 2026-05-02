@@ -3,14 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Edit3 } from "lucide-react";
 import lmsService from "@/services/lmsService";
 import { BreadcrumbNav, type BreadcrumbItem } from "@/components/lms/BreadcrumbNav";
-import { EditCourseModal } from "@/components/lms/teacher/EditCourseModal";
 import { Badge, Spinner } from "@/components/lms/shared";
 import { Course } from "@/types";
 import { cn } from "@/lib/utils";
 import { useSetPageContext } from "@/hooks/usePageContext";
+
+// Lazy-load modal — only needed when user clicks "Chỉnh sửa"
+const EditCourseModal = dynamic(
+  () => import("@/components/lms/teacher/EditCourseModal").then(m => ({ default: m.EditCourseModal })),
+  { ssr: false },
+);
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 

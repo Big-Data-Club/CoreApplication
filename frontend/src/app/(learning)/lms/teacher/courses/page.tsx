@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import {
   Card, Badge, PrimaryBtn, GhostBtn,
-  EmptyState, PageLoader, Alert, TabBar, Spinner
+  EmptyState, PageLoader, Alert, TabBar, Spinner,
+  InfiniteScrollTrigger
 } from "@/components/lms/shared";
 import { Course } from "@/types";
 import { cn } from "@/lib/utils";
@@ -117,6 +118,8 @@ export default function CoursesListPage() {
   const [publishing, setPublishing] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
 
+  const [limit, setLimit] = useState(15);
+
   const load = useCallback(async (status?: StatusFilter) => {
     setLoading(true);
     setError("");
@@ -124,6 +127,7 @@ export default function CoursesListPage() {
       const params = status && status !== "all" ? { status: status.toUpperCase() } : {};
       const res = await lmsService.listMyCourses({ ...params, page_size: 200 });
       setCourses(res?.data ?? []);
+      setLimit(15); // Reset limit on new data
     } catch {
       setError("Không thể tải danh sách khóa học.");
     } finally {
@@ -158,6 +162,8 @@ export default function CoursesListPage() {
     c.title.toLowerCase().includes(search.toLowerCase()) ||
     (c.description ?? "").toLowerCase().includes(search.toLowerCase())
   );
+
+  const displayedCourses = filtered.slice(0, limit);
 
   const published = courses.filter(c => c.status === "PUBLISHED").length;
   const draft = courses.filter(c => c.status === "DRAFT").length;
@@ -199,7 +205,7 @@ export default function CoursesListPage() {
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setLimit(15); }}
               placeholder="Tìm kiếm khóa học..."
               className="w-full pl-10 pr-4 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl text-sm
                          bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100
@@ -218,7 +224,7 @@ export default function CoursesListPage() {
                 icon={<Search className="w-12 h-12" />}
                 title="Không tìm thấy"
                 description={`Không có khóa học nào khớp với "${search}".`}
-                action={<GhostBtn onClick={() => setSearch("")}>Xóa bộ lọc</GhostBtn>}
+                action={<GhostBtn onClick={() => { setSearch(""); setLimit(15); }}>Xóa bộ lọc</GhostBtn>}
               />
             ) : (
               <EmptyState
@@ -237,7 +243,7 @@ export default function CoursesListPage() {
             )
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filtered.map(course => (
+              {displayedCourses.map(course => (
                 <CourseRow
                   key={course.id}
                   course={course}
@@ -248,6 +254,11 @@ export default function CoursesListPage() {
                   deleting={deleting === course.id}
                 />
               ))}
+              <InfiniteScrollTrigger
+                key={limit}
+                hasMore={limit < filtered.length}
+                onLoadMore={() => setLimit(l => l + 15)}
+              />
             </div>
           )}
         </Card>

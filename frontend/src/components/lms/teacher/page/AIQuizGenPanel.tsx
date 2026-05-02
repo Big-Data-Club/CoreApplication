@@ -1,15 +1,26 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import {
   Sparkles, RefreshCw, ChevronDown, ChevronUp,
   CheckCircle2, XCircle, BookOpen, AlertCircle,
   Layers, Zap, Clock, Search, Filter, ArrowUpDown
 } from "lucide-react";
 import aiService, { GeneratedQuestion, KnowledgeNode, KnowledgeGraphEdge } from "@/services/aiService";
-import { AINodeManager } from "@/components/lms/teacher/ai/AINodeManager";
-import { QuizSelectorModal } from "@/components/lms/teacher/QuizSelectorModal";
 import { cn } from "@/lib/utils";
+
+// ─── Lazy-loaded heavy sub-components ─────────────────────────────────────────
+
+const AINodeManager = dynamic(
+  () => import("@/components/lms/teacher/ai/AINodeManager").then(m => ({ default: m.AINodeManager })),
+  { ssr: false, loading: () => <div className="py-8 text-center text-sm text-slate-400">Đang tải quản lý nodes…</div> },
+);
+
+const QuizSelectorModal = dynamic(
+  () => import("@/components/lms/teacher/QuizSelectorModal").then(m => ({ default: m.QuizSelectorModal })),
+  { ssr: false },
+);
 
 interface Props {
   courseId: number;

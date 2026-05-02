@@ -1,9 +1,15 @@
 "use client";
 
 import { AdminDashboard } from "@/components/dashboard/admin/AdminDashboard";
-import GlobalKnowledgeGraphPanel from "@/components/lms/teacher/ai/GlobalKnowledgeGraphPanel";
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { BrainCircuit, ChevronDown } from "lucide-react";
+
+// Lazy-load the heavy graph panel (22KB) — only rendered when toggle is open
+const GlobalKnowledgeGraphPanel = dynamic(
+  () => import("@/components/lms/teacher/ai/GlobalKnowledgeGraphPanel"),
+  { ssr: false, loading: () => <div className="h-[680px] bg-slate-100 dark:bg-slate-800 rounded-2xl animate-pulse flex items-center justify-center text-sm text-slate-400">Loading…</div> },
+);
 
 export default function AdminPage() {
   const [graphOpen, setGraphOpen] = useState(true);

@@ -10,18 +10,32 @@
  *  - isCompleted    : whether this content item is already marked complete
  *  - onComplete     : callback fired when completion is confirmed
  *                     (Quiz: after successful submit; others: on button click / auto-timer)
+ *
+ * Heavy sub-components (MarkdownRenderer, QuickActionPanel) are lazy-loaded
+ * to keep the initial chunk small.
  */
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import MarkdownRenderer from "@/components/markdown/MarkdownRenderer";
-import { QuickActionPanel } from "@/components/lms/student/micro/QuickActionPanel";
+import dynamic from "next/dynamic";
 import type { MicroLessonContext } from "@/components/lms/student/micro/types";
 
 import quizService from "@/services/quizService";
 import aiService from "@/services/aiService";
 import { cn } from "@/lib/utils";
 import { useSetPageContext } from "@/hooks/usePageContext";
+
+// ─── Lazy-loaded heavy renderers ──────────────────────────────────────────────
+
+const MarkdownRenderer = dynamic(
+  () => import("@/components/markdown/MarkdownRenderer"),
+  { ssr: false, loading: () => <div className="h-32 bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse" /> },
+);
+
+const QuickActionPanel = dynamic(
+  () => import("@/components/lms/student/micro/QuickActionPanel").then(m => ({ default: m.QuickActionPanel })),
+  { ssr: false },
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
