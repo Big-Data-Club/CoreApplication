@@ -5,7 +5,6 @@ import { useRouter, usePathname } from "next/navigation";
 import { getCookie } from "@/utils/cookies";
 import Link from "next/link";
 import { PageContextProvider } from "@/hooks/usePageContext";
-import { ChatFAB } from "@/components/lms/agent/ChatFAB";
 
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -118,8 +117,6 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {children}
         </main>
-
-        <ChatFAB />
       </div>
     </PageContextProvider>
   );

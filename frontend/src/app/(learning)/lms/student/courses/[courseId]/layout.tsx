@@ -30,6 +30,7 @@ import { StudentCourseContext } from "@/components/lms/student/StudentCourseCont
 import { Content, Course, Section } from "@/types";
 import { cn } from "@/lib/utils";
 import { useSetPageContext } from "@/hooks/usePageContext";
+import { ChatFAB } from "@/components/lms/agent/ChatFAB";
 
 // ─── Content type icon map ────────────────────────────────────────────────────
 
@@ -513,6 +514,8 @@ export default function StudentCourseDetailLayout({ children }: { children: Reac
             {children}
           </main>
         </div>
+        {/* ── AI Chat FAB — only visible within a course ── */}
+        <ChatFAB />
       </div>
     </StudentCourseContext.Provider>
   );
