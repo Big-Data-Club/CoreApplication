@@ -31,12 +31,6 @@ CREATE TABLE IF NOT EXISTS knowledge_nodes (
     updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_kn_course  ON knowledge_nodes(course_id);
-CREATE INDEX IF NOT EXISTS idx_kn_parent  ON knowledge_nodes(parent_id);
-CREATE INDEX IF NOT EXISTS idx_kn_level   ON knowledge_nodes(course_id, level);
-CREATE INDEX IF NOT EXISTS idx_kn_source  ON knowledge_nodes(source_content_id)
-    WHERE source_content_id IS NOT NULL;
-
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
                    WHERE tgname = 'tr_kn_updated'
@@ -64,13 +58,8 @@ CREATE TABLE IF NOT EXISTS knowledge_node_relations (
     UNIQUE(source_node_id, target_node_id, relation_type)
 );
 
-CREATE INDEX IF NOT EXISTS idx_knr_source ON knowledge_node_relations(source_node_id);
-CREATE INDEX IF NOT EXISTS idx_knr_target ON knowledge_node_relations(target_node_id);
-CREATE INDEX IF NOT EXISTS idx_knr_course ON knowledge_node_relations(course_id);
-
 -- =============================================================
 -- DOCUMENT CHUNKS
--- embedding column NULL when USE_QDRANT=true.
 -- =============================================================
 
 CREATE TABLE IF NOT EXISTS document_chunks (
@@ -90,18 +79,13 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     language        VARCHAR(10) DEFAULT 'vi',
     status          VARCHAR(20) DEFAULT 'ready'
                         CHECK (status IN ('pending', 'processing', 'ready', 'error')),
+    parent_chunk_id BIGINT REFERENCES document_chunks(id) ON DELETE CASCADE,
+    chunk_level     VARCHAR(10) DEFAULT 'child' CHECK (chunk_level IN ('parent', 'child')),
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_dc_content ON document_chunks(content_id);
-CREATE INDEX IF NOT EXISTS idx_dc_node    ON document_chunks(node_id);
-CREATE INDEX IF NOT EXISTS idx_dc_course  ON document_chunks(course_id);
-CREATE INDEX IF NOT EXISTS idx_dc_status  ON document_chunks(status);
-CREATE INDEX IF NOT EXISTS idx_dc_hash    ON document_chunks(chunk_hash);
-
 -- =============================================================
 -- AI DIAGNOSES
--- Includes cache fields from 002_add_diagnosis_cache_fields.sql
 -- =============================================================
 
 CREATE TABLE IF NOT EXISTS ai_diagnoses (
@@ -123,16 +107,8 @@ CREATE TABLE IF NOT EXISTS ai_diagnoses (
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_ad_student  ON ai_diagnoses(student_id);
-CREATE INDEX IF NOT EXISTS idx_ad_question ON ai_diagnoses(question_id);
-CREATE INDEX IF NOT EXISTS idx_ad_node     ON ai_diagnoses(node_id);
-CREATE INDEX IF NOT EXISTS idx_ad_cache_lookup
-    ON ai_diagnoses (question_id, md5(wrong_answer))
-    WHERE question_id IS NOT NULL;
-
 -- =============================================================
 -- CONTENT INDEX STATUS
--- (from 002_decouple_lms.sql — AI tracks its own indexing state)
 -- =============================================================
 
 CREATE TABLE IF NOT EXISTS content_index_status (
@@ -144,9 +120,6 @@ CREATE TABLE IF NOT EXISTS content_index_status (
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_cis_course ON content_index_status(course_id);
-CREATE INDEX IF NOT EXISTS idx_cis_status ON content_index_status(status);
 
 -- =============================================================
 -- STUDENT KNOWLEDGE PROGRESS
@@ -165,10 +138,6 @@ CREATE TABLE IF NOT EXISTS student_knowledge_progress (
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(student_id, node_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_skp_student_course ON student_knowledge_progress(student_id, course_id);
-CREATE INDEX IF NOT EXISTS idx_skp_node           ON student_knowledge_progress(node_id);
-CREATE INDEX IF NOT EXISTS idx_skp_mastery        ON student_knowledge_progress(mastery_level);
 
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
@@ -200,9 +169,6 @@ CREATE TABLE IF NOT EXISTS spaced_repetitions (
     updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(student_id, question_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_sr_due    ON spaced_repetitions(student_id, next_review_date);
-CREATE INDEX IF NOT EXISTS idx_sr_course ON spaced_repetitions(student_id, course_id);
 
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
@@ -244,10 +210,6 @@ CREATE TABLE IF NOT EXISTS ai_quiz_generations (
     updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_aiqg_node   ON ai_quiz_generations(node_id);
-CREATE INDEX IF NOT EXISTS idx_aiqg_status ON ai_quiz_generations(status);
-CREATE INDEX IF NOT EXISTS idx_aiqg_course ON ai_quiz_generations(course_id);
-
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
                    WHERE tgname = 'tr_aiqg_updated'
@@ -265,7 +227,9 @@ END $$;
 CREATE TABLE IF NOT EXISTS flashcards (
     id                  BIGSERIAL PRIMARY KEY,
     course_id           BIGINT NOT NULL,
-    node_id             BIGINT NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
+    node_id             BIGINT REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
+    lesson_id           BIGINT,
+    content_id          BIGINT,
     student_id          BIGINT NOT NULL,
     front_text          TEXT NOT NULL,
     back_text           TEXT NOT NULL,
@@ -275,9 +239,6 @@ CREATE TABLE IF NOT EXISTS flashcards (
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_fc_student_node ON flashcards(student_id, node_id);
-CREATE INDEX IF NOT EXISTS idx_fc_course       ON flashcards(course_id);
 
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
@@ -309,8 +270,6 @@ CREATE TABLE IF NOT EXISTS flashcard_repetitions (
     UNIQUE(student_id, flashcard_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_fcr_due ON flashcard_repetitions(student_id, course_id, next_review_date);
-
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
                    WHERE tgname = 'tr_fcr_updated'
@@ -339,10 +298,6 @@ CREATE TABLE IF NOT EXISTS embedding_reindex_jobs (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_erj_status  ON embedding_reindex_jobs(status);
-CREATE INDEX IF NOT EXISTS idx_erj_course  ON embedding_reindex_jobs(course_id);
-CREATE INDEX IF NOT EXISTS idx_erj_content ON embedding_reindex_jobs(content_id);
 
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
@@ -392,3 +347,177 @@ LEFT JOIN  knowledge_node_relations knr_in  ON  knr_in.target_node_id  = kn.id
 GROUP BY
     kn.id, kn.course_id, kn.name, kn.name_vi,
     kn.level, kn.auto_generated, kn.source_content_id;
+
+-- =============================================================
+-- AGENT MEMORY TABLES
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         BIGINT NOT NULL,
+    agent_type      VARCHAR(20) NOT NULL
+                        CHECK (agent_type IN ('teacher', 'mentor')),
+    course_id       BIGINT,
+    title           VARCHAR(200),
+    compressed_ctx  JSONB NOT NULL DEFAULT '{}',
+    turn_count      INTEGER DEFAULT 0,
+    last_active_at  TIMESTAMPTZ DEFAULT NOW(),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS agent_episodes (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id      UUID REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    user_id         BIGINT NOT NULL,
+    agent_type      VARCHAR(20) NOT NULL
+                        CHECK (agent_type IN ('teacher', 'mentor')),
+    summary         TEXT NOT NULL,
+    qdrant_point_id BIGINT,
+    course_id       BIGINT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS agent_messages (
+    id          BIGSERIAL PRIMARY KEY,
+    session_id  UUID NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    role        VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
+    content     TEXT NOT NULL DEFAULT '',
+    metadata    JSONB DEFAULT '{}',    -- toolActivities, uiComponent, hitlRequest, etc.
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =============================================================
+-- LLM PROVIDERS, MODELS, KEYS, AND LOGS
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS llm_providers (
+    id             BIGSERIAL PRIMARY KEY,
+    code           VARCHAR(40)  NOT NULL UNIQUE,      
+    display_name   VARCHAR(120) NOT NULL,
+    adapter_type   VARCHAR(40)  NOT NULL,             
+    base_url       VARCHAR(255),                      
+    enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
+    config         JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+ 
+CREATE TABLE IF NOT EXISTS llm_api_keys (
+    id                      BIGSERIAL PRIMARY KEY,
+    provider_id             BIGINT      NOT NULL REFERENCES llm_providers(id) ON DELETE CASCADE,
+    alias                   VARCHAR(80) NOT NULL,                 
+    encrypted_key           TEXT        NOT NULL,                 
+    key_fingerprint         VARCHAR(32) NOT NULL,                 
+    status                  VARCHAR(20) NOT NULL DEFAULT 'active'
+                             CHECK (status IN ('active','cooldown','disabled','invalid')),
+    rpm_limit               INTEGER,                              
+    tpm_limit               INTEGER,                              
+    daily_token_limit       BIGINT,                               
+    used_today_requests     BIGINT      NOT NULL DEFAULT 0,
+    used_today_tokens       BIGINT      NOT NULL DEFAULT 0,
+    used_window_start       TIMESTAMPTZ NOT NULL DEFAULT NOW(),   
+    cooldown_until          TIMESTAMPTZ,                          
+    consecutive_failures    INTEGER     NOT NULL DEFAULT 0,
+    last_error              TEXT,
+    last_used_at            TIMESTAMPTZ,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (provider_id, alias)
+);
+ 
+CREATE TABLE IF NOT EXISTS llm_models (
+    id                  BIGSERIAL PRIMARY KEY,
+    provider_id         BIGINT       NOT NULL REFERENCES llm_providers(id) ON DELETE CASCADE,
+    model_name          VARCHAR(120) NOT NULL,     
+    display_name        VARCHAR(160),
+    family              VARCHAR(40),               
+    context_window      INTEGER      NOT NULL DEFAULT 8192,
+    supports_json       BOOLEAN      NOT NULL DEFAULT TRUE,
+    supports_tools      BOOLEAN      NOT NULL DEFAULT FALSE,
+    supports_streaming  BOOLEAN      NOT NULL DEFAULT TRUE,
+    supports_vision     BOOLEAN      NOT NULL DEFAULT FALSE,
+    input_cost_per_1k   NUMERIC(10,6) NOT NULL DEFAULT 0,
+    output_cost_per_1k  NUMERIC(10,6) NOT NULL DEFAULT 0,
+    default_temperature NUMERIC(4,3) NOT NULL DEFAULT 0.3,
+    default_max_tokens  INTEGER      NOT NULL DEFAULT 1024,
+    enabled             BOOLEAN      NOT NULL DEFAULT TRUE,
+    config              JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (provider_id, model_name)
+);
+ 
+CREATE TABLE IF NOT EXISTS task_model_bindings (
+    id                  BIGSERIAL PRIMARY KEY,
+    task_code           VARCHAR(80)  NOT NULL,      
+    model_id            BIGINT       NOT NULL REFERENCES llm_models(id) ON DELETE CASCADE,
+    priority            INTEGER      NOT NULL DEFAULT 100,   
+    temperature         NUMERIC(4,3),                       
+    max_tokens          INTEGER,                             
+    json_mode           BOOLEAN      NOT NULL DEFAULT FALSE,
+    pinned              BOOLEAN      NOT NULL DEFAULT FALSE, 
+    enabled             BOOLEAN      NOT NULL DEFAULT TRUE,
+    notes               TEXT,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (task_code, model_id)
+);
+ 
+CREATE TABLE IF NOT EXISTS llm_usage_log (
+    id                BIGSERIAL PRIMARY KEY,
+    task_code         VARCHAR(80)  NOT NULL,
+    model_id          BIGINT       REFERENCES llm_models(id) ON DELETE SET NULL,
+    api_key_id        BIGINT       REFERENCES llm_api_keys(id) ON DELETE SET NULL,
+    provider_code     VARCHAR(40),                          
+    model_name        VARCHAR(120),                         
+    prompt_tokens     INTEGER      NOT NULL DEFAULT 0,
+    completion_tokens INTEGER      NOT NULL DEFAULT 0,
+    total_tokens      INTEGER      NOT NULL DEFAULT 0,
+    latency_ms        INTEGER      NOT NULL DEFAULT 0,
+    success           BOOLEAN      NOT NULL,
+    fallback_used     BOOLEAN      NOT NULL DEFAULT FALSE,  
+    attempt_no        INTEGER      NOT NULL DEFAULT 1,
+    error_code        VARCHAR(60),
+    error_message     TEXT,
+    request_id        VARCHAR(120),                         
+    created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+ 
+CREATE OR REPLACE FUNCTION trg_llm_touch_updated_at()
+RETURNS trigger AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+ 
+DROP TRIGGER IF EXISTS trg_llm_providers_updated  ON llm_providers;
+DROP TRIGGER IF EXISTS trg_llm_api_keys_updated   ON llm_api_keys;
+DROP TRIGGER IF EXISTS trg_llm_models_updated     ON llm_models;
+DROP TRIGGER IF EXISTS trg_task_bindings_updated  ON task_model_bindings;
+ 
+CREATE TRIGGER trg_llm_providers_updated  BEFORE UPDATE ON llm_providers
+    FOR EACH ROW EXECUTE FUNCTION trg_llm_touch_updated_at();
+CREATE TRIGGER trg_llm_api_keys_updated   BEFORE UPDATE ON llm_api_keys
+    FOR EACH ROW EXECUTE FUNCTION trg_llm_touch_updated_at();
+CREATE TRIGGER trg_llm_models_updated     BEFORE UPDATE ON llm_models
+    FOR EACH ROW EXECUTE FUNCTION trg_llm_touch_updated_at();
+CREATE TRIGGER trg_task_bindings_updated  BEFORE UPDATE ON task_model_bindings
+    FOR EACH ROW EXECUTE FUNCTION trg_llm_touch_updated_at();
+
+-- =============================================================
+-- GRAPH CONSOLIDATION LOG
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS graph_consolidation_log (
+    id              BIGSERIAL PRIMARY KEY,
+    course_id       BIGINT NOT NULL,
+    survivor_id     BIGINT NOT NULL,
+    absorbed_ids    BIGINT[] NOT NULL,
+    old_names       JSONB,
+    new_name        TEXT,
+    new_description TEXT,
+    chunks_moved    INTEGER DEFAULT 0,
+    triggered_by    BIGINT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);

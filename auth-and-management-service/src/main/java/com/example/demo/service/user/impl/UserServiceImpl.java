@@ -151,6 +151,48 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    public void forgotPassword(String email) {
+        // Silent fail: never reveal whether the email exists (security best practice)
+        var optUser = userRepository.findByEmail(email);
+        if (optUser.isEmpty()) {
+            log.info("Forgot-password requested for unknown email: {}", email);
+            return;
+        }
+
+        var user  = optUser.get();
+        var token = passwordResetService.createToken(user);
+
+        emailService.sendForgotPasswordEmailAsync(user.getEmail(), user.getName(), token.getToken())
+                .exceptionally(ex -> {
+                    log.error("Forgot-password email failed for {}: {}", user.getEmail(), ex.getMessage());
+                    return null;
+                });
+
+        log.info("Forgot-password email queued for user: {}", user.getEmail());
+    }
+
+    @Override
+    @Transactional
+    public void resetPassword(String tokenValue, String newPwd) {
+        var token = passwordResetService.validateAndGetToken(tokenValue);
+        var user  = token.getUser();
+
+        validatePassword(newPwd);
+        user.setPassword(passwordEncoder.encode(newPwd));
+        userRepository.save(user);
+        passwordResetService.markTokenAsUsed(token);
+
+        emailService.sendPasswordChangedNotificationAsync(user.getEmail(), user.getName())
+                .exceptionally(ex -> {
+                    log.warn("Notification email failed after reset: {}", ex.getMessage());
+                    return null;
+                });
+
+        log.info("Password reset completed for user: {}", user.getEmail());
+    }
+
+    @Override
+    @Transactional
     public String uploadProfilePicture(Long userId, MultipartFile file) {
         var user = findUserEntity(userId);
         validateImageFile(file);

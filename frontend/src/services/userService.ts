@@ -41,6 +41,15 @@ export interface MessageResponse {
   message: string;
 }
 
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
 export interface LoginResponse {
   token: string;
   name: string;
@@ -74,6 +83,12 @@ export const userService = {
 
   confirmPasswordChange: (data: ConfirmPasswordChangeRequest) =>
     apiClient.post<MessageResponse>("/api/auth/confirm-password-change", data),
+
+  forgotPassword: (email: string) =>
+    apiClient.post<MessageResponse>("/api/auth/forgot-password", { email }),
+
+  resetPassword: (data: ResetPasswordRequest) =>
+    apiClient.post<MessageResponse>("/api/auth/reset-password", data),
 
   delete: (id: number) => apiClient.delete(`/api/users/${id}`),
 

@@ -684,7 +684,6 @@ func (c *Client) GetStudentWeaknesses(ctx context.Context, studentID, courseID i
 		totalAttempt := GetIntField(r, "total_attempts")
 		nodeID := GetInt64Field(r, "node_id")
 		flashcardCount := GetIntField(r, "flashcard_count")
-		fmt.Println("flashcardCount", flashcardCount)
 
 		// Map mastery_level to Vietnamese status label
 		statusLevel := "Rất tốt"

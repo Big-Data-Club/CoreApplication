@@ -24,20 +24,25 @@ public class EmailServiceImpl implements EmailService {
 
     @Value("${app.name}")
     private String appName;
-  
+
     public void sendWelcomeEmail(String to, String name, String tempPassword) {
         emailSender.send(to, "Chào mừng đến với hệ thống " + appName,
              emailTemplateProvider.buildWelcomeHtml(name, to, tempPassword));
     }
- 
+
     public void sendPasswordChangeConfirmation(String to, String name, String token) {
         emailSender.send(to, "Xác nhận thay đổi mật khẩu - " + appName,
              emailTemplateProvider.buildPasswordConfirmHtml(name, token));
     }
- 
+
     public void sendPasswordChangedNotification(String to, String name) {
         emailSender.send(to, "Mật khẩu đã được thay đổi - " + appName,
              emailTemplateProvider.buildPasswordChangedHtml(name));
+    }
+
+    public void sendForgotPasswordEmail(String to, String name, String token) {
+        emailSender.send(to, "Đặt lại mật khẩu - " + appName,
+             emailTemplateProvider.buildForgotPasswordHtml(name, token));
     }
 
     @Async("emailExecutor")
@@ -68,9 +73,14 @@ public class EmailServiceImpl implements EmailService {
     public CompletableFuture<Void> sendPasswordChangeConfirmationAsync(String to, String name, String token) {
         return CompletableFuture.runAsync(() -> sendPasswordChangeConfirmation(to, name, token));
     }
- 
+
     @Async("emailExecutor")
     public CompletableFuture<Void> sendPasswordChangedNotificationAsync(String to, String name) {
         return CompletableFuture.runAsync(() -> sendPasswordChangedNotification(to, name));
+    }
+
+    @Async("emailExecutor")
+    public CompletableFuture<Void> sendForgotPasswordEmailAsync(String to, String name, String token) {
+        return CompletableFuture.runAsync(() -> sendForgotPasswordEmail(to, name, token));
     }
 }

@@ -104,4 +104,35 @@ public class EmailHtmlTemplate implements EmailTemplateProvider{
             </body></html>
             """.formatted(name, LocalDateTime.now().format(DT_FORMAT));
     }
+
+    public String buildForgotPasswordHtml(String name, String token) {
+        String resetUrl = appUrl + "/confirm-password-change?token=" + token + "&type=reset";
+        return """
+            <!DOCTYPE html><html><head><meta charset="UTF-8">
+            <style>
+              body{font-family:Arial,sans-serif;color:#333}
+              .header{background:#7C3AED;color:#fff;padding:20px;text-align:center}
+              .content{background:#f9f9f9;padding:30px}
+              .btn{display:inline-block;padding:15px 40px;background:#7C3AED;color:#fff;text-decoration:none;border-radius:5px;font-weight:bold}
+              .warn{background:#ffebee;padding:15px;border-left:4px solid #f44336;margin:20px 0}
+              .note{background:#f3f0ff;padding:12px;border-left:4px solid #7C3AED;margin:15px 0;font-size:13px}
+            </style></head><body>
+            <div class="header"><h1>🔑 Đặt lại mật khẩu</h1></div>
+            <div class="content">
+              <p>Xin chào <strong>%s</strong>,</p>
+              <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Click vào nút bên dưới để tiếp tục:</p>
+              <div style="text-align:center;margin:25px 0">
+                <a href="%s" class="btn">ĐẶT LẠI MẬT KHẨU</a>
+              </div>
+              <div class="note">
+                💡 Link có hiệu lực <strong>15 phút</strong> và chỉ dùng được 1 lần.
+              </div>
+              <div class="warn">
+                ⚠️ Nếu bạn không yêu cầu đặt lại mật khẩu, hãy bỏ qua email này.
+                Tài khoản của bạn vẫn an toàn.
+              </div>
+            </div>
+            </body></html>
+            """.formatted(name, resetUrl);
+    }
 }

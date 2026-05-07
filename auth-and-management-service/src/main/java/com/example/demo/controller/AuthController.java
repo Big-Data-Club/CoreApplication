@@ -100,6 +100,23 @@ public class AuthController {
             "Đổi mật khẩu thành công! Vui lòng đăng nhập lại."));
     }
 
+    @PostMapping("/forgot-password")
+    public ResponseEntity<MessageResponse> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest req) {
+        // Always return 200 — never reveal whether the email exists
+        userService.forgotPassword(req.getEmail());
+        return ResponseEntity.ok(new MessageResponse(
+            "Nếu email tồn tại trong hệ thống, bạn sẽ nhận được link đặt lại mật khẩu trong vài phút."));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<MessageResponse> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest req) {
+        userService.resetPassword(req.getToken(), req.getNewPassword());
+        return ResponseEntity.ok(new MessageResponse(
+            "Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại."));
+    }
+
     private String cookieOf(String name, String value, long maxAge) {
         return ResponseCookie.from(name, value)
                 .httpOnly(true)

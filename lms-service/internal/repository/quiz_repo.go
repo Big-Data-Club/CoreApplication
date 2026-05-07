@@ -1293,11 +1293,11 @@ func (r *QuizRepository) GetQuestionsByIDs(ctx context.Context, ids []int64) ([]
 			&q.OrderIndex,
 			&q.Settings,
 			&q.IsRequired,
-			&q.CreatedAt,
-			&q.UpdatedAt,
 			&q.NodeID,
 			&q.BloomLevel,
 			&q.ReferenceChunkID,
+			&q.CreatedAt,
+			&q.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err

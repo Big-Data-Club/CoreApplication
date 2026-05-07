@@ -9,19 +9,20 @@ import ConfirmPasswordForm from "@/components/login/ConfirmPasswordForm";
 function PasswordChangeContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const type = searchParams.get("type") as "change" | "reset" | null;
 
   if (!token) {
     return <InvalidTokenCard />;
   }
 
-  return <ConfirmPasswordForm token={token} />;
+  return <ConfirmPasswordForm token={token} type={type ?? "change"} />;
 }
 
 export default function ConfirmPasswordChangePage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md mb-8 flex flex-col items-center">
-        <Logo /> 
+        <Logo />
         <h2 className="mt-4 text-center text-3xl font-extrabold text-slate-900 tracking-tight">
           Big Data Club
         </h2>

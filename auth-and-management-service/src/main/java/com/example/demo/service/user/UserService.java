@@ -26,6 +26,12 @@ public interface UserService {
 
     void confirmPasswordChange(String token, String newPassword);
 
+    /** Gửi link đặt lại mật khẩu về email (không yêu cầu đăng nhập). */
+    void forgotPassword(String email);
+
+    /** Đặt lại mật khẩu bằng token từ email (không yêu cầu đăng nhập). */
+    void resetPassword(String token, String newPassword);
+
     String uploadProfilePicture(Long userId, MultipartFile file);
 
     void deleteUser(Long id);
