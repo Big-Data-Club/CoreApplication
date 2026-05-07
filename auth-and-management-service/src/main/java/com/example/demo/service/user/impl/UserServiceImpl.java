@@ -236,6 +236,62 @@ public class UserServiceImpl implements UserService {
         return UserResponse.fromEntity(saved);
     }
 
+    @Override
+    public List<UserResponse> getPendingUsers() {
+        return userRepository.findByPendingApprovalTrue().stream()
+                .map(UserResponse::fromEntity)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public UserResponse approveUser(Long id) {
+        var user = findUserEntity(id);
+        if (!user.getPendingApproval()) {
+            throw new BadRequestException("User is not pending approval");
+        }
+
+        // Generate a random password and update the user
+        String randomPassword = com.example.demo.utils.PasswordGenerator.generateStrongPassword();
+        user.setPassword(passwordEncoder.encode(randomPassword));
+        user.setActive(true);
+        user.setPendingApproval(false);
+        var saved = userRepository.save(user);
+
+        // Send welcome email with the generated password
+        emailService.sendWelcomeEmailAsync(user.getEmail(), user.getName(), randomPassword)
+                .exceptionally(ex -> {
+                    log.error("Welcome email failed for approved user {}: {}", user.getEmail(), ex.getMessage());
+                    return null;
+                });
+
+        // Sync to LMS
+        userSyncService.syncUser(saved)
+                .exceptionally(ex -> {
+                    log.error("LMS sync failed for approved user {}: {}", user.getEmail(), ex.getMessage());
+                    return null;
+                });
+
+        log.info("User {} approved by admin", user.getEmail());
+        return UserResponse.fromEntity(saved);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse rejectUser(Long id) {
+        var user = findUserEntity(id);
+        if (!user.getPendingApproval()) {
+            throw new BadRequestException("User is not pending approval");
+        }
+
+        user.setActive(false);
+        user.setPendingApproval(false);
+        var saved = userRepository.save(user);
+
+        log.info("User {} rejected by admin (blocked)", user.getEmail());
+        return UserResponse.fromEntity(saved);
+    }
+
     // Helpers
 
     /** Entity-level lookup */

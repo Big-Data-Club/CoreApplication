@@ -1,5 +1,6 @@
 package com.example.demo.dto.user;
 
+import com.example.demo.enums.AuthProvider;
 import com.example.demo.enums.UserRole;
 import com.example.demo.enums.UserTeam;
 import com.example.demo.enums.UserType;
@@ -17,9 +18,11 @@ public class UserResponse {
     private UserRole   role;
     private UserTeam   team;
     private UserType   type;
-    private String     code;
-    private Integer    totalScore;
-    private Boolean    active;
+    private String       code;
+    private Integer      totalScore;
+    private Boolean      active;
+    private AuthProvider authProvider;
+    private Boolean      pendingApproval;
     private String     profilePicture;
 
     public static UserResponse fromEntity(User user) {
@@ -34,6 +37,8 @@ public class UserResponse {
                 .totalScore(user.getTotalScore())
                 .active(user.getActive())
                 .profilePicture(user.getProfilePicture())
+                .authProvider(user.getAuthProvider())
+                .pendingApproval(user.getPendingApproval())
                 .build();
     }
 }

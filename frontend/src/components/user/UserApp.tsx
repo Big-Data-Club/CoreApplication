@@ -7,6 +7,7 @@ import UserRow from "./UserRow";
 import DetailModal from "./DetailModal";
 import { mapFrontendRoleToBackend, mapFrontendTeamToBackend, mapFrontendTypeToBackend } from "@/lib/users/auth";
 import { useAuth } from "@/hooks/useAuth";
+import { PendingUsersSection } from "./PendingUsersSection";
 
 export default function UserApp() {
   const { isAdmin } = useAuth();
@@ -210,6 +211,9 @@ export default function UserApp() {
             </div>
           </div>
         </div>
+
+        {/* Pending Users (admin only) */}
+        <PendingUsersSection isAdmin={isAdmin} onApproved={load} />
 
         {/* Table Header */}
         <div className="bg-white dark:bg-slate-900 rounded-t-xl border border-b-0 border-slate-200 dark:border-slate-800 overflow-x-auto">

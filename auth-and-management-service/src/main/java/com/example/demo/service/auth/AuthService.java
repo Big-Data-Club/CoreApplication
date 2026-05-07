@@ -42,6 +42,9 @@ public class AuthService {
         }
 
         if (!user.getActive()) {
+            if (user.getPendingApproval()) {
+                throw new BadRequestException("Tài khoản của bạn đang chờ admin duyệt. Vui lòng đợi.");
+            }
             throw new BadRequestException("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.");
         }
 

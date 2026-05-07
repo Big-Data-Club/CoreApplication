@@ -84,4 +84,22 @@ public class UserController {
         userService.deleteUser(id);
         return ResponseEntity.noContent().build();
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/pending")
+    public ResponseEntity<List<UserResponse>> getPendingUsers() {
+        return ResponseEntity.ok(userService.getPendingUsers());
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @PatchMapping("/{id}/approve")
+    public ResponseEntity<UserResponse> approveUser(@PathVariable Long id) {
+        return ResponseEntity.ok(userService.approveUser(id));
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @PatchMapping("/{id}/reject")
+    public ResponseEntity<UserResponse> rejectUser(@PathVariable Long id) {
+        return ResponseEntity.ok(userService.rejectUser(id));
+    }
 }

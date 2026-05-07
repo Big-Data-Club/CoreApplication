@@ -107,6 +107,31 @@ export const authOptions: NextAuthOptions = {
         }
       },
     }),
+    CredentialsProvider({
+      id: "google-backend",
+      name: "Google Backend",
+      credentials: {
+        userId: { type: "text" },
+        name: { type: "text" },
+        email: { type: "text" },
+        role: { type: "text" },
+        token: { type: "text" },
+        refreshToken: { type: "text" },
+        expiresIn: { type: "text" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.userId || !credentials?.token) return null;
+        return {
+          id: credentials.userId,
+          name: credentials.name,
+          email: credentials.email,
+          role: credentials.role,
+          token: credentials.token,
+          refreshToken: credentials.refreshToken,
+          expiresIn: Number(credentials.expiresIn),
+        };
+      },
+    }),
   ],
   session: {
     strategy: "jwt",

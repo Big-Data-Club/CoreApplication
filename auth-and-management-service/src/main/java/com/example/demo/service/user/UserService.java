@@ -37,4 +37,13 @@ public interface UserService {
     void deleteUser(Long id);
 
     UserResponse toggleActive(Long id);
+
+    /** Get all users pending admin approval (Google OAuth registrations). */
+    List<UserResponse> getPendingUsers();
+
+    /** Approve a pending user: set active=true, pendingApproval=false, send welcome email. */
+    UserResponse approveUser(Long id);
+
+    /** Reject a pending user: set active=false, pendingApproval=false (blocked). */
+    UserResponse rejectUser(Long id);
 }

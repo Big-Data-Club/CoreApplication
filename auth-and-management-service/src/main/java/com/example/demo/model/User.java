@@ -1,5 +1,6 @@
 package com.example.demo.model;
 
+import com.example.demo.enums.AuthProvider;
 import com.example.demo.enums.UserRole;
 import com.example.demo.enums.UserTeam;
 import com.example.demo.enums.UserType;
@@ -58,6 +59,18 @@ public class User {
     @Column(nullable = false)
     @Builder.Default
     private Integer totalScore = 0;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    @Builder.Default
+    private AuthProvider authProvider = AuthProvider.LOCAL;
+
+    @Column(unique = true)
+    private String googleId;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean pendingApproval = false;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
     @JsonIgnore

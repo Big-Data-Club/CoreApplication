@@ -102,4 +102,28 @@ export const userService = {
     );
     return data.profilePicture;
   },
+
+  // Google OAuth
+  googleLogin: (idToken: string) =>
+    apiClient.post<any>("/api/auth/google/login", { idToken }).catch((err) => {
+      // Handle 404 (user not found) and 403 (pending/blocked) specially
+      throw err;
+    }),
+
+  googleRegister: (data: {
+    idToken: string;
+    name: string;
+    code: string;
+    team: string;
+    type: string;
+  }) => apiClient.post<{ message: string }>("/api/auth/google/register", data),
+
+  // Admin - Pending users
+  getPendingUsers: () => apiClient.get<UserResponse[]>("/api/users/pending"),
+
+  approveUser: (id: number) =>
+    apiClient.patch<UserResponse>(`/api/users/${id}/approve`, {}),
+
+  rejectUser: (id: number) =>
+    apiClient.patch<UserResponse>(`/api/users/${id}/reject`, {}),
 };

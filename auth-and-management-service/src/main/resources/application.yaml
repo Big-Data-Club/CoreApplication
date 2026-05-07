@@ -90,6 +90,9 @@ ai-service:
     url: ${AI_SERVICE_URL}
     secret: ${AI_SERVICE_SECRET}
 
+google:
+  client-id: ${GOOGLE_CLIENT_ID}
+
 springdoc:
   swagger-ui:
     config-url: /apiv1/v3/api-docs/swagger-config

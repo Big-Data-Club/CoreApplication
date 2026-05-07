@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import com.example.demo.dto.auth.*;
 import com.example.demo.model.User;
 import com.example.demo.service.auth.AuthService;
+import com.example.demo.service.auth.GoogleAuthService;
 import com.example.demo.service.user.UserService;
 
 import jakarta.validation.Valid;
@@ -21,6 +22,7 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final GoogleAuthService googleAuthService;
     private final UserService userService;
 
     @Value("${jwt.expirationMs:3600000}")
@@ -115,6 +117,58 @@ public class AuthController {
         userService.resetPassword(req.getToken(), req.getNewPassword());
         return ResponseEntity.ok(new MessageResponse(
             "Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại."));
+    }
+
+    @PostMapping("/google/login")
+    public ResponseEntity<?> googleLogin(@Valid @RequestBody GoogleLoginRequest req) {
+        var payload = googleAuthService.verifyIdToken(req.getIdToken());
+        var optUser = googleAuthService.findExistingUser(payload);
+
+        if (optUser.isEmpty()) {
+            // User does not exist — return Google profile for registration form
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(googleAuthService.buildProfileResponse(payload));
+        }
+
+        User user = optUser.get();
+
+        if (user.getPendingApproval()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "PENDING_APPROVAL",
+                                 "message", "Tài khoản đang chờ admin duyệt."));
+        }
+        if (!user.getActive()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "BLOCKED",
+                                 "message", "Tài khoản đã bị khóa. Liên hệ admin."));
+        }
+
+        // Link Google ID if not yet linked (existing LOCAL user logging in with Google for first time)
+        if (user.getGoogleId() == null) {
+            user.setGoogleId(payload.getSubject());
+        }
+
+        String at = authService.generateToken(user);
+        String rt = authService.generateRefreshToken(user);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookieOf("authToken", at, expirationMs / 1000))
+                .header(HttpHeaders.SET_COOKIE, cookieOf("refreshToken", rt, refreshExpirationMs / 1000))
+                .body(Map.of(
+                    "userId",    user.getId(),
+                    "name",      user.getName(),
+                    "email",     user.getEmail(),
+                    "role",      user.getRole().name(),
+                    "token",     at,
+                    "expiresIn", expirationMs
+                ));
+    }
+
+    @PostMapping("/google/register")
+    public ResponseEntity<?> googleRegister(@Valid @RequestBody GoogleRegisterRequest req) {
+        googleAuthService.registerWithGoogle(req);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(Map.of("message", "Đăng ký thành công! Tài khoản đang chờ admin duyệt."));
     }
 
     private String cookieOf(String name, String value, long maxAge) {
