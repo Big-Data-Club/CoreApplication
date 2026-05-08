@@ -1,7 +1,7 @@
 package com.example.demo.dto.user;
 
 import com.example.demo.enums.AuthProvider;
-import com.example.demo.enums.UserRole;
+
 import com.example.demo.enums.UserTeam;
 import com.example.demo.enums.UserType;
 import com.example.demo.model.User;
@@ -15,7 +15,7 @@ public class UserResponse {
     private Long       id;
     private String     name;
     private String     email;
-    private UserRole   role;
+    private String     role;
     private UserTeam   team;
     private UserType   type;
     private String       code;

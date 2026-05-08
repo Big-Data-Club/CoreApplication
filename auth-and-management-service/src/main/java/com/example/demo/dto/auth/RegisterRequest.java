@@ -1,6 +1,6 @@
 package com.example.demo.dto.auth;
 
-import com.example.demo.enums.UserRole;
+
 import com.example.demo.enums.UserTeam;
 import com.example.demo.enums.UserType;
 import lombok.AllArgsConstructor;
@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 public class RegisterRequest {
     private String name;
     private String email;
-    private UserRole role;
+    private String role;
     private UserTeam team;
     private String code;
     private UserType type;

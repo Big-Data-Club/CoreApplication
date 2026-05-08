@@ -44,7 +44,7 @@ public class AuthController {
                     "userId",    user.getId(),
                     "name",      user.getName(),
                     "email",     user.getEmail(),
-                    "role",      user.getRole().name(),
+                    "role",      user.getRole(),
                     "token",     at,
                     "expiresIn", expirationMs
                 ));
@@ -158,7 +158,7 @@ public class AuthController {
                     "userId",    user.getId(),
                     "name",      user.getName(),
                     "email",     user.getEmail(),
-                    "role",      user.getRole().name(),
+                    "role",      user.getRole(),
                     "token",     at,
                     "expiresIn", expirationMs
                 ));

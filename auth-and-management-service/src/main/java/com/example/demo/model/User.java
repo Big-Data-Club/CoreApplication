@@ -1,7 +1,7 @@
 package com.example.demo.model;
 
 import com.example.demo.enums.AuthProvider;
-import com.example.demo.enums.UserRole;
+
 import com.example.demo.enums.UserTeam;
 import com.example.demo.enums.UserType;
 import jakarta.persistence.*;
@@ -33,9 +33,8 @@ public class User {
     @JsonIgnore
     private String password;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private UserRole role;
+    @Column(nullable = false, length = 50)
+    private String role;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
