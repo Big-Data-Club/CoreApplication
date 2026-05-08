@@ -1,8 +1,13 @@
 export function mapFrontendRoleToBackend(role: string): string {
   if (!role) return "ROLE_USER";
-  const r = role.toLowerCase();
-  if (r.includes("admin")) return "ROLE_ADMIN";
-  if (r.includes("manager")) return "ROLE_MANAGER";
+  const r = role.toUpperCase();
+  // If it's already a well-formatted backend role (from dynamic dropdown)
+  if (r.startsWith("ROLE_") || r === r.replace(/[^A-Z_]/g, "")) return r;
+  
+  // Legacy text mapping for bulk upload CSV
+  const lower = role.toLowerCase();
+  if (lower.includes("admin")) return "ROLE_ADMIN";
+  if (lower.includes("manager")) return "ROLE_MANAGER";
   return "ROLE_USER";
 }
 
