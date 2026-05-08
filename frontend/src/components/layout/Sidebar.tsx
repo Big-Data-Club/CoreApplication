@@ -13,8 +13,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ChevronsLeft, ChevronsRight, LogOut, Sun, Moon } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, LogOut, Sun, Moon, Settings } from "lucide-react";
 import { useUser } from "@/store/UserContext";
+import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "next-themes";
 import SafeImage from "../common/SafeImage";
 
@@ -26,6 +27,7 @@ const Sidebar: React.FC = () => {
   const pathname = usePathname();
   const router = useRouter();
   const { user, setUser } = useUser();
+  const { isAdmin } = useAuth();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -179,6 +181,22 @@ const Sidebar: React.FC = () => {
 
         {/* Footer actions */}
         <div className="border-t border-slate-200 dark:border-slate-800 p-2 space-y-0.5">
+          {isAdmin && (
+            <Link
+              href="/settings"
+              className={cn(
+                "w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200",
+                pathname.startsWith("/settings")
+                  ? "bg-blue-600 text-white"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100",
+                isCollapsed && "justify-center"
+              )}
+            >
+              <Settings className="h-4 w-4 flex-shrink-0" />
+              {!isCollapsed && "Settings"}
+            </Link>
+          )}
+
           <button
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
             className={cn(

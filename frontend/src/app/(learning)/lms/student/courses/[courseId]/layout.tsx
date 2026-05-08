@@ -11,11 +11,11 @@
  *  - StudentCourseContext for child pages
  */
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, ChevronDown, ChevronRight, Menu, X,
+  ChevronDown, ChevronRight, Menu, X,
   Play, FileText, Image as ImageIcon, HelpCircle,
   MessageSquare, Megaphone, File as FileIcon, BookOpen,
   BarChart3, CheckCircle2,
@@ -24,7 +24,7 @@ import {
 import lmsService from "@/services/lmsService";
 import progressService, { CourseProgress, ProgressDetailItem } from "@/services/progressService";
 
-import { GhostBtn, ProgressBar, PageLoader } from "@/components/lms/shared";
+import { ProgressBar, PageLoader } from "@/components/lms/shared";
 import { BreadcrumbNav, type BreadcrumbItem } from "@/components/lms/BreadcrumbNav";
 import { StudentCourseContext } from "@/components/lms/student/StudentCourseContext";
 import { Content, Course, Section } from "@/types";

@@ -104,6 +104,7 @@ func main() {
 	forumRepo := repository.NewForumRepository(db)
 	progressRepo := repository.NewProgressRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
+	roleDefRepo := repository.NewRoleDefinitionRepository(db)
 
 	flashcardRepo := repository.NewFlashcardRepository(db)
 	microLessonRepo := repository.NewMicroLessonRepository(db)
@@ -166,6 +167,7 @@ func main() {
 	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient)
 	flashcardService := service.NewFlashcardService(flashcardRepo, aiClient, redisClient)
 	microInteractionService := service.NewMicroInteractionService(microInteractionRepo, microLessonRepo)
+	roleAdminService := service.NewRoleAdminService(roleDefRepo, userRepo, redisClient)
 
 	// Heatmap analytics worker: consumes Quick Action Panel interactions
 	// off `lms.analytics.interactions` and updates knowledge_node_mastery.
@@ -187,6 +189,7 @@ func main() {
 	flashcardHandler := handler.NewFlashcardHandler(flashcardService, enrollmentService)
 	microLessonHandler := handler.NewMicroLessonHandler(microLessonRepo, courseRepo, aiClient)
 	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
+	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -275,6 +278,23 @@ func main() {
 		{
 			// User role management
 			auth.GET("/me/roles", userHandler.GetMyRoles)
+
+			// Admin role management
+			adminRoles := auth.Group("/admin/roles")
+			adminRoles.Use(middleware.RequireRole("ADMIN"))
+			{
+				adminRoles.GET("", roleAdminHandler.ListRoles)
+				adminRoles.POST("", roleAdminHandler.CreateRole)
+				adminRoles.PUT("/:id", roleAdminHandler.UpdateRole)
+				adminRoles.DELETE("/:id", roleAdminHandler.DeleteRole)
+			}
+			adminUsers := auth.Group("/admin/users")
+			adminUsers.Use(middleware.RequireRole("ADMIN"))
+			{
+				adminUsers.GET("/:userId/roles", roleAdminHandler.GetUserRoles)
+				adminUsers.PUT("/:userId/roles", roleAdminHandler.AssignRoleToUser)
+				adminUsers.DELETE("/:userId/roles/:role", roleAdminHandler.RemoveRoleFromUser)
+			}
 
 			// ── Composite Analytics (Quick Action Panel + heatmap) ─────────
 			// POST /analytics/micro-interaction is hit by every flashcard

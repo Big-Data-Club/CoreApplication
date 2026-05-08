@@ -40,7 +40,7 @@ public class TaskScoreService {
     private final TaskRepository taskRepo;
     private final UserRepository userRepo;
 
-    private static final Set<UserRole> PRIVILEGED = Set.of(UserRole.ROLE_ADMIN, UserRole.ROLE_MANAGER);
+    private static final Set<String> PRIVILEGED = Set.of(UserRole.ROLE_ADMIN, UserRole.ROLE_MANAGER);
 
     // ── Reads ────────────────────────────────────────────────────────────────
 

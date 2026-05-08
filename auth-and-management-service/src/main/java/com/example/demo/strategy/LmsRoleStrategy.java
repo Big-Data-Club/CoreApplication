@@ -1,21 +1,36 @@
 package com.example.demo.strategy;
 
-import com.example.demo.enums.UserRole;
+import com.example.demo.model.LmsRoleMapping;
+import com.example.demo.repository.LmsRoleMappingRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Component;
 
-import java.util.Map;
 import java.util.List;
 
-@org.springframework.stereotype.Component
+/**
+ * Resolves an Auth-side role name (e.g. "ROLE_ADMIN") into one or more
+ * LMS-side role names (e.g. ["ADMIN"]) by looking up the dynamic mappings
+ * stored in the {@code lms_role_mappings} table.
+ *
+ * Results are cached per role name; the cache is evicted when an admin
+ * updates the mappings via {@code RoleManagementService}.
+ */
+@Component
+@RequiredArgsConstructor
 public class LmsRoleStrategy implements RoleResolutionStrategy {
 
-    private static final Map<UserRole, List<String>> ROLE_MAP = Map.of(
-        UserRole.ROLE_ADMIN,   List.of("TEACHER", "STUDENT", "ADMIN"),
-        UserRole.ROLE_MANAGER, List.of("TEACHER", "STUDENT", "MANAGER"),
-        UserRole.ROLE_USER,    List.of("TEACHER", "STUDENT")
-    );
+    private final LmsRoleMappingRepository mappingRepo;
 
+    @Cacheable(value = "lmsRoleMappings", key = "#role")
     @Override
-    public List<String> resolve(UserRole role) {
-        return ROLE_MAP.getOrDefault(role, List.of("STUDENT"));
+    public List<String> resolve(String role) {
+        var mappings = mappingRepo.findByAuthRoleName(role);
+        if (mappings.isEmpty()) {
+            return List.of("STUDENT"); // safe fallback
+        }
+        return mappings.stream()
+                .map(LmsRoleMapping::getLmsRole)
+                .toList();
     }
 }

@@ -5,6 +5,8 @@ import Avatar from "./Avatar";
 import { X, Pencil, Save, Loader2 } from "lucide-react";
 import { updateUser, updateUserRole } from "@/lib/users/api";
 import { mapFrontendTeamToBackend, mapFrontendTypeToBackend, mapFrontendRoleToBackend } from "@/lib/users/auth";
+import { fetchRoles, Role } from "@/lib/admin/rolesApi";
+import LmsUserRoleManager from "../admin/LmsUserRoleManager";
 
 interface DetailModalProps {
   user: User | null;
@@ -15,7 +17,6 @@ interface DetailModalProps {
 
 const TEAM_OPTIONS = ["Research", "Engineer", "Event", "Media"];
 const TYPE_OPTIONS = ["CLC", "DT", "TN"];
-const ROLE_OPTIONS = ["User", "Manager", "Admin"];
 
 export default function DetailModal({ user, onClose, isAdmin = false, onUserUpdated }: DetailModalProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -29,6 +30,7 @@ export default function DetailModal({ user, onClose, isAdmin = false, onUserUpda
   const [editTeam, setEditTeam] = useState("");
   const [editType, setEditType] = useState("");
   const [editRole, setEditRole] = useState("");
+  const [roles, setRoles] = useState<Role[]>([]);
 
   // Reset form state when user changes
   useEffect(() => {
@@ -41,8 +43,14 @@ export default function DetailModal({ user, onClose, isAdmin = false, onUserUpda
       setIsEditing(false);
       setSaveError(null);
       setSaveSuccess(false);
+
+      if (isAdmin && roles.length === 0) {
+        fetchRoles()
+          .then((data) => setRoles(data))
+          .catch((err) => console.error("Failed to fetch roles:", err));
+      }
     }
-  }, [user]);
+  }, [user, isAdmin, roles.length]);
 
   if (!user) return null;
 
@@ -81,7 +89,8 @@ export default function DetailModal({ user, onClose, isAdmin = false, onUserUpda
       });
 
       if (editRole !== user.role && isAdmin) {
-        await updateUserRole(user.id, mapFrontendRoleToBackend(editRole));
+        // Find role name from the dynamic list if needed, or send as is if user selected the name
+        await updateUserRole(user.id, editRole);
       }
 
       setSaveSuccess(true);
@@ -99,7 +108,7 @@ export default function DetailModal({ user, onClose, isAdmin = false, onUserUpda
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
@@ -261,8 +270,8 @@ export default function DetailModal({ user, onClose, isAdmin = false, onUserUpda
                                  focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 
                                  transition-all duration-200"
                     >
-                      {ROLE_OPTIONS.map((r) => (
-                        <option key={r} value={r}>{r}</option>
+                      {roles.map((r) => (
+                        <option key={r.id} value={r.name}>{r.displayName}</option>
                       ))}
                     </select>
                   ) : (
@@ -357,6 +366,12 @@ export default function DetailModal({ user, onClose, isAdmin = false, onUserUpda
                   </span>
                 </div>
               </div>
+              {/* LMS Access (Admin Only) */}
+              {isAdmin && (
+                <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
+                  <LmsUserRoleManager userId={user.id} />
+                </div>
+              )}
             </>
           )}
         </div>

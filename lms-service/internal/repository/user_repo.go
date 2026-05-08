@@ -177,3 +177,21 @@ func (r *UserRepository) ClearUserRoles(ctx context.Context, userID int64) error
 	_, err := r.db.ExecContext(ctx, query, userID)
 	return err
 }
+
+// ClearSyncedRoles removes only roles with source='sync', preserving manual overrides.
+func (r *UserRepository) ClearSyncedRoles(ctx context.Context, userID int64) error {
+	query := `DELETE FROM user_roles WHERE user_id = $1 AND source = 'sync'`
+	_, err := r.db.ExecContext(ctx, query, userID)
+	return err
+}
+
+// AddRoleWithSource inserts a role with an explicit source tag ('sync' or 'manual').
+func (r *UserRepository) AddRoleWithSource(ctx context.Context, userID int64, role, source string) error {
+	query := `
+		INSERT INTO user_roles (user_id, role, source)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, role) DO NOTHING
+	`
+	_, err := r.db.ExecContext(ctx, query, userID, role, source)
+	return err
+}

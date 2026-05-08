@@ -52,9 +52,7 @@ const nextConfig: NextConfig = {
 
   output: 'standalone',
   productionBrowserSourceMaps: false,
-  optimizeFonts: true,
   reactStrictMode: true,
-  swcMinify: true,
   compress: true,
   poweredByHeader: false,
   

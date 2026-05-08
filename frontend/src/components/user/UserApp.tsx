@@ -18,6 +18,7 @@ export default function UserApp() {
   const [query, setQuery] = useState("");
   const [teamFilter, setTeamFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
 
   const [detail, setDetail] = useState<User | null>(null);
 
@@ -102,6 +103,7 @@ export default function UserApp() {
     let list = users.filter(u => {
       if (teamFilter && u.team !== teamFilter) return false;
       if (typeFilter && u.type !== typeFilter) return false;
+      if (roleFilter && u.role !== roleFilter) return false;
       if (!q) return true;
       return u.name.toLowerCase().includes(q) || u.code.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
     });
@@ -181,6 +183,19 @@ export default function UserApp() {
                 <option value="CLC">CLC</option>
                 <option value="DT">DT</option>
                 <option value="TN">TN</option>
+              </select>
+
+              {/* Role Filter */}
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="px-3 py-2.5 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-xl text-slate-900 dark:text-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
+              >
+                <option value="">All roles</option>
+                <option value="ROLE_ADMIN">Admin</option>
+                <option value="ROLE_MANAGER">Manager</option>
+                <option value="ROLE_USER">User</option>
+                <option value="ROLE_ALUMNI">Alumni</option>
               </select>
 
               {/* Bulk Upload */}

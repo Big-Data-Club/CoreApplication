@@ -3,12 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
 
 	"example/hello/internal/dto"
-	"example/hello/internal/models"
 	"example/hello/internal/repository"
 	"example/hello/pkg/cache"
 	"example/hello/pkg/logger"
@@ -30,7 +30,8 @@ func NewUserSyncService(userRepo *repository.UserRepository, c *cache.RedisCache
 	}
 }
 
-// SyncUser synchronizes a single user from auth service
+// SyncUser synchronizes a single user from auth service.
+// Only roles with source='sync' are replaced; source='manual' roles are preserved.
 func (s *UserSyncService) SyncUser(ctx context.Context, req *dto.UserSyncRequest) (*dto.UserSyncResponse, error) {
 	// Get or create user
 	user, err := s.userRepo.GetOrCreateUser(ctx, req.UserID, req.Email, req.FullName)
@@ -48,38 +49,20 @@ func (s *UserSyncService) SyncUser(ctx context.Context, req *dto.UserSyncRequest
 		}
 	}
 
-	// Sync roles - xóa roles cũ và thêm roles mới
-	existingRoles, err := s.userRepo.GetUserRoles(ctx, req.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get existing roles: %w", err)
+	// Clear only synced roles (preserve manually assigned ones)
+	if err := s.userRepo.ClearSyncedRoles(ctx, req.UserID); err != nil {
+		return nil, fmt.Errorf("failed to clear synced roles: %w", err)
 	}
 
-	// Xóa roles không còn trong danh sách mới
-	for _, existingRole := range existingRoles {
-		found := false
-		for _, newRole := range req.Roles {
-			if existingRole == newRole {
-				found = true
-				break
-			}
-		}
-		if !found {
-			if err := s.userRepo.RemoveRole(ctx, req.UserID, existingRole); err != nil {
-				logger.Error(fmt.Sprintf("Failed to remove role %s from user %s", existingRole, req.Email), err)
-			}
-		}
-	}
-
-	// Thêm roles mới
+	// Add new synced roles
 	rolesAssigned := []string{}
 	for _, role := range req.Roles {
-		// Validate role
 		if !isValidRole(role) {
-			logger.Warn(fmt.Sprintf("Invalid role %s for user %s", role, req.Email))
+			logger.Warn(fmt.Sprintf("Empty role skipped for user %s", req.Email))
 			continue
 		}
 
-		if err := s.userRepo.AddRole(ctx, req.UserID, role); err != nil {
+		if err := s.userRepo.AddRoleWithSource(ctx, req.UserID, role, "sync"); err != nil {
 			logger.Error(fmt.Sprintf("Failed to add role %s to user %s", role, req.Email), err)
 			continue
 		}
@@ -121,10 +104,10 @@ func (s *UserSyncService) BulkSyncUsers(ctx context.Context, req *dto.BulkUserSy
 		userReq := req.Users[i]
 		g.Go(func() error {
 			syncResp, err := s.SyncUser(gCtx, &userReq)
-			
+
 			mu.Lock()
 			defer mu.Unlock()
-			
+
 			if err != nil {
 				response.FailedCount++
 				response.FailedUsers = append(response.FailedUsers, dto.SyncError{
@@ -150,20 +133,10 @@ func (s *UserSyncService) BulkSyncUsers(ctx context.Context, req *dto.BulkUserSy
 
 // DeleteUser removes user from LMS
 func (s *UserSyncService) DeleteUser(ctx context.Context, userID int64) error {
-	// First remove all roles
-	roles, err := s.userRepo.GetUserRoles(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("failed to get user roles: %w", err)
+	if err := s.userRepo.ClearUserRoles(ctx, userID); err != nil {
+		return fmt.Errorf("failed to clear user roles: %w", err)
 	}
 
-	for _, role := range roles {
-		if err := s.userRepo.RemoveRole(ctx, userID, role); err != nil {
-			logger.Error(fmt.Sprintf("Failed to remove role %s from user %d", role, userID), err)
-		}
-	}
-
-	// Note: We don't actually delete the user record to maintain referential integrity
-	// Just removing all roles effectively "deactivates" them from LMS perspective
 	if s.cache != nil {
 		cache.Invalidate(ctx, s.cache, cache.KeyUserRoles(userID))
 	}
@@ -172,19 +145,7 @@ func (s *UserSyncService) DeleteUser(ctx context.Context, userID int64) error {
 	return nil
 }
 
-// isValidRole validates if a role is allowed in LMS
+// isValidRole accepts any non-empty role string (dynamic RBAC).
 func isValidRole(role string) bool {
-	validRoles := []string{
-		models.RoleStudent,
-		models.RoleTeacher,
-		models.RoleAdmin,
-	}
-
-	for _, validRole := range validRoles {
-		if role == validRole {
-			return true
-		}
-	}
-
-	return false
+	return strings.TrimSpace(role) != ""
 }

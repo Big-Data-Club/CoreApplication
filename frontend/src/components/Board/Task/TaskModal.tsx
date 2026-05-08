@@ -100,15 +100,25 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, columnId, users, events, on
     }
   };
 
-  const activeUsers = users.filter((u) => u.status !== false && u.active !== false);
-  const filteredUsers = activeUsers.filter(
-    (u) =>
-      u.name.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
-      u.code.toLowerCase().includes(assigneeSearch.toLowerCase())
-  );
+  const sortedAndFilteredUsers = React.useMemo(() => {
+    const active = users.filter((u) => u.status !== false && u.active !== false);
+    const filtered = active.filter(
+      (u) =>
+        u.name.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
+        u.code.toLowerCase().includes(assigneeSearch.toLowerCase())
+    );
+    
+    return filtered.sort((a, b) => {
+      const aAssigned = formData.assignees.some((id) => id.toString() === a.id.toString());
+      const bAssigned = formData.assignees.some((id) => id.toString() === b.id.toString());
+      if (aAssigned && !bAssigned) return -1;
+      if (!aAssigned && bAssigned) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [users, assigneeSearch, formData.assignees]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6">
 
@@ -223,8 +233,8 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, columnId, users, events, on
                 placeholder="Search by name or code..."
               />
               <div className="space-y-1 max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-slate-50 dark:bg-slate-800">
-                {filteredUsers.length > 0 ? (
-                  filteredUsers.map((user) => (
+                {sortedAndFilteredUsers.length > 0 ? (
+                  sortedAndFilteredUsers.map((user) => (
                     <label
                       key={user.id}
                       className="flex items-center gap-3 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors"

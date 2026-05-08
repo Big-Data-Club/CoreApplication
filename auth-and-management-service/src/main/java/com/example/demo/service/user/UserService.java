@@ -18,7 +18,7 @@ public interface UserService {
 
     UserResponse updateUser(Long id, UpdateUserRequest request);
 
-    UserResponse updateRole(Long id, com.example.demo.enums.UserRole role);
+    UserResponse updateRole(Long id, String role);
 
     void changePassword(Long userId, String currentPassword, String newPassword);
 

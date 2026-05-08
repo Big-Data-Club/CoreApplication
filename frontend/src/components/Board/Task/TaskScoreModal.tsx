@@ -36,12 +36,29 @@ const TaskScoreModal: React.FC<TaskScoreModalProps> = ({
     userId: number; amount: number; reason: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [userSearch, setUserSearch] = useState("");
+  const [lastScoredUserId, setLastScoredUserId] = useState<number | null>(null);
 
   const canManageScores = isAdmin || isManager;
   const assignedUserIds = task?.assignees || [];
-  const taskAssignees = users.filter((u) =>
-    assignedUserIds.some((id) => id.toString() === u.id.toString())
-  );
+  const taskAssignees = React.useMemo(() => {
+    const list = users.filter((u) =>
+      assignedUserIds.some((id) => id.toString() === u.id.toString())
+    );
+    
+    // Filter by search
+    const filtered = list.filter(u => 
+      u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.code.toLowerCase().includes(userSearch.toLowerCase())
+    );
+
+    // Sort: last scored first, then by name
+    return filtered.sort((a, b) => {
+      if (a.id === lastScoredUserId) return -1;
+      if (b.id === lastScoredUserId) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [users, assignedUserIds, userSearch, lastScoredUserId]);
 
   useEffect(() => {
     if (isOpen && task?.id) loadScores();
@@ -62,8 +79,17 @@ const TaskScoreModal: React.FC<TaskScoreModalProps> = ({
 
   const handleSetScore = (userId: number, score: number) =>
     withLoading(async () => {
-      await taskScoreService.setScore({ taskId: task.id as number, userId, score, notes: "Set by admin/manager" }, currentUserId);
-      await loadScores();
+      const resp = await taskScoreService.setScore({ taskId: task.id as number, userId, score, notes: "Set by admin/manager" }, currentUserId);
+      setScores(prev => {
+        const existing = prev.findIndex(s => s.userId === userId);
+        if (existing > -1) {
+          const next = [...prev];
+          next[existing] = { ...next[existing], score };
+          return next;
+        }
+        return [...prev, resp];
+      });
+      setLastScoredUserId(userId);
       setEditingScore(null);
     });
 
@@ -107,7 +133,7 @@ const TaskScoreModal: React.FC<TaskScoreModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm max-w-2xl w-full mx-auto max-h-[90vh] flex flex-col">
 
         {/* Header */}
@@ -146,6 +172,17 @@ const TaskScoreModal: React.FC<TaskScoreModalProps> = ({
               You do not have permission to manage scores. Only Admin and Manager can manage scores.
             </div>
           )}
+
+          {/* Search */}
+          <div className="relative">
+            <input
+              type="text"
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="Search assigned users..."
+              className={inputClass + " w-full"}
+            />
+          </div>
 
           {/* Action buttons */}
           {canManageScores && (

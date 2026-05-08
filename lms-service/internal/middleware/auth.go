@@ -239,14 +239,8 @@ func normalizeRole(role string) string {
 		return "ADMIN"
 	case "ROLE_USER":
 		return "STUDENT"
-	case "ADMIN":
-		return "ADMIN"
-	case "TEACHER":
-		return "TEACHER"
-	case "STUDENT":
-		return "STUDENT"
 	default:
-		return "STUDENT" // Default to STUDENT for unknown roles
+		return strings.ToUpper(role) // Pass-through for dynamic roles
 	}
 }
 

@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Search, Edit2, Trash2, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Course } from "@/types/course";
 
 interface AdminCourseListProps {
@@ -82,7 +83,13 @@ export function AdminCourseList({ courses, onDelete }: AdminCourseListProps) {
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-16 bg-zinc-100 dark:bg-zinc-800 rounded-lg overflow-hidden flex-shrink-0 relative border border-zinc-200/50 dark:border-zinc-700/50">
                       {course.thumbnail_url ? (
-                        <img src={course.thumbnail_url} alt={course.title} className="h-full w-full object-cover" />
+                        <Image 
+                          src={course.thumbnail_url} 
+                          alt={course.title} 
+                          fill 
+                          className="object-cover" 
+                          sizes="64px"
+                        />
                       ) : (
                         <div className="h-full w-full flex items-center justify-center text-zinc-400 font-bold text-xs uppercase">BDC</div>
                       )}

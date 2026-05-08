@@ -12,7 +12,6 @@ import com.example.demo.service.email.EmailService;
 import com.example.demo.service.user.PasswordResetService;
 import com.example.demo.service.user.UserService;
 import com.example.demo.service.user.UserSyncService;
-import com.example.demo.enums.UserRole;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -83,7 +82,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public UserResponse updateRole(Long id, UserRole role) {
+    public UserResponse updateRole(Long id, String role) {
         var user = findUserEntity(id);
         user.setRole(role);
         var saved = userRepository.save(user);

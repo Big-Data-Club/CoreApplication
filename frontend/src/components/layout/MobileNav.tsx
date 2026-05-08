@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { Menu, LogOut, Sun, Moon } from "lucide-react";
+import { Menu, LogOut, Sun, Moon, Settings } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { sidebarSections, LogoIcon } from "@/constants";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { useUser } from "@/store/UserContext";
+import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "next-themes";
 import SafeImage from "../common/SafeImage";
 
@@ -17,6 +18,7 @@ const MobileNav = () => {
   const pathname = usePathname();
   const router = useRouter();
   const { user, setUser } = useUser();
+  const { isAdmin } = useAuth();
   const { theme, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -107,6 +109,21 @@ const MobileNav = () => {
 
           {/* Footer */}
           <div className="border-t border-slate-200 dark:border-slate-800 p-2 space-y-0.5">
+            {isAdmin && (
+              <Link
+                href="/settings"
+                onClick={() => setIsOpen(false)}
+                className={cn(
+                  "w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-200",
+                  pathname.startsWith("/settings")
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                )}
+              >
+                <Settings className="h-4 w-4" />
+                Settings
+              </Link>
+            )}
             <button
               onClick={() => { setTheme(theme === "light" ? "dark" : "light"); setIsOpen(false); }}
               className="w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium
