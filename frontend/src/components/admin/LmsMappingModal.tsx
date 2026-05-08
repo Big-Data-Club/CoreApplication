@@ -34,7 +34,7 @@ export default function LmsMappingModal({ role, currentMappings, onClose, onSucc
   };
 
   const handleSave = async () => {
-    let finalMappings = [...mappings];
+    const finalMappings = [...mappings];
     const cleanPending = newMapping.trim().toUpperCase();
     
     // If there's something in the input box, add it before saving
