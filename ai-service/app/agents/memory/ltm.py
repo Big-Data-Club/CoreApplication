@@ -32,6 +32,9 @@ settings = get_settings()
 EPISODE_COLLECTION = "agent_episodes"
 EPISODE_VECTOR_SIZE = 1024  # bge-m3
 
+FACTS_COLLECTION = "student_facts"
+FACTS_VECTOR_SIZE = 1024  # bge-m3
+
 
 class LTMemory:
     """Long-Term Memory using Qdrant + PostgreSQL."""
@@ -89,6 +92,44 @@ class LTMemory:
             except Exception:  # noqa: BLE001 — index may already exist
                 pass
             logger.debug("Qdrant collection already exists: %s", EPISODE_COLLECTION)
+
+    async def ensure_facts_collection(self) -> None:
+        """Create the student_facts Qdrant collection if it doesn't exist."""
+        if not settings.use_qdrant:
+            return
+
+        from app.services.qdrant_service import qdrant_service
+        from qdrant_client.http.models import Distance, VectorParams, HnswConfigDiff, PayloadSchemaType
+
+        client = qdrant_service._get_client()
+        exists = await client.collection_exists(FACTS_COLLECTION)
+        if not exists:
+            await client.create_collection(
+                collection_name=FACTS_COLLECTION,
+                vectors_config=VectorParams(
+                    size=FACTS_VECTOR_SIZE,
+                    distance=Distance.COSINE,
+                    on_disk=True,
+                ),
+                hnsw_config=HnswConfigDiff(
+                    m=16,
+                    ef_construct=100,
+                    full_scan_threshold=5_000,
+                    on_disk=False,
+                ),
+            )
+            await client.create_payload_index(
+                FACTS_COLLECTION, "user_id", PayloadSchemaType.INTEGER,
+            )
+            await client.create_payload_index(
+                FACTS_COLLECTION, "category", PayloadSchemaType.KEYWORD,
+            )
+            await client.create_payload_index(
+                FACTS_COLLECTION, "course_id", PayloadSchemaType.INTEGER,
+            )
+            logger.info("Created Qdrant collection: %s", FACTS_COLLECTION)
+        else:
+            logger.debug("Qdrant collection already exists: %s", FACTS_COLLECTION)
 
     # ── Store episode ─────────────────────────────────────────────────────────
 
@@ -313,6 +354,195 @@ class LTMemory:
             logger.error("LTM PG fallback failed: %s", exc)
             return []
 
+
+
+    # ── Student Facts (Unified Agentic Memory) ────────────────────────────────
+
+    async def save_fact(
+        self,
+        user_id: int,
+        fact: str,
+        category: str,
+        course_id: Optional[int] = None,
+    ) -> Optional[int]:
+        """
+        Save a long-term fact about a student (Postgres-first, dual-write).
+        Returns the Postgres row ID if successful.
+        """
+        if not fact.strip():
+            return None
+
+        # 1. Postgres First
+        try:
+            async with get_ai_conn() as conn:
+                row = await conn.fetchrow(
+                    """INSERT INTO student_facts
+                           (user_id, fact, category, course_id, qdrant_synced)
+                       VALUES ($1, $2, $3, $4, FALSE)
+                       RETURNING id""",
+                    user_id, fact.strip(), category, course_id,
+                )
+            fact_id = row["id"] if row else None
+            if not fact_id:
+                return None
+        except Exception as exc:
+            logger.error("LTM save_fact PG insert failed: %s", exc)
+            return None
+
+        # 2. Embed and Upsert to Qdrant
+        qdrant_point_id = None
+        try:
+            from app.core.embeddings import create_passage_embedding
+            embedding = await create_passage_embedding(fact)
+            
+            qdrant_point_id = uuid.uuid4().int >> 64
+            
+            if settings.use_qdrant:
+                from app.services.qdrant_service import qdrant_service
+                from qdrant_client.http.models import PointStruct
+
+                client = qdrant_service._get_client()
+                payload = {
+                    "user_id": user_id,
+                    "category": category,
+                    "fact": fact,
+                    "created_at": int(time.time()),
+                }
+                if course_id is not None:
+                    payload["course_id"] = course_id
+
+                await client.upsert(
+                    collection_name=FACTS_COLLECTION,
+                    points=[PointStruct(
+                        id=qdrant_point_id,
+                        vector=embedding,
+                        payload=payload,
+                    )],
+                    wait=True,
+                )
+        except Exception as exc:
+            logger.warning("LTM save_fact Qdrant upsert failed (will be synced later): %s", exc)
+
+        # 3. Mark as synced if Qdrant was successful
+        if qdrant_point_id is not None and settings.use_qdrant:
+            try:
+                async with get_ai_conn() as conn:
+                    await conn.execute(
+                        """UPDATE student_facts
+                           SET qdrant_point_id = $1, qdrant_synced = TRUE
+                           WHERE id = $2""",
+                        qdrant_point_id, fact_id,
+                    )
+            except Exception as exc:
+                logger.error("LTM save_fact PG sync-update failed: %s", exc)
+                
+        logger.info("LTM fact stored: user=%d category=%s course=%s id=%d point=%s", 
+                    user_id, category, course_id, fact_id, qdrant_point_id)
+        return fact_id
+
+    async def search_facts(
+        self,
+        user_id: int,
+        query: str,
+        top_k: int = 3,
+        category: Optional[str] = None,
+    ) -> list[dict]:
+        """
+        Semantically search past facts for a user.
+        """
+        if not settings.use_qdrant:
+            return await self._search_facts_from_pg(user_id, top_k, category)
+
+        try:
+            from app.core.embeddings import create_embedding
+            from app.services.qdrant_service import qdrant_service
+            from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+
+            query_vector = await create_embedding(query)
+            client = qdrant_service._get_client()
+
+            must = [
+                FieldCondition(
+                    key="user_id",
+                    match=MatchValue(value=user_id),
+                )
+            ]
+            
+            if category:
+                must.append(
+                    FieldCondition(
+                        key="category",
+                        match=MatchValue(value=category),
+                    )
+                )
+
+            qfilter = Filter(must=must)
+
+            results = await client.search(
+                collection_name=FACTS_COLLECTION,
+                query_vector=query_vector,
+                query_filter=qfilter,
+                limit=top_k,
+                score_threshold=0.35,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            return [
+                {
+                    "fact": r.payload.get("fact", ""),
+                    "category": r.payload.get("category", ""),
+                    "course_id": r.payload.get("course_id"),
+                    "created_at": r.payload.get("created_at", 0),
+                    "score": round(r.score, 3),
+                }
+                for r in results
+            ]
+
+        except Exception as exc:
+            logger.error("LTM search_facts failed: %s", exc)
+            return await self._search_facts_from_pg(user_id, top_k, category)
+
+    async def _search_facts_from_pg(
+        self,
+        user_id: int,
+        limit: int = 3,
+        category: Optional[str] = None,
+    ) -> list[dict]:
+        """Fallback for facts search using PostgreSQL (most recent)."""
+        try:
+            async with get_ai_conn() as conn:
+                if category:
+                    rows = await conn.fetch(
+                        """SELECT fact, category, course_id, created_at
+                           FROM student_facts
+                           WHERE user_id = $1 AND category = $2
+                           ORDER BY created_at DESC
+                           LIMIT $3""",
+                        user_id, category, limit,
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """SELECT fact, category, course_id, created_at
+                           FROM student_facts
+                           WHERE user_id = $1
+                           ORDER BY created_at DESC
+                           LIMIT $2""",
+                        user_id, limit,
+                    )
+            return [
+                {
+                    "fact": r["fact"],
+                    "category": r["category"],
+                    "course_id": r["course_id"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else "",
+                    "score": 1.0,
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.error("LTM facts PG fallback failed: %s", exc)
+            return []
 
 # Singleton
 ltm = LTMemory()

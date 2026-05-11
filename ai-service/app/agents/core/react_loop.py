@@ -67,7 +67,6 @@ from app.agents.events import AgentEvent, AgentEventType
 from app.agents.memory.stm import stm
 from app.agents.memory.mtm import mtm
 from app.agents.memory.message_store import message_store
-from app.agents.memory.compressor import compress_conversation
 from app.agents.memory.context_builder import context_builder
 from app.agents.memory.active_courses import (
     format_active_courses_for_prompt,
@@ -96,7 +95,13 @@ settings = get_settings()
 
 MAX_ITERATIONS = 5
 MAX_CLARIFICATIONS_PER_SESSION = 2
-COMPRESS_CHECK_INTERVAL = 6  # check compression every N turns
+MAX_MEMORY_TOOL_CALLS = 2  # Circuit breaker for memory management
+MEMORY_TOOLS = {
+    "update_working_memory",
+    "save_student_fact",
+    "summarize_past_turns",
+    "filter_irrelevant_context"
+}
 
 
 async def run_react_loop(
@@ -337,11 +342,13 @@ async def run_react_loop(
     # Start with system prompt
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
-    # Add STM history (filtered — only user/assistant/tool roles)
+    # Add STM history (filtered — only user/assistant/tool/clarification roles)
     for m in stm_history:
         role = m.get("role", "")
         content = m.get("content", "")
-        if role in ("user", "assistant") and content:
+        if role == "clarification" and content:
+            messages.append({"role": "assistant", "content": content})
+        elif role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
         elif role == "tool" and content:
             messages.append({
@@ -363,6 +370,20 @@ async def run_react_loop(
     # Track assistant message across iterations for persistent storage
     assistant_text = ""
     assistant_metadata: dict = {"toolActivities": []}
+
+    # Token overflow warning (Push to Pull transition)
+    if await stm.check_token_overflow(session_id):
+        messages.append({
+            "role": "system",
+            "content": (
+                "WARNING: Conversation memory is near capacity. "
+                "Before answering, use `summarize_past_turns` or "
+                "`filter_irrelevant_context` to free space."
+            ),
+        })
+
+    # Circuit breaker tracking
+    memory_tool_count = 0
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 5: ReAct Iterations
@@ -525,12 +546,8 @@ async def run_react_loop(
                 turn_id=turn_id,
             )
  
-            # Post-turn: compression check (non-blocking for user)
-            await _post_turn_maintenance(
-                session_id=session_id,
-                user_id=user_id,
-                agent_type=agent_type,
-            )
+            # Post-turn: no background compression anymore.
+            # The agent manages memory explicitly via tools.
             return
 
         # ── 5d. TOOL CALLS → execute and loop ───────────────────────────────
@@ -558,6 +575,47 @@ async def run_react_loop(
             tool_name = tc["name"]
             if not tool_name:
                 continue
+
+            # Circuit breaker
+            if tool_name in MEMORY_TOOLS:
+                if memory_tool_count >= MAX_MEMORY_TOOL_CALLS:
+                    logger.warning("Circuit breaker: max memory tool calls reached.")
+                    # Let the loop process other non-memory tools or error out
+                    tool_result = ToolResult(
+                        status="error",
+                        data={"error": "Circuit breaker activated"},
+                        message="Vượt quá số lần gọi công cụ quản lý bộ nhớ cho phép trong một lượt."
+                    )
+                    # Yield tool start/result anyway to satisfy formatting
+                    assistant_metadata["toolActivities"].append({
+                        "tool": tool_name,
+                        "status": "error",
+                        "args": {},
+                        "message": tool_result.message
+                    })
+                    yield AgentEvent(
+                        type=AgentEventType.TOOL_START,
+                        data={"tool": tool_name, "args": {}},
+                        session_id=session_id,
+                        turn_id=iter_id,
+                    )
+                    yield AgentEvent(
+                        type=AgentEventType.TOOL_RESULT,
+                        data={
+                            "tool": tool_name,
+                            "status": tool_result.status,
+                            "message": tool_result.message,
+                        },
+                        session_id=session_id,
+                        turn_id=iter_id,
+                    )
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": json.dumps({"status": "error", "message": tool_result.message}, ensure_ascii=False),
+                    })
+                    continue
+                memory_tool_count += 1
 
             # Parse arguments
             try:
@@ -599,6 +657,7 @@ async def run_react_loop(
                 arguments=args,
                 user_id=user_id,
                 course_id=effective_course_id,
+                session_id=session_id,
             )
 
             # ── Yield UI component if present ────────────────────────────
@@ -694,11 +753,6 @@ async def run_react_loop(
                     },
                     session_id=session_id,
                     turn_id=turn_id,
-                )
-                await _post_turn_maintenance(
-                    session_id=session_id,
-                    user_id=user_id,
-                    agent_type=agent_type,
                 )
                 return
 
@@ -844,60 +898,7 @@ async def _update_anchor_from_tool(
         )
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Post-turn maintenance
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async def _post_turn_maintenance(
-    session_id: str,
-    user_id: int,
-    agent_type: str,
-) -> None:
-    """
-    Background maintenance after a turn completes.
- 
-    Handles STM → MTM compression. Title generation is handled inline
-    in the ReAct loop via `_maybe_emit_title_update` so the frontend
-    receives the title as a streaming SSE event.
-    """
-    try:
-        turn_count = await mtm.increment_turn_count(session_id)
- 
-        if turn_count % COMPRESS_CHECK_INTERVAL != 0:
-            return
- 
-        if await stm.should_compress(session_id):
-            logger.info(
-                "Triggering MTM compression: session=%s, turn=%d",
-                session_id[:8], turn_count,
-            )
- 
-            all_messages = await stm.get_all(session_id)
-            existing_ctx = await mtm.get_context(session_id)
- 
-            compressed = await compress_conversation(
-                messages=all_messages,
-                agent_type=agent_type,
-                existing_ctx=existing_ctx,
-            )
- 
-            await mtm.save_compressed(
-                session_id=session_id,
-                compressed_ctx=compressed,
-                turn_count=turn_count,
-            )
- 
-            await stm.trim_to_recent(session_id, keep_last=4)
- 
-            logger.info(
-                "MTM compression done: session=%s, keys=%s",
-                session_id[:8], list(compressed.keys()),
-            )
- 
-    except Exception as exc:
-        logger.error("Post-turn maintenance failed: %s", exc)
- 
- 
 async def _maybe_emit_title_update(
     session_id: str,
     user_message: str,

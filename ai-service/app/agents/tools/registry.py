@@ -32,6 +32,11 @@ from app.agents.tools.mentor.create_mini_challenge import CreateMiniChallengeToo
 from app.agents.tools.mentor.generate_flashcard import GenerateFlashcardTool
 from app.agents.tools.mentor.get_study_plan import GetStudyPlanTool
 from app.agents.tools.mentor.explain_concept import ExplainConceptTool
+from app.agents.tools.mentor.update_working_memory import UpdateWorkingMemoryTool
+from app.agents.tools.mentor.save_student_fact import SaveStudentFactTool
+from app.agents.tools.mentor.search_student_profile import SearchStudentProfileTool
+from app.agents.tools.mentor.summarize_past_turns import SummarizePastTurnsTool
+from app.agents.tools.mentor.filter_irrelevant_context import FilterIrrelevantContextTool
 
 # ── Shared tools (available to both agents) ───────────────────────────────────
 
@@ -40,6 +45,10 @@ from app.agents.tools.teacher.list_my_courses import ListMyCoursesTool
 _SHARED_TOOLS: list[BaseTool] = [
     ListKnowledgeNodesTool(),
     SearchMaterialsTool(),
+    UpdateWorkingMemoryTool(),
+    SummarizePastTurnsTool(),
+    FilterIrrelevantContextTool(),
+    SearchStudentProfileTool(),
 ]
 
 _TEACHER_ONLY_TOOLS: list[BaseTool] = [
@@ -58,6 +67,7 @@ _MENTOR_ONLY_TOOLS: list[BaseTool] = [
     GenerateFlashcardTool(),
     GetStudyPlanTool(),
     ExplainConceptTool(),
+    SaveStudentFactTool(),
 ]
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -103,13 +113,13 @@ async def execute_tool(
     arguments: dict,
     user_id: int = 0,
     course_id: int | None = None,
+    session_id: str | None = None,
 ) -> ToolResult:
     """
     Execute a tool by name with the given arguments.
 
-    Injects _user_id and _course_id into kwargs so tools can access
-    the calling user's ID and current course context without requiring
-    them as explicit LLM parameters.
+    Injects _user_id, _course_id, and _session_id into kwargs so tools can access
+    the calling user's context without requiring them as explicit LLM parameters.
     """
     tool = get_tool_by_name(name)
     if not tool:
@@ -123,6 +133,8 @@ async def execute_tool(
     arguments["_user_id"] = user_id
     if course_id is not None:
         arguments["_course_id"] = course_id
+    if session_id is not None:
+        arguments["_session_id"] = session_id
 
     try:
         return await tool.execute(**arguments)

@@ -29,7 +29,7 @@ from app.core.cache import _get_redis
 logger = logging.getLogger(__name__)
 
 STM_TTL = 86400  # 24 hours
-STM_TOKEN_THRESHOLD = 4000  # ~4000 tokens -> trigger MTM compression
+STM_OVERFLOW_THRESHOLD = 3000  # ~3000 tokens -> trigger agent-driven cleanup
 CHARS_PER_TOKEN = 4  # approximation for multilingual text
 
 
@@ -109,10 +109,14 @@ class STMemory:
         )
         return total_chars // CHARS_PER_TOKEN
 
-    async def should_compress(self, session_id: str) -> bool:
-        """Check if STM has exceeded the token threshold."""
+    async def check_token_overflow(self, session_id: str) -> bool:
+        """Check if STM has exceeded the overflow threshold."""
         tokens = await self.count_tokens(session_id)
-        return tokens > STM_TOKEN_THRESHOLD
+        return tokens > STM_OVERFLOW_THRESHOLD
+
+    async def should_compress(self, session_id: str) -> bool:
+        """Check if STM has exceeded the token threshold. (Deprecated)"""
+        return await self.check_token_overflow(session_id)
 
     async def trim_to_recent(
         self,
@@ -121,8 +125,7 @@ class STMemory:
     ) -> None:
         """
         After MTM compression, trim STM to keep only the most recent messages.
-
-        Keeps the last `keep_last` messages (2 user + 2 assistant turns).
+        (Deprecated in favor of summarize_and_replace)
         """
         r = _get_redis()
         key = self._key(session_id)
@@ -133,6 +136,80 @@ class STMemory:
                 "STM trimmed: session=%s, kept=%d, removed=%d",
                 session_id, keep_last, length - keep_last,
             )
+
+    async def summarize_and_replace(
+        self,
+        session_id: str,
+        summary_text: str,
+        keep_last: int = 2,
+    ) -> None:
+        """
+        Replace older messages with a single summary message, 
+        keeping the `keep_last` most recent messages.
+        """
+        r = _get_redis()
+        key = self._key(session_id)
+        length = await r.llen(key)
+        
+        if length <= keep_last:
+            return
+            
+        # Get the messages we want to keep
+        recent = await r.lrange(key, -keep_last, -1)
+        
+        # Build the summary message
+        summary_msg = {
+            "role": "assistant",
+            "content": f"[System: Tóm tắt các trao đổi cũ] {summary_text}",
+            "ts": int(time.time()),
+        }
+        
+        # Transaction: clear list, push summary, push recent
+        pipe = r.pipeline()
+        pipe.delete(key)
+        pipe.rpush(key, json.dumps(summary_msg, ensure_ascii=False))
+        if recent:
+            pipe.rpush(key, *recent)
+        pipe.expire(key, STM_TTL)
+        await pipe.execute()
+        
+        logger.info("STM summarized: session=%s, kept_last=%d", session_id, keep_last)
+
+    async def remove_messages_by_index(self, session_id: str, indices: list[int]) -> int:
+        """
+        Remove specific messages from STM by their index (0-indexed).
+        Returns the number of messages removed.
+        """
+        if not indices:
+            return 0
+            
+        r = _get_redis()
+        key = self._key(session_id)
+        raw = await r.lrange(key, 0, -1)
+        
+        if not raw:
+            return 0
+            
+        indices_set = set(indices)
+        kept_messages = [
+            msg for i, msg in enumerate(raw) 
+            if i not in indices_set
+        ]
+        
+        if len(kept_messages) == len(raw):
+            return 0
+            
+        # Transaction: clear and push kept messages
+        pipe = r.pipeline()
+        pipe.delete(key)
+        if kept_messages:
+            pipe.rpush(key, *kept_messages)
+            pipe.expire(key, STM_TTL)
+        await pipe.execute()
+        
+        removed_count = len(raw) - len(kept_messages)
+        logger.info("STM filtered: session=%s, removed=%d", session_id, removed_count)
+        return removed_count
 
     async def clear(self, session_id: str) -> None:
         """Clear all STM for a session."""
