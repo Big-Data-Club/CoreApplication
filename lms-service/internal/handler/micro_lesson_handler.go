@@ -341,6 +341,7 @@ func (h *MicroLessonHandler) PublishLesson(c *gin.Context) {
 		OrderIndex:  orderIdx,
 		Metadata:    metaBytes,
 		IsPublished: true,
+		IsMandatory: true,
 		CreatedBy:   userID,
 	}
 	saved, err := h.courseRepo.CreateContent(c.Request.Context(), content)

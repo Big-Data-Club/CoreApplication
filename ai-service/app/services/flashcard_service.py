@@ -184,14 +184,17 @@ class FlashcardService:
                       else "No specific error info available. Focus on foundational concepts.")
             )
 
-            chunks = await rag_service.search_multilingual(
-                query=node_name, course_id=course_id, node_id=node_id, top_k=3,
-            )
-            if not chunks:
+            if text_chunk:
+                context_texts = [text_chunk]
+            else:
                 chunks = await rag_service.search_multilingual(
-                    query=node_name, course_id=course_id, top_k=2,
+                    query=node_name, course_id=course_id, node_id=node_id, top_k=3,
                 )
-            context_texts = [c.chunk_text for c in chunks] or [f"Chủ đề: {node_name}"]
+                if not chunks:
+                    chunks = await rag_service.search_multilingual(
+                        query=node_name, course_id=course_id, top_k=2,
+                    )
+                context_texts = [c.chunk_text for c in chunks] or [f"Chủ đề: {node_name}"]
         else:
             context_texts = [text_chunk or ""]
             wrong_answers_context = ("Không có thông tin lỗi sai cụ thể. Tập trung khái niệm nền tảng."
