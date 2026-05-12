@@ -41,7 +41,7 @@ class PersonalizeMemory:
         weaknesses = await self.get_weaknesses(user_id, course_id)
         strengths = await self.get_strengths(user_id, course_id)
         due_reviews = await self.get_due_reviews(user_id, course_id)
-        recent_errors = await self.get_recent_errors(user_id, limit=5)
+        recent_errors = await self.get_recent_errors(user_id, course_id, limit=5)
 
         return {
             "weaknesses": weaknesses,
@@ -209,23 +209,38 @@ class PersonalizeMemory:
     async def get_recent_errors(
         self,
         user_id: int,
+        course_id: Optional[int] = None,
         limit: int = 5,
     ) -> list[dict]:
         """Get recent diagnosis results to understand error patterns."""
         try:
             async with get_ai_conn() as conn:
-                rows = await conn.fetch(
-                    """SELECT ad.gap_type, ad.knowledge_gap,
-                              ad.study_suggestion, ad.confidence,
-                              kn.name AS node_name,
-                              ad.created_at
-                       FROM ai_diagnoses ad
-                       LEFT JOIN knowledge_nodes kn ON kn.id = ad.node_id
-                       WHERE ad.student_id = $1
-                       ORDER BY ad.created_at DESC
-                       LIMIT $2""",
-                    user_id, limit,
-                )
+                if course_id:
+                    rows = await conn.fetch(
+                        """SELECT ad.gap_type, ad.knowledge_gap,
+                                  ad.study_suggestion, ad.confidence,
+                                  kn.name AS node_name,
+                                  ad.created_at
+                           FROM ai_diagnoses ad
+                           LEFT JOIN knowledge_nodes kn ON kn.id = ad.node_id
+                           WHERE ad.student_id = $1 AND kn.course_id = $2
+                           ORDER BY ad.created_at DESC
+                           LIMIT $3""",
+                        user_id, course_id, limit,
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """SELECT ad.gap_type, ad.knowledge_gap,
+                                  ad.study_suggestion, ad.confidence,
+                                  kn.name AS node_name,
+                                  ad.created_at
+                           FROM ai_diagnoses ad
+                           LEFT JOIN knowledge_nodes kn ON kn.id = ad.node_id
+                           WHERE ad.student_id = $1
+                           ORDER BY ad.created_at DESC
+                           LIMIT $2""",
+                        user_id, limit,
+                    )
             return [
                 {
                     "gap_type": r["gap_type"],
@@ -239,6 +254,38 @@ class PersonalizeMemory:
             ]
         except Exception as exc:
             logger.error("Failed to get recent errors: %s", exc)
+            return []
+
+    async def get_unstudied_topics(
+        self,
+        user_id: int,
+        course_id: int,
+        limit: int = 3,
+    ) -> list[dict]:
+        """Get knowledge nodes that the student hasn't started yet, ordered by curriculum flow."""
+        try:
+            async with get_ai_conn() as conn:
+                rows = await conn.fetch(
+                    """SELECT id AS node_id, name, name_vi
+                       FROM knowledge_nodes
+                       WHERE course_id = $1
+                         AND id NOT IN (
+                             SELECT node_id FROM student_knowledge_progress WHERE student_id = $2
+                         )
+                       ORDER BY level ASC, order_index ASC
+                       LIMIT $3""",
+                    course_id, user_id, limit,
+                )
+            return [
+                {
+                    "node_id": r["node_id"],
+                    "name": r["name"],
+                    "name_vi": r.get("name_vi"),
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.error("Failed to get unstudied topics: %s", exc)
             return []
 
     async def get_class_overview(

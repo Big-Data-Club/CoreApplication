@@ -30,7 +30,6 @@ from typing import Any, Optional
 from app.agents.memory.stm import stm
 from app.agents.memory.mtm import mtm
 from app.agents.memory.ltm import ltm
-from app.agents.memory.system_memory import system_memory
 from app.agents.memory.personalize_memory import personalize_memory
 
 logger = logging.getLogger(__name__)
@@ -41,35 +40,35 @@ WEIGHT_PROFILES: dict[str, dict[str, float]] = {
         "stm": 0.9,
         "mtm": 0.5,
         "ltm": 0.5,
-        "system": 1.0,
+        "system": 0.0,
         "personalize": 0.6,
     },
     "progress_advice": {
         "stm": 0.6,
         "mtm": 0.8,
         "ltm": 0.8,
-        "system": 0.3,
+        "system": 0.0,
         "personalize": 1.0,
     },
     "content_creation": {
         "stm": 0.9,
         "mtm": 0.8,
         "ltm": 0.4,
-        "system": 1.0,
+        "system": 0.0,
         "personalize": 0.4,
     },
     "general_chat": {
         "stm": 0.9,
         "mtm": 0.5,
         "ltm": 0.2,
-        "system": 0.2,
+        "system": 0.0,
         "personalize": 0.3,
     },
     "interactive_exercise": {
         "stm": 0.8,
         "mtm": 0.5,
         "ltm": 0.4,
-        "system": 0.8,
+        "system": 0.0,
         "personalize": 0.9,
     },
 }
@@ -79,17 +78,17 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "stm": 0.8,
     "mtm": 0.5,
     "ltm": 0.3,
-    "system": 0.6,
+    "system": 0.0,
     "personalize": 0.5,
 }
 
 # Token budget allocation (approximate)
-MAX_CONTEXT_TOKENS = 6000
+MAX_CONTEXT_TOKENS = 4000
 TOKEN_BUDGET: dict[str, int] = {
     "stm": 2000,
     "mtm": 800,
     "ltm": 600,
-    "system": 2000,
+    "system": 0,
     "personalize": 600,
 }
 
@@ -201,29 +200,9 @@ class ContextBuilder:
                     total_tokens += len(ltm_section) // 4
 
         # ── 4. System Memory: Course materials ───────────────────────────────
-        if weights["system"] >= 0.3 and course_id and query:
-            top_k = 3 if weights["system"] >= 0.7 else 1
-            chunks = await system_memory.retrieve_course_context(
-                course_id=course_id, query=query, top_k=top_k,
-            )
-            raw["system"] = {"chunks": chunks}
-            if chunks:
-                sys_section = self._format_system(chunks, weights["system"])
-                if sys_section:
-                    sections.append(sys_section)
-                    total_tokens += len(sys_section) // 4
-
-            # Also fetch knowledge structure for high-weight scenarios
-            if weights["system"] >= 0.8:
-                summary = await system_memory.get_course_summary(course_id)
-                raw["system"]["course_summary"] = summary
-                if summary.get("top_topics"):
-                    topics = ", ".join(
-                        t.get("name_vi") or t.get("name", "")
-                        for t in summary["top_topics"][:5]
-                    )
-                    sections.append(f"COURSE TOPICS: {topics}")
-                    total_tokens += len(topics) // 4
+        # Deprecated: The agent now uses `search_course_materials` tool (Pull)
+        # instead of automatic RAG injection (Push).
+        raw["system"] = {}
 
         # ── 5. Personalize Memory: User learning profile ─────────────────────
         if weights["personalize"] >= 0.3:
@@ -280,17 +259,31 @@ class ContextBuilder:
         """Format MTM compressed context for prompt injection."""
         parts = []
 
-        key_facts = ctx.get("key_facts") or {}
+        ws = ctx.get("working_state") or {}
+        kf = ctx.get("key_facts") or {}
+        
+        current_course_id = ws.get("current_course_id") or kf.get("current_course_id")
+        current_node_id = ws.get("current_node_id") or kf.get("current_node_id")
+        current_topic = ws.get("current_topic") or kf.get("current_topic")
 
         anchor_bits: list[str] = []
-        if key_facts.get("current_course_id") is not None:
-            anchor_bits.append(f"course_id={key_facts['current_course_id']}")
-        if key_facts.get("current_node_id") is not None:
-            anchor_bits.append(f"node_id={key_facts['current_node_id']}")
-        if key_facts.get("current_topic"):
-            anchor_bits.append(f"topic=\"{key_facts['current_topic']}\"")
+        if current_course_id is not None:
+            anchor_bits.append(f"course_id={current_course_id}")
+        if current_node_id is not None:
+            anchor_bits.append(f"node_id={current_node_id}")
+        if current_topic:
+            anchor_bits.append(f"topic=\"{current_topic}\"")
         if anchor_bits:
             parts.append("CURRENT ANCHOR: " + ", ".join(anchor_bits))
+            
+        if ws.get("active_learning_goal"):
+            parts.append(f"LEARNING GOAL: {ws['active_learning_goal']}")
+            
+        if ws.get("identified_knowledge_gaps"):
+            parts.append(f"IDENTIFIED GAPS: {', '.join(ws['identified_knowledge_gaps'])}")
+            
+        if ws.get("notes"):
+            parts.append(f"NOTES: {ws['notes']}")
 
         if ctx.get("identified_gaps"):
             gaps = ctx["identified_gaps"]
@@ -312,7 +305,7 @@ class ContextBuilder:
                 "RECENTLY CREATED: " + ", ".join(str(c) for c in created[:5])
             )
 
-        recent_courses = key_facts.get("recent_courses") if key_facts else None
+        recent_courses = kf.get("recent_courses") if kf else None
         if isinstance(recent_courses, list) and recent_courses:
             # Each entry is {"id": int, "title": str}; we render compactly.
             tags = []
@@ -329,9 +322,9 @@ class ContextBuilder:
             if tags:
                 parts.append("RECENT COURSES: " + ", ".join(tags))
 
-        if key_facts:
+        if kf:
             remaining = {
-                k: v for k, v in key_facts.items()
+                k: v for k, v in kf.items()
                 if k not in ("current_topic", "recent_courses")
             }
             if remaining:

@@ -72,11 +72,21 @@ class GetStudyPlanTool(BaseTool):
                 limit=3,
             )
 
-            # 4. Recent errors (cross-course, always)
+            # 4. Recent errors
             recent_errors = await personalize_memory.get_recent_errors(
                 user_id=student_id,
+                course_id=course_id,
                 limit=5,
             )
+
+            # 5. Unstudied topics
+            unstudied_topics = []
+            if course_id:
+                unstudied_topics = await personalize_memory.get_unstudied_topics(
+                    user_id=student_id,
+                    course_id=course_id,
+                    limit=3,
+                )
 
             # 5. Build study plan items
             plan_items = []
@@ -148,6 +158,22 @@ class GetStudyPlanTool(BaseTool):
                             "mastery": s["mastery_level"],
                         }
                         for s in strengths
+                    ],
+                })
+
+            # Priority 5: Unstudied topics
+            if unstudied_topics:
+                plan_items.append({
+                    "priority": 5,
+                    "type": "new_topic",
+                    "title": "Kiến thức mới",
+                    "description": "Bắt đầu hành trình học tập của bạn",
+                    "items": [
+                        {
+                            "node_name": u.get("name_vi") or u["name"],
+                            "suggestion": "Bắt đầu học",
+                        }
+                        for u in unstudied_topics
                     ],
                 })
 

@@ -78,17 +78,44 @@ class MTMemory:
                     "turn_count": row["turn_count"] or 0,
                 }
 
+            # Pre-load working state from the most recent session
+            preload_ctx = {}
+            last_session = await conn.fetchrow(
+                """SELECT compressed_ctx FROM agent_sessions
+                   WHERE user_id = $1 AND agent_type = $2
+                   ORDER BY last_active_at DESC LIMIT 1""",
+                user_id, agent_type
+            )
+            if last_session and last_session["compressed_ctx"]:
+                old_ctx = last_session["compressed_ctx"]
+                if isinstance(old_ctx, str):
+                    old_ctx = json.loads(old_ctx)
+                
+                # Extract anchors from the new unified working_state or legacy key_facts
+                ws = old_ctx.get("working_state", {})
+                kf = old_ctx.get("key_facts", {})
+                
+                current_course_id = ws.get("current_course_id") or kf.get("current_course_id")
+                current_topic = ws.get("current_topic") or kf.get("current_topic")
+                
+                if current_course_id or current_topic:
+                    preload_ctx["working_state"] = {}
+                    if current_course_id:
+                        preload_ctx["working_state"]["current_course_id"] = current_course_id
+                    if current_topic:
+                        preload_ctx["working_state"]["current_topic"] = current_topic
+
             # Create new session
             new_row = await conn.fetchrow(
                 """INSERT INTO agent_sessions
                        (user_id, agent_type, course_id, compressed_ctx, turn_count, title)
-                   VALUES ($1, $2, $3, '{}'::jsonb, 0, NULL)
+                   VALUES ($1, $2, $3, $4::jsonb, 0, NULL)
                    RETURNING id""",
-                user_id, agent_type, course_id,
+                user_id, agent_type, course_id, json.dumps(preload_ctx, ensure_ascii=False),
             )
             return {
                 "session_id": str(new_row["id"]),
-                "context": {},
+                "context": preload_ctx,
                 "turn_count": 0,
             }
 
@@ -132,16 +159,42 @@ class MTMemory:
                     "reused": True,
                 }
  
+            # Pre-load working state from the most recent session
+            preload_ctx = {}
+            last_session = await conn.fetchrow(
+                """SELECT compressed_ctx FROM agent_sessions
+                   WHERE user_id = $1 AND agent_type = $2
+                   ORDER BY last_active_at DESC LIMIT 1""",
+                user_id, agent_type
+            )
+            if last_session and last_session["compressed_ctx"]:
+                old_ctx = last_session["compressed_ctx"]
+                if isinstance(old_ctx, str):
+                    old_ctx = json.loads(old_ctx)
+                
+                ws = old_ctx.get("working_state", {})
+                kf = old_ctx.get("key_facts", {})
+                
+                current_course_id = ws.get("current_course_id") or kf.get("current_course_id")
+                current_topic = ws.get("current_topic") or kf.get("current_topic")
+                
+                if current_course_id or current_topic:
+                    preload_ctx["working_state"] = {}
+                    if current_course_id:
+                        preload_ctx["working_state"]["current_course_id"] = current_course_id
+                    if current_topic:
+                        preload_ctx["working_state"]["current_topic"] = current_topic
+
             new_row = await conn.fetchrow(
                 """INSERT INTO agent_sessions
                        (user_id, agent_type, course_id, compressed_ctx, turn_count, title)
-                   VALUES ($1, $2, $3, '{}'::jsonb, 0, NULL)
+                   VALUES ($1, $2, $3, $4::jsonb, 0, NULL)
                    RETURNING id""",
-                user_id, agent_type, course_id,
+                user_id, agent_type, course_id, json.dumps(preload_ctx, ensure_ascii=False),
             )
             return {
                 "session_id": str(new_row["id"]),
-                "context": {},
+                "context": preload_ctx,
                 "turn_count": 0,
                 "reused": False,
             }
@@ -168,6 +221,32 @@ class MTMemory:
             if isinstance(ctx, str):
                 ctx = json.loads(ctx)
             return ctx or {}
+
+    async def get_working_state(self, session_id: str) -> dict:
+        """Get the unified working state for a session."""
+        ctx = await self.get_context(session_id)
+        return ctx.get("working_state", {})
+
+    async def update_working_state(self, session_id: str, updates: dict) -> None:
+        """Merge a dictionary into the session's working_state."""
+        if not updates:
+            return
+        async with get_ai_conn() as conn:
+            await conn.execute(
+                """UPDATE agent_sessions
+                   SET compressed_ctx = jsonb_set(
+                           COALESCE(compressed_ctx, '{}'::jsonb),
+                           '{working_state}',
+                           COALESCE(compressed_ctx->'working_state', '{}'::jsonb)
+                               || $1::jsonb,
+                           true
+                       ),
+                       last_active_at = NOW()
+                   WHERE id = $2""",
+                json.dumps(updates, ensure_ascii=False),
+                session_id,
+            )
+        logger.info("MTM working state updated: session=%s, updates=%s", session_id[:8], list(updates.keys()))
 
     async def save_compressed(
         self,
