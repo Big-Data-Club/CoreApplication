@@ -6,7 +6,7 @@ schema, and system messages become `systemInstruction`.
 """
 from __future__ import annotations
  
-from typing import Any
+from typing import Any, AsyncIterator, Optional
  
 import httpx
  
@@ -85,6 +85,26 @@ class GeminiAdapter(LLMAdapter):
         completion_tok = int(u.get("candidatesTokenCount") or 0)
         total_tok = int(u.get("totalTokenCount") or (prompt_tok + completion_tok))
         return content, Usage(prompt_tokens=prompt_tok, completion_tokens=completion_tok, total_tokens=total_tok), data
+ 
+    async def stream(
+        self,
+        *,
+        model: Model,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+        extra: dict[str, Any],
+    ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
+        content, usage, raw = await self.chat(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+            extra=extra,
+        )
+        yield content, usage, raw
  
  
 def _translate(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
