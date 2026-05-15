@@ -11,6 +11,7 @@ from typing import Any, Literal, Optional
 TASK_CHAT             = "chat"              # short explanations, casual tutor
 TASK_QUIZ_GEN         = "quiz_gen"          # high-stakes quiz generation
 TASK_MICRO_LESSON_GEN = "micro_lesson_gen"  # generating micro-lessons from nodes
+TASK_MICRO_QUIZ_GEN   = "micro_quiz_gen"   # generating micro-quizzes from chunks
 TASK_DIAGNOSIS        = "diagnosis"         # error diagnosis for wrong answers
 TASK_FLASHCARD_GEN    = "flashcard_gen"
 TASK_AGENT_REACT      = "agent_react"       # teacher/mentor tool-calling loop
@@ -23,7 +24,8 @@ TASK_NODE_EXTRACT     = "node_extract"
 TASK_VLM_DESCRIBE     = "vlm_describe"      # vision model image description
  
 ALL_TASK_CODES: tuple[str, ...] = (
-    TASK_CHAT, TASK_QUIZ_GEN, TASK_MICRO_LESSON_GEN, TASK_DIAGNOSIS, TASK_FLASHCARD_GEN,
+    TASK_CHAT, TASK_QUIZ_GEN, TASK_MICRO_LESSON_GEN, TASK_MICRO_QUIZ_GEN,
+    TASK_DIAGNOSIS, TASK_FLASHCARD_GEN,
     TASK_AGENT_REACT, TASK_AGENT_ROUTER, TASK_CLARIFICATION,
     TASK_GRAPH_LINK, TASK_MEMORY_COMPRESS, TASK_LANGUAGE_DETECT,
     TASK_NODE_EXTRACT, TASK_VLM_DESCRIBE,

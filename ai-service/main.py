@@ -20,6 +20,7 @@ from app.api.endpoints.quiz_gen   import router as quiz_router, sr_router
 from app.api.endpoints.flashcards import router as flashcards_router
 from app.api.endpoints.auto_index import router as auto_index_router, graph_router
 from app.api.endpoints.micro_lessons import router as micro_lessons_router
+from app.api.endpoints.micro_quizzes import router as micro_quizzes_router
 from app.api.endpoints.concept_check import router as concept_check_router
 from app.api.endpoints.admin      import router as admin_router
 from app.api.endpoints.admin_llm  import router as admin_llm_router
@@ -134,6 +135,7 @@ app.include_router(flashcards_router, prefix="/ai")
 app.include_router(auto_index_router, prefix="/ai")
 app.include_router(graph_router,      prefix="/ai")
 app.include_router(micro_lessons_router, prefix="/ai")
+app.include_router(micro_quizzes_router, prefix="/ai")
 app.include_router(concept_check_router, prefix="/ai")
 app.include_router(admin_router,      prefix="/ai")
 app.include_router(admin_llm_router,  prefix="/ai")

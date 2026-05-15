@@ -756,6 +756,52 @@ func GetStringField(m map[string]interface{}, key string) string {
 	return ""
 }
 
+// ── Micro-Quizzes ─────────────────────────────────────────────────────────────
+
+// GenerateMicroQuizzesRequest tells the AI service to start generating
+// node-comprehensive quizzes for an already-uploaded source file.
+type GenerateMicroQuizzesRequest struct {
+	JobID           int64  `json:"job_id"`
+	CourseID        int64  `json:"course_id"`
+	SectionID       *int64 `json:"section_id,omitempty"`
+	SourceContentID *int64 `json:"source_content_id,omitempty"`
+	SourceFilePath  string `json:"source_file_path"`
+	SourceFileType  string `json:"source_file_type,omitempty"`
+	Language        string `json:"language"`
+}
+
+type GenerateMicroQuizzesFromYouTubeRequest struct {
+	JobID           int64  `json:"job_id"`
+	CourseID        int64  `json:"course_id"`
+	SectionID       *int64 `json:"section_id,omitempty"`
+	SourceContentID *int64 `json:"source_content_id,omitempty"`
+	YouTubeURL      string `json:"youtube_url"`
+	Language        string `json:"language"`
+}
+
+type GenerateMicroQuizzesResponse struct {
+	JobID  int64  `json:"job_id"`
+	Status string `json:"status"`
+}
+
+// GenerateMicroQuizzes fires the file-based micro-quiz pipeline.
+func (c *Client) GenerateMicroQuizzes(ctx context.Context, req GenerateMicroQuizzesRequest) (*GenerateMicroQuizzesResponse, error) {
+	var resp GenerateMicroQuizzesResponse
+	if err := c.post(ctx, "/ai/micro-quizzes/generate", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GenerateMicroQuizzes: %w", err)
+	}
+	return &resp, nil
+}
+
+// GenerateMicroQuizzesFromYouTube fires the YouTube-based micro-quiz pipeline.
+func (c *Client) GenerateMicroQuizzesFromYouTube(ctx context.Context, req GenerateMicroQuizzesFromYouTubeRequest) (*GenerateMicroQuizzesResponse, error) {
+	var resp GenerateMicroQuizzesResponse
+	if err := c.post(ctx, "/ai/micro-quizzes/generate-youtube", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GenerateMicroQuizzesFromYouTube: %w", err)
+	}
+	return &resp, nil
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 func (c *Client) post(ctx context.Context, path string, body, result interface{}) error {

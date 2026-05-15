@@ -109,6 +109,7 @@ func main() {
 	flashcardRepo := repository.NewFlashcardRepository(db)
 	microLessonRepo := repository.NewMicroLessonRepository(db)
 	microInteractionRepo := repository.NewMicroInteractionRepository(db)
+	microQuizRepo := repository.NewMicroQuizRepository(db)
 
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
@@ -143,6 +144,11 @@ func main() {
 			`UPDATE micro_lessons SET node_id = $1 WHERE node_id = ANY($2)`,
 			event.SurvivorID, absorbed); err != nil {
 			return fmt.Errorf("micro_lessons cascade: %w", err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`UPDATE micro_quizzes SET node_id = $1 WHERE node_id = ANY($2)`,
+			event.SurvivorID, absorbed); err != nil {
+			return fmt.Errorf("micro_quizzes cascade: %w", err)
 		}
 		if _, err := db.ExecContext(ctx,
 			`UPDATE quiz_questions SET node_id = $1 WHERE node_id = ANY($2)`,
@@ -188,6 +194,7 @@ func main() {
 	aiHandler := handler.NewAIHandler(aiClient, courseRepo, quizRepo, redisClient)
 	flashcardHandler := handler.NewFlashcardHandler(flashcardService, enrollmentService)
 	microLessonHandler := handler.NewMicroLessonHandler(microLessonRepo, courseRepo, aiClient)
+	microQuizHandler := handler.NewMicroQuizHandler(microQuizRepo, courseRepo, quizRepo, aiClient)
 	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 
@@ -589,6 +596,23 @@ func main() {
 				microGroup.POST("/:lessonId/publish", microLessonHandler.PublishLesson)
 				microGroup.DELETE("/:lessonId", microLessonHandler.DeleteLesson)
 			}
+
+			// ── Micro-Quizzes (Teacher / Admin) ───────────────────────────
+			microQuizPerCourse := auth.Group("/courses/:courseId/micro-quizzes")
+			microQuizPerCourse.Use(middleware.RequireRoles("ADMIN", "TEACHER"))
+			{
+				microQuizPerCourse.POST("/generate", microQuizHandler.GenerateMicroQuizzes)
+				microQuizPerCourse.GET("/jobs", microQuizHandler.ListJobs)
+			}
+
+			microQuizGroup := auth.Group("/micro-quizzes")
+			microQuizGroup.Use(middleware.RequireRoles("ADMIN", "TEACHER"))
+			{
+				microQuizGroup.GET("/jobs/:jobId", microQuizHandler.GetJob)
+				microQuizGroup.PUT("/:quizId", microQuizHandler.UpdateQuiz)
+				microQuizGroup.POST("/:quizId/publish", microQuizHandler.PublishQuiz)
+				microQuizGroup.DELETE("/:quizId", microQuizHandler.DeleteQuiz)
+			}
 		}
 
 		// ── Internal callbacks (AI service → LMS) ─────────────────────────
@@ -599,6 +623,13 @@ func main() {
 		{
 			internal.POST("/status", microLessonHandler.CallbackStatus)
 			internal.POST("/lessons", microLessonHandler.CallbackLessons)
+		}
+
+		internalQuiz := v1.Group("/internal/micro-quizzes")
+		internalQuiz.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		{
+			internalQuiz.POST("/status", microQuizHandler.CallbackStatus)
+			internalQuiz.POST("/quizzes", microQuizHandler.CallbackQuizzes)
 		}
 	}
 
