@@ -1,266 +1,253 @@
-# Micro Quiz — AI-Generated Node-Comprehensive Quiz Feature
+# Dynamic Permission Management for LMS
 
-Thêm tính năng **Micro Quiz**: AI tự động tạo bộ câu hỏi trắc nghiệm bao quát toàn bộ kiến thức của một knowledge node, với số lượng câu hỏi không cố định (phụ thuộc vào số chunks). Giáo viên có thể chỉnh sửa nội dung quiz (Markdown) trước khi xuất bản.
+## Background
 
-## User Review Required
+The LMS currently supports dynamic roles via `role_definitions` table and auth-service mapping. However, authorization is **hardcoded** throughout the backend — `if role == "ADMIN"` appears in ~20 locations across handlers and services. This plan introduces a granular permission system allowing admins to assign specific capabilities to any role through a UI.
 
 > [!IMPORTANT]
-> **Thiết kế "1 quiz = 1 node, N câu hỏi = f(chunks)"**: Mỗi node sẽ tạo ra 1 micro quiz riêng. Số câu hỏi cho mỗi node = số chunks của node đó (mỗi chunk → 1 câu hỏi). Mỗi câu hỏi được gắn 1 Bloom level, luân phiên qua 6 cấp độ (remember → understand → apply → analyze → evaluate → create) rồi lặp lại. Như vậy nếu node có 12 chunks thì sẽ có 12 câu hỏi, mỗi level 2 câu.
+> **ID Type Decision:** The SRD specifies UUID for `permissions.id`. However, **every existing table** in the LMS schema uses `BIGSERIAL` (int64). This plan uses `BIGSERIAL` to maintain consistency. Switching to UUID would require changes across the entire DI chain.
 
-> [!IMPORTANT]  
-> **Cùng hệ thống job với micro-lesson**: Micro quiz reuse hoàn toàn pattern job lifecycle (queued → processing → completed/failed), HTTP callback từ AI → LMS, cùng UI flow (generate modal → drawer poll → edit → publish). Khác biệt chính: nội dung lưu dạng quiz Markdown (câu hỏi + đáp án + giải thích), publish tạo QUIZ SectionContent thay vì TEXT.
-
-> [!WARNING]
-> **Publish flow**: Khi publish micro quiz, hệ thống sẽ tạo một SectionContent type=QUIZ kèm quiz record + quiz_questions. Khác với micro lesson (chỉ tạo TEXT content). Giáo viên edit quiz ở dạng Markdown trước publish, hệ thống parse Markdown thành structured questions khi publish.
+---
 
 ## Open Questions
 
 > [!IMPORTANT]
-> 1. **Quiz format khi publish**: Có 2 lựa chọn:
->    - **Option A**: Store quiz as Markdown only (editable, rendered in ContentViewer as markdown quiz). Không tạo quiz_questions records → không tự động chấm điểm.
->    - **Option B**: Parse Markdown thành structured quiz_questions + quiz_answer_options khi publish → hỗ trợ auto-grade.
->    - **Đề xuất**: Option A cho MVP (giáo viên tự chấm / review), sau này upgrade lên B. Hoặc Option B nếu muốn auto-grade ngay.
->    
->    **Tôi đề xuất Option B** — parse thành structured quiz khi publish để tận dụng hệ thống quiz sẵn có (auto-grade, analytics, spaced repetition).
+> **ADMIN Bypass:** Should ADMIN always pass all permission checks automatically (super-admin pattern), or should ADMIN's permissions also be configurable? The current plan treats ADMIN as a hardcoded super-admin that always passes. This matches the existing behavior.
 
-> [!NOTE]
-> 2. **YouTube source**: Micro quiz cũng hỗ trợ YouTube source giống micro lesson?  
->    **Đề xuất**: Có, reuse cùng pipeline auto-index.
+> [!WARNING]
+> **Phase 4 Scope:** The SRD says "remove ALL hardcoded role checks." However, many checks are **ownership-based** (e.g., `if role != "ADMIN" && course.CreatedBy != userID`). These combine role checks with resource ownership and cannot be purely replaced by route-level middleware. Plan: Replace only **route-level** `RequireRole("ADMIN")` calls in `main.go`. Keep handler-level ownership checks as-is since they serve a different purpose (resource-level access, not capability-based access).
 
 ---
 
 ## Proposed Changes
 
-### AI Service — `ai-service/`
+### Phase 1: Database & Models
 
-#### [NEW] `app/services/micro_quiz_service.py`
-New service that generates quiz questions per node. Pipeline:
-1. Same auto-index check as micro-lesson (reuse `_fetch_nodes_and_chunks`)
-2. For each node: iterate its chunks, assign Bloom levels round-robin
-3. Per-chunk LLM call → generate 1 MCQ question (4 options, 1 correct, with explanation)
-4. Format output as Markdown quiz block per node
-5. POST results back to LMS via callback
+#### [NEW] [V004__dynamic_permissions.sql](file:///d:/CodeSpace/BDCApp/lms-service/migrations/V004__dynamic_permissions.sql)
 
-Key differences from `micro_lesson_service.py`:
-- LLM prompt produces structured quiz JSON: `{question_text, options: [{text, is_correct}], explanation, bloom_level}`
-- Output Markdown format:
-  ```
-  ## Câu 1 (Remember)
-  **Câu hỏi**: ...
-  - [ ] A. ...
-  - [x] B. ... ✓
-  - [ ] C. ...
-  - [ ] D. ...
-  > **Giải thích**: ...
-  ```
-- Variable question count = len(chunks) per node
+Two new tables:
 
-#### [NEW] `app/api/endpoints/micro_quizzes.py`
-FastAPI router mirroring `micro_lessons.py`:
-- `POST /ai/micro-quizzes/generate` — file-based generation
-- `POST /ai/micro-quizzes/generate-youtube` — YouTube-based
-
-#### [MODIFY] `main.py`
-- Register `micro_quizzes.router`
-
-#### [MODIFY] `app/core/llm_gateway/types.py`
-- Add `TASK_MICRO_QUIZ_GEN = "micro_quiz_gen"` task code
-
----
-
-### LMS Service — `lms-service/`
-
-#### [NEW] `migrations/V003__micro_quizzes.sql`
 ```sql
-CREATE TABLE IF NOT EXISTS micro_quiz_jobs (
-    -- Same structure as micro_lesson_jobs
-    id                BIGSERIAL PRIMARY KEY,
-    course_id         BIGINT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-    section_id        BIGINT REFERENCES course_sections(id) ON DELETE SET NULL,
-    source_content_id BIGINT REFERENCES section_content(id) ON DELETE SET NULL,
-    source_file_path  VARCHAR(1000),
-    source_file_type  VARCHAR(100),
-    source_url        VARCHAR(1000),
-    language          VARCHAR(10) NOT NULL DEFAULT 'vi',
-    status            VARCHAR(20) NOT NULL DEFAULT 'queued'
-                          CHECK (status IN ('queued','processing','completed','failed')),
-    progress          INT DEFAULT 0,
-    stage             VARCHAR(64) DEFAULT '',
-    quizzes_count     INT DEFAULT 0,
-    error             TEXT,
-    created_by        BIGINT NOT NULL REFERENCES users(id),
-    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at      TIMESTAMP
+-- permissions: Master list of all grantable capabilities
+CREATE TABLE permissions (
+    id          BIGSERIAL PRIMARY KEY,
+    code        VARCHAR(80) UNIQUE NOT NULL,  -- MODULE_ACTION format
+    module      VARCHAR(40) NOT NULL,         -- grouping key for UI
+    description VARCHAR(255),
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS micro_quizzes (
-    id                   BIGSERIAL PRIMARY KEY,
-    job_id               BIGINT NOT NULL REFERENCES micro_quiz_jobs(id) ON DELETE CASCADE,
-    course_id            BIGINT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-    section_id           BIGINT REFERENCES course_sections(id) ON DELETE SET NULL,
-    source_content_id    BIGINT REFERENCES section_content(id) ON DELETE SET NULL,
-    title                VARCHAR(500) NOT NULL,
-    summary              TEXT,
-    markdown_content     TEXT NOT NULL,          -- full quiz as editable Markdown
-    questions_json       JSONB DEFAULT '[]',     -- structured [{question_text, options, explanation, bloom_level}]
-    questions_count      INT DEFAULT 0,
-    order_index          INT NOT NULL DEFAULT 0,
-    status               VARCHAR(20) NOT NULL DEFAULT 'draft'
-                             CHECK (status IN ('draft','published','archived')),
-    published_content_id BIGINT REFERENCES section_content(id) ON DELETE SET NULL,
-    node_id              BIGINT,
-    language             VARCHAR(10) DEFAULT 'vi',
-    created_by           BIGINT NOT NULL REFERENCES users(id),
-    created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    published_at         TIMESTAMP
+-- role_permissions: N-N junction table
+CREATE TABLE role_permissions (
+    role_id       BIGINT NOT NULL REFERENCES role_definitions(id) ON DELETE CASCADE,
+    permission_id BIGINT NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    assigned_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (role_id, permission_id)
 );
 ```
 
-#### [NEW] `internal/models/micro_quiz.go`
-Go model structs: `MicroQuizJob`, `MicroQuiz` (mirrors MicroLesson pattern)
+Seed permissions (5 modules, 15 codes):
 
-#### [NEW] `internal/dto/micro_quiz_dto.go`
-DTOs:
-- `GenerateMicroQuizzesRequest` (contentId, youtubeUrl, sectionId, language)
-- `UpdateMicroQuizRequest` (title, summary, markdown_content, questions_json, order_index)
-- `PublishMicroQuizRequest` (section_id, order_index)
-- `MicroQuizStatusCallback`, `MicroQuizzesCallback` (AI → LMS callbacks)
+| Module | Codes |
+|--------|-------|
+| `COURSE` | `COURSE_VIEW`, `COURSE_CREATE`, `COURSE_EDIT`, `COURSE_DELETE`, `COURSE_PUBLISH` |
+| `QUIZ` | `QUIZ_CREATE`, `QUIZ_EDIT`, `QUIZ_DELETE`, `QUIZ_GRADE` |
+| `ENROLLMENT` | `ENROLLMENT_MANAGE`, `ENROLLMENT_BULK` |
+| `AI` | `AI_INDEX`, `AI_GENERATE` |
+| `SYSTEM` | `ROLE_MANAGE`, `ANALYTICS_VIEW` |
 
-#### [NEW] `internal/repository/micro_quiz_repo.go`
-Repository with same pattern as `micro_lesson_repo.go`:
-- `CreateJob`, `GetJob`, `ListJobsByCourse`, `UpdateJobStatus`
-- `CreateQuiz`, `GetQuiz`, `ListQuizzesByJob`, `UpdateQuizContent`, `MarkPublished`, `DeleteQuiz`
-
-#### [NEW] `internal/handler/micro_quiz_handler.go`
-HTTP handlers mirroring `micro_lesson_handler.go`:
-- `GenerateMicroQuizzes` — POST trigger
-- `ListJobs` / `GetJob` — job polling
-- `UpdateQuiz` — save teacher edits
-- `PublishQuiz` — create QUIZ SectionContent + quiz + quiz_questions from `questions_json`
-- `DeleteQuiz` — drop draft
-- `CallbackStatus` / `CallbackQuizzes` — AI service callbacks
-
-**Publish flow (Option B)**:
-1. Create SectionContent type=QUIZ
-2. Create quizzes record
-3. Parse `questions_json` → insert `quiz_questions` + `quiz_answer_options`
-4. Mark micro quiz as published
-
-#### [MODIFY] `pkg/ai/client.go`
-Add new request/response types + methods:
-- `GenerateMicroQuizzes()` → POST `/ai/micro-quizzes/generate`
-- `GenerateMicroQuizzesFromYouTube()` → POST `/ai/micro-quizzes/generate-youtube`
-
-#### [MODIFY] `cmd/api/main.go`
-- Initialize `microQuizRepo`, `microQuizHandler`
-- Register routes:
-  ```
-  /courses/:courseId/micro-quizzes/generate    [POST]
-  /courses/:courseId/micro-quizzes/jobs        [GET]
-  /micro-quizzes/jobs/:jobId                  [GET]
-  /micro-quizzes/:quizId                      [PUT]
-  /micro-quizzes/:quizId/publish              [POST]
-  /micro-quizzes/:quizId                      [DELETE]
-  /internal/micro-quizzes/status              [POST]
-  /internal/micro-quizzes/quizzes             [POST]
-  ```
-
-#### [MODIFY] `cmd/api/main.go` (node merge cascade)
-Add cascade for `micro_quizzes.node_id` in the `NodeMergedConsumer`.
+Auto-assign all permissions to ADMIN and teacher-relevant ones to TEACHER.
 
 ---
 
-### Frontend — `frontend/src/`
+#### [NEW] [permission.go](file:///d:/CodeSpace/BDCApp/lms-service/internal/models/permission.go)
 
-#### [NEW] `services/microQuizService.ts`
-Client mirroring `microLessonService.ts`:
-- Types: `MicroQuizJob`, `MicroQuiz`, `GenerateQuizOptions`, `JobWithQuizzes`
-- Methods: `generate()`, `listJobs()`, `getJob()`, `updateQuiz()`, `publishQuiz()`, `deleteQuiz()`
+```go
+type Permission struct {
+    ID          int64     `json:"id" db:"id"`
+    Code        string    `json:"code" db:"code"`
+    Module      string    `json:"module" db:"module"`
+    Description string    `json:"description" db:"description"`
+    CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}
 
-#### [NEW] `components/lms/teacher/micro/GenerateMicroQuizzesModal.tsx`
-Config modal for micro quiz generation. Same UI pattern as `GenerateMicroLessonsModal.tsx` but with quiz-specific copy:
-- Source picker (file / YouTube)
-- Language selector
-- Section picker (optional)
-- Submit → fires generation
-
-#### [NEW] `components/lms/teacher/micro/MicroQuizzesDrawer.tsx`
-Job polling + quiz editing drawer. Same pattern as `MicroLessonsDrawer.tsx`:
-- Poll job status
-- Render quiz cards with Markdown preview
-- Inline editing of Markdown quiz content
-- Publish to a section (creates QUIZ content)
-
-#### [MODIFY] `components/lms/teacher/page/ContentTab.tsx`
-Add "Tạo micro quiz" button alongside existing "Tạo bài học micro" button.
+type RolePermission struct {
+    RoleID       int64     `json:"role_id" db:"role_id"`
+    PermissionID int64     `json:"permission_id" db:"permission_id"`
+    AssignedAt   time.Time `json:"assigned_at" db:"assigned_at"`
+}
+```
 
 ---
 
-## Architecture Diagram
+#### [NEW] [permission_dto.go](file:///d:/CodeSpace/BDCApp/lms-service/internal/dto/permission_dto.go)
+
+```go
+type PermissionResponse struct {
+    ID          int64  `json:"id"`
+    Code        string `json:"code"`
+    Module      string `json:"module"`
+    Description string `json:"description"`
+}
+
+type AssignPermissionsRequest struct {
+    PermissionIDs []int64 `json:"permission_ids" binding:"required"`
+}
+
+type RolePermissionsResponse struct {
+    RoleID      int64               `json:"role_id"`
+    RoleName    string              `json:"role_name"`
+    Permissions []PermissionResponse `json:"permissions"`
+}
+```
+
+---
+
+### Phase 2: Repository & Service
+
+#### [NEW] [permission_repo.go](file:///d:/CodeSpace/BDCApp/lms-service/internal/repository/permission_repo.go)
+
+Key methods:
+- `FindAll(ctx) → []Permission` — master list for UI
+- `FindByRoleID(ctx, roleID) → []Permission` — current assignments
+- `FindCodesByRoleName(ctx, roleName) → []string` — for middleware cache miss
+- `AssignToRole(ctx, roleID, permissionIDs)` — **transactional**: DELETE old + INSERT new in single tx
+
+---
+
+#### [NEW] [permission_service.go](file:///d:/CodeSpace/BDCApp/lms-service/internal/service/permission_service.go)
+
+Redis caching strategy:
+- **Cache key:** `perm:role:{ROLE_NAME}` → JSON array of permission code strings
+- **TTL:** 10 minutes
+- **Read path:** `CheckPermission(ctx, roleName, code)` → Redis GET → if miss → DB query → Redis SET
+- **Write path:** `AssignPermissions(ctx, roleID, permIDs)` → DB tx → invalidate cache for that role
+- Uses `pkg/cache/redis.go` methods (`Get`, `Set`, `Delete`)
 
 ```
-Teacher clicks "Tạo Micro Quiz"
-         │
-    ┌────▼──────────────┐
-    │  Frontend:         │
-    │  GenerateMicroQui- │
-    │  zzesModal.tsx     │
-    └────┬──────────────┘
-         │ POST /courses/:id/micro-quizzes/generate
-    ┌────▼──────────────┐
-    │  LMS Handler:      │
-    │  micro_quiz_handler│
-    │  .go               │
-    │  1. Auth check      │
-    │  2. Create job row  │
-    │  3. Fire-and-forget │
-    │     to AI service   │
-    └────┬──────────────┘
-         │ POST /ai/micro-quizzes/generate
-    ┌────▼──────────────┐
-    │  AI Service:       │
-    │  micro_quiz_       │
-    │  service.py        │
-    │  1. Auto-index     │
-    │  2. Fetch nodes    │
-    │  3. For each node: │
-    │     For each chunk:│
-    │       LLM → 1 MCQ  │
-    │  4. Format Markdown│
-    │  5. POST callback  │
-    └────┬──────────────┘
-         │ POST /internal/micro-quizzes/quizzes
-    ┌────▼──────────────┐
-    │  LMS Handler:      │
-    │  CallbackQuizzes   │
-    │  → Insert rows     │
-    └────┬──────────────┘
-         │
-    ┌────▼──────────────┐
-    │  Frontend:         │
-    │  MicroQuizzesDrawer│
-    │  polls GET /jobs/  │
-    │  → shows quiz cards│
-    │  → teacher edits   │
-    │  → publish         │
-    └───────────────────┘
+CheckPermission(roleName, code) flow:
+  1. if roleName == "ADMIN" → return true (super-admin bypass)
+  2. Redis GET "perm:role:{roleName}"
+  3. HIT  → unmarshal []string, check contains(code)
+  4. MISS → repo.FindCodesByRoleName(roleName) → Redis SET → check contains(code)
 ```
+
+---
+
+### Phase 3: API & Middleware
+
+#### [NEW] [permission_handler.go](file:///d:/CodeSpace/BDCApp/lms-service/internal/handler/permission_handler.go)
+
+Three endpoints under `/api/v1/admin/permissions`:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/admin/permissions` | List all permissions (master data) |
+| `GET` | `/api/v1/admin/roles/:id/permissions` | Get permissions assigned to a role |
+| `PUT` | `/api/v1/admin/roles/:id/permissions` | Replace permissions for a role |
+
+All protected by `RequireRole("ADMIN")` initially.
+
+---
+
+#### [NEW] [permission.go](file:///d:/CodeSpace/BDCApp/lms-service/internal/middleware/permission.go)
+
+```go
+func RequirePermission(permService *service.PermissionService, code string) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        roleName := c.GetString("user_role")
+        
+        // Super-admin bypass
+        if roleName == "ADMIN" {
+            c.Next()
+            return
+        }
+        
+        allowed, err := permService.CheckPermission(c.Request.Context(), roleName, code)
+        if err != nil || !allowed {
+            c.JSON(403, dto.NewErrorResponse("forbidden", "Insufficient permissions"))
+            c.Abort()
+            return
+        }
+        c.Next()
+    }
+}
+```
+
+---
+
+#### [MODIFY] [main.go](file:///d:/CodeSpace/BDCApp/lms-service/cmd/api/main.go)
+
+Wire new components into DI:
+
+```go
+permRepo := repository.NewPermissionRepository(db)
+permService := service.NewPermissionService(permRepo, redisClient)
+permHandler := handler.NewPermissionHandler(permService)
+```
+
+Register new routes under the existing `adminRoles` group and add a new permission routes group.
+
+---
+
+### Phase 4: Route-Level Refactor
+
+Replace `middleware.RequireRole("ADMIN")` in `main.go` routes with `middleware.RequirePermission(permService, "CODE")`:
+
+| Current | New |
+|---------|-----|
+| `courses.DELETE("/:courseId", middleware.RequireRole("ADMIN"), ...)` | `middleware.RequirePermission(permService, "COURSE_DELETE")` |
+| `analytics.GET("/heatmap", middleware.RequireRoles("ADMIN", "TEACHER"), ...)` | `middleware.RequirePermission(permService, "ANALYTICS_VIEW")` |
+| `adminRoles` group `RequireRole("ADMIN")` | `middleware.RequirePermission(permService, "ROLE_MANAGE")` |
+
+> [!NOTE]
+> Handler-level ownership checks (`if role != "ADMIN" && course.CreatedBy != userID`) are **not changed** in this phase. They serve resource-level access control which is orthogonal to capability-based permissions.
+
+---
+
+### Phase 5: Frontend UI
+
+#### [NEW] [permissionService.ts](file:///d:/CodeSpace/BDCApp/frontend/src/services/permissionService.ts)
+
+LMS API client calls for the 3 new endpoints.
+
+---
+
+#### [MODIFY] [RoleManager.tsx](file:///d:/CodeSpace/BDCApp/frontend/src/components/admin/RoleManager.tsx)
+
+Add a "Permissions" action button per role row (alongside existing Edit/LMS Mapping/Delete buttons). When clicked, opens a `PermissionEditor` panel.
+
+---
+
+#### [NEW] [PermissionEditor.tsx](file:///d:/CodeSpace/BDCApp/frontend/src/components/admin/PermissionEditor.tsx)
+
+Modal component showing:
+- Header: "Configure permissions for role: [ROLE_NAME]"
+- Permissions grouped by `module` (COURSE, QUIZ, AI, etc.)
+- Each group shows checkboxes with permission descriptions
+- "Save Changes" button with loading state
+- Toast notification on success/error
+
+UI style: Minimalist, follows BDC Design Rhythm. White cards, slate borders, blue-600 primary actions, dark mode support.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- `go test ./internal/repository/...` — verify micro quiz repo SQL
-- `go test ./internal/handler/...` — verify handler bindings
-- `pytest ai-service/tests/` — verify new endpoint + service
-- Frontend: manual test in browser (generate → poll → edit → publish)
+
+```bash
+# Go build verification
+cd lms-service && go build ./...
+
+# Verify migration syntax (dry run)
+psql -f migrations/V004__dynamic_permissions.sql --echo-errors
+```
 
 ### Manual Verification
-1. Upload a document → trigger micro quiz generation → verify quiz cards appear in drawer
-2. Edit quiz markdown → save → verify persistence
-3. Publish quiz → verify QUIZ SectionContent + quiz_questions created
-4. Student takes the published quiz → verify auto-grade works
-5. Verify node merge cascade updates micro_quizzes.node_id
+
+1. **Backend API:** Use curl/Postman to test all 3 permission endpoints
+2. **Middleware:** Assign `COURSE_CREATE` to TEACHER role → verify teacher can create courses. Remove it → verify 403
+3. **Cache:** Verify Redis key `perm:role:TEACHER` is created on first check, invalidated on permission update
+4. **Frontend:** Open `/settings/roles` → click permissions icon → toggle checkboxes → save → verify immediate effect
+5. **Regression:** Verify ADMIN still passes all checks without explicit permission assignments

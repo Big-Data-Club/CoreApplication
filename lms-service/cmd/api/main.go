@@ -105,6 +105,7 @@ func main() {
 	progressRepo := repository.NewProgressRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	roleDefRepo := repository.NewRoleDefinitionRepository(db)
+	permRepo := repository.NewPermissionRepository(db)
 
 	flashcardRepo := repository.NewFlashcardRepository(db)
 	microLessonRepo := repository.NewMicroLessonRepository(db)
@@ -174,6 +175,7 @@ func main() {
 	flashcardService := service.NewFlashcardService(flashcardRepo, aiClient, redisClient)
 	microInteractionService := service.NewMicroInteractionService(microInteractionRepo, microLessonRepo)
 	roleAdminService := service.NewRoleAdminService(roleDefRepo, userRepo, redisClient)
+	permService := service.NewPermissionService(permRepo, redisClient)
 
 	// Heatmap analytics worker: consumes Quick Action Panel interactions
 	// off `lms.analytics.interactions` and updates knowledge_node_mastery.
@@ -197,6 +199,7 @@ func main() {
 	microQuizHandler := handler.NewMicroQuizHandler(microQuizRepo, courseRepo, quizRepo, aiClient)
 	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
+	permHandler := handler.NewPermissionHandler(permService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -288,15 +291,23 @@ func main() {
 
 			// Admin role management
 			adminRoles := auth.Group("/admin/roles")
-			adminRoles.Use(middleware.RequireRole("ADMIN"))
+			adminRoles.Use(middleware.RequirePermission(permService, "ROLE_MANAGE"))
 			{
 				adminRoles.GET("", roleAdminHandler.ListRoles)
 				adminRoles.POST("", roleAdminHandler.CreateRole)
 				adminRoles.PUT("/:id", roleAdminHandler.UpdateRole)
 				adminRoles.DELETE("/:id", roleAdminHandler.DeleteRole)
+				// Permission management per role
+				adminRoles.GET("/:id/permissions", permHandler.GetRolePermissions)
+				adminRoles.PUT("/:id/permissions", permHandler.AssignPermissions)
+			}
+			adminPerms := auth.Group("/admin/permissions")
+			adminPerms.Use(middleware.RequirePermission(permService, "ROLE_MANAGE"))
+			{
+				adminPerms.GET("", permHandler.ListPermissions)
 			}
 			adminUsers := auth.Group("/admin/users")
-			adminUsers.Use(middleware.RequireRole("ADMIN"))
+			adminUsers.Use(middleware.RequirePermission(permService, "ROLE_MANAGE"))
 			{
 				adminUsers.GET("/:userId/roles", roleAdminHandler.GetUserRoles)
 				adminUsers.PUT("/:userId/roles", roleAdminHandler.AssignRoleToUser)
@@ -313,7 +324,7 @@ func main() {
 			{
 				analytics.POST("/micro-interaction", microInteractionHandler.RecordInteraction)
 				analytics.GET("/heatmap",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "ANALYTICS_VIEW"),
 					microInteractionHandler.GetHeatmap)
 				analytics.GET("/heatmap/me", microInteractionHandler.GetStudentHeatmap)
 			}
@@ -330,7 +341,7 @@ func main() {
 
 				// Teacher/Admin only - Update/Delete/Publish course
 				courses.PUT("/:courseId", courseHandler.UpdateCourse)
-				courses.DELETE("/:courseId", middleware.RequireRole("ADMIN"), courseHandler.DeleteCourse)
+				courses.DELETE("/:courseId", middleware.RequirePermission(permService, "COURSE_DELETE"), courseHandler.DeleteCourse)
 				courses.POST("/:courseId/publish", courseHandler.PublishCourse)
 
 				// ── Analytics (Teacher / Admin only)
@@ -519,7 +530,7 @@ func main() {
 			{
 				// ── Phase 1: Heatmap ──────────────────────────────────────────────────
 				aiCourses.GET("/heatmap",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "ANALYTICS_VIEW"),
 					aiHandler.GetClassHeatmap)
 
 				aiCourses.GET("/my-heatmap",
@@ -527,7 +538,7 @@ func main() {
 
 				// ── Knowledge Graph ───────────────────────────────────────────────────
 				aiCourses.POST("/nodes",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "AI_INDEX"),
 					aiHandler.CreateKnowledgeNode)
 
 				aiCourses.GET("/nodes",
@@ -535,11 +546,11 @@ func main() {
 
 				// ── Phase 2: Quiz Generation ──────────────────────────────────────────
 				aiCourses.POST("/generate-quiz",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "AI_GENERATE"),
 					aiHandler.GenerateQuiz)
 
 				aiCourses.GET("/drafts",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "AI_GENERATE"),
 					aiHandler.ListDraftQuestions)
 
 				// ── Phase 2: Spaced Repetition ────────────────────────────────────────
@@ -556,10 +567,10 @@ func main() {
 
 				// "Compact Graph" — teacher-triggered intelligent node consolidation.
 				aiCourses.GET("/consolidate-graph/preview",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "AI_INDEX"),
 					aiHandler.PreviewGraphConsolidation)
 				aiCourses.POST("/consolidate-graph",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "AI_INDEX"),
 					aiHandler.ConsolidateGraph)
 
 				aiCourses.GET("/nodes/:nodeId/chunks", aiHandler.GetNodeChunks)
@@ -570,18 +581,18 @@ func main() {
 			quizDrafts := auth.Group("/ai/quiz-drafts")
 			{
 				quizDrafts.POST("/:genId/approve",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "AI_GENERATE"),
 					aiHandler.ApproveQuestion)
 
 				quizDrafts.POST("/:genId/reject",
-					middleware.RequireRoles("ADMIN", "TEACHER"),
+					middleware.RequirePermission(permService, "AI_GENERATE"),
 					aiHandler.RejectQuestion)
 			}
 
 			// ── Micro-Lessons (Teacher / Admin) ───────────────────────────
 			// Per-course generation triggers + job listing.
 			microPerCourse := auth.Group("/courses/:courseId/micro-lessons")
-			microPerCourse.Use(middleware.RequireRoles("ADMIN", "TEACHER"))
+			microPerCourse.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
 			{
 				microPerCourse.POST("/generate", microLessonHandler.GenerateMicroLessons)
 				microPerCourse.GET("/jobs", microLessonHandler.ListJobs)
@@ -589,7 +600,7 @@ func main() {
 
 			// Single-job + per-lesson actions (course is implied by the lesson row).
 			microGroup := auth.Group("/micro-lessons")
-			microGroup.Use(middleware.RequireRoles("ADMIN", "TEACHER"))
+			microGroup.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
 			{
 				microGroup.GET("/jobs/:jobId", microLessonHandler.GetJob)
 				microGroup.PUT("/:lessonId", microLessonHandler.UpdateLesson)
@@ -599,14 +610,14 @@ func main() {
 
 			// ── Micro-Quizzes (Teacher / Admin) ───────────────────────────
 			microQuizPerCourse := auth.Group("/courses/:courseId/micro-quizzes")
-			microQuizPerCourse.Use(middleware.RequireRoles("ADMIN", "TEACHER"))
+			microQuizPerCourse.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
 			{
 				microQuizPerCourse.POST("/generate", microQuizHandler.GenerateMicroQuizzes)
 				microQuizPerCourse.GET("/jobs", microQuizHandler.ListJobs)
 			}
 
 			microQuizGroup := auth.Group("/micro-quizzes")
-			microQuizGroup.Use(middleware.RequireRoles("ADMIN", "TEACHER"))
+			microQuizGroup.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
 			{
 				microQuizGroup.GET("/jobs/:jobId", microQuizHandler.GetJob)
 				microQuizGroup.PUT("/:quizId", microQuizHandler.UpdateQuiz)
