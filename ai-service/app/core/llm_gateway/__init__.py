@@ -43,6 +43,7 @@ from app.core.llm_gateway.types import (
     TASK_MICRO_QUIZ_GEN,
     TASK_NODE_EXTRACT,
     TASK_QUIZ_GEN,
+    TASK_VLM_DESCRIBE,
     TaskBinding,
     Usage,
 )
@@ -60,7 +61,7 @@ __all__ = [
     "TASK_CHAT", "TASK_QUIZ_GEN", "TASK_DIAGNOSIS", "TASK_FLASHCARD_GEN",
     "TASK_AGENT_REACT", "TASK_AGENT_ROUTER", "TASK_CLARIFICATION",
     "TASK_GRAPH_LINK", "TASK_MEMORY_COMPRESS", "TASK_LANGUAGE_DETECT",
-    "TASK_NODE_EXTRACT", "TASK_MICRO_LESSON_GEN", "TASK_MICRO_QUIZ_GEN",
+    "TASK_NODE_EXTRACT", "TASK_MICRO_LESSON_GEN", "TASK_MICRO_QUIZ_GEN", "TASK_VLM_DESCRIBE",
     # errors
     "LLMGatewayError", "NoModelAvailableError", "NoKeyAvailableError",
     "ProviderError", "RateLimitedError", "AuthError", "ContextLengthError",
