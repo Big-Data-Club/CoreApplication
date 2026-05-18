@@ -177,6 +177,8 @@ logging:
     org.springframework.security: WARN
     org.hibernate: WARN
     com.zaxxer.hikari: WARN
+    org.apache.tomcat.util.http.parser.Cookie: ERROR
+    org.apache.coyote.http11.Http11InputBuffer: ERROR
   
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
