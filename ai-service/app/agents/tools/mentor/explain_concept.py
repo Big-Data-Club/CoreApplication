@@ -64,13 +64,13 @@ class ExplainConceptTool(BaseTool):
         try:
             # 1. Auto-detect depth from mastery if not provided
             if not depth:
-                from app.agents.memory.personalize_memory import personalize_memory
-                weaknesses = await personalize_memory.get_weaknesses(
+                from app.services.mastery_service import mastery_service
+                weaknesses = await mastery_service.get_user_struggles(
                     user_id=student_id, course_id=course_id,
                 )
-                if any(w["mastery_level"] < 0.3 for w in weaknesses):
+                if weaknesses and any(w["mastery_level"] < 0.3 for w in weaknesses):
                     depth = "beginner"
-                elif any(w["mastery_level"] < 0.6 for w in weaknesses):
+                elif weaknesses and any(w["mastery_level"] < 0.6 for w in weaknesses):
                     depth = "intermediate"
                 else:
                     depth = "intermediate"  # default

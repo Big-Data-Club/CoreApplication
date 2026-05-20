@@ -114,29 +114,6 @@ class STMemory:
         tokens = await self.count_tokens(session_id)
         return tokens > STM_OVERFLOW_THRESHOLD
 
-    async def should_compress(self, session_id: str) -> bool:
-        """Check if STM has exceeded the token threshold. (Deprecated)"""
-        return await self.check_token_overflow(session_id)
-
-    async def trim_to_recent(
-        self,
-        session_id: str,
-        keep_last: int = 4,
-    ) -> None:
-        """
-        After MTM compression, trim STM to keep only the most recent messages.
-        (Deprecated in favor of summarize_and_replace)
-        """
-        r = _get_redis()
-        key = self._key(session_id)
-        length = await r.llen(key)
-        if length > keep_last:
-            await r.ltrim(key, -keep_last, -1)
-            logger.debug(
-                "STM trimmed: session=%s, kept=%d, removed=%d",
-                session_id, keep_last, length - keep_last,
-            )
-
     async def summarize_and_replace(
         self,
         session_id: str,

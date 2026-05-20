@@ -85,9 +85,80 @@ class Settings(BaseSettings):
     # Kafka worker tuning
     reindex_batch_size: int = 5
 
+    # ── Agent Memory ───────────────────────────────────────────────────────────
+    stm_overflow_threshold: int = 3000        # tokens before STM overflow warning
+    ltm_min_score: float = 0.3                # minimum cosine similarity for LTM recall
+    ltm_facts_min_score: float = 0.5          # minimum score for fact recall
+    max_context_tokens: int = 4000            # total token budget for memory context
+    consolidation_turn_interval: int = 5      # trigger consolidation every N turns
+    
+    # ── Loaded from memory_config.yaml ──
+    stm_budget: int = 1000
+    ltm_episodic_budget: int = 1500
+    ltm_facts_budget: int = 1000
+    user_profile_budget: int = 500
+    memory_decay_half_life: float = 30.0
+    consolidation_min_importance: float = 0.7
+
     # Internal
     lms_service_url: str = "http://lms-service:8081"
     ai_service_secret: str = "ai-service-secret-change-me"
+
+    def __init__(self, **values):
+        super().__init__(**values)
+        self._load_memory_config()
+
+    def _load_memory_config(self) -> None:
+        import os
+        config_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../../../config/memory_config.yaml")
+        )
+        if not os.path.exists(config_path):
+            config_path = "config/memory_config.yaml"
+            
+        if os.path.exists(config_path):
+            try:
+                import yaml
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+            except Exception:
+                data = {}
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        curr_sec = None
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            if line.endswith(":"):
+                                curr_sec = line[:-1].strip()
+                                continue
+                            if ":" in line:
+                                k, v = line.split(":", 1)
+                                k, v = k.strip(), v.strip()
+                                if curr_sec == "token_budgets":
+                                    data.setdefault("token_budgets", {})[k] = v
+                                elif curr_sec == "decay_rates":
+                                    data.setdefault("decay_rates", {})[k] = v
+                                elif curr_sec == "consolidation":
+                                    data.setdefault("consolidation", {})[k] = v
+                except Exception:
+                    pass
+
+            if data:
+                tb = data.get("token_budgets") or {}
+                if "stm" in tb: self.stm_budget = int(tb["stm"])
+                if "ltm_episodic" in tb: self.ltm_episodic_budget = int(tb["ltm_episodic"])
+                if "ltm_facts" in tb: self.ltm_facts_budget = int(tb["ltm_facts"])
+                if "user_profile" in tb: self.user_profile_budget = int(tb["user_profile"])
+                if "max_context_tokens" in tb: self.max_context_tokens = int(tb["max_context_tokens"])
+
+                dr = data.get("decay_rates") or {}
+                if "half_life_days" in dr: self.memory_decay_half_life = float(dr["half_life_days"])
+
+                c = data.get("consolidation") or {}
+                if "turn_interval" in c: self.consolidation_turn_interval = int(c["turn_interval"])
+                if "min_importance_score" in c: self.consolidation_min_importance = float(c["min_importance_score"])
 
     ai_key_encryption_secret: str = ""
     llm_bootstrap_on_startup: bool = True
