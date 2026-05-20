@@ -122,6 +122,104 @@ class CreateMiniChallengeTool(BaseTool):
                 task=TASK_QUIZ_GEN,
             )
 
+            # Parse and format options to match the frontend MCQOption schema:
+            # interface MCQOption { text: string; is_correct: boolean; explanation?: string; }
+            formatted_options = []
+            raw_options = result.get("options", result.get("choices", []))
+            correct_ans = str(result.get("correct_answer", "")).strip()
+            explanation = result.get("explanation", "")
+
+            logger.debug(
+                "create_mini_challenge raw LLM output — options=%r, correct_answer=%r",
+                raw_options, correct_ans,
+            )
+
+            if not raw_options and q_type in ["multiple_choice", "true_false"]:
+                if q_type == "true_false":
+                    raw_options = ["Đúng/True", "Sai/False"]
+                else:
+                    raw_options = []
+
+            for idx, opt in enumerate(raw_options):
+                option_char = chr(65 + idx)  # 'A', 'B', 'C', 'D'
+                option_char_lower = option_char.lower()
+                opt_text = ""
+                is_correct = False
+                opt_explanation = ""
+
+                # ── Extract text & correctness from diverse LLM schemas ──
+                if isinstance(opt, dict):
+                    # Try many key variations LLMs use
+                    for key in ("text", "option", "content", "label",
+                                "value", "answer", "option_text"):
+                        val = opt.get(key)
+                        if val and str(val).strip():
+                            opt_text = str(val).strip()
+                            break
+                    # If still empty, grab the first non-empty string value
+                    if not opt_text:
+                        for v in opt.values():
+                            if isinstance(v, str) and v.strip():
+                                opt_text = v.strip()
+                                break
+                    # Correctness from dict
+                    is_correct = bool(
+                        opt.get("is_correct",
+                        opt.get("correct",
+                        opt.get("isCorrect", False)))
+                    )
+                    opt_explanation = opt.get(
+                        "explanation", explanation if is_correct else ""
+                    )
+                else:
+                    opt_text = str(opt).strip()
+                    # Match correct_answer against the option letter
+                    correct_clean = correct_ans.upper().strip()
+                    if correct_clean == option_char:
+                        is_correct = True
+                    elif (
+                        len(correct_clean) > 1
+                        and correct_clean[0] == option_char
+                        and correct_clean[1] in (".", ")", ":", " ")
+                    ):
+                        is_correct = True
+                    elif correct_ans.strip().lower() == opt_text.lower():
+                        is_correct = True
+                    elif (
+                        len(correct_ans) > 3
+                        and correct_ans.lower() in opt_text.lower()
+                    ):
+                        is_correct = True
+                    opt_explanation = explanation if is_correct else ""
+
+                # ── Strip option prefix (case-insensitive) ──
+                # Handles "A. text", "a) text", "A: text", "A text", etc.
+                raw_before_strip = opt_text
+                for ch in (option_char, option_char_lower):
+                    for sep in (". ", ") ", ": ", " "):
+                        prefix = f"{ch}{sep}"
+                        if opt_text.startswith(prefix):
+                            opt_text = opt_text[len(prefix):]
+                            break
+                    else:
+                        continue
+                    break  # already stripped
+
+                # ── Fallback: never produce empty or placeholder-only text ──
+                stripped = opt_text.strip()
+                if not stripped or stripped in ("...", "…", "___"):
+                    opt_text = raw_before_strip.strip() or f"Option {option_char}"
+
+                formatted_options.append({
+                    "text": opt_text.strip(),
+                    "is_correct": is_correct,
+                    "explanation": opt_explanation,
+                })
+
+            logger.debug(
+                "create_mini_challenge formatted_options=%r", formatted_options,
+            )
+
             return ToolResult(
                 status="success",
                 data={
@@ -135,14 +233,12 @@ class CreateMiniChallengeTool(BaseTool):
                     "component": "MiniChallengeWidget",
                     "props": {
                         "question": result.get("question", ""),
-                        "options": result.get("options", []),
-                        "correct_answer": result.get("correct_answer", ""),
-                        "explanation": result.get("explanation", ""),
-                        "hint": result.get("hint", ""),
-                        "question_type": q_type,
+                        "options": formatted_options,
+                        "concept": concept,
                     },
                 },
             )
+
 
         except Exception as e:
             logger.error("create_mini_challenge failed: %s", e)
