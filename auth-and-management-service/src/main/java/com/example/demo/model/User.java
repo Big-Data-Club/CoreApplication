@@ -3,7 +3,6 @@ package com.example.demo.model;
 import com.example.demo.enums.AuthProvider;
 
 import com.example.demo.enums.UserTeam;
-import com.example.demo.enums.UserType;
 import jakarta.persistence.*;
 import lombok.*;
 import java.util.ArrayList;
@@ -43,9 +42,8 @@ public class User {
     @Column(nullable = false, unique = true, length = 100)
     private String code;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private UserType type;
+    private String type;
 
     @Column(nullable = false)
     @Builder.Default

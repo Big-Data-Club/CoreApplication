@@ -3,7 +3,6 @@ package com.example.demo.dto.user;
 import com.example.demo.enums.AuthProvider;
 
 import com.example.demo.enums.UserTeam;
-import com.example.demo.enums.UserType;
 import com.example.demo.model.User;
 import lombok.Builder;
 import lombok.Data;
@@ -17,7 +16,7 @@ public class UserResponse {
     private String     email;
     private String     role;
     private UserTeam   team;
-    private UserType   type;
+    private String     type;
     private String       code;
     private Integer      totalScore;
     private Boolean      active;

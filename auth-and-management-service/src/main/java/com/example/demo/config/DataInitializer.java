@@ -26,6 +26,7 @@ public class DataInitializer implements CommandLineRunner {
     private final RoleRepository roleRepository;
     private final LmsRoleMappingRepository lmsMappingRepository;
     private final PasswordEncoder passwordEncoder;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @org.springframework.beans.factory.annotation.Value("${app.admin.password:hehehe}")
     private String adminPassword;
@@ -35,6 +36,15 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        try {
+            log.info("Dropping database check constraints for dynamic fields...");
+            jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check");
+            jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_type_check");
+            jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_team_check");
+            log.info("Successfully dropped check constraints.");
+        } catch (Exception e) {
+            log.error("Failed to drop check constraints: {}", e.getMessage());
+        }
         seedRoles();
         seedAdminUser();
     }
