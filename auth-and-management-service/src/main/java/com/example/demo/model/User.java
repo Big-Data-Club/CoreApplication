@@ -35,9 +35,8 @@ public class User {
     @Column(nullable = false, length = 50)
     private String role;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private UserTeam team;
+    @Column(nullable = false, length = 50)
+    private String team;
 
     @Column(nullable = false, unique = true, length = 100)
     private String code;
