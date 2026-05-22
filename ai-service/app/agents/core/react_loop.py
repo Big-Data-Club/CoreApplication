@@ -95,13 +95,6 @@ settings = get_settings()
 
 MAX_ITERATIONS = 5
 MAX_CLARIFICATIONS_PER_SESSION = 2
-MAX_MEMORY_TOOL_CALLS = 2  # Circuit breaker for memory management
-MEMORY_TOOLS = {
-    "update_working_memory",
-    "save_student_fact",
-    "summarize_past_turns",
-    "filter_irrelevant_context"
-}
 
 
 async def run_react_loop(
@@ -140,9 +133,22 @@ async def run_react_loop(
     )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 1: Classify intent (fast — ~100ms)
+    # Step 1.5: Load active courses
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    intent_type = await classify_intent(user_message, agent_type)
+    active_courses = await load_active_courses(
+        user_id=user_id,
+        agent_type=agent_type,
+    )
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 1: Classify intent (fast — structured)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    router_output = await classify_intent(
+        user_message=user_message,
+        active_courses=active_courses,
+        agent_type=agent_type,
+    )
+    intent_type = router_output.intent
 
     yield AgentEvent(
         type=AgentEventType.THINKING,
@@ -154,19 +160,6 @@ async def run_react_loop(
     logger.debug("Intent classified: %s (%.0fms)",
                  intent_type, (time.monotonic() - start_time) * 1000)
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 1.5: Load active courses + resolve course scope
-    #
-    # The agent is GLOBAL (manages many courses). Before we touch memory or
-    # tools, we figure out which course(s) this turn applies to. The scope
-    # is propagated everywhere downstream: prompt anchor, retrieval slot,
-    # tool injection, clarification options.
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    active_courses = await load_active_courses(
-        user_id=user_id,
-        agent_type=agent_type,
-    )
-
     # Read the prior MTM anchor (current_course_id, etc.) so the scope
     # resolver can recognise deictic references.
     prior_mtm_ctx = await mtm.get_context(session_id)
@@ -176,6 +169,7 @@ async def run_react_loop(
         active_courses=active_courses,
         mtm_ctx=prior_mtm_ctx,
         explicit_course_id=course_id,
+        router_matched_course_id=router_output.matched_course_id,
     )
     effective_course_id = apply_scope_to_course_id(scope, fallback_course_id=None)
 
@@ -269,9 +263,21 @@ async def run_react_loop(
         # (a) Scope clarification — runs first, no LLM call.
         scope_clarify = build_scope_clarification(scope)
 
-        # (b) Parameter clarification — only if scope was clean enough.
+        # (b) Router clarification — runs if router flagged ambiguity (e.g., vague request, missing params)
+        router_clarify: dict | None = None
+        if scope_clarify is None and router_output.is_ambiguous:
+            router_clarify = {
+                "needs_clarification": True,
+                "kind": "parameter",
+                "confidence": 0.5,
+                "clarification_question": router_output.missing_context or "Bạn có thể nói rõ hơn không?",
+                "clarification_options": [],
+                "missing_fields": [router_output.ambiguity_reason] if router_output.ambiguity_reason else [],
+            }
+
+        # (c) Parameter clarification — fallback if both scope and router are clean.
         param_clarify: dict | None = None
-        if scope_clarify is None and scope.mode != "ambiguous":
+        if scope_clarify is None and router_clarify is None and scope.mode != "ambiguous":
             tool_schemas = get_tool_schemas(agent_type)
             mtm_ctx = memory_ctx["raw"].get("mtm", {})
             try:
@@ -286,7 +292,7 @@ async def run_react_loop(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("parameter clarification failed: %s", exc)
 
-        clarify_result = scope_clarify or param_clarify
+        clarify_result = scope_clarify or router_clarify or param_clarify
         if clarify_result:
             question = clarify_result.get(
                 "clarification_question",
@@ -371,19 +377,6 @@ async def run_react_loop(
     assistant_text = ""
     assistant_metadata: dict = {"toolActivities": []}
 
-    # Token overflow warning (Push to Pull transition)
-    if await stm.check_token_overflow(session_id):
-        messages.append({
-            "role": "system",
-            "content": (
-                "WARNING: Conversation memory is near capacity. "
-                "Before answering, use `summarize_past_turns` or "
-                "`filter_irrelevant_context` to free space."
-            ),
-        })
-
-    # Circuit breaker tracking
-    memory_tool_count = 0
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 5: ReAct Iterations
@@ -546,8 +539,14 @@ async def run_react_loop(
                 turn_id=turn_id,
             )
  
-            # Post-turn: no background compression anymore.
-            # The agent manages memory explicitly via tools.
+            # Post-turn: trigger background consolidation if needed
+            await _trigger_post_turn_consolidation(
+                session_id=session_id,
+                user_id=user_id,
+                agent_type=agent_type,
+                course_id=effective_course_id,
+                intent_type=intent_type,
+            )
             return
 
         # ── 5d. TOOL CALLS → execute and loop ───────────────────────────────
@@ -575,47 +574,6 @@ async def run_react_loop(
             tool_name = tc["name"]
             if not tool_name:
                 continue
-
-            # Circuit breaker
-            if tool_name in MEMORY_TOOLS:
-                if memory_tool_count >= MAX_MEMORY_TOOL_CALLS:
-                    logger.warning("Circuit breaker: max memory tool calls reached.")
-                    # Let the loop process other non-memory tools or error out
-                    tool_result = ToolResult(
-                        status="error",
-                        data={"error": "Circuit breaker activated"},
-                        message="Vượt quá số lần gọi công cụ quản lý bộ nhớ cho phép trong một lượt."
-                    )
-                    # Yield tool start/result anyway to satisfy formatting
-                    assistant_metadata["toolActivities"].append({
-                        "tool": tool_name,
-                        "status": "error",
-                        "args": {},
-                        "message": tool_result.message
-                    })
-                    yield AgentEvent(
-                        type=AgentEventType.TOOL_START,
-                        data={"tool": tool_name, "args": {}},
-                        session_id=session_id,
-                        turn_id=iter_id,
-                    )
-                    yield AgentEvent(
-                        type=AgentEventType.TOOL_RESULT,
-                        data={
-                            "tool": tool_name,
-                            "status": tool_result.status,
-                            "message": tool_result.message,
-                        },
-                        session_id=session_id,
-                        turn_id=iter_id,
-                    )
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": json.dumps({"status": "error", "message": tool_result.message}, ensure_ascii=False),
-                    })
-                    continue
-                memory_tool_count += 1
 
             # Parse arguments
             try:
@@ -754,6 +712,13 @@ async def run_react_loop(
                     session_id=session_id,
                     turn_id=turn_id,
                 )
+                await _trigger_post_turn_consolidation(
+                    session_id=session_id,
+                    user_id=user_id,
+                    agent_type=agent_type,
+                    course_id=effective_course_id,
+                    intent_type=intent_type,
+                )
                 return
 
             # ── Add tool result to messages for next LLM iteration ───────
@@ -813,6 +778,15 @@ async def run_react_loop(
 
     total_ms = (time.monotonic() - start_time) * 1000
     logger.info("ReAct finished: session=%s, %.0fms", session_id[:8], total_ms)
+
+    await _trigger_post_turn_consolidation(
+        session_id=session_id,
+        user_id=user_id,
+        agent_type=agent_type,
+        course_id=effective_course_id,
+        intent_type=intent_type,
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Working-memory anchor helpers
@@ -972,3 +946,44 @@ async def _generate_session_title(first_message: str) -> str | None:
         title = title[:57].rstrip() + "..."
  
     return title or None
+
+
+async def _trigger_post_turn_consolidation(
+    session_id: str,
+    user_id: int,
+    agent_type: str,
+    course_id: int | None,
+    intent_type: str,
+) -> None:
+    """
+    Increments turn count in MTM. If turn_count is a multiple of 10,
+    publishes CONSOLIDATE_SESSION request to Kafka.
+    """
+    try:
+        from app.agents.memory.mtm import mtm
+        from app.agents.memory.stm import stm
+        from app.worker.kafka_producer import publish_consolidation_request
+        from uuid import uuid4
+
+        new_turn_count = await mtm.increment_turn_count(session_id)
+        logger.info("Session %s turn count incremented to %d", session_id[:8], new_turn_count)
+
+        if new_turn_count > 0 and new_turn_count % 10 == 0:
+            messages = await stm.get_window(session_id, n_turns=10)
+            context = {
+                "course_id": course_id,
+                "agent_type": agent_type,
+                "intent": intent_type,
+                "user_id": user_id,
+            }
+            job_id = str(uuid4())
+            await publish_consolidation_request(
+                user_id=user_id,
+                session_id=session_id,
+                messages=messages,
+                context=context,
+                job_id=job_id
+            )
+            logger.info("Triggered session consolidation for user %d, session %s, job_id %s", user_id, session_id, job_id)
+    except Exception as exc:
+        logger.exception("Failed to trigger post-turn consolidation: %s", exc)

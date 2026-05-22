@@ -107,3 +107,29 @@ async def publish_ai_job_status(job_id: str, status: str, result: dict | list | 
     await producer.send_and_wait(topic, value=payload, key=key)
     logger.info(f"Published AI job status to {topic} for job {job_id}: {status}")
 
+
+async def publish_consolidation_request(
+    user_id: int,
+    session_id: str,
+    messages: list[dict],
+    context: dict,
+    job_id: str,
+):
+    """Publish a request to consolidate a user's chat session background memory."""
+    producer = await get_kafka_producer()
+    payload = {
+        "job_id": job_id,
+        "command_type": "CONSOLIDATE_SESSION",
+        "payload": {
+            "user_id": user_id,
+            "session_id": session_id,
+            "messages": messages,
+            "context": context,
+        }
+    }
+    topic = "lms.ai.command"
+    key = str(session_id).encode("utf-8")
+    await producer.send_and_wait(topic, value=payload, key=key)
+    logger.info(f"Published consolidation request to {topic} for session {session_id}")
+
+

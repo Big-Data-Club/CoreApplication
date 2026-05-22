@@ -1,7 +1,7 @@
 """
 ai-service/tests/agents/test_memory_layers.py
 
-Integration tests for the 5-tier Agent Memory System.
+Integration tests for the Agent Memory System.
 
 HOW TO RUN:
 ───────────
@@ -92,7 +92,7 @@ async def run_all_tests():
     try:
         from app.agents.memory.stm import stm
 
-        session_id = f"test-stm-{uuid.uuid4().hex[:8]}"
+        session_id = str(uuid.uuid4())
 
         # Append messages
         await stm.append(session_id, "user", "Hello, I need help with OOP")
@@ -110,9 +110,9 @@ async def run_all_tests():
         tokens = await stm.count_tokens(session_id)
         assert tokens > 0, f"Token count should be > 0, got {tokens}"
 
-        # Should not compress (too few tokens)
-        should = await stm.should_compress(session_id)
-        assert not should, "Should not compress with only 3 short messages"
+        # Should not be in overflow (too few tokens)
+        overflow = await stm.check_token_overflow(session_id)
+        assert not overflow, "Should not overflow with only 3 short messages"
 
         # Length
         length = await stm.length(session_id)
@@ -130,12 +130,12 @@ async def run_all_tests():
         print(f"  [FAIL] {r.name} — {e}")
     results.append(r)
 
-    # ── Test 2: STM trim ─────────────────────────────────────────────────────
-    r = TestResult("STM: trim to recent messages")
+    # ── Test 2: STM summarize and replace ─────────────────────────────────
+    r = TestResult("STM: summarize and replace")
     try:
         from app.agents.memory.stm import stm
 
-        session_id = f"test-trim-{uuid.uuid4().hex[:8]}"
+        session_id = str(uuid.uuid4())
 
         for i in range(10):
             await stm.append(session_id, "user", f"Message {i}")
@@ -143,14 +143,16 @@ async def run_all_tests():
         length_before = await stm.length(session_id)
         assert length_before == 10
 
-        await stm.trim_to_recent(session_id, keep_last=4)
+        await stm.summarize_and_replace(
+            session_id, "Summary of old messages", keep_last=2
+        )
 
         length_after = await stm.length(session_id)
-        assert length_after == 4, f"Expected 4, got {length_after}"
+        assert length_after == 3, f"Expected 3 (1 summary + 2 kept), got {length_after}"
 
         messages = await stm.get_window(session_id, n_turns=10)
-        assert messages[0]["content"] == "Message 6"  # oldest kept
-        assert messages[-1]["content"] == "Message 9"  # newest
+        assert "Tóm tắt" in messages[0]["content"]  # Summary message
+        assert messages[-1]["content"] == "Message 9"  # newest kept
 
         await stm.clear(session_id)
         r.passed = True
@@ -242,36 +244,19 @@ async def run_all_tests():
         print(f"  [FAIL] {r.name} — {e}")
     results.append(r)
 
-    # ── Test 5: System Memory ────────────────────────────────────────────────
-    r = TestResult("System Memory: get course summary")
+    # ── Test 5: (Removed — System Memory deleted) ────────────────────────
+
+    # ── Test 6: Mastery Service ───────────────────────────────────────────
+    r = TestResult("Mastery Service: get user struggles and strengths")
     try:
-        from app.agents.memory.system_memory import system_memory
+        from app.services.mastery_service import mastery_service
 
-        summary = await system_memory.get_course_summary(course_id=1)
-        assert isinstance(summary, dict)
-        assert "course_id" in summary
-        assert "node_count" in summary
+        struggles = await mastery_service.get_user_struggles(user_id=1, course_id=1)
+        strengths = await mastery_service.get_user_strengths(user_id=1, course_id=1)
+        assert isinstance(struggles, list)
+        assert isinstance(strengths, list)
         r.passed = True
-        print(f"  [PASS] {r.name} — nodes={summary.get('node_count')}")
-    except Exception as e:
-        r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
-    results.append(r)
-
-    # ── Test 6: Personalize Memory ───────────────────────────────────────────
-    r = TestResult("Personalize Memory: get user profile (empty is OK)")
-    try:
-        from app.agents.memory.personalize_memory import personalize_memory
-
-        profile = await personalize_memory.get_user_profile(
-            user_id=1, course_id=1,
-        )
-        assert isinstance(profile, dict)
-        assert "weaknesses" in profile
-        assert "strengths" in profile
-        assert "summary" in profile
-        r.passed = True
-        print(f"  [PASS] {r.name} — summary: {profile['summary'][:60]}")
+        print(f"  [PASS] {r.name} — struggles: {len(struggles)}, strengths: {len(strengths)}")
     except Exception as e:
         r.error = str(e)
         print(f"  [FAIL] {r.name} — {e}")
@@ -284,7 +269,7 @@ async def run_all_tests():
         from app.agents.memory.context_builder import context_builder
 
         # Prepare STM
-        session_id = f"test-ctx-{uuid.uuid4().hex[:8]}"
+        session_id = str(uuid.uuid4())
         await stm.append(session_id, "user", "Giải thích OOP cho tôi")
         await stm.append(session_id, "assistant", "OOP là lập trình hướng đối tượng...")
 
@@ -308,8 +293,8 @@ async def run_all_tests():
         assert len(context["stm_messages"]) == 2
 
         # Check weights match profile
-        assert context["weights_used"]["system"] == 1.0
         assert context["weights_used"]["stm"] == 0.9
+        assert "system" not in context["weights_used"]
 
         await stm.clear(session_id)
         r.passed = True
@@ -328,7 +313,7 @@ async def run_all_tests():
     try:
         from app.agents.memory.context_builder import context_builder
 
-        session_id = f"test-chat-{uuid.uuid4().hex[:8]}"
+        session_id = str(uuid.uuid4())
         await stm.append(session_id, "user", "Xin chào!")
 
         context = await context_builder.build(
@@ -340,12 +325,12 @@ async def run_all_tests():
             intent_type="general_chat",
         )
 
-        # General chat should have low system/personalize weights
-        assert context["weights_used"]["system"] < 0.3
-        assert context["weights_used"]["personalize"] < 0.3
+        # General chat should have low personalize weight
+        assert context["weights_used"]["personalize"] <= 0.3
+        assert "system" not in context["weights_used"]
 
-        # System memory should be skipped (weight < 0.3)
-        assert "system" not in context["raw"] or not context["raw"].get("system")
+        # System tier was removed entirely
+        assert "system" not in context["raw"]
 
         await stm.clear(session_id)
         r.passed = True

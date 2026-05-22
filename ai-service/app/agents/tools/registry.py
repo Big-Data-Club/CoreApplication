@@ -32,11 +32,6 @@ from app.agents.tools.mentor.create_mini_challenge import CreateMiniChallengeToo
 from app.agents.tools.mentor.generate_flashcard import GenerateFlashcardTool
 from app.agents.tools.mentor.get_study_plan import GetStudyPlanTool
 from app.agents.tools.mentor.explain_concept import ExplainConceptTool
-from app.agents.tools.mentor.update_working_memory import UpdateWorkingMemoryTool
-from app.agents.tools.mentor.save_student_fact import SaveStudentFactTool
-from app.agents.tools.mentor.search_student_profile import SearchStudentProfileTool
-from app.agents.tools.mentor.summarize_past_turns import SummarizePastTurnsTool
-from app.agents.tools.mentor.filter_irrelevant_context import FilterIrrelevantContextTool
 
 # ── Shared tools (available to both agents) ───────────────────────────────────
 
@@ -45,10 +40,6 @@ from app.agents.tools.teacher.list_my_courses import ListMyCoursesTool
 _SHARED_TOOLS: list[BaseTool] = [
     ListKnowledgeNodesTool(),
     SearchMaterialsTool(),
-    UpdateWorkingMemoryTool(),
-    SummarizePastTurnsTool(),
-    FilterIrrelevantContextTool(),
-    SearchStudentProfileTool(),
 ]
 
 _TEACHER_ONLY_TOOLS: list[BaseTool] = [
@@ -67,7 +58,6 @@ _MENTOR_ONLY_TOOLS: list[BaseTool] = [
     GenerateFlashcardTool(),
     GetStudyPlanTool(),
     ExplainConceptTool(),
-    SaveStudentFactTool(),
 ]
 
 # ── Public API ────────────────────────────────────────────────────────────────

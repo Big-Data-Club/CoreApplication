@@ -193,6 +193,40 @@ async def process_ai_command(payload: dict):
                 "language":            dr.language,
             }
 
+        elif command_type == "CONSOLIDATE_SESSION":
+            from app.services.consolidation_service import consolidation_service
+            from app.agents.memory.ltm import ltm
+
+            session_id = job_payload.get("session_id")
+            user_id = job_payload.get("user_id")
+            messages = job_payload.get("messages", [])
+            context = job_payload.get("context", {})
+            course_id = context.get("course_id")
+            agent_type = context.get("agent_type", "mentor")
+
+            # 1. Deep entity extraction (updates postgres user_concept_mastery)
+            deep_res = await consolidation_service.extract_entities_deep(messages, context)
+
+            # 2. Episode summary generation
+            summary = await consolidation_service.create_episode_summary(messages)
+
+            # 3. Store episode in Qdrant + PG
+            episode_id = None
+            if summary and user_id and session_id:
+                episode_id = await ltm.store_episode(
+                    session_id=session_id,
+                    user_id=int(user_id),
+                    agent_type=agent_type,
+                    summary_text=summary,
+                    course_id=int(course_id) if course_id is not None else None,
+                )
+
+            result = {
+                "deep_extraction": deep_res,
+                "episode_summary": summary,
+                "episode_id": episode_id,
+            }
+
         else:
             logger.warning("Unknown AI command type",
                            extra={"command_type": command_type, "job_id": job_id})

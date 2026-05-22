@@ -9,6 +9,7 @@ import com.example.demo.exception.DuplicateResourceException;
 import com.example.demo.exception.UnauthorizedException;
 import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
+import com.example.demo.repository.RoleRepository;
 import com.example.demo.service.user.UserSyncService;
 import com.example.demo.utils.PasswordGenerator;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
@@ -32,11 +33,15 @@ import java.util.Optional;
 public class GoogleAuthService {
 
     private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserSyncService userSyncService;
 
     @Value("${google.client-id}")
     private String googleClientId;
+
+    @Value("${app.default-role:ROLE_USER}")
+    private String defaultRole;
 
     private GoogleIdTokenVerifier verifier;
 
@@ -120,11 +125,17 @@ public class GoogleAuthService {
         // Generate a random password (user won't use it — Google login only)
         String randomPassword = PasswordGenerator.generateStrongPassword();
 
+        String resolvedRole = defaultRole;
+        if (!roleRepository.existsByName(resolvedRole)) {
+            log.warn("Default role '{}' not found in database! Creating user with fallback 'ROLE_USER'", resolvedRole);
+            resolvedRole = "ROLE_USER";
+        }
+
         User user = User.builder()
                 .name(req.getName())
                 .email(email)
                 .password(passwordEncoder.encode(randomPassword))
-                .role(UserRole.ROLE_USER)
+                .role(resolvedRole)
                 .team(req.getTeam())
                 .code(req.getCode())
                 .type(req.getType())
@@ -137,7 +148,7 @@ public class GoogleAuthService {
                 .build();
 
         User saved = userRepository.save(user);
-        log.info("Google user registered (pending approval): email={}, googleId={}", email, googleId);
+        log.info("Google user registered (pending approval): email={}, googleId={}, role={}", email, googleId, resolvedRole);
 
         return saved;
     }

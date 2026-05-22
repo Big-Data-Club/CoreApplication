@@ -157,8 +157,8 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
 
                 for msg, expected in test_cases:
                     result = await classify_intent(msg)
-                    assert result == expected, (
-                        f"'{msg}' → got '{result}', expected '{expected}'"
+                    assert result.intent == expected, (
+                        f"'{msg}' → got '{result.intent}', expected '{expected}'"
                     )
 
                 # These require LLM — just check they return valid intents
@@ -171,10 +171,10 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                 ]
                 for msg in complex_cases:
                     result = await classify_intent(msg)
-                    assert result in VALID_INTENTS, (
-                        f"'{msg}' → got '{result}', not in VALID_INTENTS"
+                    assert result.intent in VALID_INTENTS, (
+                        f"'{msg}' → got '{result.intent}', not in VALID_INTENTS"
                     )
-                    print(f"         '{msg[:30]}...' → {result}")
+                    print(f"         '{msg[:30]}...' → {result.intent}")
 
                 print(f"  [PASS] {r.name}")
                 r.passed = True

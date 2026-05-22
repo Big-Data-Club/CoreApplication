@@ -8,6 +8,7 @@ import com.example.demo.exception.InvalidPasswordException;
 import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
+import com.example.demo.repository.RoleRepository;
 import com.example.demo.service.email.EmailService;
 import com.example.demo.service.user.PasswordResetService;
 import com.example.demo.service.user.UserService;
@@ -33,6 +34,7 @@ import java.util.UUID;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository     userRepository;
+    private final RoleRepository     roleRepository;
     private final PasswordEncoder    passwordEncoder;
     private final EmailService       emailService;
     private final PasswordResetService passwordResetService;
@@ -40,6 +42,9 @@ public class UserServiceImpl implements UserService {
 
     @Value("${app.upload.dir:uploads/profiles/}")
     private String uploadDir;
+
+    @Value("${app.default-role:ROLE_USER}")
+    private String defaultRole;
 
     // Reads
 
@@ -84,7 +89,18 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponse updateRole(Long id, String role) {
         var user = findUserEntity(id);
-        user.setRole(role);
+        String normalizedRole = role != null && !role.trim().isEmpty() ? role.trim() : defaultRole;
+        if (!normalizedRole.toUpperCase().startsWith("ROLE_")) {
+            normalizedRole = "ROLE_" + normalizedRole.toUpperCase();
+        } else {
+            normalizedRole = normalizedRole.toUpperCase();
+        }
+
+        if (!roleRepository.existsByName(normalizedRole)) {
+            throw new BadRequestException("Role '" + normalizedRole + "' does not exist in the system.");
+        }
+
+        user.setRole(normalizedRole);
         var saved = userRepository.save(user);
         userSyncService.syncUser(saved);
         return UserResponse.fromEntity(saved);

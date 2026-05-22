@@ -404,8 +404,9 @@ func main() {
 				content.POST("/batch-ai-index-status", aiHandler.BatchGetContentAutoIndexStatus)
 			}
 
-			// ENROLLMENT MANAGEMENT
-			enrollments := auth.Group("/enrollments")
+			// ENROLLMENT MANAGEMENT (Internal Service Secret OR JWT)
+			enrollments := v1.Group("/enrollments")
+			enrollments.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 			{
 				// Student enrollment
 				enrollments.POST("", enrollmentHandler.EnrollCourse)

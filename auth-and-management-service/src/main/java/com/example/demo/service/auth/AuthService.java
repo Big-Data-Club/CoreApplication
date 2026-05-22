@@ -7,12 +7,14 @@ import com.example.demo.exception.DuplicateResourceException;
 import com.example.demo.enums.UserRole;
 import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
+import com.example.demo.repository.RoleRepository;
 import com.example.demo.service.email.EmailService;
 import com.example.demo.service.user.UserSyncService;
 import com.example.demo.strategy.RoleResolutionStrategy;
 import com.example.demo.utils.PasswordGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,11 +29,15 @@ import java.util.stream.Collectors;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final UserSyncService userSyncService;
     private final RoleResolutionStrategy roleStrategy;
+
+    @Value("${app.default-role:ROLE_USER}")
+    private String defaultRole;
 
     public User authenticate(LoginRequest request) {
         var user = userRepository.findByEmail(request.getEmail())
@@ -101,7 +107,32 @@ public class AuthService {
             errors.add("Duplicate code(s) within batch: " + String.join(", ", inBatchDupCodes));
         }
 
+        // 5. Validate roles exist in DB
+        var existingRoles = roleRepository.findAll().stream()
+                .map(r -> r.getName().toUpperCase())
+                .collect(Collectors.toSet());
+
+        List<String> invalidRoles = new java.util.ArrayList<>();
+        for (var reg : registrations) {
+            String roleStr = reg.getRole() != null && !reg.getRole().trim().isEmpty() ? reg.getRole().trim() : defaultRole;
+            if (!roleStr.toUpperCase().startsWith("ROLE_")) {
+                roleStr = "ROLE_" + roleStr.toUpperCase();
+            } else {
+                roleStr = roleStr.toUpperCase();
+            }
+            if (!existingRoles.contains(roleStr)) {
+                invalidRoles.add(roleStr);
+            }
+        }
+
+        if (!invalidRoles.isEmpty()) {
+            errors.add("Invalid role(s): " + String.join(", ", invalidRoles.stream().distinct().toList()));
+        }
+
         if (!errors.isEmpty()) {
+            if (!invalidRoles.isEmpty()) {
+                throw new BadRequestException(String.join("; ", errors));
+            }
             throw new DuplicateResourceException("User", "email/code", String.join("; ", errors));
         }
 
@@ -113,11 +144,18 @@ public class AuthService {
                     String pwd = PasswordGenerator.generateStrongPassword();
                     emailToPassword.put(reg.getEmail(), pwd);
                     emailToName.put(reg.getEmail(), reg.getName());
+                    String roleStr = reg.getRole() != null && !reg.getRole().trim().isEmpty() ? reg.getRole().trim() : defaultRole;
+                    if (!roleStr.toUpperCase().startsWith("ROLE_")) {
+                        roleStr = "ROLE_" + roleStr.toUpperCase();
+                    } else {
+                        roleStr = roleStr.toUpperCase();
+                    }
+
                     return User.builder()
                             .name(reg.getName())
                             .email(reg.getEmail())
                             .password(passwordEncoder.encode(pwd))
-                            .role(reg.getRole() != null ? reg.getRole() : UserRole.ROLE_USER)
+                            .role(roleStr)
                             .team(reg.getTeam())
                             .code(reg.getCode())
                             .type(reg.getType())

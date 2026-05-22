@@ -74,7 +74,7 @@ public class TaskMapper implements EntityMapper<Task, TaskResponse> {
                             .email(u.getEmail())
                             .code(u.getCode())
                             .team(u.getTeam().name())
-                            .type(u.getType().name())
+                            .type(u.getType())
                             .score(score != null ? score.getScore() : null)
                             .applied(score != null ? score.getApplied() : null)
                             .appliedAt(score != null ? score.getAppliedAt() : null)

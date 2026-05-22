@@ -1,111 +1,68 @@
 """
 ai-service/app/agents/memory/context_builder.py
 
-ContextBuilder — the central orchestrator for the 5-tier memory system.
-
-This is the ONLY entry point that the ReAct loop uses to get context.
-It assembles information from all 5 memory tiers with intelligent
-weighting based on the query's intent.
-
-The key insight: NOT all memories are useful for every query.
-Fetching everything wastes tokens and dilutes relevance.
-
-Intent-based weighting:
-  Type A (knowledge Q)  : System(1.0) + STM(0.9) + Personalize(0.5) + MTM(0.3)
-  Type B (progress)     : Personalize(1.0) + MTM(0.7) + LTM(0.8) + STM(0.5)
-  Type C (create content): System(1.0) + STM(0.9) + MTM(0.7)
-  Type D (general chat)  : STM(0.9) + MTM(0.3)
-  Type E (exercise)      : System(0.8) + Personalize(0.9) + STM(0.7)
-
-Weight semantics:
-  >= 0.7  : Full retrieval (all available data)
-  0.3-0.7 : Summary-only retrieval (condensed)
-  < 0.3   : Skip entirely (save tokens)
+ContextBuilder — the central orchestrator for the simplified 3-tier memory system:
+  1. STM (Short-term dialogue memory): Recent chat history
+  2. LTM Episodic: Past session summaries retrieved from Qdrant
+  3. LTM Facts: Student concept mastery / struggles / strengths retrieved from Postgres
+     and scored dynamically using multi-signal scoring (semantic * recency * structural).
 """
 from __future__ import annotations
 
 import logging
+import math
+from datetime import datetime, timezone
 from typing import Any, Optional
 
+from app.core.config import get_settings
+from app.core.database import get_ai_conn
+from app.core.embeddings import create_embedding, create_embeddings_batch
 from app.agents.memory.stm import stm
 from app.agents.memory.mtm import mtm
 from app.agents.memory.ltm import ltm
-from app.agents.memory.personalize_memory import personalize_memory
+from app.services.mastery_service import mastery_service
 
 logger = logging.getLogger(__name__)
 
-# Weight profiles per intent type
+# Intent-based weighting profiles for the 3 memory tiers
 WEIGHT_PROFILES: dict[str, dict[str, float]] = {
     "knowledge_question": {
         "stm": 0.9,
-        "mtm": 0.5,
-        "ltm": 0.5,
-        "system": 0.0,
-        "personalize": 0.6,
+        "ltm_episodic": 0.5,
+        "ltm_facts": 0.6,
     },
     "progress_advice": {
         "stm": 0.6,
-        "mtm": 0.8,
-        "ltm": 0.8,
-        "system": 0.0,
-        "personalize": 1.0,
+        "ltm_episodic": 0.8,
+        "ltm_facts": 1.0,
     },
     "content_creation": {
         "stm": 0.9,
-        "mtm": 0.8,
-        "ltm": 0.4,
-        "system": 0.0,
-        "personalize": 0.4,
+        "ltm_episodic": 0.4,
+        "ltm_facts": 0.4,
     },
     "general_chat": {
         "stm": 0.9,
-        "mtm": 0.5,
-        "ltm": 0.2,
-        "system": 0.0,
-        "personalize": 0.3,
+        "ltm_episodic": 0.2,
+        "ltm_facts": 0.3,
     },
     "interactive_exercise": {
         "stm": 0.8,
-        "mtm": 0.5,
-        "ltm": 0.4,
-        "system": 0.0,
-        "personalize": 0.9,
+        "ltm_episodic": 0.4,
+        "ltm_facts": 0.9,
     },
 }
 
-# Default weights if intent is unknown
 DEFAULT_WEIGHTS: dict[str, float] = {
     "stm": 0.8,
-    "mtm": 0.5,
-    "ltm": 0.3,
-    "system": 0.0,
-    "personalize": 0.5,
-}
-
-# Token budget allocation (approximate)
-MAX_CONTEXT_TOKENS = 4000
-TOKEN_BUDGET: dict[str, int] = {
-    "stm": 2000,
-    "mtm": 800,
-    "ltm": 600,
-    "system": 0,
-    "personalize": 600,
+    "ltm_episodic": 0.5,
+    "ltm_facts": 0.5,
 }
 
 
 class ContextBuilder:
     """
-    Assembles weighted context from the 5-tier memory system.
-
-    Usage:
-        builder = ContextBuilder()
-        context = await builder.build(
-            user_id=1, session_id="abc", agent_type="mentor",
-            query="What is polymorphism?", course_id=1,
-            intent_type="knowledge_question",
-        )
-        # context["prompt_section"] -> string ready for system prompt injection
-        # context["raw"] -> dict with all raw data from each tier
+    Assembles weighted context from the 3 simplified memory tiers.
     """
 
     async def build(
@@ -119,66 +76,49 @@ class ContextBuilder:
         scope_course_ids: Optional[list[int]] = None,
     ) -> dict[str, Any]:
         """
-        Build a context dict from all 5 memory tiers.
-
-        Args:
-            scope_course_ids: When the scope resolver picks "multi" or "all",
-                pass the candidate course_ids so cross-course tiers (LTM,
-                Personalize summary) can union across them rather than
-                being forced to a single course. Ignored for single-course
-                turns (use `course_id` instead).
-
-        Returns:
-            {
-                "prompt_section": str,    # formatted for system prompt injection
-                "stm_messages": list,     # raw STM messages for chat history
-                "raw": {                  # raw data from each tier
-                    "stm": {...},
-                    "mtm": {...},
-                    "ltm": {...},
-                    "system": {...},
-                    "personalize": {...},
-                },
-                "weights_used": dict,     # actual weights applied
-                "token_estimate": int,    # approximate token usage
-            }
+        Build a context dict from all active memory tiers.
         """
+        settings = get_settings()
         weights = WEIGHT_PROFILES.get(intent_type, DEFAULT_WEIGHTS)
 
         raw: dict[str, Any] = {}
         sections: list[str] = []
         total_tokens = 0
 
+        # Retrieve prior MTM context for backwards compatibility / active node tracking
+        mtm_ctx = {}
+        try:
+            mtm_ctx = await mtm.get_context(session_id)
+            raw["mtm"] = mtm_ctx
+        except Exception as exc:
+            logger.warning("Failed to fetch MTM context: %s", exc)
+
         # ── 1. STM: Recent conversation history ──────────────────────────────
         stm_messages: list[dict] = []
         if weights["stm"] >= 0.3:
             n_turns = 30 if weights["stm"] >= 0.7 else 10
             stm_messages = await stm.get_window(session_id, n_turns=n_turns)
+            
+            # Enforce STM token budget
+            max_stm_chars = settings.stm_budget * 4
+            running_chars = 0
+            truncated_stm = []
+            for m in reversed(stm_messages):
+                content_len = len(m.get("content", "") or "")
+                if running_chars + content_len > max_stm_chars:
+                    break
+                truncated_stm.append(m)
+                running_chars += content_len
+            stm_messages = list(reversed(truncated_stm))
+
             raw["stm"] = {
                 "message_count": len(stm_messages),
-                "token_estimate": sum(
-                    len(m.get("content", "") or "") // 4
-                    for m in stm_messages
-                ),
+                "token_estimate": running_chars // 4,
             }
-            # STM is injected as chat history, not in the system prompt
             total_tokens += raw["stm"]["token_estimate"]
 
-        # ── 2. MTM: Compressed session context ───────────────────────────────
-        if weights["mtm"] >= 0.3:
-            mtm_ctx = await mtm.get_context(session_id)
-            raw["mtm"] = mtm_ctx
-            if mtm_ctx and any(mtm_ctx.values()):
-                mtm_section = self._format_mtm(mtm_ctx, weights["mtm"])
-                if mtm_section:
-                    sections.append(mtm_section)
-                    total_tokens += len(mtm_section) // 4
-
-        # ── 3. LTM: Past session episodes ────────────────────────────────────
-        if weights["ltm"] >= 0.3 and query:
-            # When the scope resolver locked onto a single course, restrict
-            # episode recall to that course (plus untagged/cross-course
-            # episodes). Otherwise let the recall span all courses.
+        # ── 2. LTM Episodic: Past session episodes ───────────────────────────
+        if weights["ltm_episodic"] >= 0.3 and query:
             recall_course_ids: Optional[list[int]] = None
             if course_id is not None:
                 recall_course_ids = [course_id]
@@ -189,50 +129,37 @@ class ContextBuilder:
                 user_id=user_id,
                 agent_type=agent_type,
                 query=query,
-                top_k=2 if weights["ltm"] >= 0.7 else 1,
+                top_k=2 if weights["ltm_episodic"] >= 0.7 else 1,
                 course_ids=recall_course_ids,
             )
             raw["ltm"] = {"episodes": episodes}
             if episodes:
-                ltm_section = self._format_ltm(episodes)
+                ltm_section = self._format_ltm_episodic(episodes, settings.ltm_episodic_budget)
                 if ltm_section:
                     sections.append(ltm_section)
                     total_tokens += len(ltm_section) // 4
 
-        # ── 4. System Memory: Course materials ───────────────────────────────
-        # Deprecated: The agent now uses `search_course_materials` tool (Pull)
-        # instead of automatic RAG injection (Push).
-        raw["system"] = {}
+        # ── 3. LTM Facts: Student concept mastery / struggles / strengths ─────
+        if weights["ltm_facts"] >= 0.3 and course_id:
+            # Determine current active node ID from MTM state if present
+            working_state = mtm_ctx.get("working_state") or {}
+            key_facts = mtm_ctx.get("key_facts") or {}
+            current_node_id = working_state.get("current_node_id") or key_facts.get("current_node_id")
 
-        # ── 5. Personalize Memory: User learning profile ─────────────────────
-        if weights["personalize"] >= 0.3:
-            if agent_type == "teacher" and course_id:
-                # Teacher gets class overview for the focused course.
-                profile = await personalize_memory.get_class_overview(course_id)
-                raw["personalize"] = profile
-                if profile.get("weakest_topics"):
-                    pers_section = self._format_class_overview(profile)
-                    if pers_section:
-                        sections.append(pers_section)
-                        total_tokens += len(pers_section) // 4
-            else:
-                # Mentor (and unscoped teacher): pull the per-user profile.
-                # When the scope is multi-course, we leave course_id empty so
-                # the profile reflects the student's full learning surface.
-                effective_course = course_id
-                if scope_course_ids and len(scope_course_ids) > 1:
-                    effective_course = None
-                profile = await personalize_memory.get_user_profile(
-                    user_id=user_id, course_id=effective_course,
-                )
-                raw["personalize"] = profile
-                if profile.get("summary"):
-                    pers_section = self._format_personalize(
-                        profile, weights["personalize"],
-                    )
-                    if pers_section:
-                        sections.append(pers_section)
-                        total_tokens += len(pers_section) // 4
+            # Calculate multi-signal scores
+            scored_concepts = await self._compute_multi_signal_scoring(
+                user_id=user_id,
+                course_id=course_id,
+                query=query,
+                current_node_id=current_node_id,
+            )
+            raw["personalize"] = {"scored_concepts": scored_concepts}
+
+            if scored_concepts:
+                facts_section = self._format_ltm_facts(scored_concepts, settings.ltm_facts_budget)
+                if facts_section:
+                    sections.append(facts_section)
+                    total_tokens += len(facts_section) // 4
 
         # ── Assemble prompt section ──────────────────────────────────────────
         prompt_section = ""
@@ -252,172 +179,155 @@ class ContextBuilder:
             "intent_type": intent_type,
         }
 
-    # ── Formatting helpers ────────────────────────────────────────────────────
+    # ── Multi-Signal Scoring Heuristics ───────────────────────────────────────
+
+    async def _compute_multi_signal_scoring(
+        self,
+        user_id: int,
+        course_id: int,
+        query: str,
+        current_node_id: Optional[int] = None,
+    ) -> list[dict]:
+        """
+        Retrieves user concept mastery list and applies multi-signal scoring:
+        Score = 0.5 * Semantic + 0.3 * Recency + 0.2 * Structural
+        """
+        # Fetch all user concept mastery records
+        concepts = await mastery_service.get_user_concept_mastery_list(user_id, course_id)
+        if not concepts:
+            return []
+
+        # 1. Semantic relevance (Cosine similarity between query and concept name)
+        try:
+            query_emb = await create_embedding(query)
+            concept_names = [c["name"] for c in concepts]
+            concept_embs = await create_embeddings_batch(concept_names)
+            
+            for c, emb in zip(concepts, concept_embs):
+                dot = sum(a * b for a, b in zip(query_emb, emb))
+                norm1 = math.sqrt(sum(a * a for a in query_emb))
+                norm2 = math.sqrt(sum(b * b for b in emb))
+                c["semantic_score"] = dot / (norm1 * norm2) if norm1 and norm2 else 0.0
+        except Exception as exc:
+            logger.warning("Semantic similarity computation failed: %s", exc)
+            for c in concepts:
+                c["semantic_score"] = 0.5  # Neutral fallback
+
+        # 2. Recency decay score (exponential decay based on last_interaction)
+        settings = get_settings()
+        half_life = settings.memory_decay_half_life
+        now = datetime.now(timezone.utc)
+        for c in concepts:
+            last_int = c["last_interaction"]
+            if last_int.tzinfo is None:
+                last_int = last_int.replace(tzinfo=timezone.utc)
+            delta_days = max(0.0, (now - last_int).total_seconds() / 86400.0)
+            c["recency_score"] = 2.0 ** (-delta_days / half_life)
+
+        # 3. Structural score (relationship to current active node in KG)
+        structural_scores = {}
+        if current_node_id:
+            structural_scores[current_node_id] = 1.0
+            try:
+                async with get_ai_conn() as conn:
+                    rows = await conn.fetch(
+                        """
+                        SELECT source_node_id, target_node_id, relation_type
+                        FROM knowledge_node_relations
+                        WHERE course_id = $1 AND (source_node_id = $2 OR target_node_id = $2)
+                        """,
+                        course_id,
+                        current_node_id,
+                    )
+                for r in rows:
+                    src, tgt, rel = r["source_node_id"], r["target_node_id"], r["relation_type"]
+                    other = src if tgt == current_node_id else tgt
+                    score = 0.8 if rel == "prerequisite" else (0.7 if rel in ("extends", "equivalent") else 0.5)
+                    structural_scores[other] = max(structural_scores.get(other, 0.0), score)
+            except Exception as exc:
+                logger.warning("Failed to fetch structural relations: %s", exc)
+                
+        for c in concepts:
+            concept_id = c["concept_id"]
+            c["structural_score"] = structural_scores.get(concept_id, 0.2)
+
+        # 4. Composite score calculation
+        for c in concepts:
+            c["composite_score"] = (
+                0.5 * c["semantic_score"]
+                + 0.3 * c["recency_score"]
+                + 0.2 * c["structural_score"]
+            )
+            
+        concepts.sort(key=lambda x: x["composite_score"], reverse=True)
+        return concepts
+
+    # ── Formatting Helpers ────────────────────────────────────────────────────
 
     @staticmethod
-    def _format_mtm(ctx: dict, weight: float) -> str:
-        """Format MTM compressed context for prompt injection."""
-        parts = []
-
-        ws = ctx.get("working_state") or {}
-        kf = ctx.get("key_facts") or {}
-        
-        current_course_id = ws.get("current_course_id") or kf.get("current_course_id")
-        current_node_id = ws.get("current_node_id") or kf.get("current_node_id")
-        current_topic = ws.get("current_topic") or kf.get("current_topic")
-
-        anchor_bits: list[str] = []
-        if current_course_id is not None:
-            anchor_bits.append(f"course_id={current_course_id}")
-        if current_node_id is not None:
-            anchor_bits.append(f"node_id={current_node_id}")
-        if current_topic:
-            anchor_bits.append(f"topic=\"{current_topic}\"")
-        if anchor_bits:
-            parts.append("CURRENT ANCHOR: " + ", ".join(anchor_bits))
-            
-        if ws.get("active_learning_goal"):
-            parts.append(f"LEARNING GOAL: {ws['active_learning_goal']}")
-            
-        if ws.get("identified_knowledge_gaps"):
-            parts.append(f"IDENTIFIED GAPS: {', '.join(ws['identified_knowledge_gaps'])}")
-            
-        if ws.get("notes"):
-            parts.append(f"NOTES: {ws['notes']}")
-
-        if ctx.get("identified_gaps"):
-            gaps = ctx["identified_gaps"]
-            if weight >= 0.7:
-                parts.append(
-                    "KNOWLEDGE GAPS IDENTIFIED: "
-                    + ", ".join(str(g) for g in gaps[:8])
-                )
-            else:
-                parts.append(f"Known gaps: {len(gaps)} concepts")
-
-        if ctx.get("pending_actions"):
-            actions = ctx["pending_actions"]
-            parts.append("PENDING: " + "; ".join(str(a) for a in actions[:3]))
-
-        if ctx.get("content_created"):
-            created = ctx["content_created"]
-            parts.append(
-                "RECENTLY CREATED: " + ", ".join(str(c) for c in created[:5])
-            )
-
-        recent_courses = kf.get("recent_courses") if kf else None
-        if isinstance(recent_courses, list) and recent_courses:
-            # Each entry is {"id": int, "title": str}; we render compactly.
-            tags = []
-            for rc in recent_courses[:5]:
-                if not isinstance(rc, dict):
-                    continue
-                cid = rc.get("id")
-                title = (rc.get("title") or "").strip()
-                if cid is None:
-                    continue
-                tags.append(
-                    f"#{cid}" + (f" \"{title}\"" if title else "")
-                )
-            if tags:
-                parts.append("RECENT COURSES: " + ", ".join(tags))
-
-        if kf:
-            remaining = {
-                k: v for k, v in kf.items()
-                if k not in ("current_topic", "recent_courses")
-            }
-            if remaining:
-                fact_str = ", ".join(f"{k}={v}" for k, v in remaining.items())
-                parts.append(f"KEY FACTS: {fact_str}")
-
-        if ctx.get("decisions_made") and weight >= 0.5:
-            decisions = ctx["decisions_made"]
-            parts.append(
-                "DECISIONS: " + "; ".join(str(d) for d in decisions[:3])
-            )
-
-        if ctx.get("student_progress"):
-            sp = ctx["student_progress"]
-            if isinstance(sp, dict) and sp:
-                bits = []
-                if sp.get("avg_mastery") is not None:
-                    bits.append(f"mastery={sp['avg_mastery']}")
-                if sp.get("notes"):
-                    bits.append(str(sp["notes"])[:120])
-                if bits:
-                    parts.append("PROGRESS: " + ", ".join(bits))
- 
-
-        return "\n".join(parts) if parts else ""
-
-    @staticmethod
-    def _format_ltm(episodes: list[dict]) -> str:
-        """Format LTM episodes for prompt injection."""
+    def _format_ltm_episodic(episodes: list[dict], budget_tokens: int) -> str:
+        """Format recalled LTM episodes for prompt injection, adhering to budget."""
         if not episodes:
             return ""
-        parts = ["PAST INTERACTIONS:"]
+        
+        parts = ["PAST INTERACTIONS (LTM EPISODIC):"]
+        max_chars = budget_tokens * 4
+        current_chars = len(parts[0])
+
         for ep in episodes:
             summary = ep.get("summary", "")
             if len(summary) > 200:
                 summary = summary[:200] + "..."
-            parts.append(f"  - {summary} (relevance: {ep.get('score', 0)})")
+            line = f"  - {summary} (relevance: {ep.get('score', 0):.2f})"
+            
+            if current_chars + len(line) + 1 > max_chars:
+                break
+            parts.append(line)
+            current_chars += len(line) + 1
+            
         return "\n".join(parts)
 
     @staticmethod
-    def _format_system(chunks: list[dict], weight: float) -> str:
-        """Format system memory chunks for prompt injection."""
-        if not chunks:
+    def _format_ltm_facts(concepts: list[dict], budget_tokens: int) -> str:
+        """Format scored user concept mastery facts, adhering to budget."""
+        if not concepts:
             return ""
-        parts = ["RELEVANT COURSE MATERIALS:"]
-        for i, c in enumerate(chunks):
-            text = c.get("text", "")
-            # Truncate based on weight
-            max_len = 500 if weight >= 0.7 else 200
-            if len(text) > max_len:
-                text = text[:max_len] + "..."
-            parts.append(f"  [{i+1}] {text}")
-        return "\n".join(parts)
 
-    @staticmethod
-    def _format_personalize(profile: dict, weight: float) -> str:
-        """Format personalize memory for prompt injection."""
-        parts = ["STUDENT PROFILE:"]
-        parts.append(f"  Summary: {profile.get('summary', 'No data')}")
+        parts = ["STUDENT COGNITIVE PROFILE (LTM FACTS):"]
+        max_chars = budget_tokens * 4
+        current_chars = len(parts[0])
 
-        if weight >= 0.7:
-            weaknesses = profile.get("weaknesses", [])
-            if weaknesses:
-                weak_str = ", ".join(
-                    f"{w['name']} ({w['mastery_level']})"
-                    for w in weaknesses[:3]
-                )
-                parts.append(f"  Weak concepts: {weak_str}")
+        struggles = [c for c in concepts if c["struggles"]]
+        strengths = [c for c in concepts if c["mastery_level"] >= 0.8]
 
-            due = profile.get("due_reviews", [])
-            if due:
-                parts.append(f"  Reviews due: {len(due)} items")
+        # 1. Add struggles
+        if struggles:
+            line = "  Struggling Concepts (need review/reinforcement):"
+            if current_chars + len(line) + 1 <= max_chars:
+                parts.append(line)
+                current_chars += len(line) + 1
+                
+                for c in struggles:
+                    line = f"    - {c['name']} (Mastery: {c['mastery_level']:.1%})"
+                    if current_chars + len(line) + 1 > max_chars:
+                        break
+                    parts.append(line)
+                    current_chars += len(line) + 1
 
-            errors = profile.get("recent_errors", [])
-            if errors:
-                error_types = set(
-                    e.get("gap_type", "unknown") for e in errors
-                )
-                parts.append(f"  Error patterns: {', '.join(error_types)}")
+        # 2. Add strengths
+        if strengths and current_chars < max_chars:
+            line = "  Mastered Concepts (strengths):"
+            if current_chars + len(line) + 1 <= max_chars:
+                parts.append(line)
+                current_chars += len(line) + 1
+                
+                for c in strengths:
+                    line = f"    - {c['name']} (Mastery: {c['mastery_level']:.1%})"
+                    if current_chars + len(line) + 1 > max_chars:
+                        break
+                    parts.append(line)
+                    current_chars += len(line) + 1
 
-        return "\n".join(parts)
-
-    @staticmethod
-    def _format_class_overview(overview: dict) -> str:
-        """Format class overview for teacher agent."""
-        parts = [
-            f"CLASS OVERVIEW ({overview.get('total_students', 0)} students):"
-        ]
-        for topic in overview.get("weakest_topics", [])[:5]:
-            parts.append(
-                f"  - {topic['name']}: avg mastery {topic['avg_mastery']}, "
-                f"{topic['total_errors']} total errors"
-            )
         return "\n".join(parts)
 
 
