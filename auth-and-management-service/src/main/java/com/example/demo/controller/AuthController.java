@@ -5,6 +5,9 @@ import com.example.demo.model.User;
 import com.example.demo.service.auth.AuthService;
 import com.example.demo.service.auth.GoogleAuthService;
 import com.example.demo.service.user.UserService;
+import com.example.demo.service.admin.TeamAndTypeService;
+import com.example.demo.model.Team;
+import com.example.demo.model.UserTypeOption;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,7 @@ public class AuthController {
     private final AuthService authService;
     private final GoogleAuthService googleAuthService;
     private final UserService userService;
+    private final TeamAndTypeService teamAndTypeService;
 
     @Value("${jwt.expirationMs:3600000}")
     private long expirationMs;
@@ -169,6 +173,16 @@ public class AuthController {
         googleAuthService.registerWithGoogle(req);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("message", "Đăng ký thành công! Tài khoản đang chờ admin duyệt."));
+    }
+
+    @GetMapping("/teams")
+    public ResponseEntity<List<Team>> getActiveTeams() {
+        return ResponseEntity.ok(teamAndTypeService.listTeams());
+    }
+
+    @GetMapping("/types")
+    public ResponseEntity<List<UserTypeOption>> getActiveTypes() {
+        return ResponseEntity.ok(teamAndTypeService.listTypes());
     }
 
     private String cookieOf(String name, String value, long maxAge) {

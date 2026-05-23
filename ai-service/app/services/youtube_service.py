@@ -149,53 +149,95 @@ class YouTubeTranscriptFetcher:
 
     # ── Method 2: yt-dlp + faster-whisper (optional, heavy) ───────────────────
 
+    def _download_audio(self, video_url: str, audio_path: str) -> Optional[str]:
+        """Download audio from YouTube using yt-dlp with multiple fallback strategies."""
+        import os
+        import glob
+
+        try:
+            import yt_dlp
+        except ImportError:
+            logger.error("yt-dlp not installed. Run: pip install yt-dlp")
+            return None
+
+        # Try multiple format + player_client combos
+        strategies = [
+            {"format": "bestaudio/best", "player_client": ["web"]},
+            {"format": "bestaudio/best", "player_client": ["mweb", "web"]},
+            {"format": "bestaudio*", "player_client": ["web"]},
+            {"format": "worstaudio", "player_client": ["web"]},
+            {"format": "bestaudio/best", "player_client": ["tv_embedded"]},
+        ]
+
+        for i, strategy in enumerate(strategies):
+            # Clean up previous attempt files
+            for f in glob.glob(f"{audio_path}.*"):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+
+            ydl_opts = {
+                "format": strategy["format"],
+                "outtmpl": f"{audio_path}.%(ext)s",
+                "noplaylist": True,
+                "user_agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
+                "extractor_args": {
+                    "youtube": {"player_client": strategy["player_client"]}
+                },
+                "source_address": "0.0.0.0",  # Force IPv4
+                "nocheckcertificate": True,
+                "quiet": True,
+                "no_warnings": True,
+            }
+            try:
+                logger.info(
+                    "yt-dlp attempt %d/%d: format=%s, client=%s",
+                    i + 1, len(strategies),
+                    strategy["format"], strategy["player_client"],
+                )
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.extract_info(video_url, download=True)
+            except Exception as exc:
+                logger.warning("yt-dlp attempt %d failed: %s", i + 1, exc)
+                continue
+
+            # Find the downloaded audio file
+            for ext in ("m4a", "webm", "opus", "mp3", "ogg", "wav"):
+                p = f"{audio_path}.{ext}"
+                if os.path.exists(p):
+                    logger.info("Audio downloaded: %s", p)
+                    return p
+
+            # Glob fallback in case of unexpected extension
+            matches = glob.glob(f"{audio_path}.*")
+            if matches:
+                logger.info("Audio downloaded (glob): %s", matches[0])
+                return matches[0]
+
+        logger.error("All yt-dlp download strategies failed for %s", video_url)
+        return None
+
     def _fetch_whisper(self, video_url: str, language: str) -> Optional[dict]:
         import tempfile
         import os
 
         try:
-            import yt_dlp
             from faster_whisper import WhisperModel
         except ImportError as e:
             logger.error(
-                "Whisper fallback requires: pip install yt-dlp faster-whisper. Error: %s", e
+                "Whisper fallback requires: pip install faster-whisper. Error: %s", e
             )
             return None
 
         with tempfile.TemporaryDirectory() as tmpdir:
             audio_path = os.path.join(tmpdir, "audio")
-            ydl_opts = {
-                "format": "ba/b",
-                "outtmpl": f"{audio_path}.%(ext)s",
-                "noplaylist": True,
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                # Disabling iOS/Android clients that cause 'Precondition check failed'
-                "extractor_args": {"youtube": {"player_client": ["mweb", "web"]}},
-                "source_address": "0.0.0.0", # Force IPv4
-                "nocheckcertificate": True,
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "128",
-                }],
-                "quiet": True,
-                "no_warnings": True,
-            }
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.extract_info(video_url, download=True)
-            except Exception as exc:
-                logger.error("yt-dlp failed: %s", exc)
-                return None
-
-            # Tìm file audio thực tế
-            for ext in ("mp3", "m4a", "webm", "opus"):
-                p = f"{audio_path}.{ext}"
-                if os.path.exists(p):
-                    actual_path = p
-                    break
-            else:
-                logger.error("Audio file not found after yt-dlp download")
+            actual_path = self._download_audio(video_url, audio_path)
+            if not actual_path:
                 return None
 
             try:

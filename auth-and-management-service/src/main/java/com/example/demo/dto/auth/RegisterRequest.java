@@ -15,7 +15,7 @@ public class RegisterRequest {
     private String name;
     private String email;
     private String role;
-    private UserTeam team;
+    private String team;
     private String code;
     private String type;
 }

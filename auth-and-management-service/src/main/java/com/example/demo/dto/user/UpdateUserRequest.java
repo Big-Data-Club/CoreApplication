@@ -23,7 +23,7 @@ public class UpdateUserRequest {
     @Email(message = "Invalid email format")
     private String email;
 
-    private UserTeam team;
+    private String team;
 
     private String type;
 
