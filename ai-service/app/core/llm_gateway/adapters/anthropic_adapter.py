@@ -6,7 +6,7 @@ messages array into the top-level `system` field as Anthropic requires.
 """
 from __future__ import annotations
  
-from typing import Any
+from typing import Any, AsyncIterator, Optional
  
 import httpx
  
@@ -83,6 +83,26 @@ class AnthropicAdapter(LLMAdapter):
             total_tokens=prompt_tok + completion_tok,
         )
         return content, usage, data
+
+    async def stream(
+        self,
+        *,
+        model: Model,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+        extra: dict[str, Any],
+    ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
+        content, usage, raw = await self.chat(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+            extra=extra,
+        )
+        yield content, usage, raw
  
  
 def _normalise_messages(
