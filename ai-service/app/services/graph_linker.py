@@ -26,6 +26,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from app.core.config import get_settings
+from app.core.database import get_ai_conn
 from app.core.llm import chat_complete_json
 from app.core.llm_gateway import TASK_GRAPH_LINK
 from app.services.neo4j_service import (
@@ -119,10 +120,25 @@ async def link_cross_course(
         score_threshold=CROSS_COURSE_THRESHOLD,
     )
 
+    # Validate candidate IDs against PostgreSQL to prevent references to deleted nodes
+    candidate_ids = [int(p.id) for scored_points in batch_results for p in scored_points]
+    valid_ids = set()
+    if candidate_ids:
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch("SELECT id FROM knowledge_nodes WHERE id = ANY($1)", candidate_ids)
+            valid_ids = {r["id"] for r in rows}
+        dangling_ids = [rid for rid in candidate_ids if rid not in valid_ids]
+        if dangling_ids:
+            logger.warning("Found %d dangling nodes in Qdrant batch search. Cleaning them up...", len(dangling_ids))
+            from app.services.auto_index_service import auto_index_service
+            asyncio.create_task(auto_index_service.delete_nodes_bulk(dangling_ids))
+
     candidate_pairs = []
     for i, scored_points in enumerate(batch_results):
         node_a = new_nodes[i]
         for p in scored_points:
+            if int(p.id) not in valid_ids:
+                continue
             payload = p.payload or {}
             node_b = NodeInfo(
                 id=int(p.id),
@@ -177,9 +193,25 @@ async def link_global_graph() -> int:
                 top_k=5,
                 score_threshold=CROSS_COURSE_THRESHOLD + 0.05, # Higher threshold for global
             )
+            
+            # Validate candidate IDs against PostgreSQL to prevent references to deleted nodes
+            candidate_ids = [int(p.id) for scored_points in batch_resp for p in scored_points]
+            valid_ids = set()
+            if candidate_ids:
+                async with get_ai_conn() as conn:
+                    rows = await conn.fetch("SELECT id FROM knowledge_nodes WHERE id = ANY($1)", candidate_ids)
+                    valid_ids = {r["id"] for r in rows}
+                dangling_ids = [rid for rid in candidate_ids if rid not in valid_ids]
+                if dangling_ids:
+                    logger.warning("Found %d dangling nodes in Qdrant search. Cleaning them up...", len(dangling_ids))
+                    from app.services.auto_index_service import auto_index_service
+                    asyncio.create_task(auto_index_service.delete_nodes_bulk(dangling_ids))
+
             for j, scored_points in enumerate(batch_resp):
                 node_a = nodes[i+j]
                 for p in scored_points:
+                    if int(p.id) not in valid_ids:
+                        continue
                     pay = p.payload or {}
                     node_b = NodeInfo(
                         id=int(p.id),

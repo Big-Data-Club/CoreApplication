@@ -140,12 +140,8 @@ async def trigger_auto_index(body: AutoIndexRequest, request: Request):
     _verify(request)
 
     if body.force:
-        from app.services.rag_service import rag_service
-        await rag_service.delete_chunks_for_content(body.content_id)
-        async with get_ai_conn() as conn:
-            await conn.execute(
-                "DELETE FROM knowledge_nodes WHERE source_content_id=$1", body.content_id,
-            )
+        from app.services.auto_index_service import auto_index_service
+        await auto_index_service.delete_content_data(body.content_id)
 
     await _upsert_content_status(body.content_id, body.course_id, "processing")
 
@@ -167,12 +163,8 @@ async def trigger_auto_index_text(body: AutoIndexTextRequest, request: Request):
     _verify(request)
 
     if body.force:
-        from app.services.rag_service import rag_service
-        await rag_service.delete_chunks_for_content(body.content_id)
-        async with get_ai_conn() as conn:
-            await conn.execute(
-                "DELETE FROM knowledge_nodes WHERE source_content_id=$1", body.content_id,
-            )
+        from app.services.auto_index_service import auto_index_service
+        await auto_index_service.delete_content_data(body.content_id)
 
     await _upsert_content_status(body.content_id, body.course_id, "processing")
 
@@ -511,6 +503,22 @@ async def get_node_neighbors(
         for e in result.get("edges", [])
     ]
     return KnowledgeGraphResponse(course_id=0, nodes=nodes, edges=edges)
+
+
+@router.delete("/course/{course_id}")
+async def delete_course_index(course_id: int, request: Request):
+    _verify(request)
+    from app.services.auto_index_service import auto_index_service
+    await auto_index_service.delete_course_data(course_id)
+    return {"ok": True, "message": f"Course {course_id} data deleted successfully"}
+
+
+@router.delete("/content/{content_id}")
+async def delete_content_index(content_id: int, request: Request):
+    _verify(request)
+    from app.services.auto_index_service import auto_index_service
+    await auto_index_service.delete_content_data(content_id)
+    return {"ok": True, "message": f"Content {content_id} data deleted successfully"}
 
 
 def _verify(request: Request):
