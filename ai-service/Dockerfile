@@ -10,7 +10,7 @@ COPY requirements.base.txt .
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel \
-        --no-cache-dir \
+        --default-timeout=100 \
         --wheel-dir=/wheels/ml \
         -r requirements.base.txt
 
@@ -26,7 +26,7 @@ COPY requirements.txt .
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel \
-        --no-cache-dir \
+        --default-timeout=100 \
         --wheel-dir=/wheels/app \
         -r requirements.txt
 
@@ -39,7 +39,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
         # ffmpeg: required by yt-dlp to extract audio
         ffmpeg \
+        # fonts: for video rendering slide creation
+        fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
+
 
 
 RUN groupadd --gid 1001 appuser \

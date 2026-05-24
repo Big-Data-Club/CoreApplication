@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -111,6 +112,8 @@ func main() {
 	microLessonRepo := repository.NewMicroLessonRepository(db)
 	microInteractionRepo := repository.NewMicroInteractionRepository(db)
 	microQuizRepo := repository.NewMicroQuizRepository(db)
+	videoJobRepo := repository.NewVideoJobRepository(db)
+	videoJobService := service.NewVideoJobService(videoJobRepo, courseRepo, db)
 
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
@@ -125,6 +128,12 @@ func main() {
 
 	go kafka.StartAIJobStatusConsumer(context.Background(), func(ctx context.Context, event kafka.AIJobStatusEvent) error {
 		logger.Info(fmt.Sprintf("Received AI job status for %s: %s", event.JobID, event.Status))
+		
+		// Route video jobs based on prefix
+		if strings.HasPrefix(event.JobID, "vid_") {
+			return videoJobService.HandleStatusUpdate(ctx, event)
+		}
+		
 		// Serialize and store into Redis
 		data, _ := json.Marshal(event)
 		redisKey := "ai_job:" + event.JobID
@@ -200,6 +209,7 @@ func main() {
 	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 	permHandler := handler.NewPermissionHandler(permService)
+	videoJobHandler := handler.NewVideoJobHandler(videoJobService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -589,6 +599,15 @@ func main() {
 				quizDrafts.POST("/:genId/reject",
 					middleware.RequirePermission(permService, "AI_GENERATE"),
 					aiHandler.RejectQuestion)
+			}
+
+			// ── Video Generation (Teacher / Admin only) ───────────────────
+			videoJobs := auth.Group("/video-jobs")
+			{
+				videoJobs.POST("", videoJobHandler.CreateVideoJob)
+				videoJobs.GET("", videoJobHandler.ListVideoJobs)
+				videoJobs.GET("/:jobId", videoJobHandler.GetVideoJob)
+				videoJobs.POST("/:jobId/publish", videoJobHandler.PublishVideo)
 			}
 
 			// ── Micro-Lessons (Teacher / Admin) ───────────────────────────

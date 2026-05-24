@@ -227,6 +227,30 @@ async def process_ai_command(payload: dict):
                 "episode_id": episode_id,
             }
 
+        elif command_type == "GENERATE_VIDEO":
+            from app.services.video_generation_service import generate_video
+            result = await generate_video(
+                job_id=job_id,
+                target_type=job_payload.get("target_type"),
+                target_id=job_payload.get("target_id"),
+                custom_prompt=job_payload.get("custom_prompt"),
+                language=job_payload.get("language", "vi"),
+                template_type=job_payload.get("template_type", "dark"),
+                created_by=job_payload.get("created_by"),
+                content_ids=job_payload.get("content_ids"),
+            )
+
+        elif command_type == "PUBLISH_VIDEO":
+            from app.services.youtube_upload_service import youtube_upload_service
+            video_id = job_payload.get("youtube_video_id")
+            if not video_id:
+                raise ValueError("Missing youtube_video_id for publish command")
+            await youtube_upload_service.set_video_public(video_id)
+            result = {
+                "visibility": "public",
+                "youtube_video_id": video_id
+            }
+
         else:
             logger.warning("Unknown AI command type",
                            extra={"command_type": command_type, "job_id": job_id})

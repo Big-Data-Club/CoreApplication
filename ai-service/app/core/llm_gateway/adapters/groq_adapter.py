@@ -69,6 +69,8 @@ class GroqAdapter(LLMAdapter):
                 raise AuthError(msg, status_code=status) from exc
             if status == 429:
                 raise RateLimitedError(msg, retry_after=self._get_retry_after(exc)) from exc
+            if status == 413:
+                raise ContextLengthError(msg) from exc
             if status == 400:
                 msg_lower = msg.lower()
                 if "context_length" in msg_lower:

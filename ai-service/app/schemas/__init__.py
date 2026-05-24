@@ -167,3 +167,14 @@ class ReviewStatsOut(BaseModel):
     total_tracked: int = 0
     avg_easiness: Optional[float]
     avg_repetitions: Optional[float]
+
+
+# ── Video Generation ──────────────────────────────────────────────────────────
+
+from app.schemas.video_schemas import (
+    VideoGenerationPayload,
+    VideoPlan,
+    SlideContent,
+    VideoScript,
+)
+

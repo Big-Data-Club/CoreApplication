@@ -77,6 +77,9 @@ x-ai-env: &ai-env
   NEO4J_PASSWORD: ${NEO4J_PASSWORD}
   NEO4J_ENABLED: "true"
   YOUTUBE_WHISPER_FALLBACK: "true"
+  YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID}
+  YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET}
+  YOUTUBE_TOKENS_PATH: /app/youtube-data/youtube-tokens.json
 
 services:
   # ── Kafka Broker (KRaft Mode) ──────────────────────────────────────────────
@@ -405,6 +408,8 @@ services:
       CORS_ALLOWED_HEADERS: "Authorization,Content-Type,Accept"
       GOMAXPROCS: 2
       GOGC: 100
+      VIDEO_MAX_CONCURRENT_JOBS: ${VIDEO_MAX_CONCURRENT_JOBS:-2}
+      VIDEO_MAX_DAILY_JOBS: ${VIDEO_MAX_DAILY_JOBS:-5}
     ports:
       - "${LMS_PORT:-8081}:8081"
     volumes:
@@ -568,6 +573,7 @@ services:
           memory: 512M
     volumes:
       - ai_model_cache:/app/.cache/models
+      - ./frontend/data:/app/youtube-data:ro
     labels:
       - "service.type=ai"
       - "service.name=ai-service"
@@ -613,6 +619,7 @@ services:
           memory: 1G
     volumes:
       - ai_model_cache:/app/.cache/models
+      - ./frontend/data:/app/youtube-data:ro
     labels:
       - "service.type=worker"
       - "service.name=ai-worker"

@@ -89,8 +89,14 @@ async def publish_node_merged_event(
     )
 
 
-async def publish_ai_job_status(job_id: str, status: str, result: dict | list | None = None, error: str = ""):
-    """Send feedback about an async AI job (Quiz, Flashcard, Diagnosis)."""
+async def publish_ai_job_status(
+    job_id: str,
+    status: str,
+    result: dict | list | None = None,
+    error: str = "",
+    progress: int | None = None,
+):
+    """Send feedback about an async AI job (Quiz, Flashcard, Diagnosis, Video)."""
     producer = await get_kafka_producer()
     payload = {
         "job_id": job_id,
@@ -100,12 +106,15 @@ async def publish_ai_job_status(job_id: str, status: str, result: dict | list | 
         payload["result"] = result
     if error:
         payload["error"] = error
+    if progress is not None:
+        payload["progress"] = progress
         
     topic = "ai.job.status"
     key = str(job_id).encode("utf-8")
     
     await producer.send_and_wait(topic, value=payload, key=key)
-    logger.info(f"Published AI job status to {topic} for job {job_id}: {status}")
+    logger.info(f"Published AI job status to {topic} for job {job_id}: {status} (progress: {progress}%)")
+
 
 
 async def publish_consolidation_request(

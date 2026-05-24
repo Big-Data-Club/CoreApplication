@@ -33,6 +33,7 @@ from app.core.llm_gateway.types import (
     TASK_QUIZ_GEN,
     TASK_MICRO_LESSON_GEN,
     TASK_VLM_DESCRIBE,
+    TASK_VIDEO_SCRIPT_GEN,
 )
  
 logger = logging.getLogger(__name__)
@@ -397,6 +398,7 @@ async def bootstrap_llm_registry() -> None:
         (TASK_MICRO_LESSON_GEN, quiz_model_id),
         (TASK_AGENT_REACT,      quiz_model_id),
         (TASK_VLM_DESCRIBE,     vlm_model_id),
+        (TASK_VIDEO_SCRIPT_GEN, quiz_model_id),
     ]
 
     existing = {(b.task_code, b.model.id) for b in await registry.list_bindings()}

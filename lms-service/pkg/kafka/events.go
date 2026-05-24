@@ -36,10 +36,11 @@ type AICommandEvent struct {
 
 // AIJobStatusEvent represents an update on an AI operation
 type AIJobStatusEvent struct {
-	JobID   string      `json:"job_id"`
-	Status  string      `json:"status"` // "completed", "failed"
-	Result  interface{} `json:"result,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	JobID    string      `json:"job_id"`
+	Status   string      `json:"status"` // "completed", "failed", "processing"
+	Result   interface{} `json:"result,omitempty"`
+	Error    string      `json:"error,omitempty"`
+	Progress int         `json:"progress,omitempty"`
 }
 
 // NodeMergedEvent is emitted by the AI service after a "Compact Graph"
