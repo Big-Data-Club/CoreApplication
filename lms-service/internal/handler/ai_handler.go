@@ -430,6 +430,7 @@ func (h *AIHandler) ApproveQuestion(c *gin.Context) {
 		QuizID:       body.QuizID,
 		QuestionType: approved.QuestionType,
 		QuestionText: approved.QuestionText,
+		Settings:     []byte("{}"),
 	}
 	if approved.Explanation != "" {
 		question.Explanation.String = approved.Explanation
