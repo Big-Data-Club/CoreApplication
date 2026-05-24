@@ -6,7 +6,7 @@ self-hosted endpoints by setting the provider's base_url.
 """
 from __future__ import annotations
  
-from typing import Any
+from typing import Any, AsyncIterator, Optional
  
 import httpx
  
@@ -84,6 +84,26 @@ class OpenAICompatAdapter(LLMAdapter):
             total_tokens=int(usage_obj.get("total_tokens") or 0),
         )
         return content, usage, data
+
+    async def stream(
+        self,
+        *,
+        model: Model,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+        extra: dict[str, Any],
+    ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
+        content, usage, raw = await self.chat(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+            extra=extra,
+        )
+        yield content, usage, raw
  
  
 def _parse_retry_after(value: str | None) -> float | None:

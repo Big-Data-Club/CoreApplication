@@ -30,14 +30,22 @@ class GroqAdapter(LLMAdapter):
         client = AsyncGroq(api_key=self.api_key, base_url=self.base_url, max_retries=0) if self.base_url \
             else AsyncGroq(api_key=self.api_key, max_retries=0)
  
+        messages_copy = [dict(m) for m in messages]
         kwargs: dict[str, Any] = {
             "model": model.model_name,
-            "messages": messages,
+            "messages": messages_copy,
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
         if json_mode and model.supports_json:
             kwargs["response_format"] = {"type": "json_object"}
+            has_json = any("json" in str(m.get("content") or "").lower() for m in messages_copy)
+            if not has_json:
+                system_msg = next((m for m in messages_copy if m.get("role") == "system"), None)
+                if system_msg:
+                    system_msg["content"] = (system_msg.get("content") or "") + " [Output must be in JSON format]"
+                elif messages_copy:
+                    messages_copy[0]["content"] = (messages_copy[0].get("content") or "") + " [Output must be in JSON format]"
         # Pass-through for tool calling / streaming etc.
         for k in ("tools", "tool_choice", "stream", "stop", "top_p"):
             if k in extra:
@@ -51,6 +59,11 @@ class GroqAdapter(LLMAdapter):
             raise AuthError(str(exc)) from exc
         except APIStatusError as exc:
             status = getattr(exc, "status_code", None)
+            try:
+                detail = exc.response.json()
+                logger.error("Groq APIStatusError in chat status=%s detail=%s", status, detail)
+            except Exception:
+                pass
             msg = str(exc)
             if status in (401, 403):
                 raise AuthError(msg, status_code=status) from exc
@@ -92,15 +105,23 @@ class GroqAdapter(LLMAdapter):
         client = AsyncGroq(api_key=self.api_key, base_url=self.base_url, max_retries=0) if self.base_url \
             else AsyncGroq(api_key=self.api_key, max_retries=0)
 
+        messages_copy = [dict(m) for m in messages]
         kwargs: dict[str, Any] = {
             "model": model.model_name,
-            "messages": messages,
+            "messages": messages_copy,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
         }
         if json_mode and model.supports_json:
             kwargs["response_format"] = {"type": "json_object"}
+            has_json = any("json" in str(m.get("content") or "").lower() for m in messages_copy)
+            if not has_json:
+                system_msg = next((m for m in messages_copy if m.get("role") == "system"), None)
+                if system_msg:
+                    system_msg["content"] = (system_msg.get("content") or "") + " [Output must be in JSON format]"
+                elif messages_copy:
+                    messages_copy[0]["content"] = (messages_copy[0].get("content") or "") + " [Output must be in JSON format]"
         for k in ("tools", "tool_choice", "stop", "top_p"):
             if k in extra:
                 kwargs[k] = extra[k]
@@ -124,6 +145,11 @@ class GroqAdapter(LLMAdapter):
             raise AuthError(str(exc)) from exc
         except APIStatusError as exc:
             status = getattr(exc, "status_code", None)
+            try:
+                detail = exc.response.json()
+                logger.error("Groq APIStatusError in stream status=%s detail=%s", status, detail)
+            except Exception:
+                pass
             if status == 429:
                 raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
             raise ProviderError(str(exc), status_code=status) from exc

@@ -41,7 +41,8 @@ class DiagnoseKnowledgeGapTool(BaseTool):
     }
 
     async def execute(self, **kwargs) -> ToolResult:
-        from app.agents.memory.personalize_memory import personalize_memory
+        from app.services.mastery_service import mastery_service
+        from app.core.database import get_ai_conn
         from app.core.config import get_settings
 
         course_id = kwargs.get("_course_id") or kwargs["course_id"]
@@ -50,15 +51,27 @@ class DiagnoseKnowledgeGapTool(BaseTool):
         settings = get_settings()
 
         try:
-            # 1. Get weaknesses
-            weaknesses = await personalize_memory.get_weaknesses(
-                user_id=student_id, course_id=course_id, limit=10,
+            # 1. Get struggles from mastery_service
+            weaknesses = await mastery_service.get_user_struggles(
+                user_id=student_id, course_id=course_id
             )
+            for w in weaknesses:
+                w["node_id"] = w.get("concept_id")
 
-            # 2. Get recent errors
-            recent_errors = await personalize_memory.get_recent_errors(
-                user_id=student_id, limit=5,
-            )
+            # 2. Get recent errors from ai_diagnoses database table
+            async with get_ai_conn() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, gap_type, knowledge_gap, wrong_answer, correct_answer, explanation, created_at
+                    FROM ai_diagnoses
+                    WHERE student_id = $1
+                    ORDER BY created_at DESC
+                    LIMIT $2
+                    """,
+                    student_id,
+                    5,
+                )
+            recent_errors = [dict(r) for r in rows]
 
             # 3. Get prerequisite path for weak nodes (if Neo4j available)
             prereq_info = []

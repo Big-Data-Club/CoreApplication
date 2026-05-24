@@ -1,7 +1,6 @@
 package com.example.demo.dto.user;
 
 import com.example.demo.enums.UserTeam;
-import com.example.demo.enums.UserType;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -24,9 +23,9 @@ public class UpdateUserRequest {
     @Email(message = "Invalid email format")
     private String email;
 
-    private UserTeam team;
+    private String team;
 
-    private UserType type;
+    private String type;
 
     private String profilePicture;
 }

@@ -41,7 +41,7 @@ class GetStudyPlanTool(BaseTool):
     }
 
     async def execute(self, **kwargs) -> ToolResult:
-        from app.agents.memory.personalize_memory import personalize_memory
+
 
         student_id = kwargs.get("_user_id", 0)
         # course_id is optional — if not supplied by the LLM or context, use None
@@ -51,42 +51,105 @@ class GetStudyPlanTool(BaseTool):
         )
 
         try:
+            from app.core.database import get_ai_conn
+            from app.services.mastery_service import mastery_service
+
             # 1. Due reviews across all courses (or filtered if course_id given)
-            due_reviews = await personalize_memory.get_due_reviews(
-                user_id=student_id,
-                course_id=course_id,
-                limit=10,
-            )
+            async with get_ai_conn() as conn:
+                if course_id is not None:
+                    rows = await conn.fetch(
+                        """
+                        SELECT fcr.flashcard_id, fc.node_id, kn.name AS node_name, fcr.next_review_date
+                        FROM flashcard_repetitions fcr
+                        JOIN flashcards fc ON fcr.flashcard_id = fc.id
+                        JOIN knowledge_nodes kn ON fc.node_id = kn.id
+                        WHERE fcr.student_id = $1 AND fcr.course_id = $2 AND fcr.next_review_date <= NOW()
+                        ORDER BY fcr.next_review_date ASC
+                        LIMIT $3
+                        """,
+                        student_id,
+                        course_id,
+                        10,
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """
+                        SELECT fcr.flashcard_id, fc.node_id, kn.name AS node_name, fcr.next_review_date
+                        FROM flashcard_repetitions fcr
+                        JOIN flashcards fc ON fcr.flashcard_id = fc.id
+                        JOIN knowledge_nodes kn ON fc.node_id = kn.id
+                        WHERE fcr.student_id = $1 AND fcr.next_review_date <= NOW()
+                        ORDER BY fcr.next_review_date ASC
+                        LIMIT $2
+                        """,
+                        student_id,
+                        10,
+                    )
+            due_reviews = [dict(r) for r in rows]
 
             # 2. Weak areas
-            weaknesses = await personalize_memory.get_weaknesses(
+            weaknesses = await mastery_service.get_user_struggles(
                 user_id=student_id,
                 course_id=course_id,
-                limit=5,
             )
+            weaknesses = weaknesses[:5]
 
             # 3. Strengths (for positive reinforcement)
-            strengths = await personalize_memory.get_strengths(
+            strengths = await mastery_service.get_user_strengths(
                 user_id=student_id,
                 course_id=course_id,
-                limit=3,
             )
+            strengths = strengths[:3]
 
             # 4. Recent errors
-            recent_errors = await personalize_memory.get_recent_errors(
-                user_id=student_id,
-                course_id=course_id,
-                limit=5,
-            )
+            async with get_ai_conn() as conn:
+                if course_id is not None:
+                    rows = await conn.fetch(
+                        """
+                        SELECT d.id, d.gap_type, d.knowledge_gap, d.wrong_answer, d.correct_answer, d.explanation, d.study_suggestion, d.created_at, kn.name AS node_name
+                        FROM ai_diagnoses d
+                        JOIN knowledge_nodes kn ON d.node_id = kn.id
+                        WHERE d.student_id = $1 AND kn.course_id = $2
+                        ORDER BY d.created_at DESC
+                        LIMIT $3
+                        """,
+                        student_id,
+                        course_id,
+                        5,
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """
+                        SELECT d.id, d.gap_type, d.knowledge_gap, d.wrong_answer, d.correct_answer, d.explanation, d.study_suggestion, d.created_at, kn.name AS node_name
+                        FROM ai_diagnoses d
+                        LEFT JOIN knowledge_nodes kn ON d.node_id = kn.id
+                        WHERE d.student_id = $1
+                        ORDER BY d.created_at DESC
+                        LIMIT $2
+                        """,
+                        student_id,
+                        5,
+                    )
+            recent_errors = [dict(r) for r in rows]
 
             # 5. Unstudied topics
             unstudied_topics = []
             if course_id:
-                unstudied_topics = await personalize_memory.get_unstudied_topics(
-                    user_id=student_id,
-                    course_id=course_id,
-                    limit=3,
-                )
+                async with get_ai_conn() as conn:
+                    rows = await conn.fetch(
+                        """
+                        SELECT kn.id AS node_id, kn.name, kn.name_vi
+                        FROM knowledge_nodes kn
+                        LEFT JOIN user_concept_mastery ucm ON kn.id = ucm.concept_id AND ucm.user_id = $1
+                        WHERE kn.course_id = $2 AND ucm.concept_id IS NULL
+                        ORDER BY kn.id ASC
+                        LIMIT $3
+                        """,
+                        student_id,
+                        course_id,
+                        3,
+                    )
+                unstudied_topics = [dict(r) for r in rows]
 
             # 5. Build study plan items
             plan_items = []

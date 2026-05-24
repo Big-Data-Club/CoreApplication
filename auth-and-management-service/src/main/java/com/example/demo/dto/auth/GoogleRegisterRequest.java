@@ -1,7 +1,6 @@
 package com.example.demo.dto.auth;
 
 import com.example.demo.enums.UserTeam;
-import com.example.demo.enums.UserType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -17,9 +16,9 @@ public class GoogleRegisterRequest {
     @NotBlank(message = "Student/member code is required")
     private String code;
 
-    @NotNull(message = "Team is required")
-    private UserTeam team;
+    @NotBlank(message = "Team is required")
+    private String team;
 
-    @NotNull(message = "Type is required")
-    private UserType type;
+    @NotBlank(message = "Type is required")
+    private String type;
 }

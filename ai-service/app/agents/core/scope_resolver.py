@@ -103,6 +103,7 @@ async def resolve_course_scope(
     active_courses: dict,
     mtm_ctx: Optional[dict] = None,
     explicit_course_id: Optional[int] = None,
+    router_matched_course_id: Optional[int] = None,
 ) -> CourseScope:
     """
     Decide which course(s) the current message applies to.
@@ -114,7 +115,7 @@ async def resolve_course_scope(
         3. Explicit course_id from the FE that matches an active course → "single".
         4. Deictic reference + MTM anchor present → "single" (reuse anchor).
         5. Exactly one course title substring-matches the message → "single".
-        6. LLM extraction fallback.
+        6. Router-extracted course_id from LLM classification → "single".
         7. Otherwise → "ambiguous" with a grounded clarification question.
 
     The resolver NEVER raises — failures degrade to "ambiguous".
@@ -161,7 +162,6 @@ async def resolve_course_scope(
                 confidence=0.95,
                 reason="explicit course_id from frontend",
             )
-        # Else: FE sent a course the user has no access to — ignore it.
 
     # Step 4 — deictic reference + MTM anchor → reuse last-focused course.
     anchor_id = _read_anchor_course_id(mtm_ctx)
@@ -184,17 +184,15 @@ async def resolve_course_scope(
             reason=f"course title substring match: {matched.get('title')!r}",
         )
 
-    # Step 6 — LLM fallback for entity extraction.
-    try:
-        llm_scope = await _llm_extract_scope(
-            user_message=msg,
-            courses=courses,
-            anchor_id=anchor_id,
-        )
-        if llm_scope is not None:
-            return llm_scope
-    except Exception as exc:  # noqa: BLE001 — never break the turn
-        logger.warning("scope LLM extract failed: %s", exc)
+    # Step 6 — router-extracted course_id
+    if router_matched_course_id is not None:
+        if any(c.get("id") == router_matched_course_id for c in courses):
+            return CourseScope(
+                mode="single",
+                focus_course_id=router_matched_course_id,
+                confidence=0.85,
+                reason="resolved via router LLM extraction",
+            )
 
     # Step 7 — genuinely ambiguous → ask the user, with grounded options.
     titles = list_course_titles(active_courses)
@@ -258,140 +256,4 @@ def _default_scope_question(active_courses: dict) -> str:
     return (
         f"Bạn muốn tôi tập trung vào khoá học nào trong {n} khoá bạn đang "
         "học?"
-    )
-
-
-_LLM_PROMPT = """\
-You are a scope extractor. The user is talking to an agent that manages \
-MANY courses for them. Your job: figure out which course(s) the user \
-means in this single message.
-
-The user's active courses (these are the ONLY valid course_ids):
-{course_list}
-
-Currently focused course_id from prior turns (may be null): {anchor}
-
-Rules:
-- Reply with STRICT JSON only. No prose.
-- "matched_course_ids" must be a subset of the active course_ids above.
-  Never invent an id.
-- Use "wants_all" = true ONLY if the user explicitly asks for cross-course \
-  / "all my courses" behaviour.
-- Use "references_anchor" = true if the user uses deictic words \
-  (this/that/cái này/khoá này) AND the anchor is set.
-- Set confidence between 0.0 and 1.0.
-
-Output schema:
-{{
-  "matched_course_ids": [int, ...],
-  "references_anchor": true|false,
-  "wants_all": true|false,
-  "confidence": 0.0-1.0,
-  "reason": "short string"
-}}
-"""
-
-
-async def _llm_extract_scope(
-    user_message: str,
-    courses: list[dict],
-    anchor_id: Optional[int],
-) -> Optional[CourseScope]:
-    """
-    Ask the fast model to map the user's message to one or more course_ids.
-    Returns None when the model gives no usable signal (caller falls back
-    to "ambiguous").
-    """
-    course_list = "\n".join(
-        f"  - id={c.get('id')} \"{c.get('title', '')}\""
-        for c in courses if c.get("id") is not None
-    )
-    prompt = _LLM_PROMPT.format(
-        course_list=course_list or "  (none)",
-        anchor=anchor_id if anchor_id is not None else "null",
-    )
-
-    raw = await chat_complete_json(
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": user_message[:500]},
-        ],
-        model=settings.chat_model,
-        temperature=0.0,
-        max_tokens=200,
-        task=TASK_AGENT_ROUTER,
-    )
-    if not isinstance(raw, dict):
-        return None
-
-    valid_ids = {c.get("id") for c in courses if c.get("id") is not None}
-    matched_raw = raw.get("matched_course_ids") or []
-    matched: list[int] = []
-    if isinstance(matched_raw, list):
-        for v in matched_raw:
-            try:
-                iv = int(v)
-            except (TypeError, ValueError):
-                continue
-            if iv in valid_ids:
-                matched.append(iv)
-
-    references_anchor = bool(raw.get("references_anchor"))
-    wants_all = bool(raw.get("wants_all"))
-    try:
-        confidence = float(raw.get("confidence", 0.5))
-    except (TypeError, ValueError):
-        confidence = 0.5
-    reason = str(raw.get("reason") or "llm extraction")
-
-    # Resolve.
-    if wants_all:
-        return CourseScope(
-            mode="all",
-            candidate_course_ids=sorted(valid_ids),
-            confidence=max(confidence, 0.7),
-            reason=f"LLM: {reason}",
-        )
-
-    if references_anchor and anchor_id is not None and anchor_id in valid_ids:
-        return CourseScope(
-            mode="single",
-            focus_course_id=anchor_id,
-            confidence=max(confidence, 0.7),
-            reason=f"LLM(anchor): {reason}",
-        )
-
-    if len(matched) == 1:
-        return CourseScope(
-            mode="single",
-            focus_course_id=matched[0],
-            confidence=max(confidence, 0.7),
-            reason=f"LLM(single): {reason}",
-        )
-
-    if len(matched) > 1:
-        return CourseScope(
-            mode="multi",
-            candidate_course_ids=matched,
-            confidence=confidence,
-            reason=f"LLM(multi): {reason}",
-            needs_clarification=True,
-            clarification_question=(
-                "Bạn muốn tôi tập trung vào khoá nào trong số này?"
-            ),
-            clarification_options=[
-                {
-                    "label": next(
-                        (c.get("title") for c in courses
-                         if c.get("id") == cid),
-                        f"Khoá học #{cid}",
-                    ),
-                    "value": str(cid),
-                }
-                for cid in matched
-            ],
-        )
-
-    # No matches and no anchor reference — let the caller fall through to
-    # the default "ambiguous" branch with full course list as options.
-    return None
+    )

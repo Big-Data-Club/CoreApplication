@@ -608,7 +608,7 @@ func (s *CourseService) UpdateContent(ctx context.Context, contentID int64, req 
 		if err != nil {
 			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
-		updates["metadata"] = metadata
+		updates["metadata"] = string(metadata)
 	}
 	if req.IsPublished != nil {
 		updates["is_published"] = *req.IsPublished

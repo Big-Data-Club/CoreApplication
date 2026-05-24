@@ -92,29 +92,11 @@ anchor is already set.
 8. Match the teacher's language. Vietnamese in → Vietnamese out.
 9. Keep responses focused and actionable. Teachers are busy people.
 
-# Current User
-{user_context}
-
-# In-Page Context
-{page_context}
-
-# Active Lesson (Quick Action Panel "Ask AI")
-{system_context}
-
 # Context Awareness
 {memory_context}
 
-# Memory Management
-You control your own memory. Use these tools PROACTIVELY:
-- `search_student_profile`: Before giving personalized advice.
-- `update_working_memory`: When user shifts topic or states a new goal.
-- `summarize_past_turns`: When system warns about memory capacity.
-- `filter_irrelevant_context`: To drop stale tool outputs cluttering context.
-
-Rules:
-- Max 2 memory tool calls per turn.
-- Always answer the user's question AFTER memory operations.
-- Never tell the user you are managing memory — do it silently.
+# Current User
+{user_context}
 
 # Using the Context Block
 The section above labelled "CONTEXT FROM MEMORY SYSTEM" is your persistent
@@ -133,7 +115,13 @@ memory across this session. Follow these rules:
 - If the context block is empty or lacks what you need, fall back to \
   tools or ask a single clarifying question grounded in the Ground \
   Truth block.
- 
+
+# Active Lesson (Quick Action Panel "Ask AI")
+{system_context}
+
+# In-Page Context
+{page_context}
+
 # Output Format
 - Use markdown formatting for structured content
 - When presenting data, use tables where appropriate
@@ -225,30 +213,27 @@ Instead of just giving answers:
 4. If they get it wrong, explain the error and try again
 5. If they get it right, suggest the next topic or deeper exploration
 
-# Current User
-{user_context}
-
-# In-Page Context
-{page_context}
-
-# Active Lesson (Quick Action Panel "Ask AI")
-{system_context}
+# Adaptive Retrieval Depth
+Adjust the `top_k` parameter of `search_course_materials` based on \
+how deeply the student wants to learn:
+- **Quick factual lookup** (\"X là gì?\", \"define X\", short question): \
+  use `top_k=3` (default).
+- **Deep review / comprehensive explanation** — detected by phrases \
+  like \"ôn tập\", \"ôn tập sâu\", \"giải thích chi tiết\", \"học kỹ\", \
+  \"delve deeper\", \"explain in depth\", \"deep dive\", \"toàn bộ\", \
+  \"comprehensive\", or when the topic is a broad system/architecture \
+  (e.g., MapReduce, HDFS, Spark architecture): use `top_k=6` or \
+  `top_k=8`.
+- When using `explain_concept`, set `depth=\"advanced\"` for deep \
+  review requests and `depth=\"beginner\"` for simple definitions.
+- When using `create_mini_challenge`, always pass the `course_id` \
+  so the quiz draws from actual course materials.
 
 # Context Awareness
 {memory_context}
 
-# Memory Management
-You control your own memory. Use these tools PROACTIVELY:
-- `save_student_fact`: When user reveals weakness, preference, or goal. Trigger phrases: "tôi kém", "tôi thích", "mục tiêu của tôi", "I struggle with".
-- `search_student_profile`: Before giving personalized advice.
-- `update_working_memory`: When user shifts topic or states a new goal.
-- `summarize_past_turns`: When system warns about memory capacity.
-- `filter_irrelevant_context`: To drop stale tool outputs cluttering context.
-
-Rules:
-- Max 2 memory tool calls per turn.
-- Always answer the user's question AFTER memory operations.
-- Never tell the user you are managing memory — do it silently.
+# Current User
+{user_context}
 
 # Using the Context Block
 The section above labelled "CONTEXT FROM MEMORY SYSTEM" is your memory of
@@ -266,7 +251,13 @@ this student across turns. Use it actively:
   between — useful for connecting concepts across courses.
 - If the context is empty, rely on tools + a single clarification rather \
   than guessing.
- 
+
+# Active Lesson (Quick Action Panel "Ask AI")
+{system_context}
+
+# In-Page Context
+{page_context}
+
 # Output Format
 - Use markdown for structure (headers, bold, code blocks)
 - Use bullet points for step-by-step explanations
@@ -281,8 +272,6 @@ def build_system_prompt(
     memory_context: str,
     user_context: dict | None = None,
     active_courses_section: str = "",
-    # Backward-compatibility alias for the old parameter name.
-    teacher_anchor_section: str | None = None,
     page_context: dict | None = None,
     system_context: dict | None = None,
 ) -> str:
@@ -295,7 +284,6 @@ def build_system_prompt(
         user_context: Optional dict with user identity {name, email, role}
         active_courses_section: Ground-truth list of real course/node IDs
             for the current user (used by both teacher and mentor templates).
-        teacher_anchor_section: Deprecated alias for active_courses_section.
     """
     template = (
         TEACHER_SYSTEM_PROMPT if agent_type == "teacher"
@@ -305,10 +293,7 @@ def build_system_prompt(
     if not memory_context:
         memory_context = "(No additional context available for this session)"
 
-    # Resolve the active-courses block. Prefer the new arg; fall back to the
-    # legacy `teacher_anchor_section` so existing callers keep working until
-    # they migrate.
-    block = active_courses_section or teacher_anchor_section or ""
+    block = active_courses_section or ""
     if not block:
         if agent_type == "teacher":
             block = (

@@ -9,6 +9,10 @@ import com.example.demo.model.User;
 import com.example.demo.repository.LmsRoleMappingRepository;
 import com.example.demo.repository.RoleRepository;
 import com.example.demo.repository.UserRepository;
+import com.example.demo.repository.TeamRepository;
+import com.example.demo.repository.UserTypeOptionRepository;
+import com.example.demo.model.Team;
+import com.example.demo.model.UserTypeOption;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -26,6 +30,9 @@ public class DataInitializer implements CommandLineRunner {
     private final RoleRepository roleRepository;
     private final LmsRoleMappingRepository lmsMappingRepository;
     private final PasswordEncoder passwordEncoder;
+    private final TeamRepository teamRepository;
+    private final UserTypeOptionRepository typeRepository;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @org.springframework.beans.factory.annotation.Value("${app.admin.password:hehehe}")
     private String adminPassword;
@@ -35,7 +42,18 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        try {
+            log.info("Dropping database check constraints for dynamic fields...");
+            jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check");
+            jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_type_check");
+            jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_team_check");
+            log.info("Successfully dropped check constraints.");
+        } catch (Exception e) {
+            log.error("Failed to drop check constraints: {}", e.getMessage());
+        }
         seedRoles();
+        seedTeams();
+        seedTypes();
         seedAdminUser();
     }
 
@@ -87,5 +105,26 @@ public class DataInitializer implements CommandLineRunner {
 
         userRepository.save(admin);
         log.info("Default admin user created: {}", adminEmail);
+    }
+
+    private void seedTeams() {
+        if (teamRepository.count() > 0) return;
+
+        teamRepository.save(Team.builder().code("RESEARCH").name("Research").description("Research Division").build());
+        teamRepository.save(Team.builder().code("ENGINEER").name("Engineer").description("Engineering & Development Division").build());
+        teamRepository.save(Team.builder().code("EVENT").name("Event").description("Event Planning Division").build());
+        teamRepository.save(Team.builder().code("MEDIA").name("Media").description("Media & Marketing Division").build());
+
+        log.info("Default teams seeded successfully.");
+    }
+
+    private void seedTypes() {
+        if (typeRepository.count() > 0) return;
+
+        typeRepository.save(UserTypeOption.builder().code("CLC").name("CLC").description("Cử nhân chất lượng cao").build());
+        typeRepository.save(UserTypeOption.builder().code("TN").name("TN").description("Cử nhân tài năng").build());
+        typeRepository.save(UserTypeOption.builder().code("DT").name("DT").description("Đại trà").build());
+
+        log.info("Default user types seeded successfully.");
     }
 }

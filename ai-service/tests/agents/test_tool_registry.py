@@ -124,6 +124,7 @@ async def run_all_tests():
         sample = schemas[0]
         print(f"  [PASS] {r.name} — {len(schemas)} schemas")
         print(f"         Sample: {sample['function']['name']}")
+        r.passed = True
     except Exception as e:
         r.error = str(e)
         print(f"  [FAIL] {r.name} — {e}")

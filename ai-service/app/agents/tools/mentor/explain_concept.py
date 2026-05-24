@@ -64,20 +64,22 @@ class ExplainConceptTool(BaseTool):
         try:
             # 1. Auto-detect depth from mastery if not provided
             if not depth:
-                from app.agents.memory.personalize_memory import personalize_memory
-                weaknesses = await personalize_memory.get_weaknesses(
+                from app.services.mastery_service import mastery_service
+                weaknesses = await mastery_service.get_user_struggles(
                     user_id=student_id, course_id=course_id,
                 )
-                if any(w["mastery_level"] < 0.3 for w in weaknesses):
+                if weaknesses and any(w["mastery_level"] < 0.3 for w in weaknesses):
                     depth = "beginner"
-                elif any(w["mastery_level"] < 0.6 for w in weaknesses):
+                elif weaknesses and any(w["mastery_level"] < 0.6 for w in weaknesses):
                     depth = "intermediate"
                 else:
                     depth = "intermediate"  # default
 
-            # 2. RAG context
+            # 2. RAG context — depth-adaptive retrieval
+            depth_top_k = {"beginner": 3, "intermediate": 5, "advanced": 8}
+            top_k = depth_top_k.get(depth, 5)
             chunks = await rag_service.search_multilingual(
-                query=concept, course_id=course_id, top_k=4,
+                query=concept, course_id=course_id, top_k=top_k,
             )
             context = "\n---\n".join(c.chunk_text for c in chunks) if chunks else ""
 
