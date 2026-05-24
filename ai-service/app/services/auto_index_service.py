@@ -145,7 +145,7 @@ def build_node_extraction_prompt(
     {
       "source_index": 0,
       "target_index": 2,
-      "relation_type": "prerequisite",
+      "relation_type": "prerequisite", // Loại quan hệ logic: prerequisite (tiên quyết), extends (mở rộng), equivalent (tương đương), contrasts_with (đối chiếu), hoặc related (liên quan)
       "reason": "Lý do ngắn gọn",
       "strength": 0.9
     }
@@ -1812,19 +1812,22 @@ class AutoIndexService:
         if not edges:
             return
 
+        from app.services.neo4j_service import EQUIVALENT_THRESHOLD
+
         async with get_ai_conn() as conn:
             async with conn.transaction():
                 for src, tgt, strength in edges:
+                    rel_type = 'equivalent' if strength >= EQUIVALENT_THRESHOLD else 'related'
                     await conn.execute(
                         """
                         INSERT INTO knowledge_node_relations
                             (course_id, source_node_id, target_node_id,
                              relation_type, strength, auto_generated)
-                        VALUES ($1,$2,$3,'related',$4,true)
+                        VALUES ($1,$2,$3,$4,$5,true)
                         ON CONFLICT (source_node_id, target_node_id, relation_type) DO UPDATE
                             SET strength = GREATEST(knowledge_node_relations.strength, EXCLUDED.strength)
                         """,
-                        course_id, src, tgt, round(strength, 3),
+                        course_id, src, tgt, rel_type, round(strength, 3),
                     )
         logger.info("Created/updated %d graph edges for course_id=%d", len(edges), course_id)
 
