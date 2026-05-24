@@ -887,6 +887,22 @@ class AutoIndexService:
         if not existing_records:
             return nodes, embeddings, {}
 
+        # Validate against PG to prevent dangling node references
+        exist_ids = [r.id for r in existing_records]
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch("SELECT id FROM knowledge_nodes WHERE id = ANY($1)", exist_ids)
+            valid_ids = {r["id"] for r in rows}
+
+        # Identify dangling nodes to delete them later
+        dangling_ids = [rid for rid in exist_ids if rid not in valid_ids]
+        if dangling_ids:
+            logger.warning("Found %d dangling nodes in Qdrant. Cleaning them up...", len(dangling_ids))
+            asyncio.create_task(self.delete_nodes_bulk(dangling_ids))
+
+        existing_records = [r for r in existing_records if r.id in valid_ids]
+        if not existing_records:
+            return nodes, embeddings, {}
+
         existing_ids   = [r.id   for r in existing_records]
         existing_names = [r.payload.get("name", "") for r in existing_records]
         existing_embs  = [r.vector for r in existing_records if r.vector is not None]
@@ -1659,9 +1675,26 @@ class AutoIndexService:
 
         try:
             records = await qdrant_service.scroll_nodes_for_course(course_id)
+            if not records:
+                return []
+
+            # Validate against PG to prevent dangling node references
+            exist_ids = [r.id for r in records]
+            async with get_ai_conn() as conn:
+                rows = await conn.fetch("SELECT id FROM knowledge_nodes WHERE id = ANY($1)", exist_ids)
+                valid_ids = {r["id"] for r in rows}
+
+            # Identify dangling nodes to delete them later
+            dangling_ids = [rid for rid in exist_ids if rid not in valid_ids]
+            if dangling_ids:
+                logger.warning("Found %d dangling nodes in Qdrant. Cleaning them up...", len(dangling_ids))
+                asyncio.create_task(self.delete_nodes_bulk(dangling_ids))
+
             result = []
             for r in records:
                 if int(r.id) in exclude_ids:
+                    continue
+                if r.id not in valid_ids:
                     continue
                 if r.vector is None:
                     continue
@@ -1688,6 +1721,21 @@ class AutoIndexService:
 
         # Fetch all existing nodes for this course from Qdrant
         existing_records = await qdrant_service.scroll_nodes_for_course(course_id)
+        if existing_records:
+            # Validate against PG to prevent dangling node references
+            exist_ids = [r.id for r in existing_records]
+            async with get_ai_conn() as conn:
+                rows = await conn.fetch("SELECT id FROM knowledge_nodes WHERE id = ANY($1)", exist_ids)
+                valid_ids = {r["id"] for r in rows}
+
+            # Identify dangling nodes to delete them later
+            dangling_ids = [rid for rid in exist_ids if rid not in valid_ids]
+            if dangling_ids:
+                logger.warning("Found %d dangling nodes in Qdrant. Cleaning them up...", len(dangling_ids))
+                asyncio.create_task(self.delete_nodes_bulk(dangling_ids))
+
+            existing_records = [r for r in existing_records if r.id in valid_ids]
+
         existing_ids  = [r.id for r in existing_records if r.id not in new_node_ids]
         existing_embs = [r.vector for r in existing_records
                          if r.id not in new_node_ids and r.vector is not None]
@@ -1848,6 +1896,65 @@ class AutoIndexService:
                     )
             except Exception as e:
                 logger.error(f"Failed to delete nodes from Neo4j: {e}")
+
+    async def delete_content_data(self, content_id: int) -> None:
+        """
+        Delete all chunks and nodes created by a specific content ID from PG, Qdrant, and Neo4j.
+        """
+        logger.info(f"Deleting content data for content_id={content_id}")
+        
+        # 1. Get all nodes created by this content from PG
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                "SELECT id FROM knowledge_nodes WHERE source_content_id = $1",
+                content_id
+            )
+            node_ids = [r["id"] for r in rows]
+            
+        # 2. Delete chunks for content (handles PG and Qdrant chunks)
+        from app.services.rag_service import rag_service
+        await rag_service.delete_chunks_for_content(content_id)
+        
+        # 3. Delete nodes (handles PG, Qdrant, and Neo4j nodes)
+        if node_ids:
+            await self.delete_nodes_bulk(node_ids)
+
+    async def delete_course_data(self, course_id: int) -> None:
+        """
+        Delete all chunks and nodes belonging to a course from PG, Qdrant, and Neo4j.
+        """
+        logger.info(f"Deleting course data for course_id={course_id}")
+        
+        # 1. Delete Qdrant vectors
+        if settings.use_qdrant:
+            try:
+                from app.services.qdrant_service import qdrant_service
+                await qdrant_service.delete_by_course(course_id)
+            except Exception as e:
+                logger.error(f"Failed to delete course data from Qdrant: {e}")
+                
+        # 2. Delete Neo4j nodes/edges
+        if settings.neo4j_enabled:
+            try:
+                from app.services.neo4j_service import neo4j_service
+                driver = neo4j_service._get_driver()
+                async with driver.session() as s:
+                    await s.run(
+                        "MATCH (n:KnowledgeNode {course_id: $course_id}) DETACH DELETE n",
+                        course_id=course_id
+                    )
+            except Exception as e:
+                logger.error(f"Failed to delete course data from Neo4j: {e}")
+                
+        # 3. PostgreSQL cleanup (deletes chunks, nodes, status, jobs, sessions)
+        async with get_ai_conn() as conn:
+            async with conn.transaction():
+                # Delete chunks first because they reference nodes (with SET NULL, but let's delete them anyway)
+                await conn.execute("DELETE FROM document_chunks WHERE course_id = $1", course_id)
+                await conn.execute("DELETE FROM knowledge_nodes WHERE course_id = $1", course_id)
+                await conn.execute("DELETE FROM content_index_status WHERE course_id = $1", course_id)
+                await conn.execute("DELETE FROM embedding_reindex_jobs WHERE course_id = $1", course_id)
+                await conn.execute("DELETE FROM agent_sessions WHERE course_id = $1", course_id)
 
     # ─ Utility ────────────────────────────────────────────────────────────────
     async def _update_content_status(
