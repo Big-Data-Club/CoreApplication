@@ -396,6 +396,28 @@ class QdrantService:
             wait=True,
         )
 
+    async def delete_by_course(self, course_id: int) -> None:
+        """Delete all chunks and nodes belonging to a course from Qdrant."""
+        client = self._get_client()
+        # Delete document chunks for the course
+        await client.delete(
+            collection_name=CHUNK_COLLECTION,
+            points_selector=Filter(
+                must=[FieldCondition(key="course_id", match=MatchValue(value=course_id))]
+            ),
+            wait=True,
+        )
+        logger.debug("Deleted Qdrant chunks for course_id=%d", course_id)
+        # Delete knowledge nodes for the course
+        await client.delete(
+            collection_name=NODE_COLLECTION,
+            points_selector=Filter(
+                must=[FieldCondition(key="course_id", match=MatchValue(value=course_id))]
+            ),
+            wait=True,
+        )
+        logger.debug("Deleted Qdrant nodes for course_id=%d", course_id)
+
     # ── Health / Diagnostics ───────────────────────────────────────────────────
 
     async def health(self) -> dict[str, Any]:

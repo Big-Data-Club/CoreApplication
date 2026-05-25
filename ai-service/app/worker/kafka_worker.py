@@ -117,6 +117,22 @@ async def process_maintenance_command(payload: dict):
             result = await reindex_service.reindex_content_sync(content_id, course_id)
             logger.info("Reindex complete",
                         extra={"content_id": content_id, "chunks": result.get("chunks")})
+        elif command == "DELETE_COURSE":
+            from app.services.auto_index_service import auto_index_service
+            course_id = payload.get("course_id")
+            if course_id is not None:
+                await auto_index_service.delete_course_data(int(course_id))
+                logger.info("Course data deleted", extra={"course_id": course_id})
+            else:
+                logger.warning("DELETE_COURSE received with missing course_id")
+        elif command == "DELETE_CONTENT":
+            from app.services.auto_index_service import auto_index_service
+            content_id = payload.get("content_id")
+            if content_id is not None:
+                await auto_index_service.delete_content_data(int(content_id))
+                logger.info("Content data deleted", extra={"content_id": content_id})
+            else:
+                logger.warning("DELETE_CONTENT received with missing content_id")
         else:
             logger.warning("Unknown maintenance command", extra={"command": command})
     except Exception as exc:

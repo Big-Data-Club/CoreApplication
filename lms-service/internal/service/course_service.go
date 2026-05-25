@@ -11,6 +11,8 @@ import (
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
 	"example/hello/pkg/cache"
+	"example/hello/pkg/kafka"
+	"example/hello/pkg/logger"
 )
 
 // TTLs for course-related cache entries.
@@ -182,6 +184,16 @@ func (s *CourseService) DeleteCourse(ctx context.Context, courseID int64, userID
 	}
 
 	s.invalidateCourseCache(ctx, courseID)
+
+	// Publish course deletion event to Kafka maintenance topic
+	deletePayload := map[string]interface{}{
+		"command":   "DELETE_COURSE",
+		"course_id": courseID,
+	}
+	if err := kafka.PublishEvent(ctx, "lms.maintenance.command", []byte(fmt.Sprintf("course-%d", courseID)), deletePayload); err != nil {
+		logger.Error(fmt.Sprintf("Failed to publish course deletion event for course %d", courseID), err)
+	}
+
 	return nil
 }
 
@@ -675,6 +687,16 @@ func (s *CourseService) DeleteContent(ctx context.Context, contentID int64, user
 		cache.KeyContent(contentID),
 		cache.KeySectionContents(content.SectionID),
 	)
+
+	// Publish content deletion event to Kafka maintenance topic
+	deletePayload := map[string]interface{}{
+		"command":    "DELETE_CONTENT",
+		"content_id": contentID,
+	}
+	if err := kafka.PublishEvent(ctx, "lms.maintenance.command", []byte(fmt.Sprintf("content-%d", contentID)), deletePayload); err != nil {
+		logger.Error(fmt.Sprintf("Failed to publish content deletion event for content %d", contentID), err)
+	}
+
 	return nil
 }
 

@@ -310,11 +310,16 @@ func (r *QuizRepository) CreateQuestion(ctx context.Context, question *models.Qu
 		RETURNING id, created_at, updated_at
 	`
 
+	settingsStr := string(question.Settings)
+	if settingsStr == "" {
+		settingsStr = "{}"
+	}
+
 	err := r.db.QueryRowContext(
 		ctx, query,
 		question.QuizID, question.QuestionType, question.QuestionText,
 		question.QuestionHTML, question.Explanation, question.Points,
-		question.OrderIndex, string(question.Settings), question.IsRequired,
+		question.OrderIndex, settingsStr, question.IsRequired,
 		question.NodeID, question.BloomLevel, question.ReferenceChunkID,
 	).Scan(&question.ID, &question.CreatedAt, &question.UpdatedAt)
 
@@ -393,10 +398,15 @@ func (r *QuizRepository) UpdateQuestion(ctx context.Context, question *models.Qu
 		RETURNING updated_at
 	`
 
+	settingsStr := string(question.Settings)
+	if settingsStr == "" {
+		settingsStr = "{}"
+	}
+
 	err := r.db.QueryRowContext(
 		ctx, query,
 		question.QuestionText, question.QuestionHTML, question.Explanation,
-		question.Points, question.OrderIndex, string(question.Settings), question.IsRequired,
+		question.Points, question.OrderIndex, settingsStr, question.IsRequired,
 		question.NodeID, question.BloomLevel, question.ReferenceChunkID,
 		question.ID,
 	).Scan(&question.UpdatedAt)
