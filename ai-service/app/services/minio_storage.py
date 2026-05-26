@@ -89,3 +89,23 @@ async def get_presigned_url(object_key: str, expires_in_sec: int = 3600) -> Opti
             return None
 
     return await loop.run_in_executor(None, _sync_presign)
+
+
+async def download_bytes(object_key: str) -> Optional[bytes]:
+    """Download an object from MinIO and return its bytes."""
+    loop = asyncio.get_event_loop()
+
+    def _sync_download() -> Optional[bytes]:
+        try:
+            client = _client()
+            response = client.get_object(settings.minio_bucket, object_key)
+            try:
+                return response.read()
+            finally:
+                response.close()
+                response.release_conn()
+        except Exception as exc:
+            logger.error("MinIO download failed key=%s: %s", object_key, exc)
+            return None
+
+    return await loop.run_in_executor(None, _sync_download)

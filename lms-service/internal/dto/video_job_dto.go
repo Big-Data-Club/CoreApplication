@@ -25,6 +25,7 @@ type VideoJobResponse struct {
 	YoutubeVideoID   string    `json:"youtube_video_id,omitempty"`
 	YoutubeURL       string    `json:"youtube_url,omitempty"`
 	Visibility       string    `json:"visibility"`
+	PreviewURL       string    `json:"preview_url,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }

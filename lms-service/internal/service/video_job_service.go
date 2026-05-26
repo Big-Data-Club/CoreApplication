@@ -88,7 +88,7 @@ func (s *VideoJobService) CreateJob(ctx context.Context, req dto.CreateVideoJobR
 		}
 	}
 
-	maxDaily := 5
+	maxDaily := 10
 	if limitEnv := os.Getenv("VIDEO_MAX_DAILY_JOBS"); limitEnv != "" {
 		if val, err := strconv.Atoi(limitEnv); err == nil {
 			maxDaily = val
@@ -430,6 +430,11 @@ func (s *VideoJobService) mapToDTO(j *models.VideoGenerationJob) *dto.VideoJobRe
 		ytURL = j.YoutubeURL.String
 	}
 
+	var previewURL string
+	if j.Status == models.VideoJobStatusCompleted {
+		previewURL = fmt.Sprintf("/files/video-previews/vid_%s.mp4", j.ID)
+	}
+
 	return &dto.VideoJobResponse{
 		ID:               j.ID,
 		TargetType:       j.TargetType,
@@ -445,6 +450,7 @@ func (s *VideoJobService) mapToDTO(j *models.VideoGenerationJob) *dto.VideoJobRe
 		YoutubeVideoID:   ytID,
 		YoutubeURL:       ytURL,
 		Visibility:       j.Visibility,
+		PreviewURL:       previewURL,
 		CreatedAt:        j.CreatedAt,
 		UpdatedAt:        j.UpdatedAt,
 	}

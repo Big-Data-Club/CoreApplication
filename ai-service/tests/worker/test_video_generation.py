@@ -54,3 +54,64 @@ def test_renderer_text_wrapping():
 def test_voice_mapping():
     assert VOICE_MAP["vi"] == "vi-VN-HoaiMyNeural"
     assert VOICE_MAP["en"] == "en-US-AriaNeural"
+
+def test_resize_and_crop(tmp_path):
+    import os
+    from PIL import Image
+    from app.services.video_renderer import video_renderer
+
+    # Create dummy source image (wider than target)
+    src_path = os.path.join(tmp_path, "source.png")
+    img = Image.new("RGB", (1000, 500), color="red")
+    img.save(src_path)
+
+    # Crop/resize to target (750x600)
+    resized = video_renderer._resize_and_crop(img, 750, 600)
+    assert resized.width == 750
+    assert resized.height == 600
+
+def test_split_layout_rendering(tmp_path):
+    import os
+    from PIL import Image
+    from app.services.video_renderer import video_renderer
+
+    # Create dummy side image
+    side_img_path = os.path.join(tmp_path, "side.png")
+    side_img = Image.new("RGB", (400, 400), color="blue")
+    side_img.save(side_img_path)
+
+    output_path = os.path.join(tmp_path, "output.png")
+    # Render slide image with side image
+    video_renderer.render_slide_image(
+        title="Test Split Layout Title",
+        body="* Bullet point 1\n* Bullet point 2",
+        template_type="dark",
+        output_path=output_path,
+        local_image_path=side_img_path
+    )
+
+    assert os.path.exists(output_path)
+    result_img = Image.open(output_path)
+    assert result_img.width > 0 and result_img.height > 0
+
+def test_draw_concept_diagram(tmp_path):
+    import os
+    from app.services.video_generation_service import draw_concept_diagram
+
+    nodes = [
+        {"id": 1, "title": "MapReduce Intro"},
+        {"id": 2, "title": "Mapper details"},
+        {"id": 3, "title": "Reducer details"}
+    ]
+    relations = [
+        {"source_node_id": 1, "target_node_id": 2, "relation_type": "prerequisite"},
+        {"source_node_id": 1, "target_node_id": 3, "relation_type": "prerequisite"}
+    ]
+
+    output_path = os.path.join(tmp_path, "concept_diagram.png")
+    draw_concept_diagram(nodes, relations, output_path, "dark")
+
+    assert os.path.exists(output_path)
+    from PIL import Image
+    result_img = Image.open(output_path)
+    assert result_img.size == (750, 600)

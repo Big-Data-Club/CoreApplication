@@ -277,6 +277,8 @@ services:
       MINIO_USE_SSL: "true"
       GOMAXPROCS: 2
       GOGC: 100
+      VIDEO_MAX_CONCURRENT_JOBS: ${VIDEO_MAX_CONCURRENT_JOBS:-2}
+      VIDEO_MAX_DAILY_JOBS: ${VIDEO_MAX_DAILY_JOBS:-5}
     ports:
       - "${LMS_PORT:-8081}:8081"
     volumes:

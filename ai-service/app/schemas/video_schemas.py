@@ -22,6 +22,8 @@ class SlideContent(BaseModel):
     title: str = Field(..., max_length=60, description="Slide title")
     body: str = Field(..., max_length=300, description="Slide body text")
     narration: str = Field(..., description="TTS narration script for this slide")
+    image_url: Optional[str] = Field(None, description="URL of an extracted document diagram or generated graph")
+    visual_type: Optional[str] = Field("text_only", description="'text_only' | 'document_image' | 'knowledge_graph'")
 
 class VideoScript(BaseModel):
     """Phase 3 output: Content Creator"""

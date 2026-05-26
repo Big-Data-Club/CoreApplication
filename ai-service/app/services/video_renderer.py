@@ -2,6 +2,7 @@ import os
 import subprocess
 import logging
 import asyncio
+from typing import Optional
 import edge_tts
 from PIL import Image, ImageDraw, ImageFont
 
@@ -66,17 +67,47 @@ class VideoRenderer:
     async def render_slide_audio(self, text: str, language: str, output_path: str) -> float:
         """
         Generates TTS audio file for a slide narration and returns its duration in seconds.
+        Tries up to 3 times with backoff in case of transient edge-tts API errors.
+        Falls back to generating silent audio using FFmpeg if TTS service fails.
         """
         voice = VOICE_MAP.get(language.lower(), "vi-VN-HoaiMyNeural")
-        logger.info(f"Generating TTS audio with voice {voice} for text: {text[:50]}...")
         
-        communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(output_path)
-        
-        # Determine duration
-        duration = self._get_audio_duration(output_path)
-        logger.info(f"TTS audio generated. Duration: {duration:.2f}s")
-        return duration
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            logger.info(f"Generating TTS audio (attempt {attempt}/{max_attempts}) with voice {voice} for text: {text[:50]}...")
+            try:
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(output_path)
+                duration = self._get_audio_duration(output_path)
+                logger.info(f"TTS audio generated. Duration: {duration:.2f}s")
+                return duration
+            except Exception as e:
+                logger.warning(f"TTS audio attempt {attempt} failed: {e}")
+                if attempt < max_attempts:
+                    sleep_time = attempt * 1.5
+                    logger.info(f"Sleeping for {sleep_time}s before retrying...")
+                    await asyncio.sleep(sleep_time)
+                else:
+                    logger.error(f"All {max_attempts} TTS attempts failed. Generating silent fallback audio...")
+                    
+        # Fallback: Generate a 7.0 seconds silent audio track using FFmpeg
+        duration = 7.0
+        cmd = [
+            "ffmpeg",
+            "-f", "lavfi",
+            "-i", "anullsrc",
+            "-t", str(duration),
+            "-c:a", "libmp3lame",
+            "-y",
+            output_path
+        ]
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            logger.info(f"Silent fallback audio generated successfully. Duration: {duration}s")
+            return duration
+        except Exception as ffmpeg_err:
+            logger.error(f"Failed to generate silent fallback audio: {ffmpeg_err}")
+            return duration
 
     def _get_audio_duration(self, filepath: str) -> float:
         cmd = [
@@ -93,9 +124,28 @@ class VideoRenderer:
             logger.error(f"Failed to query audio duration via ffprobe: {e}. Defaulting to 7.0 seconds.")
             return 7.0
 
-    def render_slide_image(self, title: str, body: str, template_type: str, output_path: str):
+    def _resize_and_crop(self, img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+        aspect_img = img.width / img.height
+        aspect_target = target_w / target_h
+        if aspect_img > aspect_target:
+            # Image is wider: scale height to target, then crop width
+            new_h = target_h
+            new_w = int(img.width * (target_h / img.height))
+            img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            left = (new_w - target_w) // 2
+            return img_resized.crop((left, 0, left + target_w, target_h))
+        else:
+            # Image is taller: scale width to target, then crop height
+            new_w = target_w
+            new_h = int(img.height * (target_w / img.width))
+            img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            top = (new_h - target_h) // 2
+            return img_resized.crop((0, top, target_w, top + target_h))
+
+    def render_slide_image(self, title: str, body: str, template_type: str, output_path: str, local_image_path: Optional[str] = None):
         """
         Draws title and body text onto the chosen slide background template.
+        Supports layout split (image on the left, text on the right) if local_image_path is provided.
         """
         # Resolve template file
         filename = "bdc_template_dark.png" if template_type.lower() == "dark" else "bdc_template_light.png"
@@ -110,19 +160,47 @@ class VideoRenderer:
 
         draw = ImageDraw.Draw(img)
         
+        W, H = img.size
+
+        # Determine layout based on image availability
+        has_image = False
+        if local_image_path and os.path.exists(local_image_path):
+            try:
+                # Dynamic dimensions based on template size
+                image_w = int(W * 0.40)
+                image_h = int(H * 0.55)
+                image_x = int(W * 0.095)
+                image_y = int(H * 0.22)
+
+                side_img = Image.open(local_image_path).convert("RGB")
+                cropped_img = self._resize_and_crop(side_img, image_w, image_h)
+                img.paste(cropped_img, (image_x, image_y))
+                
+                # Draw subtle border
+                border_color = (100, 255, 218) if template_type.lower() == "dark" else (26, 54, 93)
+                draw.rectangle([image_x - 1, image_y - 1, image_x + image_w, image_y + image_h], outline=border_color, width=2)
+                has_image = True
+            except Exception as e:
+                logger.error(f"Failed to render slide side image: {e}")
+
         # Layout metrics
-        margin_left = 180
-        max_text_width = 1560
-        title_y = 230
-        body_start_y = 380
+        if has_image:
+            margin_left = int(W * 0.095 + W * 0.40 + W * 0.03)
+            max_text_width = W - margin_left - int(W * 0.095)
+        else:
+            margin_left = int(W * 0.095)
+            max_text_width = W - (2 * margin_left)
+
+        title_y = int(H * 0.21)
+        body_start_y = int(H * 0.35)
         
         # Colors
         if template_type.lower() == "dark":
-			# Bright cyan/blue/white color palette for dark template
+            # Bright cyan/blue/white color palette for dark template
             title_color = (100, 255, 218)  # Cyan
             body_color = (204, 214, 246)   # Light gray-blue
         else:
-			# Premium deep dark indigo/slate colors for light template
+            # Premium deep dark indigo/slate colors for light template
             title_color = (26, 54, 93)     # Dark blue
             body_color = (74, 85, 104)     # Dark slate
 
@@ -135,7 +213,6 @@ class VideoRenderer:
         y = title_y
         for line in title_lines:
             draw.text((margin_left, y), line, fill=title_color, font=title_font)
-            # Line height
             left, top, right, bottom = title_font.getbbox(line)
             y += (bottom - top) + 15
 
@@ -159,6 +236,7 @@ class VideoRenderer:
             "-loop", "1",
             "-i", image_path,
             "-i", audio_path,
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
             "-c:v", "libx264",
             "-tune", "stillimage",
             "-r", "25",
