@@ -545,7 +545,7 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 			COUNT(*) FILTER (WHERE status = 'PUBLISHED') AS published_courses,
 			COUNT(*) FILTER (WHERE status = 'DRAFT') AS draft_courses
 		FROM courses
-		WHERE creator_id = $1
+		WHERE created_by = $1
 	`, teacherID).Scan(
 		&summary.TotalCoursesCount,
 		&summary.PublishedCoursesCount,
@@ -560,7 +560,7 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 		SELECT COUNT(DISTINCT e.student_id)
 		FROM enrollments e
 		JOIN courses c ON c.id = e.course_id
-		WHERE c.creator_id = $1 AND c.status = 'PUBLISHED' AND e.status = 'ACCEPTED'
+		WHERE c.created_by = $1 AND c.status = 'PUBLISHED' AND e.status = 'ACCEPTED'
 	`, teacherID).Scan(&summary.TotalUniqueStudents)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
@@ -571,7 +571,7 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 		SELECT DATE(e.enrolled_at) AS enroll_date, COUNT(*) AS count
 		FROM enrollments e
 		JOIN courses c ON c.id = e.course_id
-		WHERE c.creator_id = $1 AND c.status = 'PUBLISHED' AND e.status = 'ACCEPTED'
+		WHERE c.created_by = $1 AND c.status = 'PUBLISHED' AND e.status = 'ACCEPTED'
 		  AND e.enrolled_at IS NOT NULL
 		GROUP BY DATE(e.enrolled_at)
 		ORDER BY enroll_date ASC
@@ -591,7 +591,7 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 		WITH teacher_courses AS (
 			SELECT id, title, thumbnail_url
 			FROM courses
-			WHERE creator_id = $1 AND status = 'PUBLISHED'
+			WHERE created_by = $1 AND status = 'PUBLISHED'
 		),
 		mandatory_counts AS (
 			SELECT cs.course_id, COUNT(sc.id) AS total_mandatory
@@ -632,12 +632,9 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 				qa.student_id,
 				AVG(qa.percentage) AS quiz_avg_score
 			FROM enrollments e
-			JOIN quizzes q ON q.content_id IN (
-				SELECT sc.id 
-				FROM section_content sc 
-				JOIN course_sections cs ON cs.id = sc.section_id 
-				WHERE cs.course_id = e.course_id
-			)
+			JOIN course_sections cs ON cs.course_id = e.course_id
+			JOIN section_content sc ON sc.section_id = cs.id
+			JOIN quizzes q ON q.content_id = sc.id
 			JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.student_id = e.student_id
 			WHERE e.status = 'ACCEPTED'
 			  AND qa.status IN ('SUBMITTED', 'GRADED')
