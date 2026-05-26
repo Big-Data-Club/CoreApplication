@@ -87,6 +87,13 @@ def configure_logging() -> None:
     for noisy in ("asyncio", "aiokafka.consumer.fetcher", "urllib3", "httpx"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+    # Filter out /health endpoint logs from uvicorn access logs
+    class EndpointFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "/health" not in record.getMessage()
+
+    logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+
     logging.getLogger(__name__).info(
         "Logging configured",
         extra={"log_level": settings.log_level, "json_logging": True},

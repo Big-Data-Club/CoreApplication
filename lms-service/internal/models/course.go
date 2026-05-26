@@ -23,8 +23,9 @@ type Course struct {
 // CourseWithCreator includes creator information
 type CourseWithCreator struct {
 	Course
-	CreatorName  string `json:"creator_name" db:"creator_name"`
-	CreatorEmail string `json:"creator_email" db:"creator_email"`
+	CreatorName     string `json:"creator_name" db:"creator_name"`
+	CreatorEmail    string `json:"creator_email" db:"creator_email"`
+	EnrollmentCount int    `json:"enrollment_count" db:"enrollment_count"`
 }
 
 // CourseSection represents a section within a course

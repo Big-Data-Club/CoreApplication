@@ -111,7 +111,7 @@ func (h *AnalyticsHandler) GetQuizWrongAnswerStats(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, data)
+	c.JSON(http.StatusOK, dto.NewDataResponse(data))
 }
 
 func (h *AnalyticsHandler) GetStudentProgressOverview(c *gin.Context) {
@@ -134,8 +134,27 @@ func (h *AnalyticsHandler) GetStudentProgressOverview(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, data)
+	c.JSON(http.StatusOK, dto.NewDataResponse(data))
 }
+
+func (h *AnalyticsHandler) GetTeacherDashboardSummary(c *gin.Context) {
+	userID := c.MustGet("user_id").(int64)
+	userRole := c.MustGet("user_role").(string)
+
+	if userRole != "TEACHER" && userRole != "ADMIN" {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Only teachers or admins can view dashboard summary"))
+		return
+	}
+
+	data, err := h.analyticsService.GetTeacherDashboardSummary(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(data))
+}
+
 
 // ─── Student endpoints ─────────────────────────────────────────────────────────
 
@@ -153,7 +172,7 @@ func (h *AnalyticsHandler) GetMyQuizScores(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, data)
+	c.JSON(http.StatusOK, dto.NewDataResponse(data))
 }
 
 // GetStudentWeaknesses godoc
@@ -192,6 +211,22 @@ func (h *AnalyticsHandler) GetFlashcardStats(c *gin.Context) {
 	data, err := h.analyticsService.GetFlashcardStats(c.Request.Context(), courseID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to retrieve flashcard stats"))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(data))
+}
+
+func (h *AnalyticsHandler) GetStudentAnalyticsSummary(c *gin.Context) {
+	courseID, ok := getCourseIDParam(c)
+	if !ok {
+		return
+	}
+	userID := c.MustGet("user_id").(int64)
+
+	data, err := h.analyticsService.GetStudentAnalyticsSummary(c.Request.Context(), courseID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
 		return
 	}
 

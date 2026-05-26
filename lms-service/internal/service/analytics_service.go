@@ -3,11 +3,17 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"example/hello/internal/dto"
 	"example/hello/internal/repository"
 	"example/hello/pkg/ai"
+	"example/hello/pkg/cache"
+	"example/hello/pkg/logger"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type AnalyticsService struct {
@@ -15,6 +21,7 @@ type AnalyticsService struct {
 	courseRepo     *repository.CourseRepository
 	enrollmentRepo *repository.EnrollmentRepository
 	aiClient       *ai.Client
+	redisCache     *cache.RedisCache
 }
 
 func NewAnalyticsService(
@@ -22,12 +29,14 @@ func NewAnalyticsService(
 	courseRepo *repository.CourseRepository,
 	enrollmentRepo *repository.EnrollmentRepository,
 	aiClient *ai.Client,
+	redisCache *cache.RedisCache,
 ) *AnalyticsService {
 	return &AnalyticsService{
 		analyticsRepo:  analyticsRepo,
 		courseRepo:     courseRepo,
 		enrollmentRepo: enrollmentRepo,
 		aiClient:       aiClient,
+		redisCache:     redisCache,
 	}
 }
 
@@ -269,6 +278,174 @@ func (s *AnalyticsService) GetFlashcardStats(ctx context.Context, courseID, stud
 	return resp, nil
 }
 
+func (s *AnalyticsService) GetStudentAnalyticsSummary(ctx context.Context, courseID, studentID int64) (*dto.StudentAnalyticsSummaryResponse, error) {
+	cacheKey := fmt.Sprintf("analytics:student:%d:course:%d", studentID, courseID)
+
+	// Check cache
+	if s.redisCache != nil {
+		if cachedVal, err := s.redisCache.Get(ctx, cacheKey); err == nil && cachedVal != "" {
+			var cachedResp dto.StudentAnalyticsSummaryResponse
+			if err := json.Unmarshal([]byte(cachedVal), &cachedResp); err == nil {
+				logger.Info(fmt.Sprintf("Cache HIT: student analytics summary for student %d, course %d", studentID, courseID))
+				return &cachedResp, nil
+			}
+		}
+	}
+	logger.Info(fmt.Sprintf("Cache MISS: student analytics summary for student %d, course %d", studentID, courseID))
+
+	// Fetch data in parallel
+	var (
+		aiSummary      *ai.AIStudentSummary
+		quizScores     []dto.StudentQuizScore
+		lessonProgress dto.LessonProgressSummary
+		interactions   dto.MicroInteractionSummary
+		heatmap        []map[string]interface{}
+	)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	// Task 1: Fetch AI summary (flashcards and spaced rep quiz stats)
+	g.Go(func() error {
+		summary, err := s.aiClient.GetStudentAnalyticsSummary(gCtx, studentID, courseID)
+		if err != nil {
+			// Don't fail the entire analytics endpoint if AI service is temporarily down,
+			// just log and return empty values.
+			logger.Error(fmt.Sprintf("Failed to fetch student summary from AI service: %v", err), err)
+			aiSummary = &ai.AIStudentSummary{}
+			return nil
+		}
+		aiSummary = summary
+		return nil
+	})
+
+	// Task 2: Fetch quiz scores (existing LMS DB method)
+	g.Go(func() error {
+		scores, err := s.GetMyQuizScores(gCtx, courseID, studentID)
+		if err != nil {
+			return fmt.Errorf("GetMyQuizScores: %w", err)
+		}
+		quizScores = scores
+		return nil
+	})
+
+	// Task 3: Fetch lesson progress (new repository method)
+	g.Go(func() error {
+		progress, err := s.analyticsRepo.GetStudentLessonProgressSummary(gCtx, courseID, studentID)
+		if err != nil {
+			return fmt.Errorf("GetStudentLessonProgressSummary: %w", err)
+		}
+		lessonProgress = progress
+		return nil
+	})
+
+	// Task 4: Fetch micro-interactions stats (new repository method)
+	g.Go(func() error {
+		inter, err := s.analyticsRepo.GetStudentMicroInteractionSummary(gCtx, courseID, studentID)
+		if err != nil {
+			return fmt.Errorf("GetStudentMicroInteractionSummary: %w", err)
+		}
+		interactions = inter
+		return nil
+	})
+
+	// Task 5: Fetch heatmap (AI service)
+	g.Go(func() error {
+		hData, err := s.aiClient.GetStudentHeatmap(gCtx, studentID, courseID)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to fetch student heatmap from AI service: %v", err), err)
+			heatmap = []map[string]interface{}{}
+			return nil
+		}
+		heatmap = hData
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Combine results
+	resp := &dto.StudentAnalyticsSummaryResponse{
+		LessonProgress: lessonProgress,
+		QuizScores:     quizScores,
+		Flashcards: dto.FlashcardDetailedStats{
+			TotalActive:   aiSummary.FlashcardStats.TotalActive,
+			TotalMastered: aiSummary.FlashcardStats.TotalMastered,
+			TotalLearning: aiSummary.FlashcardStats.TotalLearning,
+			TotalNew:      aiSummary.FlashcardStats.TotalNew,
+			DueToday:      aiSummary.FlashcardStats.DueToday,
+			Upcoming7d:    aiSummary.FlashcardStats.Upcoming7d,
+			AvgEasiness:   aiSummary.FlashcardStats.AvgEasiness,
+			ReviewedToday: aiSummary.FlashcardStats.ReviewedToday,
+			TotalReviews:  aiSummary.FlashcardStats.TotalReviews,
+		},
+		SpacedRepQuizzes: dto.SpacedRepQuizDetailedStats{
+			TotalTracked: aiSummary.SpacedRepQuizStats.TotalTracked,
+			DueToday:     aiSummary.SpacedRepQuizStats.DueToday,
+			Mastered:     aiSummary.SpacedRepQuizStats.Mastered,
+			AvgQuality:   aiSummary.SpacedRepQuizStats.AvgQuality,
+		},
+		MicroInteractions: interactions,
+		Heatmap:           heatmap,
+	}
+
+	// Cache the result for 60s
+	if s.redisCache != nil {
+		if data, err := json.Marshal(resp); err == nil {
+			_ = s.redisCache.Set(ctx, cacheKey, data, 60*time.Second)
+		}
+	}
+
+	return resp, nil
+}
+
+func (s *AnalyticsService) GetTeacherDashboardSummary(ctx context.Context, teacherID int64) (*dto.TeacherDashboardSummaryResponse, error) {
+	repoSummary, err := s.analyticsRepo.GetTeacherDashboardSummary(ctx, teacherID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get teacher dashboard summary: %w", err)
+	}
+
+	resp := &dto.TeacherDashboardSummaryResponse{
+		TotalCoursesCount:     repoSummary.TotalCoursesCount,
+		PublishedCoursesCount: repoSummary.PublishedCoursesCount,
+		DraftCoursesCount:     repoSummary.DraftCoursesCount,
+		TotalUniqueStudents:   repoSummary.TotalUniqueStudents,
+		RegistrationTimeline:  make([]dto.RegistrationTimeline, 0, len(repoSummary.RegistrationTimeline)),
+		CourseStats:          make([]dto.TeacherCourseStats, 0, len(repoSummary.CourseStats)),
+	}
+
+	for _, item := range repoSummary.RegistrationTimeline {
+		resp.RegistrationTimeline = append(resp.RegistrationTimeline, dto.RegistrationTimeline{
+			Date:  item.EnrollDate.Format("02/01"),
+			Count: item.NewLearners,
+		})
+	}
+
+	for _, item := range repoSummary.CourseStats {
+		var avgQuiz *float64
+		if item.AvgQuiz.Valid {
+			val := item.AvgQuiz.Float64
+			avgQuiz = &val
+		}
+
+		thumbnailURL := ""
+		if item.ThumbnailURL.Valid {
+			thumbnailURL = item.ThumbnailURL.String
+		}
+
+		resp.CourseStats = append(resp.CourseStats, dto.TeacherCourseStats{
+			ID:           item.CourseID,
+			Title:        item.Title,
+			ThumbnailURL: thumbnailURL,
+			StudentCount: item.StudentCount,
+			AvgProgress:  item.AvgProgress,
+			AvgQuiz:      avgQuiz,
+		})
+	}
+
+	return resp, nil
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 // nfv (null float value) returns 0 for invalid NullFloat64.
@@ -277,4 +454,4 @@ func nfv(nf sql.NullFloat64) float64 {
 		return nf.Float64
 	}
 	return 0
-}
+}

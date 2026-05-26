@@ -19,6 +19,12 @@ func RateLimit(redisCache *cache.RedisCache, aiSecret string) gin.HandlerFunc {
 			return
 		}
 
+		// Bypass rate limit for health check
+		if c.Request.URL.Path == "/health" {
+			c.Next()
+			return
+		}
+
 		// Get client IP
 		ip := c.ClientIP()
 		

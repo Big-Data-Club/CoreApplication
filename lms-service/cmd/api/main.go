@@ -171,7 +171,7 @@ func main() {
 	forumService := service.NewForumService(forumRepo, courseRepo)
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
 	progressService := service.NewProgressService(progressRepo, enrollmentRepo, redisClient)
-	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient)
+	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient, redisClient)
 	flashcardService := service.NewFlashcardService(flashcardRepo, aiClient, redisClient)
 	microInteractionService := service.NewMicroInteractionService(microInteractionRepo, microLessonRepo)
 	roleAdminService := service.NewRoleAdminService(roleDefRepo, userRepo, redisClient)
@@ -327,7 +327,9 @@ func main() {
 					middleware.RequirePermission(permService, "ANALYTICS_VIEW"),
 					microInteractionHandler.GetHeatmap)
 				analytics.GET("/heatmap/me", microInteractionHandler.GetStudentHeatmap)
+				analytics.GET("/teacher-dashboard", analyticsHandler.GetTeacherDashboardSummary)
 			}
+
 
 			// COURSE MANAGEMENT
 			courses := auth.Group("/courses")
@@ -356,6 +358,7 @@ func main() {
 				courses.GET("/:courseId/my-quiz-scores", analyticsHandler.GetMyQuizScores)
 				courses.GET("/:courseId/analytics/weaknesses", analyticsHandler.GetStudentWeaknesses)
 				courses.GET("/:courseId/analytics/flashcard-stats", analyticsHandler.GetFlashcardStats)
+				courses.GET("/:courseId/analytics/student-summary", analyticsHandler.GetStudentAnalyticsSummary)
 
 				// ── Flashcards (Student) ──────────────────────────────────
 				courses.POST("/:courseId/nodes/:nodeId/flashcards/generate", flashcardHandler.GenerateFlashcards)
@@ -525,6 +528,10 @@ func main() {
 				// Quick Action Panel — Concept Check
 				aiGroup.POST("/concept-check",
 					aiHandler.GenerateConceptCheck)
+
+				// Spaced Repetition total due reviews (student dashboard)
+				aiGroup.GET("/reviews/total-due-today",
+					aiHandler.GetTotalDueReviews)
 			}
 
 			// Per-course AI routes (reuse courseId param)

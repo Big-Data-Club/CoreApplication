@@ -48,7 +48,8 @@ func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.Cours
 	query := `
 		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url, 
 		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
-		       u.full_name as creator_name, u.email as creator_email
+		       u.full_name as creator_name, u.email as creator_email,
+		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
 		FROM courses c
 		LEFT JOIN users u ON c.created_by = u.id
 		WHERE c.id = $1
@@ -69,6 +70,7 @@ func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.Cours
 		&course.PublishedAt,
 		&course.CreatorName,
 		&course.CreatorEmail,
+		&course.EnrollmentCount,
 	)
 
 	if err != nil {
@@ -173,7 +175,8 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64) (
 	query := `
 		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
 		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
-		       u.full_name as creator_name, u.email as creator_email
+		       u.full_name as creator_name, u.email as creator_email,
+		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
 		FROM courses c
 		LEFT JOIN users u ON c.created_by = u.id
 		WHERE c.created_by = $1
@@ -203,6 +206,7 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64) (
 			&course.PublishedAt,
 			&course.CreatorName,
 			&course.CreatorEmail,
+			&course.EnrollmentCount,
 		)
 		if err != nil {
 			return nil, err
@@ -218,7 +222,8 @@ func (r *CourseRepository) ListPublished(ctx context.Context) ([]*models.CourseW
 	query := `
 		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
 		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
-		       u.full_name as creator_name, u.email as creator_email
+		       u.full_name as creator_name, u.email as creator_email,
+		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
 		FROM courses c
 		LEFT JOIN users u ON c.created_by = u.id
 		WHERE c.status = $1
@@ -248,6 +253,7 @@ func (r *CourseRepository) ListPublished(ctx context.Context) ([]*models.CourseW
 			&course.PublishedAt,
 			&course.CreatorName,
 			&course.CreatorEmail,
+			&course.EnrollmentCount,
 		)
 		if err != nil {
 			return nil, err

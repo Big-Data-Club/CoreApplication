@@ -11,9 +11,14 @@ import (
 // Logger middleware logs HTTP requests
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if path == "/health" {
+			c.Next()
+			return
+		}
+
 		// Start timer
 		start := time.Now()
-		path := c.Request.URL.Path
 		query := c.Request.URL.RawQuery
 
 		// Process request

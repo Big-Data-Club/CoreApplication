@@ -96,3 +96,81 @@ type FlashcardStatsResponse struct {
 	UpcomingCount int `json:"upcoming_count"`
 	LearningCount int `json:"learning_count"`
 }
+
+type LessonContentTypeCount struct {
+	ContentType string `json:"content_type"`
+	Completed   int    `json:"completed"`
+	Total       int    `json:"total"`
+}
+
+type SectionProgressCount struct {
+	SectionTitle string `json:"section_title"`
+	Completed    int    `json:"completed"`
+	Total        int    `json:"total"`
+	Percent      int    `json:"percent"`
+}
+
+type LessonProgressSummary struct {
+	TotalCompleted int                      `json:"total_completed"`
+	TotalContent   int                      `json:"total_content"`
+	Percent        float64                  `json:"percent"`
+	ByType         []LessonContentTypeCount `json:"by_type"`
+	BySection      []SectionProgressCount   `json:"by_section"`
+}
+
+type FlashcardDetailedStats struct {
+	TotalActive   int     `json:"total_active"`
+	TotalMastered int     `json:"total_mastered"`
+	TotalLearning int     `json:"total_learning"`
+	TotalNew      int     `json:"total_new"`
+	DueToday      int     `json:"due_today"`
+	Upcoming7d    int     `json:"upcoming_7d"`
+	AvgEasiness   float64 `json:"avg_easiness"`
+	ReviewedToday int     `json:"reviewed_today"`
+	TotalReviews  int     `json:"total_reviews"`
+}
+
+type SpacedRepQuizDetailedStats struct {
+	TotalTracked int     `json:"total_tracked"`
+	DueToday     int     `json:"due_today"`
+	Mastered     int     `json:"mastered"`
+	AvgQuality   float64 `json:"avg_quality"`
+}
+
+type MicroInteractionSummary struct {
+	TotalInteractions int `json:"total_interactions"`
+	TotalCorrect      int `json:"total_correct"`
+	TotalWrong        int `json:"total_wrong"`
+}
+
+type StudentAnalyticsSummaryResponse struct {
+	LessonProgress    LessonProgressSummary      `json:"lesson_progress"`
+	QuizScores        []StudentQuizScore         `json:"quiz_scores"`
+	Flashcards        FlashcardDetailedStats     `json:"flashcards"`
+	SpacedRepQuizzes  SpacedRepQuizDetailedStats `json:"spaced_rep_quizzes"`
+	MicroInteractions MicroInteractionSummary    `json:"micro_interactions"`
+	Heatmap           []map[string]interface{}   `json:"heatmap"`
+}
+
+type TeacherCourseStats struct {
+	ID           int64    `json:"id"`
+	Title        string   `json:"title"`
+	ThumbnailURL string   `json:"thumbnail_url"`
+	StudentCount int      `json:"studentCount"`
+	AvgProgress  float64  `json:"avgProgress"`
+	AvgQuiz      *float64 `json:"avgQuiz"`
+}
+
+type RegistrationTimeline struct {
+	Date  string `json:"date"`
+	Count int    `json:"Học viên mới"`
+}
+
+type TeacherDashboardSummaryResponse struct {
+	TotalCoursesCount     int                    `json:"totalCoursesCount"`
+	PublishedCoursesCount int                    `json:"publishedCoursesCount"`
+	DraftCoursesCount     int                    `json:"draftCoursesCount"`
+	TotalUniqueStudents   int                    `json:"totalUniqueStudents"`
+	RegistrationTimeline  []RegistrationTimeline `json:"registrationTimeline"`
+	CourseStats           []TeacherCourseStats   `json:"courseStats"`
+}

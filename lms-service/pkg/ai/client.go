@@ -261,6 +261,18 @@ func (c *Client) GetReviewStats(ctx context.Context, studentID, courseID int64) 
 	return resp, nil
 }
 
+func (c *Client) GetTotalDueReviews(ctx context.Context, studentID int64) (int, error) {
+	var resp struct {
+		DueToday int `json:"due_today"`
+	}
+	path := fmt.Sprintf("/ai/spaced-repetition/stats/student/%d/due-today", studentID)
+	if err := c.get(ctx, path, &resp); err != nil {
+		return 0, fmt.Errorf("ai.GetTotalDueReviews: %w", err)
+	}
+	return resp.DueToday, nil
+}
+
+
 // ── Knowledge Nodes ────────────────────────────────────────────────────────────
 
 type GenerateFlashcardsRequest struct {
@@ -358,6 +370,39 @@ func (c *Client) ReviewFlashcard(ctx context.Context, req ReviewFlashcardRequest
 		return nil, fmt.Errorf("ai.ReviewFlashcard: %w", err)
 	}
 	return resp, nil
+}
+
+type AIFlashcardStats struct {
+	TotalActive   int     `json:"total_active"`
+	TotalMastered int     `json:"total_mastered"`
+	TotalLearning int     `json:"total_learning"`
+	TotalNew      int     `json:"total_new"`
+	DueToday      int     `json:"due_today"`
+	Upcoming7d    int     `json:"upcoming_7d"`
+	AvgEasiness   float64 `json:"avg_easiness"`
+	ReviewedToday int     `json:"reviewed_today"`
+	TotalReviews  int     `json:"total_reviews"`
+}
+
+type AISpacedRepQuizStats struct {
+	TotalTracked int     `json:"total_tracked"`
+	DueToday     int     `json:"due_today"`
+	Mastered     int     `json:"mastered"`
+	AvgQuality   float64 `json:"avg_quality"`
+}
+
+type AIStudentSummary struct {
+	FlashcardStats     AIFlashcardStats     `json:"flashcard_stats"`
+	SpacedRepQuizStats AISpacedRepQuizStats `json:"spaced_rep_quiz_stats"`
+}
+
+func (c *Client) GetStudentAnalyticsSummary(ctx context.Context, studentID, courseID int64) (*AIStudentSummary, error) {
+	var resp AIStudentSummary
+	path := fmt.Sprintf("/ai/flashcards/student-summary?student_id=%d&course_id=%d", studentID, courseID)
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GetStudentAnalyticsSummary: %w", err)
+	}
+	return &resp, nil
 }
 
 // ── Knowledge Nodes ────────────────────────────────────────────────────────────
