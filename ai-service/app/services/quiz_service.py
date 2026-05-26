@@ -325,6 +325,19 @@ class SpacedRepetitionService:
             )
         return dict(row) if row else {}
 
+    async def get_total_due_reviews(self, student_id: int) -> int:
+        async with get_ai_conn() as conn:
+            val = await conn.fetchval(
+                """
+                SELECT COUNT(*)
+                FROM spaced_repetitions
+                WHERE student_id = $1 AND next_review_date <= CURRENT_DATE
+                """,
+                student_id,
+            )
+        return val or 0
+
+
 
 quiz_gen_service = QuizGenerationService()
 sr_service       = SpacedRepetitionService()

@@ -631,6 +631,21 @@ func (h *AIHandler) GetReviewStats(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(stats))
 }
 
+func (h *AIHandler) GetTotalDueReviews(c *gin.Context) {
+	studentID := c.MustGet("user_id").(int64)
+
+	dueToday, err := h.aiClient.GetTotalDueReviews(c.Request.Context(), studentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(gin.H{
+		"due_today": dueToday,
+	}))
+}
+
+
 func (h *AIHandler) TriggerDocumentProcess(c *gin.Context) {
 	contentID, _ := strconv.ParseInt(c.Param("contentId"), 10, 64)
 

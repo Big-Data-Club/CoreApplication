@@ -399,6 +399,53 @@ func (s *AnalyticsService) GetStudentAnalyticsSummary(ctx context.Context, cours
 	return resp, nil
 }
 
+func (s *AnalyticsService) GetTeacherDashboardSummary(ctx context.Context, teacherID int64) (*dto.TeacherDashboardSummaryResponse, error) {
+	repoSummary, err := s.analyticsRepo.GetTeacherDashboardSummary(ctx, teacherID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get teacher dashboard summary: %w", err)
+	}
+
+	resp := &dto.TeacherDashboardSummaryResponse{
+		TotalCoursesCount:     repoSummary.TotalCoursesCount,
+		PublishedCoursesCount: repoSummary.PublishedCoursesCount,
+		DraftCoursesCount:     repoSummary.DraftCoursesCount,
+		TotalUniqueStudents:   repoSummary.TotalUniqueStudents,
+		RegistrationTimeline:  make([]dto.RegistrationTimeline, 0, len(repoSummary.RegistrationTimeline)),
+		CourseStats:          make([]dto.TeacherCourseStats, 0, len(repoSummary.CourseStats)),
+	}
+
+	for _, item := range repoSummary.RegistrationTimeline {
+		resp.RegistrationTimeline = append(resp.RegistrationTimeline, dto.RegistrationTimeline{
+			Date:  item.EnrollDate.Format("02/01"),
+			Count: item.NewLearners,
+		})
+	}
+
+	for _, item := range repoSummary.CourseStats {
+		var avgQuiz *float64
+		if item.AvgQuiz.Valid {
+			val := item.AvgQuiz.Float64
+			avgQuiz = &val
+		}
+
+		thumbnailURL := ""
+		if item.ThumbnailURL.Valid {
+			thumbnailURL = item.ThumbnailURL.String
+		}
+
+		resp.CourseStats = append(resp.CourseStats, dto.TeacherCourseStats{
+			ID:           item.CourseID,
+			Title:        item.Title,
+			ThumbnailURL: thumbnailURL,
+			StudentCount: item.StudentCount,
+			AvgProgress:  item.AvgProgress,
+			AvgQuiz:      avgQuiz,
+		})
+	}
+
+	return resp, nil
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 // nfv (null float value) returns 0 for invalid NullFloat64.
@@ -407,4 +454,4 @@ func nfv(nf sql.NullFloat64) float64 {
 		return nf.Float64
 	}
 	return 0
-}
+}

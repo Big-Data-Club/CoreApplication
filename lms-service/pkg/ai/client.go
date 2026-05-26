@@ -261,6 +261,18 @@ func (c *Client) GetReviewStats(ctx context.Context, studentID, courseID int64) 
 	return resp, nil
 }
 
+func (c *Client) GetTotalDueReviews(ctx context.Context, studentID int64) (int, error) {
+	var resp struct {
+		DueToday int `json:"due_today"`
+	}
+	path := fmt.Sprintf("/ai/spaced-repetition/stats/student/%d/due-today", studentID)
+	if err := c.get(ctx, path, &resp); err != nil {
+		return 0, fmt.Errorf("ai.GetTotalDueReviews: %w", err)
+	}
+	return resp.DueToday, nil
+}
+
+
 // ── Knowledge Nodes ────────────────────────────────────────────────────────────
 
 type GenerateFlashcardsRequest struct {

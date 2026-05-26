@@ -509,4 +509,185 @@ func (r *AnalyticsRepository) GetStudentMicroInteractionSummary(ctx context.Cont
 	return summary, nil
 }
 
+type TeacherCourseStatsRow struct {
+	CourseID     int64
+	Title        string
+	ThumbnailURL sql.NullString
+	StudentCount int
+	AvgProgress  float64
+	AvgQuiz      sql.NullFloat64
+}
+
+type RegistrationTimelineRow struct {
+	EnrollDate   time.Time
+	NewLearners  int
+}
+
+type TeacherDashboardSummary struct {
+	TotalCoursesCount     int
+	PublishedCoursesCount int
+	DraftCoursesCount     int
+	TotalUniqueStudents   int
+	RegistrationTimeline  []RegistrationTimelineRow
+	CourseStats           []TeacherCourseStatsRow
+}
+
+func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, teacherID int64) (*TeacherDashboardSummary, error) {
+	summary := &TeacherDashboardSummary{
+		RegistrationTimeline: make([]RegistrationTimelineRow, 0),
+		CourseStats:          make([]TeacherCourseStatsRow, 0),
+	}
+
+	// 1. Get courses count by creator
+	err := r.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*) AS total_courses,
+			COUNT(*) FILTER (WHERE status = 'PUBLISHED') AS published_courses,
+			COUNT(*) FILTER (WHERE status = 'DRAFT') AS draft_courses
+		FROM courses
+		WHERE creator_id = $1
+	`, teacherID).Scan(
+		&summary.TotalCoursesCount,
+		&summary.PublishedCoursesCount,
+		&summary.DraftCoursesCount,
+	)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// 2. Get total unique students count enrolled in teacher's published courses
+	err = r.db.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT e.student_id)
+		FROM enrollments e
+		JOIN courses c ON c.id = e.course_id
+		WHERE c.creator_id = $1 AND c.status = 'PUBLISHED' AND e.status = 'ACCEPTED'
+	`, teacherID).Scan(&summary.TotalUniqueStudents)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// 3. Get registration timeline (grouped by date)
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DATE(e.enrolled_at) AS enroll_date, COUNT(*) AS count
+		FROM enrollments e
+		JOIN courses c ON c.id = e.course_id
+		WHERE c.creator_id = $1 AND c.status = 'PUBLISHED' AND e.status = 'ACCEPTED'
+		  AND e.enrolled_at IS NOT NULL
+		GROUP BY DATE(e.enrolled_at)
+		ORDER BY enroll_date ASC
+	`, teacherID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var row RegistrationTimelineRow
+			if err := rows.Scan(&row.EnrollDate, &row.NewLearners); err == nil {
+				summary.RegistrationTimeline = append(summary.RegistrationTimeline, row)
+			}
+		}
+	}
+
+	// 4. Get course statistics (progress and quiz scores)
+	statsRows, err := r.db.QueryContext(ctx, `
+		WITH teacher_courses AS (
+			SELECT id, title, thumbnail_url
+			FROM courses
+			WHERE creator_id = $1 AND status = 'PUBLISHED'
+		),
+		mandatory_counts AS (
+			SELECT cs.course_id, COUNT(sc.id) AS total_mandatory
+			FROM section_content sc
+			JOIN course_sections cs ON cs.id = sc.section_id
+			WHERE sc.is_mandatory = true
+			  AND cs.course_id IN (SELECT id FROM teacher_courses)
+			GROUP BY cs.course_id
+		),
+		student_completed AS (
+			SELECT e.course_id, e.student_id, COUNT(cp.content_id) AS completed_content
+			FROM enrollments e
+			JOIN content_progress cp ON cp.student_id = e.student_id
+			JOIN section_content sc ON sc.id = cp.content_id
+			JOIN course_sections cs ON cs.id = sc.section_id AND cs.course_id = e.course_id
+			WHERE e.status = 'ACCEPTED'
+			  AND sc.is_mandatory = true
+			  AND e.course_id IN (SELECT id FROM teacher_courses)
+			GROUP BY e.course_id, e.student_id
+		),
+		student_progress AS (
+			SELECT 
+				e.course_id, 
+				e.student_id,
+				CASE 
+					WHEN COALESCE(mc.total_mandatory, 0) = 0 THEN 0.0
+					ELSE COALESCE(sc.completed_content, 0)::FLOAT / mc.total_mandatory * 100.0
+				END AS progress_percent
+			FROM enrollments e
+			LEFT JOIN mandatory_counts mc ON mc.course_id = e.course_id
+			LEFT JOIN student_completed sc ON sc.course_id = e.course_id AND sc.student_id = e.student_id
+			WHERE e.status = 'ACCEPTED'
+			  AND e.course_id IN (SELECT id FROM teacher_courses)
+		),
+		student_quizzes AS (
+			SELECT 
+				e.course_id,
+				qa.student_id,
+				AVG(qa.percentage) AS quiz_avg_score
+			FROM enrollments e
+			JOIN quizzes q ON q.content_id IN (
+				SELECT sc.id 
+				FROM section_content sc 
+				JOIN course_sections cs ON cs.id = sc.section_id 
+				WHERE cs.course_id = e.course_id
+			)
+			JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.student_id = e.student_id
+			WHERE e.status = 'ACCEPTED'
+			  AND qa.status IN ('SUBMITTED', 'GRADED')
+			  AND e.course_id IN (SELECT id FROM teacher_courses)
+			GROUP BY e.course_id, qa.student_id
+		),
+		course_aggregates AS (
+			SELECT 
+				tc.id AS course_id,
+				COUNT(DISTINCT e.student_id) AS student_count,
+				COALESCE(AVG(sp.progress_percent), 0.0) AS avg_progress,
+				AVG(sq.quiz_avg_score) AS avg_quiz
+			FROM teacher_courses tc
+			LEFT JOIN enrollments e ON e.course_id = tc.id AND e.status = 'ACCEPTED'
+			LEFT JOIN student_progress sp ON sp.course_id = tc.id AND sp.student_id = e.student_id
+			LEFT JOIN student_quizzes sq ON sq.course_id = tc.id AND sq.student_id = e.student_id
+			GROUP BY tc.id
+		)
+		SELECT 
+			tc.id,
+			tc.title,
+			tc.thumbnail_url,
+			ca.student_count,
+			ca.avg_progress,
+			ca.avg_quiz
+		FROM teacher_courses tc
+		JOIN course_aggregates ca ON ca.course_id = tc.id
+	`, teacherID)
+	if err != nil {
+		return nil, err
+	}
+	defer statsRows.Close()
+
+	for statsRows.Next() {
+		var row TeacherCourseStatsRow
+		if err := statsRows.Scan(
+			&row.CourseID,
+			&row.Title,
+			&row.ThumbnailURL,
+			&row.StudentCount,
+			&row.AvgProgress,
+			&row.AvgQuiz,
+		); err != nil {
+			return nil, err
+		}
+		summary.CourseStats = append(summary.CourseStats, row)
+	}
+
+	return summary, nil
+}
+
+
 var _ = time.Time{}

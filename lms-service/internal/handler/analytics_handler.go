@@ -137,6 +137,25 @@ func (h *AnalyticsHandler) GetStudentProgressOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(data))
 }
 
+func (h *AnalyticsHandler) GetTeacherDashboardSummary(c *gin.Context) {
+	userID := c.MustGet("user_id").(int64)
+	userRole := c.MustGet("user_role").(string)
+
+	if userRole != "TEACHER" && userRole != "ADMIN" {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Only teachers or admins can view dashboard summary"))
+		return
+	}
+
+	data, err := h.analyticsService.GetTeacherDashboardSummary(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(data))
+}
+
+
 // ─── Student endpoints ─────────────────────────────────────────────────────────
 
 func (h *AnalyticsHandler) GetMyQuizScores(c *gin.Context) {

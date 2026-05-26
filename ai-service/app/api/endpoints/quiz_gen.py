@@ -199,6 +199,15 @@ async def get_review_stats(student_id: int, course_id: int, request: Request):
     return await sr_service.get_review_stats(student_id, course_id)
 
 
+@sr_router.get("/stats/student/{student_id}/due-today")
+async def get_total_due_reviews(student_id: int, request: Request):
+    """Get total reviews due today across all courses for student."""
+    _verify_internal(request)
+    count = await sr_service.get_total_due_reviews(student_id)
+    return {"due_today": count}
+
+
+
 def _verify_internal(request: Request):
     secret = request.headers.get("X-AI-Secret", "")
     if secret != settings.ai_service_secret:

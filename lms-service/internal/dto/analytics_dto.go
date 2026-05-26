@@ -151,3 +151,26 @@ type StudentAnalyticsSummaryResponse struct {
 	MicroInteractions MicroInteractionSummary    `json:"micro_interactions"`
 	Heatmap           []map[string]interface{}   `json:"heatmap"`
 }
+
+type TeacherCourseStats struct {
+	ID           int64    `json:"id"`
+	Title        string   `json:"title"`
+	ThumbnailURL string   `json:"thumbnail_url"`
+	StudentCount int      `json:"studentCount"`
+	AvgProgress  float64  `json:"avgProgress"`
+	AvgQuiz      *float64 `json:"avgQuiz"`
+}
+
+type RegistrationTimeline struct {
+	Date  string `json:"date"`
+	Count int    `json:"Học viên mới"`
+}
+
+type TeacherDashboardSummaryResponse struct {
+	TotalCoursesCount     int                    `json:"totalCoursesCount"`
+	PublishedCoursesCount int                    `json:"publishedCoursesCount"`
+	DraftCoursesCount     int                    `json:"draftCoursesCount"`
+	TotalUniqueStudents   int                    `json:"totalUniqueStudents"`
+	RegistrationTimeline  []RegistrationTimeline `json:"registrationTimeline"`
+	CourseStats           []TeacherCourseStats   `json:"courseStats"`
+}

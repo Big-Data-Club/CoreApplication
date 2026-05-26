@@ -327,7 +327,9 @@ func main() {
 					middleware.RequirePermission(permService, "ANALYTICS_VIEW"),
 					microInteractionHandler.GetHeatmap)
 				analytics.GET("/heatmap/me", microInteractionHandler.GetStudentHeatmap)
+				analytics.GET("/teacher-dashboard", analyticsHandler.GetTeacherDashboardSummary)
 			}
+
 
 			// COURSE MANAGEMENT
 			courses := auth.Group("/courses")
@@ -526,6 +528,10 @@ func main() {
 				// Quick Action Panel — Concept Check
 				aiGroup.POST("/concept-check",
 					aiHandler.GenerateConceptCheck)
+
+				// Spaced Repetition total due reviews (student dashboard)
+				aiGroup.GET("/reviews/total-due-today",
+					aiHandler.GetTotalDueReviews)
 			}
 
 			// Per-course AI routes (reuse courseId param)
