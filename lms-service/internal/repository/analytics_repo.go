@@ -206,48 +206,62 @@ func (r *AnalyticsRepository) GetQuizWrongAnswerStats(ctx context.Context, quizI
 func (r *AnalyticsRepository) GetCourseStudentProgressOverview(ctx context.Context, courseID int64) ([]StudentProgressRow, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		WITH course_content AS (
-			-- All content IDs belonging to this course (materialised once)
 			SELECT sc.id AS content_id, sc.is_mandatory
 			FROM   section_content  sc
 			JOIN   course_sections  cs ON cs.id = sc.section_id
 			WHERE  cs.course_id = $1
 		),
 		course_quizzes AS (
-			-- All quiz IDs belonging to this course (materialised once)
 			SELECT q.id AS quiz_id
 			FROM   quizzes          q
 			JOIN   section_content  sc ON sc.id = q.content_id
 			JOIN   course_sections  cs ON cs.id = sc.section_id
 			WHERE  cs.course_id = $1
+		),
+		student_progress AS (
+			SELECT
+				cp.student_id,
+				COUNT(DISTINCT cp.content_id) FILTER (WHERE cc.is_mandatory) AS completed_content,
+				MAX(cp.completed_at) AS last_completed
+			FROM content_progress cp
+			JOIN course_content cc ON cp.content_id = cc.content_id
+			GROUP BY cp.student_id
+		),
+		student_quizzes AS (
+			SELECT
+				qa.student_id,
+				AVG(qa.percentage) AS quiz_avg_score,
+				MAX(qa.submitted_at) AS last_submitted
+			FROM quiz_attempts qa
+			WHERE qa.quiz_id IN (SELECT quiz_id FROM course_quizzes)
+			  AND qa.status IN ('SUBMITTED', 'GRADED')
+			GROUP BY qa.student_id
+		),
+		mandatory_stats AS (
+			SELECT
+				COUNT(DISTINCT content_id) FILTER (WHERE is_mandatory) AS total_mandatory
+			FROM course_content
 		)
 		SELECT
 			e.student_id,
 			u.full_name,
 			u.email,
-			COUNT(DISTINCT cc.content_id) FILTER (WHERE cc.is_mandatory)              AS total_mandatory,
-			COUNT(DISTINCT cp.content_id) FILTER (WHERE cc.is_mandatory
-			                                        AND cp.id IS NOT NULL)             AS completed_content,
-			COALESCE(
-				COUNT(DISTINCT cp.content_id) FILTER (WHERE cc.is_mandatory
-				                                         AND cp.id IS NOT NULL)::FLOAT
-				/ NULLIF(COUNT(DISTINCT cc.content_id) FILTER (WHERE cc.is_mandatory), 0)
-				* 100
-			, 0)                                                                       AS progress_percent,
-			AVG(qa.percentage)                                                         AS quiz_avg_score,
-			GREATEST(MAX(cp.completed_at), MAX(qa.submitted_at))                       AS last_activity
+			COALESCE(ms.total_mandatory, 0) AS total_mandatory,
+			COALESCE(sp.completed_content, 0) AS completed_content,
+			CASE
+				WHEN COALESCE(ms.total_mandatory, 0) = 0 THEN 0.0
+				ELSE COALESCE(sp.completed_content, 0)::FLOAT / ms.total_mandatory * 100
+			END AS progress_percent,
+			sq.quiz_avg_score,
+			GREATEST(sp.last_completed, sq.last_submitted) AS last_activity
 		FROM enrollments e
-		JOIN users       u  ON u.id  = e.student_id
-		-- cross-join the CTE so every enrolled student sees every content row
-		JOIN course_content cc ON true
-		LEFT JOIN content_progress cp
-			ON cp.content_id = cc.content_id AND cp.student_id = e.student_id
-		LEFT JOIN quiz_attempts qa
-			ON  qa.student_id = e.student_id
-			AND qa.quiz_id    IN (SELECT quiz_id FROM course_quizzes)
-			AND qa.status     IN ('SUBMITTED', 'GRADED')
+		JOIN users u ON u.id = e.student_id
+		LEFT JOIN student_progress sp ON sp.student_id = e.student_id
+		LEFT JOIN student_quizzes sq ON sq.student_id = e.student_id
+		CROSS JOIN mandatory_stats ms
 		WHERE e.course_id = $1
-		  AND e.status    = 'ACCEPTED'
-		GROUP BY e.student_id, u.full_name, u.email
+		  AND e.status = 'ACCEPTED'
+		GROUP BY e.student_id, u.full_name, u.email, ms.total_mandatory, sp.completed_content, sq.quiz_avg_score, sp.last_completed, sq.last_submitted
 		ORDER BY progress_percent DESC, u.full_name ASC
 	`, courseID)
 	if err != nil {
@@ -399,6 +413,100 @@ func (r *AnalyticsRepository) GetFlashcardStats(ctx context.Context, studentID, 
 		return nil, err
 	}
 	return &stats, nil
+}
+
+// GetStudentLessonProgressSummary aggregates total and completed content count per content type for a course.
+func (r *AnalyticsRepository) GetStudentLessonProgressSummary(ctx context.Context, courseID, studentID int64) (dto.LessonProgressSummary, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			sc.type AS content_type,
+			COUNT(sc.id) AS total_count,
+			COUNT(cp.id) AS completed_count
+		FROM section_content sc
+		JOIN course_sections cs ON sc.section_id = cs.id
+		LEFT JOIN content_progress cp ON cp.content_id = sc.id AND cp.student_id = $2
+		WHERE cs.course_id = $1
+		GROUP BY sc.type
+	`, courseID, studentID)
+	if err != nil {
+		return dto.LessonProgressSummary{}, err
+	}
+	defer rows.Close()
+
+	var summary dto.LessonProgressSummary
+	var byType []dto.LessonContentTypeCount
+
+	totalCompleted := 0
+	totalContent := 0
+
+	for rows.Next() {
+		var item dto.LessonContentTypeCount
+		if err := rows.Scan(&item.ContentType, &item.Total, &item.Completed); err != nil {
+			return dto.LessonProgressSummary{}, err
+		}
+		totalCompleted += item.Completed
+		totalContent += item.Total
+		byType = append(byType, item)
+	}
+
+	// Query section progress
+	rowsSec, err := r.db.QueryContext(ctx, `
+		SELECT
+			COALESCE(cs.title, 'Chương khác') AS section_title,
+			COUNT(sc.id) AS total_count,
+			COUNT(cp.id) AS completed_count
+		FROM section_content sc
+		JOIN course_sections cs ON sc.section_id = cs.id
+		LEFT JOIN content_progress cp ON cp.content_id = sc.id AND cp.student_id = $2
+		WHERE cs.course_id = $1
+		GROUP BY cs.id, cs.title, cs.order_index
+		ORDER BY cs.order_index ASC
+	`, courseID, studentID)
+	
+	var bySection []dto.SectionProgressCount
+	if err == nil {
+		defer rowsSec.Close()
+		for rowsSec.Next() {
+			var secItem dto.SectionProgressCount
+			if err := rowsSec.Scan(&secItem.SectionTitle, &secItem.Total, &secItem.Completed); err == nil {
+				if secItem.Total > 0 {
+					secItem.Percent = (secItem.Completed * 100) / secItem.Total
+				}
+				bySection = append(bySection, secItem)
+			}
+		}
+	}
+
+	summary.TotalCompleted = totalCompleted
+	summary.TotalContent = totalContent
+	summary.ByType = byType
+	summary.BySection = bySection
+	if totalContent > 0 {
+		summary.Percent = (float64(totalCompleted) / float64(totalContent)) * 100.0
+	}
+
+	return summary, rows.Err()
+}
+
+// GetStudentMicroInteractionSummary calculates stats for student's quick-check questions in a course.
+func (r *AnalyticsRepository) GetStudentMicroInteractionSummary(ctx context.Context, courseID, studentID int64) (dto.MicroInteractionSummary, error) {
+	var summary dto.MicroInteractionSummary
+	err := r.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE action_type IN ('quick_check_correct', 'quick_check_incorrect', 'quick_check_attempt')) AS total_interactions,
+			COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') AS total_correct,
+			COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') AS total_wrong
+		FROM micro_lesson_interactions
+		WHERE user_id = $2 AND course_id = $1
+	`, courseID, studentID).Scan(
+		&summary.TotalInteractions,
+		&summary.TotalCorrect,
+		&summary.TotalWrong,
+	)
+	if err != nil && err != sql.ErrNoRows {
+		return summary, err
+	}
+	return summary, nil
 }
 
 var _ = time.Time{}

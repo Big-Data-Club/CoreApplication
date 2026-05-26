@@ -95,11 +95,16 @@ class FlashcardService:
                     """
                     INSERT INTO flashcards (course_id, node_id, lesson_id, content_id, student_id, front_text, back_text, status)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE')
+                    ON CONFLICT DO NOTHING
                     RETURNING id, (created_at AT TIME ZONE 'UTC') as created_at
                     """,
                     course_id, node_id, lesson_id, content_id, student_id,
                     item.get("front_text", ""), item.get("back_text", ""),
                 )
+                if not row:
+                    logger.info("Skipped duplicate flashcard creation for student %s, course %s, front: %s", 
+                                student_id, course_id, item.get("front_text", "")[:40])
+                    continue
                 fc_id = row["id"]
                 await conn.execute(
                     """

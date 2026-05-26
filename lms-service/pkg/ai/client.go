@@ -360,6 +360,39 @@ func (c *Client) ReviewFlashcard(ctx context.Context, req ReviewFlashcardRequest
 	return resp, nil
 }
 
+type AIFlashcardStats struct {
+	TotalActive   int     `json:"total_active"`
+	TotalMastered int     `json:"total_mastered"`
+	TotalLearning int     `json:"total_learning"`
+	TotalNew      int     `json:"total_new"`
+	DueToday      int     `json:"due_today"`
+	Upcoming7d    int     `json:"upcoming_7d"`
+	AvgEasiness   float64 `json:"avg_easiness"`
+	ReviewedToday int     `json:"reviewed_today"`
+	TotalReviews  int     `json:"total_reviews"`
+}
+
+type AISpacedRepQuizStats struct {
+	TotalTracked int     `json:"total_tracked"`
+	DueToday     int     `json:"due_today"`
+	Mastered     int     `json:"mastered"`
+	AvgQuality   float64 `json:"avg_quality"`
+}
+
+type AIStudentSummary struct {
+	FlashcardStats     AIFlashcardStats     `json:"flashcard_stats"`
+	SpacedRepQuizStats AISpacedRepQuizStats `json:"spaced_rep_quiz_stats"`
+}
+
+func (c *Client) GetStudentAnalyticsSummary(ctx context.Context, studentID, courseID int64) (*AIStudentSummary, error) {
+	var resp AIStudentSummary
+	path := fmt.Sprintf("/ai/flashcards/student-summary?student_id=%d&course_id=%d", studentID, courseID)
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GetStudentAnalyticsSummary: %w", err)
+	}
+	return &resp, nil
+}
+
 // ── Knowledge Nodes ────────────────────────────────────────────────────────────
 
 type CreateNodeRequest struct {

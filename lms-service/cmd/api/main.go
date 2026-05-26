@@ -171,7 +171,7 @@ func main() {
 	forumService := service.NewForumService(forumRepo, courseRepo)
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
 	progressService := service.NewProgressService(progressRepo, enrollmentRepo, redisClient)
-	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient)
+	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient, redisClient)
 	flashcardService := service.NewFlashcardService(flashcardRepo, aiClient, redisClient)
 	microInteractionService := service.NewMicroInteractionService(microInteractionRepo, microLessonRepo)
 	roleAdminService := service.NewRoleAdminService(roleDefRepo, userRepo, redisClient)
@@ -356,6 +356,7 @@ func main() {
 				courses.GET("/:courseId/my-quiz-scores", analyticsHandler.GetMyQuizScores)
 				courses.GET("/:courseId/analytics/weaknesses", analyticsHandler.GetStudentWeaknesses)
 				courses.GET("/:courseId/analytics/flashcard-stats", analyticsHandler.GetFlashcardStats)
+				courses.GET("/:courseId/analytics/student-summary", analyticsHandler.GetStudentAnalyticsSummary)
 
 				// ── Flashcards (Student) ──────────────────────────────────
 				courses.POST("/:courseId/nodes/:nodeId/flashcards/generate", flashcardHandler.GenerateFlashcards)
