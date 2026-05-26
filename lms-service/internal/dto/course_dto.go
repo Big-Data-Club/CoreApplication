@@ -22,19 +22,20 @@ type UpdateCourseRequest struct {
 
 // CourseResponse represents the response for a course
 type CourseResponse struct {
-	ID           int64     `json:"id"`
-	Title        string    `json:"title"`
-	Description  string    `json:"description,omitempty"`
-	Category     string    `json:"category,omitempty"`
-	Level        string    `json:"level,omitempty"`
-	ThumbnailURL string    `json:"thumbnail_url,omitempty"`
-	Status       string    `json:"status"`
-	CreatedBy    int64     `json:"created_by"`
-	CreatorName  string    `json:"creator_name,omitempty"`
-	CreatorEmail string    `json:"creator_email,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	PublishedAt  *time.Time `json:"published_at,omitempty"`
+	ID              int64      `json:"id"`
+	Title           string     `json:"title"`
+	Description     string     `json:"description,omitempty"`
+	Category        string     `json:"category,omitempty"`
+	Level           string     `json:"level,omitempty"`
+	ThumbnailURL    string     `json:"thumbnail_url,omitempty"`
+	Status          string     `json:"status"`
+	CreatedBy       int64      `json:"created_by"`
+	CreatorName     string     `json:"creator_name,omitempty"`
+	CreatorEmail    string     `json:"creator_email,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	PublishedAt     *time.Time `json:"published_at,omitempty"`
+	EnrollmentCount int        `json:"enrollment_count"`
 }
 
 // CreateSectionRequest represents the request to create a section

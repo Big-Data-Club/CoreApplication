@@ -766,6 +766,7 @@ func (s *CourseService) toCourseResponseWithCreator(course *models.CourseWithCre
 	resp := s.toCourseResponse(&course.Course)
 	resp.CreatorName = course.CreatorName
 	resp.CreatorEmail = course.CreatorEmail
+	resp.EnrollmentCount = course.EnrollmentCount
 	return resp
 }
 
