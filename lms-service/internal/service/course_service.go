@@ -35,6 +35,7 @@ type CourseService struct {
 	courseRepo     *repository.CourseRepository
 	userRepo       *repository.UserRepository
 	enrollmentRepo *repository.EnrollmentRepository
+	orgRepo        *repository.OrganizationRepository
 	cache          *cache.RedisCache
 	loader         *cache.Loader
 }
@@ -43,12 +44,14 @@ func NewCourseService(
 	courseRepo *repository.CourseRepository,
 	userRepo *repository.UserRepository,
 	enrollmentRepo *repository.EnrollmentRepository,
+	orgRepo *repository.OrganizationRepository,
 	c *cache.RedisCache,
 ) *CourseService {
 	return &CourseService{
 		courseRepo:     courseRepo,
 		userRepo:       userRepo,
 		enrollmentRepo: enrollmentRepo,
+		orgRepo:        orgRepo,
 		cache:          c,
 		loader:         cache.NewLoader(c),
 	}
@@ -85,6 +88,54 @@ func (s *CourseService) getContentCached(ctx context.Context, contentID int64) (
 
 // CreateCourse creates a new course and invalidates the published-list cache.
 func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseRequest, creatorID int64) (*dto.CourseResponse, error) {
+	// Default to bdc org if org_id is not specified
+	orgID := req.OrgID
+	if orgID == 0 {
+		defaultOrg, err := s.orgRepo.GetBySlug(ctx, "bdc")
+		if err != nil {
+			return nil, fmt.Errorf("default organization not found: %w", err)
+		}
+		orgID = defaultOrg.ID
+	}
+
+	// Verify org exists
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("organization not found: %w", err)
+	}
+
+	// Verify permissions: only ADMIN or Org ADMIN/OWNER can create courses
+	sysRoles, err := s.userRepo.GetUserRoles(ctx, creatorID)
+	isAdmin := false
+	if err == nil {
+		for _, r := range sysRoles {
+			if r == "ADMIN" {
+				isAdmin = true
+				break
+			}
+		}
+	}
+
+	if !isAdmin {
+		isMember, orgRole, err := s.orgRepo.IsMember(ctx, orgID, creatorID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
+		}
+		if !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin) {
+			return nil, fmt.Errorf("unauthorized: must be Owner or Admin in the organization to create courses")
+		}
+	}
+
+	visibility := req.Visibility
+	if visibility == "" {
+		var settings models.OrgSettings
+		if err := json.Unmarshal(org.Settings, &settings); err == nil && settings.DefaultCourseVisibility != "" {
+			visibility = settings.DefaultCourseVisibility
+		} else {
+			visibility = models.VisibilityPublic
+		}
+	}
+
 	course := &models.Course{
 		Title:        req.Title,
 		Description:  sql.NullString{String: req.Description, Valid: req.Description != ""},
@@ -93,6 +144,8 @@ func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseR
 		ThumbnailURL: sql.NullString{String: req.ThumbnailURL, Valid: req.ThumbnailURL != ""},
 		Status:       models.CourseStatusDraft,
 		CreatedBy:    creatorID,
+		OrgID:        orgID,
+		Visibility:   visibility,
 	}
 
 	created, err := s.courseRepo.Create(ctx, course)
@@ -103,7 +156,7 @@ func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseR
 	return s.toCourseResponse(created), nil
 }
 
-// GetCourse retrieves a course by ID.
+// GetCourse retrieves a course by ID with organization checks.
 func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID int64, role string) (*dto.CourseResponse, error) {
 	course, err := s.getCourseCached(ctx, courseID)
 	if err != nil {
@@ -116,6 +169,39 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 	if course.Status == models.CourseStatusDraft {
 		if role != models.RoleAdmin && course.CreatedBy != userID {
 			return nil, fmt.Errorf("unauthorized to view this course")
+		}
+	}
+
+	// Org isolation checks
+	if role != models.RoleAdmin && course.CreatedBy != userID {
+		isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
+		}
+
+		if !isMember {
+			if course.Visibility != models.VisibilityPublic {
+				return nil, fmt.Errorf("unauthorized to view this course")
+			}
+
+			// Check if any of the user's organizations allow cross-org courses
+			userOrgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get user organizations: %w", err)
+			}
+
+			allowCross := false
+			for _, uo := range userOrgs {
+				var settings models.OrgSettings
+				if err := json.Unmarshal(uo.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {
+					allowCross = true
+					break
+				}
+			}
+
+			if !allowCross {
+				return nil, fmt.Errorf("unauthorized to view cross-organization courses")
+			}
 		}
 	}
 
@@ -132,7 +218,20 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	// Check if user is system admin
+	sysRoles, err := s.userRepo.GetUserRoles(ctx, userID)
+	isAdmin := role == models.RoleAdmin
+	if err == nil {
+		for _, r := range sysRoles {
+			if r == "ADMIN" {
+				isAdmin = true
+				break
+			}
+		}
+	}
+
+	// Must be system admin or creator
+	if !isAdmin && course.CreatedBy != userID {
 		return fmt.Errorf("unauthorized to update this course")
 	}
 
@@ -151,6 +250,20 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 	}
 	if req.ThumbnailURL != nil {
 		updates["thumbnail_url"] = *req.ThumbnailURL
+	}
+	if req.OrgID != nil {
+		targetOrgID := *req.OrgID
+		if !isAdmin {
+			// Must be Owner/Admin in target org to assign course to it
+			isMember, orgRole, err := s.orgRepo.IsMember(ctx, targetOrgID, userID)
+			if err != nil || !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin) {
+				return fmt.Errorf("unauthorized to assign course to organization %d", targetOrgID)
+			}
+		}
+		updates["org_id"] = targetOrgID
+	}
+	if req.Visibility != nil {
+		updates["visibility"] = *req.Visibility
 	}
 
 	if len(updates) == 0 {
@@ -236,25 +349,59 @@ func (s *CourseService) ListMyCourses(ctx context.Context, userID int64) ([]*dto
 	return result, nil
 }
 
-// ListPublishedCourses lists all published courses.
-//
-// This is the most-trafficked endpoint on the LMS (catalogue browsing). The
-// cache-aside + single-flight pattern means a stampede on cache expiry only
-// produces ONE database query per process, even if hundreds of requests are
-// in flight at the moment of expiration.
-func (s *CourseService) ListPublishedCourses(ctx context.Context) ([]*dto.CourseResponse, error) {
-	return cache.GetOrLoad(ctx, s.loader, cache.KeyCourseList, courseListCacheTTL,
-		func(ctx context.Context) ([]*dto.CourseResponse, error) {
-			courses, err := s.courseRepo.ListPublished(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("failed to list published courses: %w", err)
-			}
-			result := make([]*dto.CourseResponse, 0, len(courses))
-			for _, course := range courses {
-				result = append(result, s.toCourseResponseWithCreator(course))
-			}
-			return result, nil
-		})
+// ListPublishedCourses lists published courses visible to the user.
+func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, role string) ([]*dto.CourseResponse, error) {
+	// Super admins see all published courses
+	if role == models.RoleAdmin {
+		courses, err := s.courseRepo.ListPublished(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list published courses: %w", err)
+		}
+		result := make([]*dto.CourseResponse, len(courses))
+		for i, course := range courses {
+			result[i] = s.toCourseResponseWithCreator(course)
+		}
+		return result, nil
+	}
+
+	// Fetch user's organizations
+	orgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list published courses: %w", err)
+	}
+
+	orgIDs := make([]int64, len(orgs))
+	includePublic := false
+
+	for i, org := range orgs {
+		orgIDs[i] = org.ID
+		var settings models.OrgSettings
+		if err := json.Unmarshal(org.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {
+			includePublic = true
+		}
+	}
+
+	// Default org fallback
+	if len(orgIDs) == 0 {
+		includePublic = true
+	}
+
+	filter := repository.CourseVisibilityFilter{
+		UserOrgIDs:    orgIDs,
+		IncludePublic: includePublic,
+	}
+
+	courses, _, err := s.courseRepo.ListVisibleForUser(ctx, filter, 1000, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list published courses: %w", err)
+	}
+
+	result := make([]*dto.CourseResponse, len(courses))
+	for i, course := range courses {
+		result[i] = s.toCourseResponseWithCreator(course)
+	}
+
+	return result, nil
 }
 
 func (s *CourseService) CreateSection(ctx context.Context, courseID int64, req *dto.CreateSectionRequest, userID int64, role string) (*dto.SectionResponse, error) {
@@ -735,12 +882,14 @@ func (s *CourseService) isStudentEnrolled(ctx context.Context, studentID, course
 
 func (s *CourseService) toCourseResponse(course *models.Course) *dto.CourseResponse {
 	resp := &dto.CourseResponse{
-		ID:        course.ID,
-		Title:     course.Title,
-		Status:    course.Status,
-		CreatedBy: course.CreatedBy,
-		CreatedAt: course.CreatedAt,
-		UpdatedAt: course.UpdatedAt,
+		ID:         course.ID,
+		Title:      course.Title,
+		Status:     course.Status,
+		CreatedBy:  course.CreatedBy,
+		CreatedAt:  course.CreatedAt,
+		UpdatedAt:  course.UpdatedAt,
+		OrgID:      course.OrgID,
+		Visibility: course.Visibility,
 	}
 
 	if course.Description.Valid {

@@ -1,7 +1,197 @@
 basePath: /lmsapiv1
 definitions:
+  ai.DiagnoseResponse:
+    properties:
+      confidence:
+        type: number
+      explanation:
+        type: string
+      gap_type:
+        type: string
+      knowledge_gap:
+        type: string
+      language:
+        type: string
+      source_chunk_id:
+        type: integer
+      study_suggestion:
+        type: string
+      suggested_documents:
+        items:
+          additionalProperties: true
+          type: object
+        type: array
+    type: object
+  ai.GenerateQuizResponse:
+    properties:
+      gen_ids:
+        items:
+          type: integer
+        type: array
+      generated:
+        type: integer
+      message:
+        type: string
+      status:
+        type: string
+    type: object
+  ai.HeatmapNode:
+    properties:
+      avg_mastery:
+        type: number
+      name_vi:
+        type: string
+      node_id:
+        type: integer
+      node_name:
+        type: string
+      student_count:
+        type: integer
+      total_attempts:
+        type: integer
+      total_wrong:
+        type: integer
+      wrong_rate:
+        type: number
+    type: object
+  dto.AddMemberRequest:
+    properties:
+      org_role:
+        enum:
+        - OWNER
+        - ADMIN
+        - MEMBER
+        type: string
+      user_id:
+        type: integer
+    required:
+    - org_role
+    - user_id
+    type: object
+  dto.AnswerOptionImage:
+    properties:
+      alt_text:
+        type: string
+      file_name:
+        type: string
+      file_path:
+        type: string
+      file_size:
+        type: integer
+      mime_type:
+        type: string
+      url:
+        type: string
+    type: object
+  dto.AnswerOptionResponse:
+    properties:
+      blank_id:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: integer
+      image:
+        $ref: '#/definitions/dto.AnswerOptionImage'
+      is_correct:
+        type: boolean
+      option_html:
+        type: string
+      option_text:
+        type: string
+      order_index:
+        type: integer
+      question_id:
+        type: integer
+    type: object
+  dto.BatchCreateQuestionsRequest:
+    properties:
+      questions:
+        items:
+          $ref: '#/definitions/dto.CreateQuestionRequest'
+        minItems: 1
+        type: array
+    required:
+    - questions
+    type: object
+  dto.BulkEnrollmentRequest:
+    properties:
+      course_id:
+        type: integer
+      student_ids:
+        items:
+          type: integer
+        minItems: 1
+        type: array
+    required:
+    - course_id
+    - student_ids
+    type: object
+  dto.BulkEnrollmentResponse:
+    properties:
+      failed:
+        items:
+          $ref: '#/definitions/dto.EnrollmentError'
+        type: array
+      succeeded:
+        items:
+          type: integer
+        type: array
+      total_count:
+        type: integer
+    type: object
+  dto.BulkGradeRequest:
+    properties:
+      grades:
+        items:
+          $ref: '#/definitions/dto.GradeAnswerRequest'
+        minItems: 1
+        type: array
+    required:
+    - grades
+    type: object
+  dto.BulkGradeResponse:
+    properties:
+      failed:
+        items:
+          $ref: '#/definitions/dto.GradeError'
+        type: array
+      succeeded:
+        items:
+          type: integer
+        type: array
+    type: object
+  dto.BulkUserSyncRequest:
+    properties:
+      users:
+        items:
+          $ref: '#/definitions/dto.UserSyncRequest'
+        minItems: 1
+        type: array
+    required:
+    - users
+    type: object
+  dto.BulkUserSyncResponse:
+    properties:
+      failed_count:
+        type: integer
+      failed_users:
+        items:
+          $ref: '#/definitions/dto.SyncError'
+        type: array
+      success_count:
+        type: integer
+      success_users:
+        items:
+          $ref: '#/definitions/dto.UserSyncResponse'
+        type: array
+      total_users:
+        type: integer
+    type: object
   dto.ContentResponse:
     properties:
+      ai_index_status:
+        type: string
       created_at:
         type: string
       created_by:
@@ -34,6 +224,51 @@ definitions:
       updated_at:
         type: string
     type: object
+  dto.CorrectAnswerResponse:
+    properties:
+      answer_text:
+        type: string
+      blank_id:
+        type: integer
+      blank_position:
+        type: integer
+      case_sensitive:
+        type: boolean
+      created_at:
+        type: string
+      exact_match:
+        type: boolean
+      id:
+        type: integer
+      question_id:
+        type: integer
+    type: object
+  dto.CourseProgressDetailResponse:
+    properties:
+      course_id:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/dto.ProgressDetailItem'
+        type: array
+      summary:
+        $ref: '#/definitions/dto.CourseProgressResponse'
+    type: object
+  dto.CourseProgressResponse:
+    properties:
+      completed_content_ids:
+        items:
+          type: integer
+        type: array
+      completed_count:
+        type: integer
+      course_id:
+        type: integer
+      progress_percent:
+        type: number
+      total_mandatory:
+        type: integer
+    type: object
   dto.CourseResponse:
     properties:
       category:
@@ -48,10 +283,14 @@ definitions:
         type: string
       description:
         type: string
+      enrollment_count:
+        type: integer
       id:
         type: integer
       level:
         type: string
+      org_id:
+        type: integer
       published_at:
         type: string
       status:
@@ -62,6 +301,26 @@ definitions:
         type: string
       updated_at:
         type: string
+      visibility:
+        type: string
+    type: object
+  dto.CreateAnswerOptionRequest:
+    properties:
+      blank_id:
+        description: For fill-in-the-blank dropdown
+        type: integer
+      is_correct:
+        type: boolean
+      option_html:
+        type: string
+      option_text:
+        type: string
+      order_index:
+        minimum: 0
+        type: integer
+    required:
+    - option_text
+    - order_index
     type: object
   dto.CreateContentRequest:
     properties:
@@ -95,6 +354,19 @@ definitions:
     - title
     - type
     type: object
+  dto.CreateCorrectAnswerRequest:
+    properties:
+      answer_text:
+        type: string
+      blank_id:
+        type: integer
+      blank_position:
+        type: integer
+      case_sensitive:
+        type: boolean
+      exact_match:
+        type: boolean
+    type: object
   dto.CreateCourseRequest:
     properties:
       category:
@@ -110,6 +382,8 @@ definitions:
         - ADVANCED
         - ALL_LEVELS
         type: string
+      org_id:
+        type: integer
       thumbnail_url:
         maxLength: 500
         type: string
@@ -117,8 +391,147 @@ definitions:
         maxLength: 255
         minLength: 3
         type: string
+      visibility:
+        enum:
+        - PUBLIC
+        - ORG_ONLY
+        type: string
     required:
     - title
+    type: object
+  dto.CreateForumCommentRequest:
+    properties:
+      body:
+        minLength: 1
+        type: string
+      parent_comment_id:
+        type: integer
+    required:
+    - body
+    type: object
+  dto.CreateForumPostRequest:
+    properties:
+      body:
+        minLength: 10
+        type: string
+      tags:
+        items:
+          type: string
+        maxItems: 5
+        type: array
+      title:
+        maxLength: 255
+        minLength: 5
+        type: string
+    required:
+    - body
+    - title
+    type: object
+  dto.CreateOrgRequest:
+    properties:
+      description:
+        maxLength: 2000
+        type: string
+      logo_url:
+        maxLength: 500
+        type: string
+      name:
+        maxLength: 255
+        minLength: 2
+        type: string
+      settings:
+        $ref: '#/definitions/dto.OrgSettingsDTO'
+      slug:
+        maxLength: 100
+        minLength: 2
+        type: string
+    required:
+    - name
+    - slug
+    type: object
+  dto.CreateQuestionRequest:
+    properties:
+      answer_options:
+        description: Answer options (for choice questions)
+        items:
+          $ref: '#/definitions/dto.CreateAnswerOptionRequest'
+        type: array
+      correct_answers:
+        description: Correct answers (for text/fill-blank questions)
+        items:
+          $ref: '#/definitions/dto.CreateCorrectAnswerRequest'
+        type: array
+      explanation:
+        type: string
+      is_required:
+        type: boolean
+      order_index:
+        minimum: 0
+        type: integer
+      points:
+        minimum: 0
+        type: number
+      question_html:
+        type: string
+      question_text:
+        type: string
+      question_type:
+        $ref: '#/definitions/dto.QuestionType'
+      quiz_id:
+        type: integer
+      settings:
+        additionalProperties: true
+        type: object
+    required:
+    - order_index
+    - points
+    - question_text
+    - question_type
+    - quiz_id
+    type: object
+  dto.CreateQuizRequest:
+    properties:
+      allow_review:
+        type: boolean
+      auto_grade:
+        type: boolean
+      available_from:
+        type: string
+      available_until:
+        type: string
+      content_id:
+        type: integer
+      description:
+        type: string
+      instructions:
+        type: string
+      max_attempts:
+        type: integer
+      passing_score:
+        type: number
+      show_correct_answers:
+        type: boolean
+      show_feedback:
+        type: boolean
+      show_results_immediately:
+        type: boolean
+      shuffle_answers:
+        type: boolean
+      shuffle_questions:
+        type: boolean
+      time_limit_minutes:
+        type: integer
+      title:
+        maxLength: 500
+        minLength: 3
+        type: string
+      total_points:
+        minimum: 0
+        type: number
+    required:
+    - content_id
+    - title
+    - total_points
     type: object
   dto.CreateSectionRequest:
     properties:
@@ -136,6 +549,42 @@ definitions:
     - order_index
     - title
     type: object
+  dto.EnrollCourseRequest:
+    properties:
+      course_id:
+        type: integer
+    required:
+    - course_id
+    type: object
+  dto.EnrollmentError:
+    properties:
+      error:
+        type: string
+      student_id:
+        type: integer
+    type: object
+  dto.EnrollmentResponse:
+    properties:
+      accepted_at:
+        type: string
+      course_id:
+        type: integer
+      created_at:
+        type: string
+      enrolled_at:
+        type: string
+      id:
+        type: integer
+      rejected_at:
+        type: string
+      status:
+        description: WAITING, ACCEPTED, REJECTED
+        type: string
+      student_id:
+        type: integer
+      updated_at:
+        type: string
+    type: object
   dto.ErrorResponse:
     properties:
       code:
@@ -147,10 +596,596 @@ definitions:
       success:
         type: boolean
     type: object
+  dto.ForumCommentResponse:
+    properties:
+      body:
+        type: string
+      created_at:
+        type: string
+      current_user_vote:
+        type: string
+      depth:
+        type: integer
+      downvotes:
+        type: integer
+      id:
+        type: integer
+      is_accepted:
+        type: boolean
+      parent_comment_id:
+        type: integer
+      post_id:
+        type: integer
+      replies:
+        items:
+          $ref: '#/definitions/dto.ForumCommentResponse'
+        type: array
+      score:
+        type: integer
+      updated_at:
+        type: string
+      upvotes:
+        type: integer
+      user_email:
+        type: string
+      user_id:
+        type: integer
+      user_name:
+        type: string
+    type: object
+  dto.ForumPostResponse:
+    properties:
+      body:
+        type: string
+      comment_count:
+        type: integer
+      content_id:
+        type: integer
+      created_at:
+        type: string
+      current_user_vote:
+        description: '"upvote", "downvote", or null'
+        type: string
+      downvotes:
+        type: integer
+      id:
+        type: integer
+      is_locked:
+        type: boolean
+      is_pinned:
+        type: boolean
+      score:
+        description: upvotes - downvotes
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+      title:
+        type: string
+      updated_at:
+        type: string
+      upvotes:
+        type: integer
+      user_email:
+        type: string
+      user_id:
+        type: integer
+      user_name:
+        type: string
+      view_count:
+        type: integer
+    type: object
+  dto.GradeAnswerRequest:
+    properties:
+      grader_feedback:
+        type: string
+      points_earned:
+        minimum: 0
+        type: number
+    required:
+    - points_earned
+    type: object
+  dto.GradeError:
+    properties:
+      answer_id:
+        type: integer
+      error:
+        type: string
+    type: object
+  dto.GradingStatusDTO:
+    properties:
+      is_fully_graded:
+        type: boolean
+      is_provisional:
+        type: boolean
+      pending_grading_count:
+        type: integer
+    type: object
+  dto.LearnerResponse:
+    properties:
+      accepted_at:
+        type: string
+      course_id:
+        type: integer
+      email:
+        type: string
+      enrolled_at:
+        type: string
+      id:
+        type: integer
+      status:
+        type: string
+      student_id:
+        type: integer
+      student_name:
+        type: string
+    type: object
+  dto.ListResponse:
+    properties:
+      items: {}
+      pagination:
+        $ref: '#/definitions/dto.PaginationResponse'
+    type: object
+  dto.LockPostRequest:
+    properties:
+      is_locked:
+        type: boolean
+    type: object
   dto.MessageResponse:
     properties:
       message:
         type: string
+    type: object
+  dto.OrgResponse:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      description:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      logo_url:
+        type: string
+      name:
+        type: string
+      settings:
+        $ref: '#/definitions/dto.OrgSettingsDTO'
+      slug:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  dto.OrgSettingsDTO:
+    properties:
+      allow_self_enrollment:
+        type: boolean
+      default_course_visibility:
+        enum:
+        - PUBLIC
+        - ORG_ONLY
+        type: string
+      max_members:
+        type: integer
+    type: object
+  dto.OrgStatsResponse:
+    properties:
+      course_count:
+        type: integer
+      enrolled_count:
+        type: integer
+      member_count:
+        type: integer
+      org_id:
+        type: integer
+    type: object
+  dto.PaginationResponse:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  dto.PinPostRequest:
+    properties:
+      is_pinned:
+        type: boolean
+    type: object
+  dto.ProgressDetailItem:
+    properties:
+      completed_at:
+        type: string
+      content_id:
+        type: integer
+      content_title:
+        type: string
+      content_type:
+        type: string
+      is_completed:
+        type: boolean
+      is_mandatory:
+        type: boolean
+      section_title:
+        type: string
+    type: object
+  dto.QuestionImage:
+    properties:
+      alt_text:
+        description: Accessibility text
+        type: string
+      caption:
+        description: Optional caption
+        type: string
+      created_at:
+        type: string
+      display_width:
+        description: CSS width (e.g., "100%", "500px")
+        type: string
+      file_name:
+        description: Original filename
+        type: string
+      file_path:
+        description: Storage path
+        type: string
+      file_size:
+        description: Size in bytes
+        type: integer
+      height:
+        description: Original height in pixels
+        type: integer
+      id:
+        description: Unique image ID
+        type: string
+      mime_type:
+        description: e.g., "image/png"
+        type: string
+      position:
+        description: '"above_question", "below_question", "inline"'
+        type: string
+      url:
+        description: Public URL to access image
+        type: string
+      width:
+        description: Original width in pixels
+        type: integer
+    type: object
+  dto.QuestionResponse:
+    properties:
+      answer_options:
+        description: Related data
+        items:
+          $ref: '#/definitions/dto.AnswerOptionResponse'
+        type: array
+      correct_answers:
+        items:
+          $ref: '#/definitions/dto.CorrectAnswerResponse'
+        type: array
+      created_at:
+        type: string
+      explanation:
+        type: string
+      id:
+        type: integer
+      images:
+        description: Extracted from settings
+        items:
+          $ref: '#/definitions/dto.QuestionImage'
+        type: array
+      is_required:
+        type: boolean
+      order_index:
+        type: integer
+      points:
+        type: number
+      question_html:
+        type: string
+      question_text:
+        type: string
+      question_type:
+        $ref: '#/definitions/dto.QuestionType'
+      quiz_id:
+        type: integer
+      settings:
+        additionalProperties: true
+        type: object
+      updated_at:
+        type: string
+    type: object
+  dto.QuestionResultDTO:
+    properties:
+      answered_at:
+        type: string
+      is_correct:
+        type: boolean
+      points:
+        type: number
+      points_earned:
+        type: number
+      question_id:
+        type: integer
+      question_text:
+        type: string
+      question_type:
+        type: string
+      time_spent_seconds:
+        type: integer
+    type: object
+  dto.QuestionType:
+    enum:
+    - SINGLE_CHOICE
+    - MULTIPLE_CHOICE
+    - SHORT_ANSWER
+    - ESSAY
+    - FILE_UPLOAD
+    - FILL_BLANK_TEXT
+    - FILL_BLANK_DROPDOWN
+    type: string
+    x-enum-varnames:
+    - QuestionTypeSingleChoice
+    - QuestionTypeMultipleChoice
+    - QuestionTypeShortAnswer
+    - QuestionTypeEssay
+    - QuestionTypeFileUpload
+    - QuestionTypeFillBlankText
+    - QuestionTypeFillBlankDropdown
+  dto.QuestionWithAnswerResponse:
+    properties:
+      question:
+        $ref: '#/definitions/dto.QuestionResponse'
+      student_answer:
+        $ref: '#/definitions/dto.StudentAnswerResponse'
+    type: object
+  dto.QuizAttemptDTO:
+    properties:
+      answered_questions:
+        type: integer
+      attempt_number:
+        type: integer
+      auto_graded_at:
+        type: string
+      correct_answers:
+        type: integer
+      created_at:
+        type: string
+      earned_points:
+        type: number
+      graded_by:
+        type: integer
+      id:
+        type: integer
+      ip_address:
+        type: string
+      is_passed:
+        type: boolean
+      manually_graded_at:
+        type: string
+      passing_score:
+        type: number
+      percentage:
+        type: number
+      quiz_id:
+        type: integer
+      quiz_title:
+        type: string
+      quiz_total_points:
+        type: number
+      started_at:
+        type: string
+      status:
+        type: string
+      student_email:
+        type: string
+      student_id:
+        type: integer
+      student_name:
+        type: string
+      submitted_at:
+        type: string
+      time_spent_seconds:
+        type: integer
+      total_points:
+        type: number
+      updated_at:
+        type: string
+      user_agent:
+        type: string
+    type: object
+  dto.QuizAttemptResponse:
+    properties:
+      attempt_number:
+        type: integer
+      created_at:
+        type: string
+      earned_points:
+        type: number
+      id:
+        type: integer
+      is_passed:
+        type: boolean
+      percentage:
+        type: number
+      quiz_id:
+        type: integer
+      started_at:
+        type: string
+      status:
+        type: string
+      student_id:
+        type: integer
+      submitted_at:
+        type: string
+      time_spent_seconds:
+        type: integer
+      total_points:
+        type: number
+      updated_at:
+        type: string
+    type: object
+  dto.QuizAttemptSummaryDTO:
+    properties:
+      attempt:
+        $ref: '#/definitions/dto.QuizAttemptDTO'
+      grading_status:
+        $ref: '#/definitions/dto.GradingStatusDTO'
+      question_breakdown:
+        items:
+          $ref: '#/definitions/dto.QuestionResultDTO'
+        type: array
+      score_breakdown:
+        $ref: '#/definitions/dto.ScoreBreakdownDTO'
+      time_breakdown:
+        $ref: '#/definitions/dto.TimeBreakdownDTO'
+    type: object
+  dto.QuizResponse:
+    properties:
+      allow_review:
+        type: boolean
+      attempt_count:
+        type: integer
+      auto_grade:
+        type: boolean
+      available_from:
+        type: string
+      available_until:
+        type: string
+      average_score:
+        type: number
+      content_id:
+        type: integer
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      creator_email:
+        type: string
+      creator_name:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      instructions:
+        type: string
+      is_published:
+        type: boolean
+      max_attempts:
+        type: integer
+      passing_score:
+        type: number
+      question_count:
+        description: Additional stats (optional, for teacher view)
+        type: integer
+      show_correct_answers:
+        type: boolean
+      show_feedback:
+        type: boolean
+      show_results_immediately:
+        type: boolean
+      shuffle_answers:
+        type: boolean
+      shuffle_questions:
+        type: boolean
+      student_count:
+        type: integer
+      time_limit_minutes:
+        type: integer
+      title:
+        type: string
+      total_points:
+        type: number
+      updated_at:
+        type: string
+    type: object
+  dto.QuizResultResponse:
+    properties:
+      allow_review:
+        type: boolean
+      attempt:
+        $ref: '#/definitions/dto.QuizAttemptResponse'
+      questions:
+        items:
+          $ref: '#/definitions/dto.QuestionResponse'
+        type: array
+      quiz:
+        $ref: '#/definitions/dto.QuizResponse'
+      show_correct_answers:
+        type: boolean
+      student_answers:
+        items:
+          $ref: '#/definitions/dto.StudentAnswerResponse'
+        type: array
+    type: object
+  dto.QuizReviewResponse:
+    properties:
+      attempt:
+        $ref: '#/definitions/dto.QuizAttemptResponse'
+      questions_with_answers:
+        items:
+          $ref: '#/definitions/dto.QuestionWithAnswerResponse'
+        type: array
+      quiz:
+        $ref: '#/definitions/dto.QuizResponse'
+      show_correct_answers:
+        type: boolean
+      show_feedback:
+        type: boolean
+    type: object
+  dto.QuizStudentAnswerDTO:
+    properties:
+      answer_data:
+        additionalProperties: true
+        type: object
+      answered_at:
+        type: string
+      attempt_id:
+        type: integer
+      created_at:
+        type: string
+      graded_at:
+        type: string
+      graded_by:
+        type: integer
+      grader_feedback:
+        type: string
+      id:
+        type: integer
+      is_correct:
+        type: boolean
+      points_earned:
+        type: number
+      question_id:
+        type: integer
+      time_spent_seconds:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  dto.ScoreBreakdownDTO:
+    properties:
+      correct_count:
+        type: integer
+      earned_points:
+        type: number
+      incorrect_count:
+        type: integer
+      is_passed:
+        type: boolean
+      passing_score:
+        type: number
+      percentage:
+        type: number
+      total_points:
+        type: number
+      ungraded_count:
+        type: integer
     type: object
   dto.SectionResponse:
     properties:
@@ -170,6 +1205,127 @@ definitions:
         type: string
       updated_at:
         type: string
+    type: object
+  dto.StudentAnswerForGrading:
+    properties:
+      answer_data:
+        additionalProperties: true
+        type: object
+      answered_at:
+        type: string
+      attempt_id:
+        type: integer
+      feedback:
+        type: string
+      id:
+        type: integer
+      points:
+        type: number
+      points_earned:
+        type: number
+      question_id:
+        type: integer
+      question_images:
+        items:
+          $ref: '#/definitions/dto.QuestionImage'
+        type: array
+      question_text:
+        type: string
+      question_type:
+        type: string
+      student_email:
+        type: string
+      student_id:
+        type: integer
+      student_name:
+        type: string
+    type: object
+  dto.StudentAnswerResponse:
+    properties:
+      answer_data:
+        additionalProperties: true
+        type: object
+      answered_at:
+        type: string
+      attempt_id:
+        type: integer
+      graded_at:
+        type: string
+      graded_by:
+        type: integer
+      grader_feedback:
+        type: string
+      id:
+        type: integer
+      is_correct:
+        type: boolean
+      points_earned:
+        type: number
+      question_id:
+        type: integer
+      time_spent_seconds:
+        type: integer
+    type: object
+  dto.StudentEnrollmentResponse:
+    properties:
+      accepted_at:
+        type: string
+      course_id:
+        type: integer
+      course_title:
+        type: string
+      enrolled_at:
+        type: string
+      id:
+        type: integer
+      progress_percent:
+        type: number
+      status:
+        type: string
+      teacher_name:
+        type: string
+    type: object
+  dto.SubmitAnswerRequest:
+    properties:
+      answer_data:
+        additionalProperties: true
+        type: object
+      attempt_id:
+        type: integer
+      question_id:
+        type: integer
+    required:
+    - answer_data
+    - attempt_id
+    - question_id
+    type: object
+  dto.SuccessResponse:
+    properties:
+      data: {}
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  dto.SyncError:
+    properties:
+      email:
+        type: string
+      error:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  dto.TimeBreakdownDTO:
+    properties:
+      average_per_question:
+        type: integer
+      formatted_duration:
+        type: string
+      total_minutes:
+        type: integer
+      total_seconds:
+        type: integer
     type: object
   dto.UpdateContentRequest:
     properties:
@@ -206,6 +1362,8 @@ definitions:
         - ADVANCED
         - ALL_LEVELS
         type: string
+      org_id:
+        type: integer
       thumbnail_url:
         maxLength: 500
         type: string
@@ -213,6 +1371,119 @@ definitions:
         maxLength: 255
         minLength: 3
         type: string
+      visibility:
+        enum:
+        - PUBLIC
+        - ORG_ONLY
+        type: string
+    type: object
+  dto.UpdateForumCommentRequest:
+    properties:
+      body:
+        minLength: 1
+        type: string
+    type: object
+  dto.UpdateForumPostRequest:
+    properties:
+      body:
+        minLength: 10
+        type: string
+      tags:
+        items:
+          type: string
+        maxItems: 5
+        type: array
+      title:
+        maxLength: 255
+        minLength: 5
+        type: string
+    type: object
+  dto.UpdateMemberRoleRequest:
+    properties:
+      org_role:
+        enum:
+        - OWNER
+        - ADMIN
+        - MEMBER
+        type: string
+    required:
+    - org_role
+    type: object
+  dto.UpdateOrgRequest:
+    properties:
+      description:
+        maxLength: 2000
+        type: string
+      logo_url:
+        maxLength: 500
+        type: string
+      name:
+        maxLength: 255
+        minLength: 2
+        type: string
+      settings:
+        $ref: '#/definitions/dto.OrgSettingsDTO'
+      slug:
+        maxLength: 100
+        minLength: 2
+        type: string
+    type: object
+  dto.UpdateQuestionRequest:
+    properties:
+      explanation:
+        type: string
+      is_required:
+        type: boolean
+      order_index:
+        type: integer
+      points:
+        type: number
+      question_html:
+        type: string
+      question_text:
+        type: string
+      settings:
+        additionalProperties: true
+        type: object
+    type: object
+  dto.UpdateQuizRequest:
+    properties:
+      allow_review:
+        type: boolean
+      auto_grade:
+        type: boolean
+      available_from:
+        type: string
+      available_until:
+        type: string
+      description:
+        type: string
+      instructions:
+        type: string
+      is_published:
+        type: boolean
+      max_attempts:
+        type: integer
+      passing_score:
+        type: number
+      show_correct_answers:
+        type: boolean
+      show_feedback:
+        type: boolean
+      show_results_immediately:
+        type: boolean
+      shuffle_answers:
+        type: boolean
+      shuffle_questions:
+        type: boolean
+      time_limit_minutes:
+        type: integer
+      title:
+        maxLength: 500
+        minLength: 3
+        type: string
+      total_points:
+        type: number
     type: object
   dto.UpdateSectionRequest:
     properties:
@@ -240,23 +1511,75 @@ definitions:
       user_id:
         type: integer
     type: object
-  handler.MockJWTResponse:
+  dto.UserSyncRequest:
     properties:
-      expires_at:
+      email:
         type: string
-      instructions:
+      full_name:
         type: string
-      token:
+      roles:
+        items:
+          type: string
+        minItems: 1
+        type: array
+      user_id:
+        type: integer
+    required:
+    - email
+    - full_name
+    - roles
+    - user_id
+    type: object
+  dto.UserSyncResponse:
+    properties:
+      email:
         type: string
-      user_info:
-        properties:
-          email:
-            type: string
-          role:
-            type: string
-          user_id:
-            type: integer
-        type: object
+      is_new:
+        type: boolean
+      roles_assigned:
+        items:
+          type: string
+        type: array
+      user_id:
+        type: integer
+    type: object
+  dto.VoteRequest:
+    properties:
+      vote_type:
+        enum:
+        - upvote
+        - downvote
+        type: string
+    required:
+    - vote_type
+    type: object
+  dto.VoteResponse:
+    properties:
+      downvotes:
+        type: integer
+      new_score:
+        type: integer
+      success:
+        type: boolean
+      upvotes:
+        type: integer
+      vote_type:
+        type: string
+    type: object
+  handler.FileUploadResponse:
+    properties:
+      file_id:
+        type: string
+      file_name:
+        type: string
+      file_path:
+        type: string
+      file_size:
+        type: integer
+      file_type:
+        type: string
+      file_url:
+        type: string
     type: object
 host: localhost:3000
 info:
@@ -272,11 +1595,427 @@ info:
   title: LMS API Documentation
   version: "1.0"
 paths:
-  /attempts/{attemptId}/summary:
+  /admin/organizations:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.ListResponse'
+      security:
+      - BearerAuth: []
+      summary: List organizations
+      tags:
+      - organizations
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization data
+        in: body
+        name: org
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateOrgRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.OrgResponse'
+      security:
+      - BearerAuth: []
+      summary: Create organization
+      tags:
+      - organizations
+  /admin/organizations/{id}:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+      security:
+      - BearerAuth: []
+      summary: Deactivate organization
+      tags:
+      - organizations
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.OrgResponse'
+      security:
+      - BearerAuth: []
+      summary: Get organization
+      tags:
+      - organizations
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Update data
+        in: body
+        name: org
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateOrgRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.OrgResponse'
+      security:
+      - BearerAuth: []
+      summary: Update organization
+      tags:
+      - organizations
+  /admin/organizations/{id}/members:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.ListResponse'
+      security:
+      - BearerAuth: []
+      summary: List org members
+      tags:
+      - organizations
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Member data
+        in: body
+        name: member
+        required: true
+        schema:
+          $ref: '#/definitions/dto.AddMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+      security:
+      - BearerAuth: []
+      summary: Add org member
+      tags:
+      - organizations
+  /admin/organizations/{id}/members/{userId}:
+    delete:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: User ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove org member
+      tags:
+      - organizations
+  /admin/organizations/{id}/members/{userId}/role:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: User ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      - description: New role
+        in: body
+        name: role
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateMemberRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MessageResponse'
+      security:
+      - BearerAuth: []
+      summary: Update member role
+      tags:
+      - organizations
+  /admin/organizations/{id}/stats:
+    get:
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.OrgStatsResponse'
+      security:
+      - BearerAuth: []
+      summary: Get organization stats
+      tags:
+      - organizations
+  /ai/concept-check:
+    post:
+      consumes:
+      - application/json
+      description: Generates 1–2 ultra-short MCQ questions for the Quick
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Quick Action Panel — Concept Check
+      tags:
+      - AI - Quick Action Panel
+  /ai/jobs/{jobId}/status:
+    get:
+      parameters:
+      - description: Job ID
+        in: path
+        name: jobId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get AI Job Status
+      tags:
+      - AI - Core
+  /ai/knowledge-graph/global:
+    get:
+      description: Returns the entire knowledge graph across all courses.
+      parameters:
+      - description: Minimum edge strength (0.0 to 1.0)
+        format: float64
+        in: query
+        name: min_strength
+        type: number
+      - description: Limit number of nodes
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get global knowledge graph
+      tags:
+      - AI - Knowledge Graph
+  /ai/knowledge-graph/link-global:
+    post:
+      description: Triggers a background task to find and create cross-course knowledge
+        relationships.
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Trigger Global Knowledge Linking
+      tags:
+      - AI - Knowledge Graph
+  /ai/quiz-drafts/{genId}/approve:
+    post:
+      consumes:
+      - application/json
+      description: Instructor approves a DRAFT question → published to a quiz.
+      parameters:
+      - description: Generation ID
+        in: path
+        name: genId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Approve AI-Generated Question
+      tags:
+      - AI - Phase 2
+  /ai/quiz-drafts/{genId}/reject:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Generation ID
+        in: path
+        name: genId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Reject AI-Generated Question
+      tags:
+      - AI - Phase 2
+  /analytics/heatmap:
+    get:
+      parameters:
+      - description: Course ID
+        in: query
+        name: course_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get the composite mastery heatmap for a course (teacher view)
+      tags:
+      - Analytics
+  /analytics/heatmap/me:
+    get:
+      parameters:
+      - description: Course ID
+        in: query
+        name: course_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get the composite mastery heatmap for the current student
+      tags:
+      - Analytics
+  /analytics/micro-interaction:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Record a Quick Action Panel micro-interaction
+      tags:
+      - Analytics
+  /answers/{answerId}/grade:
+    post:
+      consumes:
+      - application/json
+      description: Manually grade a student's answer (teacher/admin only)
+      parameters:
+      - description: Answer ID
+        in: path
+        name: answerId
+        required: true
+        type: integer
+      - description: Grade data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.GradeAnswerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Answer graded successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - teacher/admin only
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Grade an answer
+      tags:
+      - Quiz - Teacher
+  /attempts/{attemptId}/answers:
     get:
       consumes:
       - application/json
-      description: Get detailed summary of a quiz attempt including statistics
+      description: Get all answers for a specific quiz attempt
       parameters:
       - description: Attempt ID
         in: path
@@ -287,33 +2026,277 @@ paths:
       - application/json
       responses:
         "200":
-          description: Attempt summary
+          description: List of student answers
           schema:
-            additionalProperties: true
-            type: object
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.QuizStudentAnswerDTO'
+                  type: array
+              type: object
         "400":
           description: Invalid attempt ID
           schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: Not authorized to view this attempt
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not authorized to view this attempt
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
         "404":
           description: Attempt not found
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/dto.ErrorResponse'
         "500":
           description: Internal server error
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/dto.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: Get summary of a specific attempt
+      summary: Get attempt answers
+      tags:
+      - Quiz - Student
+    post:
+      consumes:
+      - application/json
+      description: Submit an answer for a question in an active quiz attempt
+      parameters:
+      - description: Attempt ID
+        in: path
+        name: attemptId
+        required: true
+        type: integer
+      - description: Answer data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.SubmitAnswerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Answer submitted successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.StudentAnswerResponse'
+              type: object
+        "400":
+          description: Invalid request or quiz already submitted
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Submit an answer
+      tags:
+      - Quiz - Student
+  /attempts/{attemptId}/questions/{questionId}/diagnose:
+    post:
+      description: Analyze why a student answered incorrectly, with deep link to source
+        material.
+      parameters:
+      - description: Quiz Attempt ID
+        in: path
+        name: attemptId
+        required: true
+        type: integer
+      - description: Question ID
+        in: path
+        name: questionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ai.DiagnoseResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: AI Error Diagnosis
+      tags:
+      - AI - Phase 1
+  /attempts/{attemptId}/result:
+    get:
+      consumes:
+      - application/json
+      description: Get the result of a submitted quiz attempt
+      parameters:
+      - description: Attempt ID
+        in: path
+        name: attemptId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Quiz result
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuizResultResponse'
+              type: object
+        "400":
+          description: Invalid attempt ID or quiz not submitted
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not your attempt
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get quiz result
+      tags:
+      - Quiz - Student
+  /attempts/{attemptId}/review:
+    get:
+      consumes:
+      - application/json
+      description: Review a completed quiz attempt with correct answers (if allowed
+        by quiz settings)
+      parameters:
+      - description: Attempt ID
+        in: path
+        name: attemptId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Quiz review with correct answers
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuizReviewResponse'
+              type: object
+        "400":
+          description: Invalid attempt ID or review not allowed
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not your attempt
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Review quiz
+      tags:
+      - Quiz - Student
+  /attempts/{attemptId}/submit:
+    post:
+      consumes:
+      - application/json
+      description: Submit (finalize) a quiz attempt for grading
+      parameters:
+      - description: Attempt ID
+        in: path
+        name: attemptId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Quiz submitted successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.SuccessResponse'
+              type: object
+        "400":
+          description: Invalid attempt ID or quiz already submitted
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Submit quiz
+      tags:
+      - Quiz - Student
+  /attempts/{attemptId}/summary:
+    get:
+      consumes:
+      - application/json
+      description: Get detailed summary of a quiz attempt including question breakdown,
+        time, and score statistics
+      parameters:
+      - description: Attempt ID
+        in: path
+        name: attemptId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Attempt summary with detailed statistics
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuizAttemptSummaryDTO'
+              type: object
+        "400":
+          description: Invalid attempt ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not authorized to view this attempt
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Attempt not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get attempt summary
       tags:
       - Quiz - Student
   /content/{contentId}:
@@ -425,11 +2408,240 @@ paths:
       summary: Update content
       tags:
       - content
+  /content/{contentId}/ai-index:
+    post:
+      consumes:
+      - application/json
+      description: Giáo viên click nút "Index" → AI tự động tạo knowledge nodes.
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Trigger auto-index for a content document
+      tags:
+      - AI - Auto Index
+  /content/{contentId}/ai-index-status:
+    get:
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get auto-index status for a content item
+      tags:
+      - AI - Auto Index
+  /content/{contentId}/complete:
+    post:
+      description: Student marks a mandatory content item as viewed/completed.
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark a content item as completed
+      tags:
+      - Progress
+  /content/{contentId}/forum/posts:
+    get:
+      consumes:
+      - application/json
+      description: Get all posts in a forum with sorting and filtering
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      - default: newest
+        description: Sort by (votes, newest, oldest, views)
+        in: query
+        name: sort_by
+        type: string
+      - description: Search in title and body
+        in: query
+        name: search
+        type: string
+      - description: Filter by tags (comma-separated)
+        in: query
+        name: tags
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.ListResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List forum posts
+      tags:
+      - Forum
+    post:
+      consumes:
+      - application/json
+      description: Create a new post in a forum
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      - description: Post data
+        in: body
+        name: post
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateForumPostRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.ForumPostResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a forum post
+      tags:
+      - Forum
+  /content/{contentId}/quiz:
+    get:
+      consumes:
+      - application/json
+      description: Get quiz associated with a specific content
+      parameters:
+      - description: Content ID
+        in: path
+        name: contentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Quiz details
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuizResponse'
+              type: object
+        "400":
+          description: Invalid content ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Quiz not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get quiz by content ID
+      tags:
+      - Quiz - Teacher
+  /content/batch-ai-index-status:
+    post:
+      consumes:
+      - application/json
+      description: Returns status for all requested content IDs in one round-trip.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Batch get auto-index status for multiple content items
+      tags:
+      - AI - Auto Index
   /courses:
     get:
       consumes:
       - application/json
-      description: List all published courses
+      description: List published courses based on org membership visibility rules
       produces:
       - application/json
       responses:
@@ -592,6 +2804,440 @@ paths:
       summary: Update a course
       tags:
       - courses
+  /courses/{courseId}/ai/consolidate-graph:
+    post:
+      description: Queues a Kafka job that merges duplicate / micro knowledge nodes.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Trigger "Compact Graph" merge
+      tags:
+      - AI - Knowledge Graph
+  /courses/{courseId}/ai/consolidate-graph/preview:
+    get:
+      description: Returns a dry-run plan describing which nodes would be merged.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Preview "Compact Graph" merges
+      tags:
+      - AI - Knowledge Graph
+  /courses/{courseId}/ai/drafts:
+    get:
+      description: Returns all DRAFT AI questions awaiting instructor review.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: Filter by node ID
+        in: query
+        name: node_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List AI-Generated Draft Questions
+      tags:
+      - AI - Phase 2
+  /courses/{courseId}/ai/generate-quiz:
+    post:
+      consumes:
+      - application/json
+      description: Generate quiz questions for a knowledge node using Bloom's Taxonomy.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ai.GenerateQuizResponse'
+      security:
+      - BearerAuth: []
+      summary: AI Auto Quiz Generator (Bloom's Taxonomy)
+      tags:
+      - AI - Phase 2
+  /courses/{courseId}/ai/heatmap:
+    get:
+      description: Returns knowledge nodes sorted by class-wide wrong rate. Teacher/Admin
+        only.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/ai.HeatmapNode'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Class Knowledge Heatmap
+      tags:
+      - AI - Phase 1
+  /courses/{courseId}/ai/knowledge-graph:
+    get:
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get knowledge graph for a course
+      tags:
+      - AI - Auto Index
+  /courses/{courseId}/ai/my-heatmap:
+    get:
+      description: Returns per-student knowledge mastery across all nodes in a course.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Student Knowledge Map
+      tags:
+      - AI - Phase 1
+  /courses/{courseId}/ai/nodes:
+    get:
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List Knowledge Nodes for a Course
+      tags:
+      - AI - Knowledge Graph
+    post:
+      consumes:
+      - application/json
+      description: Create an atomic knowledge unit for a course (Teacher/Admin only).
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create Knowledge Node
+      tags:
+      - AI - Knowledge Graph
+  /courses/{courseId}/ai/reviews/due:
+    get:
+      description: Returns questions due for review today based on SM-2 algorithm.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get Due Review Questions (Spaced Repetition)
+      tags:
+      - AI - Phase 2
+  /courses/{courseId}/ai/reviews/record:
+    post:
+      consumes:
+      - application/json
+      description: Record student quality rating (0-5) for a review question. Updates
+        SM-2 schedule.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Record Spaced Repetition Response
+      tags:
+      - AI - Phase 2
+  /courses/{courseId}/ai/reviews/stats:
+    get:
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Spaced Repetition Stats
+      tags:
+      - AI - Phase 2
+  /courses/{courseId}/bulk-enroll:
+    post:
+      consumes:
+      - application/json
+      description: Bulk enroll multiple students in a course with auto-accept (teacher/admin
+        only)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: List of student IDs to enroll
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.BulkEnrollmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Bulk enrollment result
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.BulkEnrollmentResponse'
+              type: object
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - teacher/admin only
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Bulk enroll students
+      tags:
+      - Enrollment
+  /courses/{courseId}/learners:
+    get:
+      consumes:
+      - application/json
+      description: Get all learners enrolled in a course (only accessible by course
+        creator or admin)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: Filter by status (WAITING, ACCEPTED, REJECTED)
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of learners
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.LearnerResponse'
+                  type: array
+              type: object
+        "400":
+          description: Invalid course ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not course creator
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get course learners
+      tags:
+      - Enrollment
+  /courses/{courseId}/micro-lessons/generate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Trigger micro-lesson generation from a content file or YouTube URL
+      tags:
+      - Micro-Lessons
+  /courses/{courseId}/micro-lessons/jobs:
+    get:
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: List micro-lesson generation jobs for a course
+      tags:
+      - Micro-Lessons
+  /courses/{courseId}/my-progress:
+    get:
+      description: Returns total/completed mandatory-content counts and IDs.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.CourseProgressResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get my course progress summary
+      tags:
+      - Progress
+  /courses/{courseId}/progress-detail:
+    get:
+      description: Returns every content item with its is_completed flag and timestamp.
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.CourseProgressDetailResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get detailed per-item course progress
+      tags:
+      - Progress
   /courses/{courseId}/publish:
     post:
       consumes:
@@ -719,6 +3365,826 @@ paths:
       summary: List my courses
       tags:
       - courses
+  /enrollments:
+    post:
+      consumes:
+      - application/json
+      description: Student enrolls in a course
+      parameters:
+      - description: Enrollment request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.EnrollCourseRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Enrollment created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.EnrollmentResponse'
+              type: object
+        "400":
+          description: Invalid request or already enrolled
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Enroll in a course
+      tags:
+      - Enrollment
+  /enrollments/{enrollmentId}:
+    delete:
+      consumes:
+      - application/json
+      description: Student cancels their pending enrollment request
+      parameters:
+      - description: Enrollment ID
+        in: path
+        name: enrollmentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Enrollment cancelled
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid request or cannot cancel
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancel enrollment
+      tags:
+      - Enrollment
+  /enrollments/{enrollmentId}/accept:
+    put:
+      consumes:
+      - application/json
+      description: Accept a student's enrollment request (only accessible by course
+        creator or admin)
+      parameters:
+      - description: Enrollment ID
+        in: path
+        name: enrollmentId
+        required: true
+        type: integer
+      - description: Course ID for verification
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            course_id:
+              type: integer
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Enrollment accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not course creator
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Accept enrollment request
+      tags:
+      - Enrollment
+  /enrollments/{enrollmentId}/reject:
+    put:
+      consumes:
+      - application/json
+      description: Reject a student's enrollment request (only accessible by course
+        creator or admin)
+      parameters:
+      - description: Enrollment ID
+        in: path
+        name: enrollmentId
+        required: true
+        type: integer
+      - description: Course ID for verification
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            course_id:
+              type: integer
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Enrollment rejected
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not course creator
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reject enrollment request
+      tags:
+      - Enrollment
+  /enrollments/my:
+    get:
+      consumes:
+      - application/json
+      description: Get all enrollments for the authenticated student, optionally filtered
+        by status
+      parameters:
+      - description: Filter by status (WAITING, ACCEPTED, REJECTED)
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of enrollments
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.StudentEnrollmentResponse'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get my enrollments
+      tags:
+      - Enrollment
+  /files/delete/{filepath}:
+    delete:
+      parameters:
+      - description: File path
+        in: path
+        name: filepath
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: File deleted successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid filename
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Failed to delete file
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Delete a file
+      tags:
+      - Files
+  /files/download/{filepath}:
+    get:
+      parameters:
+      - description: File path
+        in: path
+        name: filepath
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: File content
+          schema:
+            type: file
+        "206":
+          description: Partial file content
+          schema:
+            type: file
+        "400":
+          description: Invalid filename
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Download a file as attachment
+      tags:
+      - Files
+  /files/presigned/{filepath}:
+    get:
+      description: |-
+        Generate a temporary presigned URL for accessing a file directly from MinIO.
+        Useful for VLM image descriptions and external integrations.
+      parameters:
+      - description: File path
+        in: path
+        name: filepath
+        required: true
+        type: string
+      - default: 3600
+        description: Expiration in seconds
+        in: query
+        name: expires
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Presigned URL
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  additionalProperties: true
+                  type: object
+              type: object
+        "400":
+          description: Invalid filename
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Failed to generate presigned URL
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Get presigned URL for a file (for remote access)
+      tags:
+      - Files
+  /files/serve/{filepath}:
+    get:
+      parameters:
+      - description: File path
+        in: path
+        name: filepath
+        required: true
+        type: string
+      responses:
+        "200":
+          description: File content
+          schema:
+            type: file
+        "206":
+          description: Partial file content (Range request)
+          schema:
+            type: file
+        "400":
+          description: Invalid filename
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Serve a file for inline viewing
+      tags:
+      - Files
+  /files/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload a file to storage (video, document, or image)
+      parameters:
+      - description: File to upload
+        in: formData
+        name: file
+        required: true
+        type: file
+      - default: document
+        description: File type (video, document, image)
+        in: formData
+        name: type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.FileUploadResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Upload a file
+      tags:
+      - Files
+  /forum/comments/{commentId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a comment (owner or admin)
+      parameters:
+      - description: Comment ID
+        in: path
+        name: commentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a comment
+      tags:
+      - Forum
+    put:
+      consumes:
+      - application/json
+      description: Update a comment (owner only)
+      parameters:
+      - description: Comment ID
+        in: path
+        name: commentId
+        required: true
+        type: integer
+      - description: Updated comment data
+        in: body
+        name: comment
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateForumCommentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.ForumCommentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a comment
+      tags:
+      - Forum
+  /forum/comments/{commentId}/accept:
+    post:
+      consumes:
+      - application/json
+      description: Mark a comment as accepted answer (post owner or teacher/admin)
+      parameters:
+      - description: Comment ID
+        in: path
+        name: commentId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Accept a comment as answer
+      tags:
+      - Forum
+  /forum/comments/{commentId}/vote:
+    post:
+      consumes:
+      - application/json
+      description: Upvote or downvote a comment
+      parameters:
+      - description: Comment ID
+        in: path
+        name: commentId
+        required: true
+        type: integer
+      - description: Vote data
+        in: body
+        name: vote
+        required: true
+        schema:
+          $ref: '#/definitions/dto.VoteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.VoteResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Vote on a comment
+      tags:
+      - Forum
+  /forum/posts/{postId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a post (owner or admin)
+      parameters:
+      - description: Post ID
+        in: path
+        name: postId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a forum post
+      tags:
+      - Forum
+    get:
+      consumes:
+      - application/json
+      description: Get a single post by ID
+      parameters:
+      - description: Post ID
+        in: path
+        name: postId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.ForumPostResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a forum post
+      tags:
+      - Forum
+    put:
+      consumes:
+      - application/json
+      description: Update a post (owner only)
+      parameters:
+      - description: Post ID
+        in: path
+        name: postId
+        required: true
+        type: integer
+      - description: Updated post data
+        in: body
+        name: post
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateForumPostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.ForumPostResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a forum post
+      tags:
+      - Forum
+  /forum/posts/{postId}/comments:
+    get:
+      consumes:
+      - application/json
+      description: Get all comments for a post (nested tree structure)
+      parameters:
+      - description: Post ID
+        in: path
+        name: postId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.ForumCommentResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List comments
+      tags:
+      - Forum
+    post:
+      consumes:
+      - application/json
+      description: Create a comment on a post or reply to another comment
+      parameters:
+      - description: Post ID
+        in: path
+        name: postId
+        required: true
+        type: integer
+      - description: Comment data
+        in: body
+        name: comment
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateForumCommentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.ForumCommentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a comment
+      tags:
+      - Forum
+  /forum/posts/{postId}/lock:
+    post:
+      consumes:
+      - application/json
+      description: Lock or unlock a post (teacher/admin only)
+      parameters:
+      - description: Post ID
+        in: path
+        name: postId
+        required: true
+        type: integer
+      - description: Lock request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.LockPostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Lock/unlock a forum post
+      tags:
+      - Forum
+  /forum/posts/{postId}/pin:
+    post:
+      consumes:
+      - application/json
+      description: Pin or unpin a post (teacher/admin only)
+      parameters:
+      - description: Post ID
+        in: path
+        name: postId
+        required: true
+        type: integer
+      - description: Pin request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.PinPostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Pin/unpin a forum post
+      tags:
+      - Forum
+  /forum/posts/{postId}/vote:
+    post:
+      consumes:
+      - application/json
+      description: Upvote or downvote a post
+      parameters:
+      - description: Post ID
+        in: path
+        name: postId
+        required: true
+        type: integer
+      - description: Vote data
+        in: body
+        name: vote
+        required: true
+        schema:
+          $ref: '#/definitions/dto.VoteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.VoteResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Vote on a post
+      tags:
+      - Forum
   /me/roles:
     get:
       consumes:
@@ -728,54 +4194,600 @@ paths:
       - application/json
       responses:
         "200":
-          description: OK
+          description: User roles retrieved successfully
           schema:
-            $ref: '#/definitions/dto.UserRolesResponse'
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.UserRolesResponse'
+              type: object
         "401":
-          description: Unauthorized
+          description: Unauthorized - user not authenticated
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
         "500":
-          description: Internal Server Error
+          description: Internal server error
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Get my roles
       tags:
-      - users
-  /mock-jwt:
-    get:
+      - User
+  /micro-lessons/{lessonId}:
+    delete:
+      parameters:
+      - description: Lesson ID
+        in: path
+        name: lessonId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Delete a draft micro-lesson
+      tags:
+      - Micro-Lessons
+    put:
       consumes:
       - application/json
-      description: Generate a mock JWT token for testing API endpoints in Swagger
-        UI. This endpoint is only for testing purposes.
       parameters:
-      - default: STUDENT
-        description: User role (ADMIN, TEACHER, STUDENT)
-        in: query
-        name: role
-        type: string
-      - default: 1
-        description: User ID
-        in: query
-        name: user_id
+      - description: Lesson ID
+        in: path
+        name: lessonId
+        required: true
         type: integer
-      - default: test@example.com
-        description: User email
-        in: query
-        name: email
-        type: string
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Save instructor edits to a draft micro-lesson
+      tags:
+      - Micro-Lessons
+  /micro-lessons/{lessonId}/publish:
+    post:
+      consumes:
+      - application/json
+      description: Creates a TEXT SectionContent in the chosen section, marks the
+        lesson
+      parameters:
+      - description: Lesson ID
+        in: path
+        name: lessonId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Promote a draft micro-lesson into a published SectionContent + auto-index
+        it
+      tags:
+      - Micro-Lessons
+  /micro-lessons/jobs/{jobId}:
+    get:
+      parameters:
+      - description: Job ID
+        in: path
+        name: jobId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get a single micro-lesson job and all its lessons
+      tags:
+      - Micro-Lessons
+  /my/orgs:
+    get:
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.MockJWTResponse'
-      summary: Generate Mock JWT Token
+            items:
+              $ref: '#/definitions/dto.OrgResponse'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get my organizations
       tags:
-      - Testing
+      - organizations
+  /questions/{questionId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a question from a quiz (teacher/admin only)
+      parameters:
+      - description: Question ID
+        in: path
+        name: questionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Question deleted successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid question ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not quiz owner
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete question
+      tags:
+      - Quiz - Teacher
+    put:
+      consumes:
+      - application/json
+      description: Update question details (teacher/admin only)
+      parameters:
+      - description: Question ID
+        in: path
+        name: questionId
+        required: true
+        type: integer
+      - description: Updated question data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateQuestionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Question updated successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuestionResponse'
+              type: object
+        "400":
+          description: Invalid request or validation error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not quiz owner
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update question
+      tags:
+      - Quiz - Teacher
+  /questions/{questionId}/images:
+    get:
+      consumes:
+      - application/json
+      description: Get all images for a quiz question
+      parameters:
+      - description: Question ID
+        in: path
+        name: questionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of images
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.QuestionImage'
+                  type: array
+              type: object
+        "400":
+          description: Invalid question ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List question images
+      tags:
+      - Quiz
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload an image for a quiz question (teacher/admin only)
+      parameters:
+      - description: Question ID
+        in: path
+        name: questionId
+        required: true
+        type: integer
+      - description: Image file (JPEG, PNG, GIF, WebP, max 5MB)
+        in: formData
+        name: image
+        required: true
+        type: file
+      - default: above_question
+        description: Image position (above_question, below_question, inline)
+        in: formData
+        name: position
+        type: string
+      - description: Image caption
+        in: formData
+        name: caption
+        type: string
+      - description: Alternative text for accessibility
+        in: formData
+        name: alt_text
+        type: string
+      - default: 100%
+        description: Display width (e.g., 100%, 500px)
+        in: formData
+        name: display_width
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Image uploaded successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuestionImage'
+              type: object
+        "400":
+          description: Invalid file or file too large
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not quiz owner
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Upload question image
+      tags:
+      - Quiz - Teacher
+  /questions/{questionId}/images/{imageId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete an image from a quiz question (teacher/admin only)
+      parameters:
+      - description: Question ID
+        in: path
+        name: questionId
+        required: true
+        type: integer
+      - description: Image ID
+        in: path
+        name: imageId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Image deleted successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid question or image ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not quiz owner
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Image not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete question image
+      tags:
+      - Quiz - Teacher
+  /quizzes:
+    post:
+      consumes:
+      - application/json
+      description: Create a new quiz for a course content (teacher/admin only)
+      parameters:
+      - description: Quiz data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateQuizRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Quiz created successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuizResponse'
+              type: object
+        "400":
+          description: Invalid request or validation error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - teacher/admin only
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a quiz
+      tags:
+      - Quiz - Teacher
+  /quizzes/{quizId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a quiz (teacher/admin only)
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Quiz deleted successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid quiz ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not quiz owner
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete quiz
+      tags:
+      - Quiz - Teacher
+    get:
+      consumes:
+      - application/json
+      description: Get detailed information about a quiz
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Quiz details
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuizResponse'
+              type: object
+        "400":
+          description: Invalid quiz ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Quiz not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get quiz details
+      tags:
+      - Quiz
+    put:
+      consumes:
+      - application/json
+      description: Update quiz details (teacher/admin only)
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      - description: Updated quiz data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateQuizRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Quiz updated successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuizResponse'
+              type: object
+        "400":
+          description: Invalid request or validation error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not quiz owner
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update quiz
+      tags:
+      - Quiz - Teacher
+  /quizzes/{quizId}/bulk-grade:
+    post:
+      consumes:
+      - application/json
+      description: Grade multiple answers at once (teacher/admin only)
+      parameters:
+      - description: Bulk grade data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.BulkGradeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Answers graded successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.BulkGradeResponse'
+              type: object
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - teacher/admin only
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Bulk grade answers
+      tags:
+      - Quiz - Teacher
+  /quizzes/{quizId}/grading:
+    get:
+      consumes:
+      - application/json
+      description: Get all student answers that need manual grading (teacher/admin
+        only)
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of answers needing grading
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.StudentAnswerForGrading'
+                  type: array
+              type: object
+        "400":
+          description: Invalid quiz ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - teacher/admin only
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List answers for grading
+      tags:
+      - Quiz - Teacher
   /quizzes/{quizId}/my-attempts:
     get:
       consumes:
@@ -791,23 +4803,200 @@ paths:
       - application/json
       responses:
         "200":
-          description: List of attempts
+          description: List of quiz attempts
           schema:
-            additionalProperties: true
-            type: object
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.QuizAttemptDTO'
+                  type: array
+              type: object
         "400":
           description: Invalid quiz ID
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
         "500":
           description: Internal server error
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/dto.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: Get student's quiz attempt history
+      summary: Get my quiz attempts
+      tags:
+      - Quiz - Student
+  /quizzes/{quizId}/questions:
+    get:
+      consumes:
+      - application/json
+      description: Get all questions for a quiz (correct answers hidden for students)
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of questions
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.QuestionResponse'
+                  type: array
+              type: object
+        "400":
+          description: Invalid quiz ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List questions
+      tags:
+      - Quiz
+    post:
+      consumes:
+      - application/json
+      description: Create a new question for a quiz (teacher/admin only)
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      - description: Question data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateQuestionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Question created successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuestionResponse'
+              type: object
+        "400":
+          description: Invalid request or validation error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not quiz owner
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a question
+      tags:
+      - Quiz - Teacher
+  /quizzes/{quizId}/questions/batch:
+    post:
+      consumes:
+      - application/json
+      description: Create multiple new questions for a quiz at once (teacher/admin
+        only)
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      - description: Batch Questions data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.BatchCreateQuestionsRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Questions created successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.QuestionResponse'
+                  type: array
+              type: object
+        "400":
+          description: Invalid request or validation error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden - not quiz owner
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Batch create questions
+      tags:
+      - Quiz - Teacher
+  /quizzes/{quizId}/start:
+    post:
+      consumes:
+      - application/json
+      description: Start a new attempt to take a quiz
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Quiz attempt started
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.QuizAttemptResponse'
+              type: object
+        "400":
+          description: Cannot start attempt (max attempts reached, quiz not available,
+            etc.)
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Start quiz attempt
       tags:
       - Quiz - Student
   /sections/{sectionId}:
@@ -988,6 +5177,140 @@ paths:
       summary: Create content
       tags:
       - content
+  /sync/user:
+    post:
+      consumes:
+      - application/json
+      description: Sync a single user from auth service to LMS (requires sync secret
+        header)
+      parameters:
+      - description: Sync secret for authentication
+        in: header
+        name: X-Sync-Secret
+        required: true
+        type: string
+      - description: User sync data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UserSyncRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User synced successfully
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.UserSyncResponse'
+              type: object
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Invalid sync secret
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Sync a single user
+      tags:
+      - Sync
+  /sync/user/{userId}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a user and all their data from LMS (requires sync secret
+        header)
+      parameters:
+      - description: Sync secret for authentication
+        in: header
+        name: X-Sync-Secret
+        required: true
+        type: string
+      - description: User ID to delete
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User deleted from LMS
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                message:
+                  type: string
+              type: object
+        "400":
+          description: Invalid user ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Invalid sync secret
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Delete a user from LMS
+      tags:
+      - Sync
+  /sync/users/bulk:
+    post:
+      consumes:
+      - application/json
+      description: Sync multiple users from auth service to LMS (requires sync secret
+        header)
+      parameters:
+      - description: Sync secret for authentication
+        in: header
+        name: X-Sync-Secret
+        required: true
+        type: string
+      - description: Bulk user sync data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.BulkUserSyncRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Users synced with results
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.BulkUserSyncResponse'
+              type: object
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Invalid sync secret
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Bulk sync multiple users
+      tags:
+      - Sync
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and JWT token.

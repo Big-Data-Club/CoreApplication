@@ -18,6 +18,8 @@ type Course struct {
 	CreatedAt    time.Time      `json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at" db:"updated_at"`
 	PublishedAt  sql.NullTime   `json:"published_at" db:"published_at"`
+	OrgID        int64          `json:"org_id" db:"org_id"`
+	Visibility   string         `json:"visibility" db:"visibility"`
 }
 
 // CourseWithCreator includes creator information
