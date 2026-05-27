@@ -70,9 +70,11 @@ class QuizGenerationResult:
 # ── Prompts ──────────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT_VI = (
-    "Bạn là chuyên gia thiết kế đề thi. Nhiệm vụ của bạn là tạo câu hỏi "
-    "trắc nghiệm (MCQ, 4 phương án, đúng 1) dựa trên nội dung tài liệu. "
-    "Luôn trả về JSON đúng schema được yêu cầu, không kèm văn bản giải thích."
+    "You are an expert quiz designer. Your job is to create a multiple-choice "
+    "question (4 options, exactly 1 correct) based on the provided content. "
+    "Even though this system instruction is in English, you MUST generate all output fields "
+    "(question, options, and explanation) in Vietnamese. "
+    "Always return JSON matching the requested schema, with no extra commentary."
 )
 
 _SYSTEM_PROMPT_EN = (
@@ -209,11 +211,13 @@ class MicroQuizService:
 
         quizzes: list[GeneratedQuiz] = []
         for i, item in enumerate(nodes_with_chunks):
+            prev_node = nodes_with_chunks[i - 1]["node"] if i > 0 else None
             quiz = await self._generate_quiz_for_node(
                 node=item["node"],
                 chunks=item["chunks"],
                 language=language,
                 order_index=i,
+                prev_node=prev_node,
             )
             if quiz:
                 quizzes.append(quiz)
@@ -232,28 +236,52 @@ class MicroQuizService:
         return QuizGenerationResult(job_id=job_id, course_id=course_id, quizzes=quizzes, language=language)
 
     async def _fetch_nodes_and_chunks(self, source_content_id: int) -> list[dict]:
-        """Fetch knowledge nodes and their chunks for the given content."""
+        """Fetch knowledge nodes and their chunks for the given content, sorted logically."""
         from app.core.database import get_ai_conn
         async with get_ai_conn() as conn:
+            # 1. Fetch nodes with their minimum chunk index to preserve document logical flow
             nodes_rows = await conn.fetch(
-                "SELECT id, name, description FROM knowledge_nodes "
-                "WHERE source_content_id=$1 ORDER BY id",
-                source_content_id,
+                """
+                SELECT kn.id, kn.name, kn.description, COALESCE(MIN(dc.chunk_index), 999999) as min_chunk_idx
+                FROM knowledge_nodes kn
+                LEFT JOIN document_chunks dc ON dc.node_id = kn.id
+                WHERE kn.source_content_id = $1
+                GROUP BY kn.id, kn.name, kn.description
+                """,
+                source_content_id
             )
             if not nodes_rows:
                 return []
 
-            chunks_rows = await conn.fetch(
-                "SELECT node_id, chunk_text FROM document_chunks "
-                "WHERE content_id=$1 ORDER BY chunk_index",
-                source_content_id,
+            # 2. Fetch prerequisite relationships between these nodes
+            prereq_rows = await conn.fetch(
+                """
+                SELECT knr.source_node_id, knr.target_node_id
+                FROM knowledge_node_relations knr
+                JOIN knowledge_nodes kn_src ON knr.source_node_id = kn_src.id
+                JOIN knowledge_nodes kn_tgt ON knr.target_node_id = kn_tgt.id
+                WHERE kn_src.source_content_id = $1 AND kn_tgt.source_content_id = $1
+                  AND knr.relation_type = 'prerequisite'
+                """,
+                source_content_id
             )
 
+            # 3. Fetch chunks in order
+            chunks_rows = await conn.fetch(
+                "SELECT node_id, chunk_text FROM document_chunks WHERE content_id=$1 ORDER BY chunk_index",
+                source_content_id
+            )
+
+            # Organize data
             node_map = {}
             for row in nodes_rows:
                 node_map[row["id"]] = {
-                    "node": {"id": row["id"], "name": row["name"],
-                             "description": row["description"]},
+                    "node": {
+                        "id": row["id"], 
+                        "name": row["name"], 
+                        "description": row["description"],
+                        "min_chunk_idx": row["min_chunk_idx"]
+                    },
                     "chunks": [],
                 }
 
@@ -262,7 +290,48 @@ class MicroQuizService:
                 if nid in node_map:
                     node_map[nid]["chunks"].append(row["chunk_text"])
 
-            return [n for n in node_map.values() if n["chunks"]]
+            # Keep only nodes that actually have chunks mapped to them
+            valid_items = [n for n in node_map.values() if n["chunks"]]
+            if not valid_items:
+                return []
+
+            # Extract nodes and relations for Topological Sorting
+            nodes_to_sort = [item["node"] for item in valid_items]
+            prereqs = [(row["source_node_id"], row["target_node_id"]) for row in prereq_rows]
+
+            node_ids = {n["id"] for n in nodes_to_sort}
+            adj = {nid: [] for nid in node_ids}
+            in_degree = {nid: 0 for nid in node_ids}
+
+            for u, v in prereqs:
+                if u in node_ids and v in node_ids:
+                    adj[u].append(v)
+                    in_degree[v] += 1
+
+            # Multi-criteria Queue: zero in-degree nodes sorted by their first appearance in document
+            sources = [nid for nid in node_ids if in_degree[nid] == 0]
+            sources.sort(key=lambda nid: node_map[nid]["node"]["min_chunk_idx"])
+
+            sorted_node_ids = []
+            while sources:
+                curr_id = sources.pop(0)
+                sorted_node_ids.append(curr_id)
+
+                for neighbor in adj[curr_id]:
+                    in_degree[neighbor] -= 1
+                    if in_degree[neighbor] == 0:
+                        sources.append(neighbor)
+
+                sources.sort(key=lambda nid: node_map[nid]["node"]["min_chunk_idx"])
+
+            # Cycle fallback
+            if len(sorted_node_ids) < len(nodes_to_sort):
+                sorted_set = set(sorted_node_ids)
+                remaining = [nid for nid in node_ids if nid not in sorted_set]
+                remaining.sort(key=lambda nid: node_map[nid]["node"]["min_chunk_idx"])
+                sorted_node_ids.extend(remaining)
+
+            return [node_map[nid] for nid in sorted_node_ids]
 
     async def _generate_quiz_for_node(
         self,
@@ -270,6 +339,7 @@ class MicroQuizService:
         chunks: list[str],
         language: str,
         order_index: int,
+        prev_node: Optional[dict] = None,
     ) -> Optional[GeneratedQuiz]:
         """Generate one quiz (N questions) for a single knowledge node."""
         questions: list[QuizQuestion] = []
@@ -278,12 +348,19 @@ class MicroQuizService:
         tasks = []
         for chunk_idx, chunk_text in enumerate(chunks):
             bloom_level = BLOOM_LEVELS[chunk_idx % len(BLOOM_LEVELS)]
+            
+            # Make the last question of the quiz an integrative question if we have a prev_node
+            is_integrative = False
+            if prev_node and chunk_idx == len(chunks) - 1:
+                is_integrative = True
+                
             tasks.append(
                 self._generate_single_question(
                     chunk_text=chunk_text,
                     node_name=node["name"],
                     bloom_level=bloom_level,
                     language=language,
+                    prev_node=prev_node if is_integrative else None,
                 )
             )
 
@@ -312,6 +389,7 @@ class MicroQuizService:
         node_name: str,
         bloom_level: str,
         language: str,
+        prev_node: Optional[dict] = None,
     ) -> Optional[QuizQuestion]:
         """Generate a single MCQ from one chunk at a specified Bloom level."""
         async with _LLM_SEMAPHORE:
@@ -319,60 +397,48 @@ class MicroQuizService:
 
             sys_msg = _SYSTEM_PROMPT_VI if language == "vi" else _SYSTEM_PROMPT_EN
 
-            if language == "vi":
-                user_msg = (
-                    f"Hãy tạo 1 câu hỏi trắc nghiệm ở mức độ Bloom [{bloom_level}] "
-                    f"cho chủ đề: {node_name}\n\n"
-                    "## QUY TẮC\n"
-                    "1. Câu hỏi phải dựa TRỰC TIẾP trên NỘI DUNG bên dưới.\n"
-                    "2. Đúng 4 phương án (A, B, C, D), chỉ 1 đáp án đúng.\n"
-                    "3. Viết giải thích ngắn gọn tại sao đáp án đó đúng.\n"
-                    f"4. Nếu nội dung quá hàn lâm và không thể tạo câu hỏi mức [{bloom_level}], "
-                    "hãy tự động chuyển xuống mức thấp hơn phù hợp và ghi nhận mức thực tế "
-                    "vào trường `bloom_level`.\n"
-                    "5. Các trường text có thể chứa Markdown (ảnh, công thức).\n\n"
-                    "## SCHEMA JSON BẮT BUỘC\n"
-                    "{\n"
-                    '  "question": "Câu hỏi...",\n'
-                    '  "options": [\n'
-                    '    {"text": "A. ...", "is_correct": false},\n'
-                    '    {"text": "B. ...", "is_correct": true},\n'
-                    '    {"text": "C. ...", "is_correct": false},\n'
-                    '    {"text": "D. ...", "is_correct": false}\n'
-                    "  ],\n"
-                    '  "explanation": "Giải thích...",\n'
-                    f'  "bloom_level": "{bloom_level}"\n'
-                    "}\n\n"
-                    "## NỘI DUNG TÀI LIỆU\n"
-                    f"{truncated}\n"
+            lang_name = "Vietnamese" if language == "vi" else "English"
+
+            integrative_prompt = ""
+            if prev_node:
+                integrative_prompt = (
+                    f"\n## SPECIAL REQUIREMENT: INTEGRATIVE KNOWLEDGE QUESTION\n"
+                    f"This question must be an integrative, comparative, or logical connection question between:\n"
+                    f"1. The current topic: '{node_name}' (based on the source content below)\n"
+                    f"2. The previously learned topic: '{prev_node['name']}' (Description: {prev_node['description']})\n"
+                    f"The goal is to test the student's ability to logically connect new and old concepts. "
+                    f"Write the question, options, and explanation in {lang_name}. "
+                    f"The explanation field must explicitly detail this logical connection.\n"
                 )
-            else:
-                user_msg = (
-                    f"Create 1 MCQ at Bloom's level [{bloom_level}] "
-                    f"for the topic: {node_name}\n\n"
-                    "## RULES\n"
-                    "1. The question must be DIRECTLY based on the CONTENT below.\n"
-                    "2. Exactly 4 options (A, B, C, D), only 1 correct.\n"
-                    "3. Write a brief explanation why the answer is correct.\n"
-                    f"4. If the content is too academic for [{bloom_level}], "
-                    "automatically downgrade to a more suitable level and record "
-                    "the actual level in the `bloom_level` field.\n"
-                    "5. Text fields may contain Markdown (images, formulas).\n\n"
-                    "## REQUIRED JSON SCHEMA\n"
-                    "{\n"
-                    '  "question": "Question...",\n'
-                    '  "options": [\n'
-                    '    {"text": "A. ...", "is_correct": false},\n'
-                    '    {"text": "B. ...", "is_correct": true},\n'
-                    '    {"text": "C. ...", "is_correct": false},\n'
-                    '    {"text": "D. ...", "is_correct": false}\n'
-                    "  ],\n"
-                    '  "explanation": "Explanation...",\n'
-                    f'  "bloom_level": "{bloom_level}"\n'
-                    "}\n\n"
-                    "## SOURCE CONTENT\n"
-                    f"{truncated}\n"
-                )
+
+            user_msg = (
+                f"Create exactly 1 multiple-choice question (MCQ) at Bloom's level [{bloom_level}] "
+                f"for the topic: {node_name}\n\n"
+                f"{integrative_prompt}"
+                f"## RULES\n"
+                f"1. The question must be DIRECTLY based on the SOURCE CONTENT below.\n"
+                f"2. Provide exactly 4 options (A, B, C, D) in the format 'A. [content]', 'B. [content]', etc., with exactly 1 correct option.\n"
+                f"3. Write a brief explanation why the selected answer is correct.\n"
+                f"4. If the content is too academic or simple to support a question at [{bloom_level}], "
+                f"automatically downgrade/adjust to a more suitable level and record the actual level in the 'bloom_level' field.\n"
+                f"5. All text fields ('question', option text, 'explanation') MUST be written in {lang_name}.\n"
+                f"6. Text fields may contain Markdown (images, formulas if present in content).\n\n"
+                f"## REQUIRED JSON SCHEMA\n"
+                "{\n"
+                f'  "question": "Question text in {lang_name}...",\n'
+                f'  "options": [\n'
+                f'    {{"text": "A. Option text in {lang_name}", "is_correct": false}},\n'
+                f'    {{"text": "B. Option text in {lang_name}", "is_correct": true}},\n'
+                f'    {{"text": "C. Option text in {lang_name}", "is_correct": false}},\n'
+                f'    {{"text": "D. Option text in {lang_name}", "is_correct": false}}\n'
+                f'  ],\n'
+                f'  "explanation": "Explanation in {lang_name} why B is correct...",\n'
+                f'  "bloom_level": "{bloom_level}"\n'
+                "}\n\n"
+                f"## SOURCE CONTENT\n"
+                f"{truncated}\n"
+            )
+
 
             try:
                 result = await chat_complete_json(

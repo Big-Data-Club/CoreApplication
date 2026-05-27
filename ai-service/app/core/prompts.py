@@ -7,46 +7,50 @@ from __future__ import annotations
 import json
 SYSTEM_PROMPT_TUTOR = {
     "vi": (
-        "Bạn là gia sư AI phân tích lỗi sai của học sinh dựa trên tài liệu giảng dạy chính thức. "
-        "Tài liệu có thể bằng tiếng Anh — hãy đọc hiểu và giải thích bằng tiếng Việt. "
-        "Luôn dựa trên tài liệu được cung cấp, không bịa đặt. "
-        "Chỉ trả về JSON hợp lệ, không thêm text hay markdown."
+        "You are an AI tutor that analyzes student errors based on official course materials. "
+        "The materials may be in English or Vietnamese — read and understand them, then write the explanation in Vietnamese. "
+        "Always base your response strictly on the provided documents without hallucination. "
+        "Return ONLY valid JSON, with no extra conversational text or markdown wrappers."
     ),
     "en": (
         "You are an AI tutor that diagnoses student errors based on official course materials. "
-        "Materials may be in Vietnamese — read and understand them, then explain in English. "
-        "Base ALL explanations on the provided documents. "
-        "Return ONLY valid JSON, no extra text or markdown."
+        "The materials may be in Vietnamese or English — read and understand them, then write the explanation in English. "
+        "Always base your response strictly on the provided documents without hallucination. "
+        "Return ONLY valid JSON, with no extra conversational text or markdown wrappers."
     ),
 }
 SYSTEM_PROMPT_QUIZ_GEN = {
     "vi": (
-        "Bạn là chuyên gia thiết kế câu hỏi kiểm tra theo thang Bloom's Taxonomy. "
-        "Hệ thống hỗ trợ Markdown đầy đủ (đậm, nghiêng, bảng, danh sách), khối mã (code block) "
-        "và công thức toán học KaTeX ($...$ cho inline và $$...$$ cho block). "
-        "Hãy sử dụng Markdown một cách thông minh để làm câu hỏi rõ ràng hơn, tuyệt đối không lạm dụng. "
-        "Tài liệu có thể bằng tiếng Anh — đọc hiểu và tạo câu hỏi bằng tiếng Việt. "
-        "Chỉ trả về JSON hợp lệ theo đúng schema, không thêm text khác."
+        "You are an expert assessment designer using Bloom's Taxonomy. "
+        "The system supports full Markdown (bold, italic, tables, lists), code blocks, "
+        "and KaTeX math formulas ($...$ for inline and $$...$$ for block). "
+        "Use Markdown intelligently to make the questions clear and professional, but do not abuse it. "
+        "The source materials may be in English or Vietnamese — read and understand them, "
+        "then generate the questions, options, and explanations in Vietnamese. "
+        "Return ONLY valid JSON matching the requested schema exactly, with no extra conversational text or markdown wrappers."
     ),
     "en": (
         "You are an expert at designing assessments following Bloom's Taxonomy. "
-        "The system supports full Markdown (bold, italic, tables, lists), Code Blocks, "
+        "The system supports full Markdown (bold, italic, tables, lists), code blocks, "
         "and KaTeX math formulas ($...$ for inline and $$...$$ for block). "
         "Use Markdown intelligently to enhance clarity, but do not overuse it. "
-        "Source materials may be in Vietnamese — read them and create questions in English. "
-        "Return ONLY valid JSON matching the requested schema exactly."
+        "The source materials may be in Vietnamese or English — read and understand them, "
+        "then generate the questions, options, and explanations in English. "
+        "Return ONLY valid JSON matching the requested schema exactly, with no extra conversational text or markdown wrappers."
     ),
 }
 SYSTEM_PROMPT_FLASHCARD_GEN = {
     "vi": (
-        "Bạn là chuyên gia tạo Flashcard học tập theo phương pháp Spaced Repetition. "
-        "Tài liệu nguồn có thể bằng tiếng Anh — đọc hiểu và tạo flashcard bằng tiếng Việt. "
-        "Chỉ trả về JSON hợp lệ theo đúng schema, không thêm text khác."
+        "You are an expert at creating study flashcards for Spaced Repetition. "
+        "The source materials may be in English or Vietnamese — read and understand them, "
+        "then generate the flashcards (front and back text) in Vietnamese. "
+        "Return ONLY valid JSON matching the requested schema exactly, with no extra conversational text or markdown wrappers."
     ),
     "en": (
         "You are an expert at creating study flashcards for Spaced Repetition. "
-        "Source materials may be in Vietnamese — read and understand them, create flashcards in English. "
-        "Return ONLY valid JSON matching the requested schema exactly."
+        "The source materials may be in Vietnamese or English — read and understand them, "
+        "then generate the flashcards (front and back text) in English. "
+        "Return ONLY valid JSON matching the requested schema exactly, with no extra conversational text or markdown wrappers."
     ),
 }
 # ── Diagnosis ──────────────────────────────────────────────────────────────
@@ -120,39 +124,30 @@ def build_diagnosis_prompt(
     context_chunks: list[str],
     language: str = "vi",
 ) -> list[dict]:
-    context = "\n---\n".join(f"[Đoạn {i+1}] {c}" for i, c in enumerate(context_chunks))
-    distractors = "\n".join(f"  - {d}" for d in distractor_options) if distractor_options else "Không có"
-    if language == "vi":
-        user_msg = (
-            f"TÀI LIỆU THAM KHẢO:\n{context}\n\n"
-            f"LƯU Ý: tài liệu có thể bằng tiếng Anh — đọc hiểu và giải thích bằng tiếng Việt.\n---\n"
-            f"CÂU HỎI: {question_text}\n"
-            f"ĐÁP ÁN ĐÚNG: {correct_answer}\n"
-            f"CÁC ĐÁP ÁN NHIỄU:\n{distractors}\n"
-            f"HỌC SINH TRẢ LỜI: {wrong_answer}\n\n"
-            f"Phân tích TẠI SAO học sinh chọn \"{wrong_answer}\" thay vì đáp án đúng. "
-            f"relevant_source_indices là mảng số thứ tự đoạn THỰC SỰ liên quan (rỗng [] nếu không có).\n"
-            f'Trả về JSON: {{"explanation":"...","gap_type":"misconception|missing_prerequisite|careless|other",'
-            f'"knowledge_gap":"...","study_suggestion":"...","confidence":0.0,"relevant_source_indices":[1]}}'
-        )
-        few_shot = _DIAGNOSIS_FEW_SHOT_VI
-    else:
-        context = "\n---\n".join(f"[Segment {i+1}] {c}" for i, c in enumerate(context_chunks))
-        distractors = "\n".join(f"  - {d}" for d in distractor_options) if distractor_options else "None"
-        user_msg = (
-            f"REFERENCE MATERIAL:\n{context}\n\n"
-            f"NOTE: materials may be in Vietnamese — explain in English.\n---\n"
-            f"QUESTION: {question_text}\n"
-            f"CORRECT ANSWER: {correct_answer}\n"
-            f"DISTRACTORS:\n{distractors}\n"
-            f"STUDENT ANSWERED: {wrong_answer}\n\n"
-            f"Analyse WHY the student chose \"{wrong_answer}\" instead of the correct answer. "
-            f"relevant_source_indices = array of segment indices actually relevant to the misconception "
-            f"(return [] if none).\n"
-            f'Return JSON: {{"explanation":"...","gap_type":"misconception|missing_prerequisite|careless|other",'
-            f'"knowledge_gap":"...","study_suggestion":"...","confidence":0.0,"relevant_source_indices":[1]}}'
-        )
-        few_shot = _DIAGNOSIS_FEW_SHOT_EN
+    lang_name = "Vietnamese" if language == "vi" else "English"
+    context = "\n---\n".join(f"[Segment {i+1}] {c}" for i, c in enumerate(context_chunks))
+    distractors = "\n".join(f"  - {d}" for d in distractor_options) if distractor_options else "None"
+    
+    user_msg = (
+        f"REFERENCE MATERIAL:\n{context}\n\n"
+        f"NOTE: Source materials may be in English or Vietnamese. Read them and write the response in {lang_name}.\n---\n"
+        f"QUESTION: {question_text}\n"
+        f"CORRECT ANSWER: {correct_answer}\n"
+        f"DISTRACTORS:\n{distractors}\n"
+        f"STUDENT ANSWERED: {wrong_answer}\n\n"
+        f"TASK: Analyze WHY the student chose the wrong answer \"{wrong_answer}\" instead of the correct answer.\n"
+        f"Return the analysis as a JSON object matching the schema below. "
+        f"All text fields ('explanation', 'knowledge_gap', 'study_suggestion') MUST be written in {lang_name}.\n"
+        f"The 'relevant_source_indices' should contain the 1-based segment indices from the reference materials that are actually relevant to diagnosing the misconception (or [] if none).\n\n"
+        f"REQUIRED JSON SCHEMA:\n"
+        f'{{"explanation":"Detailed analysis of student error in {lang_name}",'
+        f'"gap_type":"misconception|missing_prerequisite|careless|other",'
+        f'"knowledge_gap":"Specific concept the student is missing or misunderstood in {lang_name}",'
+        f'"study_suggestion":"Actionable study recommendation referencing the relevant segments in {lang_name}",'
+        f'"confidence":0.0,'
+        f'"relevant_source_indices":[1]}}'
+    )
+    few_shot = _DIAGNOSIS_FEW_SHOT_VI if language == "vi" else _DIAGNOSIS_FEW_SHOT_EN
     return [
         {"role": "system", "content": SYSTEM_PROMPT_TUTOR[language]},
         *few_shot,
@@ -219,20 +214,21 @@ def build_quiz_generation_prompt(
     language: str = "vi",
     existing_questions: list[str] | None = None,
 ) -> list[dict]:
-    context = "\n---\n".join(f"[Nguồn {i+1}] {c}" for i, c in enumerate(context_chunks))
+    lang_name = "Vietnamese" if language == "vi" else "English"
+    context = "\n---\n".join(f"[Source {i+1}] {c}" for i, c in enumerate(context_chunks))
     existing = (
-        "\n\nTRÁNH TRÙNG VỚI:\n" + "\n".join(f"- {q}" for q in existing_questions[:5])
+        "\n\nAVOID DUPLICATING THE FOLLOWING EXISTING QUESTIONS:\n" + "\n".join(f"- {q}" for q in existing_questions[:5])
         if existing_questions else ""
     )
     bloom_desc = {
-        "remember":   ("Nhớ",       "Remember"),
-        "understand": ("Hiểu",      "Understand"),
-        "apply":      ("Vận dụng",  "Apply"),
-        "analyze":    ("Phân tích", "Analyze"),
-        "evaluate":   ("Đánh giá",  "Evaluate"),
-        "create":     ("Sáng tạo",  "Create"),
+        "remember":   "Remember",
+        "understand": "Understand",
+        "apply":      "Apply",
+        "analyze":    "Analyze",
+        "evaluate":   "Evaluate",
+        "create":     "Create",
     }
-    bloom_vi, bloom_en = bloom_desc.get(bloom_level, ("Nhớ", "Remember"))
+    bloom_lbl = bloom_desc.get(bloom_level, "Remember")
     schema = (
         '{"question_text":"...","bloom_level":"' + bloom_level + '",'
         '"question_type":"SINGLE_CHOICE",'
@@ -243,34 +239,22 @@ def build_quiz_generation_prompt(
         '{"text":"...","is_correct":false,"explanation":"..."}'
         '],"explanation":"...","source_quote":"..."}'
     )
-    if language == "vi":
-        lang_note = (
-            "LƯU Ý THIẾT KẾ:\n"
-            "1. Tài liệu có thể bằng tiếng Anh. Đọc hiểu và viết câu hỏi + đáp án bằng tiếng Việt.\n"
-            "2. Sử dụng Markdown (**đậm**, `mã`, $toán$, $$khối toán$$) một cách thông minh để câu hỏi chuyên nghiệp.\n"
-            "3. TRÁNH BIAS: Các phương án nhiễu phải có vẻ đúng và liên quan đến chủ đề. Câu hỏi phải khách quan.\n"
-            "4. TRÍ TUỆ: Câu hỏi phải đòi hỏi suy luận dựa trên tài liệu nguồn được cung cấp từ Knowledge Base."
-        )
-        user_msg = (
-            f"TÀI LIỆU (Từ Vector DB/Graph):\n{context}{existing}\n\n{lang_note}\n\n"
-            f"CHỦ ĐỀ: {node_name}\nCẤP ĐỘ BLOOM: {bloom_vi} ({bloom_level})\n\n"
-            f"Tạo 1 câu hỏi trắc nghiệm chất lượng cao. Trả về JSON:\n{schema}"
-        )
-        few_shot = _QUIZ_FEW_SHOT_VI
-    else:
-        lang_note = (
-            "DESIGN NOTES:\n"
-            "1. Source materials may be in Vietnamese. Write questions and answers in English.\n"
-            "2. Use Markdown (**bold**, `code`, $math$, $$math block$$) smartly for a professional feel.\n"
-            "3. ANTI-BIAS: Ensure distractors are plausible and relevant. Question must be objective.\n"
-            "4. INTELLIGENCE: The question must require reasoning based on the provided source material from the Knowledge Base."
-        )
-        user_msg = (
-            f"MATERIAL (From Vector DB/Graph):\n{context}{existing}\n\n{lang_note}\n\n"
-            f"TOPIC: {node_name}\nBLOOM LEVEL: {bloom_en}\n\n"
-            f"Create 1 high-quality multiple choice question. Return JSON:\n{schema}"
-        )
-        few_shot = _QUIZ_FEW_SHOT_EN
+    
+    design_notes = (
+        f"DESIGN NOTES:\n"
+        f"1. Source materials may be in English or Vietnamese. Write the question, options, and explanations in {lang_name}.\n"
+        f"2. Use Markdown (**bold**, `code`, $math$, $$math block$$) smartly for a professional feel.\n"
+        f"3. ANTI-BIAS: Ensure distractors are plausible and relevant. Question must be objective.\n"
+        f"4. INTELLIGENCE: The question must require reasoning based on the provided source material from the Knowledge Base."
+    )
+    
+    user_msg = (
+        f"MATERIAL (From Vector DB/Graph):\n{context}{existing}\n\n{design_notes}\n\n"
+        f"TOPIC: {node_name}\n"
+        f"BLOOM LEVEL: {bloom_lbl} ({bloom_level})\n\n"
+        f"Create 1 high-quality multiple choice question in {lang_name}. Return JSON:\n{schema}"
+    )
+    few_shot = _QUIZ_FEW_SHOT_VI if language == "vi" else _QUIZ_FEW_SHOT_EN
     return [
         {"role": "system", "content": SYSTEM_PROMPT_QUIZ_GEN[language]},
         *few_shot,
@@ -305,33 +289,24 @@ def build_flashcard_generation_prompt(
     language: str = "vi",
     existing_fronts: list[str] | None = None,
 ) -> list[dict]:
-    context = "\n---\n".join(f"[Nguồn {i+1}] {c}" for i, c in enumerate(context_chunks))
+    lang_name = "Vietnamese" if language == "vi" else "English"
+    context = "\n---\n".join(f"[Source {i+1}] {c}" for i, c in enumerate(context_chunks))
     avoid = (
-        ("\nTRÁNH TRÙNG LẶP:\n" if language == "vi" else "\nDO NOT DUPLICATE:\n")
-        + "\n".join(f"- {f}" for f in (existing_fronts or [])[:10])
+        "\nDO NOT DUPLICATE THESE FRONT TEXTS:\n" + "\n".join(f"- {f}" for f in (existing_fronts or [])[:10])
         if existing_fronts else ""
     )
     schema = (
-        '{"flashcards":[{"front_text":"[câu hỏi ngắn]","back_text":"[giải thích ngắn]"}]}'
+        '{"flashcards":[{"front_text":"[short question/prompt]","back_text":"[short explanation/answer]"}]}'
     )
-    if language == "vi":
-        lang_note = "LƯU Ý: tài liệu có thể bằng tiếng Anh. Đọc hiểu và tạo flashcard bằng tiếng Việt."
-        user_msg = (
-            f"TÀI LIỆU:\n{context}\n\n{lang_note}\n\n"
-            f"CHỦ ĐỀ: {node_name}\n"
-            f"LỖI SAI GẦN ĐÂY:\n{wrong_answers_context}\n{avoid}\n"
-            f"Tạo {count} flashcard MỚI. Trả về JSON:\n{schema}"
-        )
-        few_shot = _FLASHCARD_FEW_SHOT_VI
-    else:
-        lang_note = "NOTE: source materials may be in Vietnamese. Create flashcards in English."
-        user_msg = (
-            f"MATERIAL:\n{context}\n\n{lang_note}\n\n"
-            f"TOPIC: {node_name}\n"
-            f"RECENT ERRORS:\n{wrong_answers_context}\n{avoid}\n"
-            f"Create {count} NEW flashcards. Return JSON:\n{schema}"
-        )
-        few_shot = []
+    
+    lang_note = f"NOTE: Source materials may be in English or Vietnamese. Create flashcards in {lang_name}."
+    user_msg = (
+        f"MATERIAL:\n{context}\n\n{lang_note}\n\n"
+        f"TOPIC: {node_name}\n"
+        f"RECENT ERRORS:\n{wrong_answers_context}\n{avoid}\n"
+        f"Create exactly {count} NEW flashcards. Return JSON matching the schema where 'front_text' and 'back_text' are in {lang_name}:\n{schema}"
+    )
+    few_shot = _FLASHCARD_FEW_SHOT_VI if language == "vi" else []
     return [
         {"role": "system", "content": SYSTEM_PROMPT_FLASHCARD_GEN[language]},
         *few_shot,
@@ -342,18 +317,20 @@ def build_flashcard_generation_prompt(
 # ── Concept Check (Quick Action Panel mini-quiz) ───────────────────────────
 SYSTEM_PROMPT_CONCEPT_CHECK = {
     "vi": (
-        "Bạn là chuyên gia thiết kế câu hỏi 'Concept Check' siêu ngắn cho micro-lesson. "
-        "Mỗi câu phải kiểm tra MỘT khái niệm cốt lõi vừa học, không hơn. "
-        "Câu hỏi và phương án phải ngắn gọn, KHÔNG dài hơn một dòng. "
-        "Tài liệu có thể bằng tiếng Anh — đọc hiểu và viết câu hỏi bằng tiếng Việt. "
-        "Chỉ trả về JSON hợp lệ theo đúng schema, không thêm text khác."
+        "You are an expert at designing ultra-short 'Concept Check' questions for micro-lessons. "
+        "Each question must test exactly ONE core concept just learned, nothing more. "
+        "Questions and options must be extremely concise, preferably no longer than one line. "
+        "The materials may be in English or Vietnamese — read and understand them, "
+        "then write the questions, options, and explanations in Vietnamese. "
+        "Return ONLY valid JSON matching the schema, with no extra conversational text or markdown wrappers."
     ),
     "en": (
-        "You are an expert at designing ultra-short 'Concept Check' questions for a micro-lesson. "
-        "Each question must test ONE core concept just learned, nothing more. "
-        "Questions and options must be terse, no longer than one line. "
-        "Source materials may be in Vietnamese — read them and write questions in English. "
-        "Return ONLY valid JSON matching the schema, no extra text."
+        "You are an expert at designing ultra-short 'Concept Check' questions for micro-lessons. "
+        "Each question must test exactly ONE core concept just learned, nothing more. "
+        "Questions and options must be extremely concise, preferably no longer than one line. "
+        "The materials may be in Vietnamese or English — read and understand them, "
+        "then write the questions, options, and explanations in English. "
+        "Return ONLY valid JSON matching the schema, with no extra conversational text or markdown wrappers."
     ),
 }
 
@@ -371,6 +348,7 @@ def build_concept_check_prompt(
     that are answerable from ``text_chunk`` alone. Used to power the
     Quick Action Panel "Quick Check" button in the MicroLessonViewer.
     """
+    lang_name = "Vietnamese" if language == "vi" else "English"
     schema = (
         '{"questions":[{'
         '"question_text":"...","question_type":"SINGLE_CHOICE",'
@@ -381,23 +359,16 @@ def build_concept_check_prompt(
         '{"text":"...","is_correct":false,"explanation":"..."}'
         ']}]}'
     )
-    topic = node_name or ("Bài học" if language == "vi" else "Lesson")
-    if language == "vi":
-        user_msg = (
-            f"NỘI DUNG MICRO-LESSON:\n{text_chunk}\n\n"
-            f"CHỦ ĐỀ: {topic}\n"
-            f"Hãy tạo CHÍNH XÁC {count} câu hỏi 'Concept Check' kiểu trắc nghiệm "
-            f"(SINGLE_CHOICE, 4 lựa chọn) bám sát nội dung trên. "
-            f"Trả về JSON:\n{schema}"
-        )
-    else:
-        user_msg = (
-            f"MICRO-LESSON CONTENT:\n{text_chunk}\n\n"
-            f"TOPIC: {topic}\n"
-            f"Generate EXACTLY {count} SINGLE_CHOICE 'Concept Check' questions "
-            f"(4 options each) grounded in the content above. "
-            f"Return JSON:\n{schema}"
-        )
+    topic = node_name or ("Lesson" if language == "en" else "Bài học")
+    
+    user_msg = (
+        f"MICRO-LESSON CONTENT:\n{text_chunk}\n\n"
+        f"TOPIC: {topic}\n"
+        f"Generate EXACTLY {count} SINGLE_CHOICE 'Concept Check' questions "
+        f"(4 options each) grounded in the content above. "
+        f"All text fields (question_text, option text, explanation) MUST be in {lang_name}.\n"
+        f"Return JSON matching the schema:\n{schema}"
+    )
 
     return [
         {"role": "system", "content": SYSTEM_PROMPT_CONCEPT_CHECK[language]},

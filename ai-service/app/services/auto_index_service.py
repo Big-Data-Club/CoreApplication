@@ -89,18 +89,20 @@ class ExtractedRelation:
 # ── LLM prompts ───────────────────────────────────────────────────────────────
 
 NODE_EXTRACTION_SYSTEM = """\
-Bạn là chuyên gia phân tích giáo trình và thiết kế chương trình học.
-Nhiệm vụ: xác định các khái niệm kiến thức (nodes) cốt lõi xuất hiện TRỰC TIẾP trong tài liệu.
-Nguyên tắc quan trọng:
-- CHỈ trích xuất các chủ đề có nội dung cụ thể, không trích xuất các phần chung chung (ví dụ: "Giới thiệu", "Kết luận", "Tài liệu tham khảo").
-- TUYỆT ĐỐI KHÔNG tạo Node cho toàn bộ cuốn sách hoặc tiêu đề chương chung chung. Chỉ tạo Node cho các khái niệm học thuật, định nghĩa, thực thể hoặc kỹ năng cụ thể.
-- Một node phải đủ quan trọng để có thể đặt được ít nhất 3-5 câu hỏi kiểm tra dựa trên nội dung tệp.
-- Ưu tiên chất lượng hơn số lượng: Nếu tài liệu ngắn, chỉ cần trích xuất 2-3 node chất lượng thay vì cố lấy cho đủ số lượng.
-- Nếu một phần văn bản không chứa kiến thức học thuật rõ ràng, ĐỪNG tạo node cho nó.
-- BỎ QUA HOÀN TOÀN: thông tin bản quyền (©), số trang, tên nhà xuất bản, logo trường đại học, tên tác giả sách (Silberschatz, Galvin, v.v.). Đây KHÔNG phải là kiến thức.
-- Nếu TOÀN BỘ đoạn văn bản chỉ chứa bản quyền, số trang, hoặc metadata — hãy trả về {"nodes": [], "prerequisites": []}.
-- KHÔNG tạo node có tên trùng hoặc gần giống nhau. Nếu hai khái niệm liên quan chặt chẽ, hãy gộp thành MỘT node với mô tả đầy đủ hơn.
-CHỈ trả về JSON hợp lệ.\
+You are an expert curriculum analyst and learning experience designer.
+Your task is to identify core knowledge concepts (nodes) that appear DIRECTLY in the document to design bite-sized learning pathways (micro-lessons).
+
+Important principles for micro-learning optimization:
+1. HIGH SEMANTIC STANDARD: Extract only topics with specific theoretical content, definitions, formulas, or technical methods.
+   - DO NOT create nodes for generic or vague sections like "Introduction", "Overview", "Basic Concepts", "Preface", "Conclusion", "Examples", "Exercises", "References", etc.
+   - Instead of a generic "Introduction" node, create a node describing the primary concept being introduced (e.g., "Concept and Role of Operating Systems").
+2. REASONABLE GRANULARITY (No Fragmented Nodes): Avoid overly small or fragmented concepts to prevent shallow, disjointed learning.
+   - Group closely related topics into a single comprehensive node (e.g., instead of creating separate nodes for "If Statement", "Else Statement", and "Elif Statement", group them into "Conditional Structures (If-Else) in Python").
+   - A node must contain enough substance to support a ~5-minute reading lesson (~700-1100 words) and allow for 3-5 distinct test questions.
+3. NO DUPLICATION: Ensure the extracted nodes do not overlap semantically with each other.
+4. FILTER BOILERPLATE & METADATA: Disregard copyright info (©), page numbers, publisher names, university logos, author names, etc. If the text only contains metadata or lacks academic substance, return an empty structure: {"nodes": [], "prerequisites": []}.
+
+Return ONLY valid JSON according to the requested schema. No conversational text.\
 """
 
 
@@ -112,56 +114,64 @@ def build_node_extraction_prompt(
     detected_headings: list[str],
     max_nodes: int,
 ) -> str:
-    lang_hint = "Tên chủ đề ưu tiên tiếng Việt" if language == "vi" else "Topic names in English preferred"
+    lang_output_hint = (
+        "Output requirements: Always provide both 'name_vi' (Vietnamese) and 'name_en' (English) topic names. "
+        "Write the 'description' and 'reason' fields in Vietnamese."
+        if language == "vi" else
+        "Output requirements: Always provide both 'name_vi' (Vietnamese) and 'name_en' (English) topic names. "
+        "Write the 'description' and 'reason' fields in English."
+    )
+    
     file_hint_map = {
-        "pdf":   "tài liệu PDF",
-        "docx":  "tài liệu Word",
-        "pptx":  "bản trình chiếu PowerPoint",
-        "xlsx":  "bảng tính Excel",
-        "text":  "tài liệu Markdown",
-        "image": "hình ảnh đã được mô tả",
-        "video": "transcript video bài giảng",
-        "txt":   "file văn bản thuần",
+        "pdf":   "PDF document",
+        "docx":  "Word document",
+        "pptx":  "PowerPoint presentation",
+        "xlsx":  "Excel spreadsheet",
+        "text":  "Markdown text",
+        "image": "Described image",
+        "video": "Lecture video transcript",
+        "txt":   "Plain text file",
     }
-    file_hint = file_hint_map.get(file_type, "tài liệu học tập")
+    file_hint = file_hint_map.get(file_type, "learning material")
 
     heading_context = ""
     if detected_headings:
-        heading_context = "\nCÁC TIÊU ĐỀ PHÁT HIỆN:\n" + "\n".join(
+        heading_context = "\nDETECTED HEADINGS IN DOCUMENT:\n" + "\n".join(
             f"  - {h}" for h in detected_headings[:20]
         ) + "\n"
-    title_context = f"\nTIÊU ĐỀ TÀI LIỆU: {doc_title}\n" if doc_title else ""
+    title_context = f"\nDOCUMENT TITLE: {doc_title}\n" if doc_title else ""
 
     schema = """{
   "nodes": [
     {
-      "name_vi": "Tên chủ đề tiếng Việt",
-      "name_en": "English topic name",
-      "description": "Mô tả 2-3 câu về nội dung cụ thể trong tài liệu này",
-      "keywords": ["từ khóa 1", "từ khóa 2", "từ khóa 3"]
+      "name_vi": "Vietnamese topic name (highly accurate, academic style)",
+      "name_en": "English topic name (highly accurate, corresponding to name_vi)",
+      "description": "A 2-3 sentence description of the specific knowledge concept covered in the document",
+      "keywords": ["keyword 1", "keyword 2", "keyword 3"]
     }
   ],
   "prerequisites": [
     {
       "source_index": 0,
       "target_index": 2,
-      "relation_type": "prerequisite", // Loại quan hệ logic: prerequisite (tiên quyết), extends (mở rộng), equivalent (tương đương), contrasts_with (đối chiếu), hoặc related (liên quan)
-      "reason": "Lý do ngắn gọn",
+      "relation_type": "prerequisite", // Logical relation type: prerequisite, extends, equivalent, contrasts_with, or related
+      "reason": "Brief explanation of why this relation exists",
       "strength": 0.9
     }
   ]
 }"""
     return f"""\
-Loại tài liệu: {file_hint}
+Document Type: {file_hint}
 {title_context}{heading_context}
-NHIỆM VỤ: Xác định ĐÚNG {max_nodes} chủ đề kiến thức quan trọng nhất.
-{lang_hint}.
+TASK: Identify exactly {max_nodes} most important knowledge topics (nodes) from the source document.
+{lang_output_hint}
 
-NỘI DUNG TÀI LIỆU:
+DOCUMENT CONTENT:
 {document_excerpt}
 
-Trả về JSON (không thêm text khác):
+Return ONLY valid JSON matching the schema (no markdown wrapper or extra text):
 {schema}"""
+
 
 
 # ── File type detection ────────────────────────────────────────────────────────
