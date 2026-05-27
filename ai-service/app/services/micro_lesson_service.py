@@ -47,18 +47,19 @@ WORDS_PER_MINUTE = 200
 # ── Prompt builders ──────────────────────────────────────────────────────────
 
 _SPLITTER_SYSTEM_VI = (
-    "Bạn là chuyên gia thiết kế chương trình micro-learning. Nhiệm vụ của bạn "
-    "là biến tài liệu dài thành chuỗi các bài học nhỏ, mỗi bài 4–6 phút đọc "
-    "(khoảng 700–1100 từ). Mỗi bài phải hoàn chỉnh về mặt khái niệm — học viên "
-    "đọc một bài là hiểu trọn ý đó, không cần đọc bài khác. Luôn trả về JSON "
-    "đúng schema được yêu cầu, không kèm văn bản giải thích."
+    "You are an expert micro-learning curriculum designer. Your job is to "
+    "turn the source document into a short, self-contained lesson, "
+    "optimized for 4–6 minutes of reading (~700–1100 words). Even though this system instruction is in English, "
+    "you MUST generate all output fields (title, summary, objectives, and markdown_content) in Vietnamese. "
+    "Each lesson must be conceptually complete — a learner should grasp the idea from this single lesson "
+    "without needing the others. Always return JSON matching the requested schema, with no extra commentary."
 )
 
 _SPLITTER_SYSTEM_EN = (
     "You are an expert micro-learning curriculum designer. Your job is to "
-    "split a long document into a sequence of short, self-contained lessons, "
-    "each 4–6 minutes of reading (~700–1100 words). Each lesson must be "
-    "conceptually complete — a learner should grasp the idea from one lesson "
+    "turn the source document into a short, self-contained lesson, "
+    "optimized for 4–6 minutes of reading (~700–1100 words). "
+    "Each lesson must be conceptually complete — a learner should grasp the idea from this single lesson "
     "without needing the others. Always return JSON matching the requested "
     "schema, with no extra commentary."
 )
@@ -151,12 +152,16 @@ class MicroLessonService:
 
         lessons = []
         for i, item in enumerate(nodes_with_chunks):
+            prev_node = nodes_with_chunks[i - 1]["node"] if i > 0 else None
+            next_node = nodes_with_chunks[i + 1]["node"] if i < len(nodes_with_chunks) - 1 else None
             lesson = await self._generate_lesson_for_node(
                 node=item["node"],
                 chunks=item["chunks"],
                 target_minutes=target_minutes,
                 language=language,
                 order_index=i,
+                prev_node=prev_node,
+                next_node=next_node,
             )
             if lesson:
                 lessons.append(lesson)
@@ -218,8 +223,16 @@ class MicroLessonService:
 
         lessons = []
         for i, item in enumerate(nodes_with_chunks):
+            prev_node = nodes_with_chunks[i - 1]["node"] if i > 0 else None
+            next_node = nodes_with_chunks[i + 1]["node"] if i < len(nodes_with_chunks) - 1 else None
             lesson = await self._generate_lesson_for_node(
-                node=item["node"], chunks=item["chunks"], target_minutes=target_minutes, language=language, order_index=i,
+                node=item["node"],
+                chunks=item["chunks"],
+                target_minutes=target_minutes,
+                language=language,
+                order_index=i,
+                prev_node=prev_node,
+                next_node=next_node,
             )
             if lesson:
                 lessons.append(lesson)
@@ -238,22 +251,49 @@ class MicroLessonService:
     async def _fetch_nodes_and_chunks(self, source_content_id: int) -> list[dict]:
         from app.core.database import get_ai_conn
         async with get_ai_conn() as conn:
+            # 1. Fetch nodes with their minimum chunk index to preserve document logical flow
             nodes_rows = await conn.fetch(
-                "SELECT id, name, description FROM knowledge_nodes WHERE source_content_id=$1 ORDER BY id", 
+                """
+                SELECT kn.id, kn.name, kn.description, COALESCE(MIN(dc.chunk_index), 999999) as min_chunk_idx
+                FROM knowledge_nodes kn
+                LEFT JOIN document_chunks dc ON dc.node_id = kn.id
+                WHERE kn.source_content_id = $1
+                GROUP BY kn.id, kn.name, kn.description
+                """,
                 source_content_id
             )
             if not nodes_rows:
                 return []
             
+            # 2. Fetch prerequisite relationships between these nodes
+            prereq_rows = await conn.fetch(
+                """
+                SELECT knr.source_node_id, knr.target_node_id
+                FROM knowledge_node_relations knr
+                JOIN knowledge_nodes kn_src ON knr.source_node_id = kn_src.id
+                JOIN knowledge_nodes kn_tgt ON knr.target_node_id = kn_tgt.id
+                WHERE kn_src.source_content_id = $1 AND kn_tgt.source_content_id = $1
+                  AND knr.relation_type = 'prerequisite'
+                """,
+                source_content_id
+            )
+            
+            # 3. Fetch chunks in order
             chunks_rows = await conn.fetch(
                 "SELECT node_id, chunk_text FROM document_chunks WHERE content_id=$1 ORDER BY chunk_index",
                 source_content_id
             )
             
+            # Organize data
             node_map = {}
             for row in nodes_rows:
                 node_map[row["id"]] = {
-                    "node": {"id": row["id"], "name": row["name"], "description": row["description"]},
+                    "node": {
+                        "id": row["id"], 
+                        "name": row["name"], 
+                        "description": row["description"],
+                        "min_chunk_idx": row["min_chunk_idx"]
+                    },
                     "chunks": [],
                 }
             
@@ -262,7 +302,48 @@ class MicroLessonService:
                 if nid in node_map:
                     node_map[nid]["chunks"].append(row["chunk_text"])
             
-            return [n for n in node_map.values() if n["chunks"]]
+            # Keep only nodes that actually have chunks mapped to them
+            valid_items = [n for n in node_map.values() if n["chunks"]]
+            if not valid_items:
+                return []
+                
+            # Extract nodes and relations for Topological Sorting
+            nodes_to_sort = [item["node"] for item in valid_items]
+            prereqs = [(row["source_node_id"], row["target_node_id"]) for row in prereq_rows]
+            
+            node_ids = {n["id"] for n in nodes_to_sort}
+            adj = {nid: [] for nid in node_ids}
+            in_degree = {nid: 0 for nid in node_ids}
+            
+            for u, v in prereqs:
+                if u in node_ids and v in node_ids:
+                    adj[u].append(v)
+                    in_degree[v] += 1
+            
+            # Multi-criteria Queue: zero in-degree nodes sorted by their first appearance in document
+            sources = [nid for nid in node_ids if in_degree[nid] == 0]
+            sources.sort(key=lambda nid: node_map[nid]["node"]["min_chunk_idx"])
+            
+            sorted_node_ids = []
+            while sources:
+                curr_id = sources.pop(0)
+                sorted_node_ids.append(curr_id)
+                
+                for neighbor in adj[curr_id]:
+                    in_degree[neighbor] -= 1
+                    if in_degree[neighbor] == 0:
+                        sources.append(neighbor)
+                
+                sources.sort(key=lambda nid: node_map[nid]["node"]["min_chunk_idx"])
+                
+            # Cycle fallback (should not happen, but prevents infinite loop/lost nodes if graph has cycles)
+            if len(sorted_node_ids) < len(nodes_to_sort):
+                sorted_set = set(sorted_node_ids)
+                remaining = [nid for nid in node_ids if nid not in sorted_set]
+                remaining.sort(key=lambda nid: node_map[nid]["node"]["min_chunk_idx"])
+                sorted_node_ids.extend(remaining)
+                
+            return [node_map[nid] for nid in sorted_node_ids]
 
     async def _generate_lesson_for_node(
         self,
@@ -271,6 +352,8 @@ class MicroLessonService:
         target_minutes: int,
         language: str,
         order_index: int,
+        prev_node: Optional[dict] = None,
+        next_node: Optional[dict] = None,
     ) -> Optional[GeneratedLesson]:
         markdown_doc = "\n\n".join(chunks)
         truncated = _truncate_markdown(markdown_doc, max_chars=15_000)
@@ -282,29 +365,59 @@ class MicroLessonService:
         target_words = target_minutes * WORDS_PER_MINUTE
         sys_msg = _SPLITTER_SYSTEM_VI if language == "vi" else _SPLITTER_SYSTEM_EN
         
+        # Build logical context prompts for Bridge and Teaser
+        lang_name = "Vietnamese" if language == "vi" else "English"
+        
+        context_prompt = ""
+        if prev_node:
+            context_prompt += (
+                f"## LOGICAL CONTEXT & PREVIOUS LESSON BRIDGE\n"
+                f"- The previous lesson covered the topic: '{prev_node['name']}' with description: '{prev_node['description']}'.\n"
+                f"- REQUIREMENT: Write 1-2 introductory sentences (Bridge) in {lang_name} to smoothly transition from the previous lesson's concept to the current topic ('{node['name']}').\n\n"
+            )
+        else:
+            context_prompt += (
+                f"## LOGICAL CONTEXT & PREVIOUS LESSON BRIDGE\n"
+                f"- This is the first lesson in the sequence. Provide an engaging introduction in {lang_name} emphasizing its role in the learning path.\n\n"
+            )
+
+        if next_node:
+            context_prompt += (
+                f"## LOGICAL CONTEXT & NEXT LESSON TEASER\n"
+                f"- The next lesson will cover the topic: '{next_node['name']}'.\n"
+                f"- REQUIREMENT: Write 1-2 concluding sentences (Teaser) in {lang_name} at the end of the markdown content to summarize this lesson and transition into the next topic ('{next_node['name']}').\n\n"
+            )
+        else:
+            context_prompt += (
+                f"## LOGICAL CONTEXT & NEXT LESSON TEASER\n"
+                f"- This is the last lesson. Provide a concluding summary in {lang_name} reflecting on the core values learned throughout the entire sequence.\n\n"
+            )
+
         user_msg = (
-            f"Bạn cần viết một bài học Micro-lesson (thời lượng ~{target_minutes} phút, ~{target_words} từ) "
-            f"cho chủ đề sau:\n"
-            f"TÊN CHỦ ĐỀ: {node['name']}\n"
-            f"MÔ TẢ: {node['description']}\n\n"
-            "## YÊU CẦU\n"
-            "1. Dựa trên TÀI LIỆU NGUỒN bên dưới, hãy viết một bài học hoàn chỉnh.\n"
-            "2. Trả về JSON theo schema yêu cầu.\n"
-            "3. Khi minh họa, hãy chèn ảnh bằng Markdown (ví dụ: ![mô tả](URL)). Chỉ dùng các URL có trong TÀI LIỆU NGUỒN hoặc danh sách AVAILABLE IMAGES.\n"
-            "4. Văn phong học thuật, dễ hiểu.\n\n"
-            f"## AVAILABLE IMAGES\n{image_lines or '(không có ảnh)'}\n\n"
-            "## SCHEMA JSON BẮT BUỘC\n"
+            f"You need to write a Micro-lesson (~{target_minutes} minutes, ~{target_words} words) "
+            f"for the following topic:\n"
+            f"TOPIC NAME: {node['name']}\n"
+            f"DESCRIPTION: {node['description']}\n\n"
+            f"{context_prompt}"
+            f"## GENERAL REQUIREMENTS\n"
+            f"1. Write the lesson in {lang_name} based on the SOURCE DOCUMENT below.\n"
+            f"2. Return JSON matching the required schema. All text fields ('title', 'summary', 'objectives', 'markdown_content') MUST be in {lang_name}.\n"
+            f"3. When inserting illustrations, use Markdown image syntax (e.g. ![description](URL)). ONLY use image URLs found in the SOURCE DOCUMENT or the AVAILABLE IMAGES list.\n"
+            f"4. The tone should be academic, clear, and engaging.\n\n"
+            f"## AVAILABLE IMAGES\n{image_lines or '(none)'}\n\n"
+            f"## REQUIRED JSON SCHEMA\n"
             "{\n"
-            '  "title": "string",\n'
-            '  "summary": "string",\n'
-            '  "objectives": ["string", ...],\n'
-            '  "markdown_content": "string",\n'
-            '  "estimated_minutes": 5,\n'
-            '  "image_urls": ["..."]\n'
+            f'  "title": "Lesson title in {lang_name}",\n'
+            f'  "summary": "Brief 2-3 sentence summary in {lang_name}",\n'
+            f'  "objectives": ["Learning objective 1 in {lang_name}", "Learning objective 2 in {lang_name}"],\n'
+            f'  "markdown_content": "Full lesson content in markdown format in {lang_name}",\n'
+            f'  "estimated_minutes": {target_minutes},\n'
+            f'  "image_urls": ["list of image URLs used from the available images"]\n'
             "}\n\n"
-            "## TÀI LIỆU NGUỒN (Markdown)\n"
+            "## SOURCE DOCUMENT (Markdown)\n"
             f"{truncated}\n"
         )
+
 
         try:
             result = await chat_complete_json(
