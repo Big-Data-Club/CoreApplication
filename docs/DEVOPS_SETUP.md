@@ -47,7 +47,7 @@ The deployment topology places the Next.js frontend and all backend microservice
 |                                                                       |
 |  +------------------+  +------------------+  +---------------------+  |
 |  |     frontend     |  |     backend      |  |     lms-backend     |  |
-|  | (Next.js server) |  | (Spring Boot Auth|  | (Go LMS service)    |  |
+|  | (Next.js server) |  |(Spring Boot Auth)|  | (Go LMS service)    |  |
 |  |    Port 3000     |  |    Port 8080     |  |    Port 8081        |  |
 |  +--------+---------+  +--------+---------+  +----------+----------+  |
 |           |                     |                       |             |
