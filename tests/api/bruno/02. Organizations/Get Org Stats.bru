@@ -1,0 +1,15 @@
+meta {
+  name: Get Org Stats
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{LMS_URL}}/lmsapiv1/api/v1/admin/organizations/{{created_org_id}}/stats
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

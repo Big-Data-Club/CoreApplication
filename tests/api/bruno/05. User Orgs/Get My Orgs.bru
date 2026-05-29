@@ -1,0 +1,15 @@
+meta {
+  name: Get My Orgs
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{LMS_URL}}/lmsapiv1/api/v1/my/orgs
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

@@ -1,0 +1,23 @@
+meta {
+  name: Add Member
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{LMS_URL}}/lmsapiv1/api/v1/admin/organizations/{{created_org_id}}/members
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "user_id": {{test_user_id}},
+    "org_role": "MEMBER"
+  }
+}

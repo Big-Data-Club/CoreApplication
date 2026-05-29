@@ -1,0 +1,22 @@
+meta {
+  name: Toggle Course Visibility
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{LMS_URL}}/lmsapiv1/api/v1/courses/{{created_course_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "visibility": "PUBLIC"
+  }
+}

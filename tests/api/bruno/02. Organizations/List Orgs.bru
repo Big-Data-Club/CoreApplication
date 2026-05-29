@@ -1,0 +1,21 @@
+meta {
+  name: List Organizations
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{LMS_URL}}/lmsapiv1/api/v1/admin/organizations?page=1&page_size=10
+  body: none
+  auth: none
+}
+
+params:query {
+  page: 1
+  page_size: 10
+  ~search: Test
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

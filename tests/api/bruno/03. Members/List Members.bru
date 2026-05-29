@@ -1,0 +1,15 @@
+meta {
+  name: List Members
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{LMS_URL}}/lmsapiv1/api/v1/admin/organizations/{{created_org_id}}/members?page=1&page_size=10
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

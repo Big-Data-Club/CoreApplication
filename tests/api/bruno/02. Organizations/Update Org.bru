@@ -1,0 +1,27 @@
+meta {
+  name: Update Organization
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{LMS_URL}}/lmsapiv1/api/v1/admin/organizations/{{created_org_id}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Updated Test Organization",
+    "description": "This is an updated test organization.",
+    "settings": {
+      "allow_self_enrollment": true,
+      "default_course_visibility": "ORG_ONLY"
+    }
+  }
+}
