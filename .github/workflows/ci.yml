@@ -261,6 +261,8 @@ jobs:
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VERSION=${{ needs.detect-changes.outputs.version }}
+            NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+            NEXT_PUBLIC_YOUTUBE_UPLOAD_ENABLED=${{ vars.NEXT_PUBLIC_YOUTUBE_UPLOAD_ENABLED || 'true' }}
           provenance: false
 
       - name: Image digest
