@@ -106,6 +106,7 @@ func main() {
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	roleDefRepo := repository.NewRoleDefinitionRepository(db)
 	permRepo := repository.NewPermissionRepository(db)
+	orgRepo := repository.NewOrganizationRepository(db)
 
 	flashcardRepo := repository.NewFlashcardRepository(db)
 	microLessonRepo := repository.NewMicroLessonRepository(db)
@@ -164,7 +165,8 @@ func main() {
 	// singleflight-backed Loader internally so cache stampedes on hot keys
 	// only ever produce one DB query per process.
 	userService := service.NewUserService(userRepo, redisClient)
-	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, redisClient)
+	orgService := service.NewOrganizationService(orgRepo, userRepo, redisClient)
+	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient)
 	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, redisClient)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient)
 	userSyncService := service.NewUserSyncService(userRepo, redisClient)
@@ -200,6 +202,7 @@ func main() {
 	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 	permHandler := handler.NewPermissionHandler(permService)
+	orgHandler := handler.NewOrganizationHandler(orgService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -313,6 +316,25 @@ func main() {
 				adminUsers.PUT("/:userId/roles", roleAdminHandler.AssignRoleToUser)
 				adminUsers.DELETE("/:userId/roles/:role", roleAdminHandler.RemoveRoleFromUser)
 			}
+
+			// ORGANIZATION MANAGEMENT (Super Admin)
+			adminOrgs := auth.Group("/admin/organizations")
+			adminOrgs.Use(middleware.RequireRoles("ADMIN"))
+			{
+				adminOrgs.GET("", orgHandler.ListOrganizations)
+				adminOrgs.POST("", orgHandler.CreateOrganization)
+				adminOrgs.GET("/:id", orgHandler.GetOrganization)
+				adminOrgs.PUT("/:id", orgHandler.UpdateOrganization)
+				adminOrgs.DELETE("/:id", orgHandler.DeactivateOrganization)
+				adminOrgs.GET("/:id/stats", orgHandler.GetOrgStats)
+				adminOrgs.GET("/:id/members", orgHandler.ListMembers)
+				adminOrgs.POST("/:id/members", orgHandler.AddMember)
+				adminOrgs.PUT("/:id/members/:userId/role", orgHandler.UpdateMemberRole)
+				adminOrgs.DELETE("/:id/members/:userId", orgHandler.RemoveMember)
+			}
+
+			// Student-facing: list my orgs
+			auth.GET("/my/orgs", orgHandler.GetMyOrganizations)
 
 			// ── Composite Analytics (Quick Action Panel + heatmap) ─────────
 			// POST /analytics/micro-interaction is hit by every flashcard

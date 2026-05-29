@@ -275,9 +275,9 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(courses))
 }
 
-// ListPublishedCourses lists all published courses
+// ListPublishedCourses lists published courses visible to the authenticated user
 // @Summary List published courses
-// @Description List all published courses
+// @Description List published courses based on org membership visibility rules
 // @Tags courses
 // @Accept json
 // @Produce json
@@ -286,7 +286,10 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 // @Failure 500 {object} dto.ErrorResponse
 // @Router /courses [get]
 func (h *CourseHandler) ListPublishedCourses(c *gin.Context) {
-	courses, err := h.courseService.ListPublishedCourses(c.Request.Context())
+	userID := c.GetInt64("user_id")
+	role := getRoleFromContext(c)
+
+	courses, err := h.courseService.ListPublishedCourses(c.Request.Context(), userID, role)
 	if err != nil {
 		logger.Error("Failed to list published courses", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to retrieve courses"))

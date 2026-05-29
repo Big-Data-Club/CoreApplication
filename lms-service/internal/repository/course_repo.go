@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"example/hello/internal/models"
+	"github.com/lib/pq"
 )
 
 type CourseRepository struct {
@@ -21,8 +22,8 @@ func NewCourseRepository(db *sql.DB) *CourseRepository {
 // Create creates a new course
 func (r *CourseRepository) Create(ctx context.Context, course *models.Course) (*models.Course, error) {
 	query := `
-		INSERT INTO courses (title, description, category, level, thumbnail_url, status, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO courses (title, description, category, level, thumbnail_url, status, created_by, org_id, visibility)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -34,6 +35,8 @@ func (r *CourseRepository) Create(ctx context.Context, course *models.Course) (*
 		course.ThumbnailURL,
 		course.Status,
 		course.CreatedBy,
+		course.OrgID,
+		course.Visibility,
 	).Scan(&course.ID, &course.CreatedAt, &course.UpdatedAt)
 
 	if err != nil {
@@ -48,6 +51,7 @@ func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.Cours
 	query := `
 		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url, 
 		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
+		       c.org_id, c.visibility,
 		       u.full_name as creator_name, u.email as creator_email,
 		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
 		FROM courses c
@@ -68,6 +72,8 @@ func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.Cours
 		&course.CreatedAt,
 		&course.UpdatedAt,
 		&course.PublishedAt,
+		&course.OrgID,
+		&course.Visibility,
 		&course.CreatorName,
 		&course.CreatorEmail,
 		&course.EnrollmentCount,
@@ -175,6 +181,7 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64) (
 	query := `
 		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
 		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
+		       c.org_id, c.visibility,
 		       u.full_name as creator_name, u.email as creator_email,
 		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
 		FROM courses c
@@ -204,6 +211,8 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64) (
 			&course.CreatedAt,
 			&course.UpdatedAt,
 			&course.PublishedAt,
+			&course.OrgID,
+			&course.Visibility,
 			&course.CreatorName,
 			&course.CreatorEmail,
 			&course.EnrollmentCount,
@@ -222,6 +231,7 @@ func (r *CourseRepository) ListPublished(ctx context.Context) ([]*models.CourseW
 	query := `
 		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
 		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
+		       c.org_id, c.visibility,
 		       u.full_name as creator_name, u.email as creator_email,
 		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
 		FROM courses c
@@ -251,6 +261,8 @@ func (r *CourseRepository) ListPublished(ctx context.Context) ([]*models.CourseW
 			&course.CreatedAt,
 			&course.UpdatedAt,
 			&course.PublishedAt,
+			&course.OrgID,
+			&course.Visibility,
 			&course.CreatorName,
 			&course.CreatorEmail,
 			&course.EnrollmentCount,
@@ -618,4 +630,86 @@ func (r *CourseRepository) GetContentAIIndexStatus(
 	row := r.db.QueryRowContext(ctx, query, contentID)
 	err = row.Scan(&status, &filePath)
 	return
+}
+
+// CourseVisibilityFilter defines filters for course listing based on organization visibility rules
+type CourseVisibilityFilter struct {
+	UserOrgIDs    []int64
+	IncludePublic bool
+}
+
+// ListVisibleForUser lists courses visible to a user based on org isolation rules
+func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter CourseVisibilityFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
+	// If no orgs are associated, pq.Array will output an empty array '{}', which is fine.
+	// We count the total courses matching the criteria.
+	countQuery := `
+		SELECT COUNT(*)
+		FROM courses c
+		WHERE c.status = 'PUBLISHED'
+		  AND (
+		    c.org_id = ANY($1::bigint[])
+		    OR ($2 AND c.visibility = 'PUBLIC')
+		  )
+	`
+	var total int
+	err := r.db.QueryRowContext(ctx, countQuery, pq.Array(filter.UserOrgIDs), filter.IncludePublic).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
+		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
+		       c.org_id, c.visibility,
+		       u.full_name as creator_name, u.email as creator_email,
+		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
+		FROM courses c
+		LEFT JOIN users u ON c.created_by = u.id
+		WHERE c.status = 'PUBLISHED'
+		  AND (
+		    c.org_id = ANY($1::bigint[])
+		    OR ($2 AND c.visibility = 'PUBLIC')
+		  )
+		ORDER BY c.published_at DESC
+		LIMIT $3 OFFSET $4
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(filter.UserOrgIDs), filter.IncludePublic, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var courses []*models.CourseWithCreator
+	for rows.Next() {
+		var course models.CourseWithCreator
+		err := rows.Scan(
+			&course.ID,
+			&course.Title,
+			&course.Description,
+			&course.Category,
+			&course.Level,
+			&course.ThumbnailURL,
+			&course.Status,
+			&course.CreatedBy,
+			&course.CreatedAt,
+			&course.UpdatedAt,
+			&course.PublishedAt,
+			&course.OrgID,
+			&course.Visibility,
+			&course.CreatorName,
+			&course.CreatorEmail,
+			&course.EnrollmentCount,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		courses = append(courses, &course)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return courses, total, nil
 }
