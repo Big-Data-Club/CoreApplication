@@ -401,3 +401,43 @@ func (h *OrganizationHandler) GetMyOrganizations(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(orgs))
 }
+
+// BulkAddMembers adds multiple members to an organization by email (Admin only)
+// @Summary Bulk add org members
+// @Tags organizations
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "Organization ID"
+// @Param request body dto.BulkAddMembersRequest true "Bulk add request data"
+// @Success 200 {object} dto.BulkAddMembersResponse
+// @Router /admin/organizations/{id}/members/bulk [post]
+func (h *OrganizationHandler) BulkAddMembers(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid organization ID"))
+		return
+	}
+
+	var req dto.BulkAddMembersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	role := getRoleFromContext(c)
+
+	result, err := h.orgService.BulkAddMembers(c.Request.Context(), id, &req, userID, role)
+	if err != nil {
+		if err.Error() == "unauthorized to manage members of this organization" {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
+			return
+		}
+		logger.Error("Failed to bulk add org members", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to bulk add members"))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(result))
+}

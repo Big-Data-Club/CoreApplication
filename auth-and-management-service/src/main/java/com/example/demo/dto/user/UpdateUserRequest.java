@@ -28,4 +28,6 @@ public class UpdateUserRequest {
     private String type;
 
     private String profilePicture;
+
+    private String organization;
 }

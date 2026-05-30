@@ -82,7 +82,8 @@ public class UserSyncService {
             "user_id",   user.getId(),
             "email",     user.getEmail(),
             "full_name", user.getName(),
-            "roles",     roleStrategy.resolve(user.getRole())
+            "roles",     roleStrategy.resolve(user.getRole()),
+            "org",       user.getOrganization() != null ? user.getOrganization() : ""
         );
     }
 

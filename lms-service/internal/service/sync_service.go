@@ -34,7 +34,7 @@ func NewUserSyncService(userRepo *repository.UserRepository, c *cache.RedisCache
 // Only roles with source='sync' are replaced; source='manual' roles are preserved.
 func (s *UserSyncService) SyncUser(ctx context.Context, req *dto.UserSyncRequest) (*dto.UserSyncResponse, error) {
 	// Get or create user
-	user, err := s.userRepo.GetOrCreateUser(ctx, req.UserID, req.Email, req.FullName)
+	user, err := s.userRepo.GetOrCreateUser(ctx, req.UserID, req.Email, req.FullName, req.Org)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to get/create user %s", req.Email), err)
 		return nil, fmt.Errorf("failed to sync user: %w", err)
@@ -46,6 +46,20 @@ func (s *UserSyncService) SyncUser(ctx context.Context, req *dto.UserSyncRequest
 	if user.FullName != req.FullName {
 		if err := s.userRepo.UpdateFullName(ctx, req.UserID, req.FullName); err != nil {
 			logger.Error(fmt.Sprintf("Failed to update full name for user %s", req.Email), err)
+		}
+	}
+
+	// Update organization if changed
+	if user.Organization != req.Org {
+		if err := s.userRepo.UpdateOrganization(ctx, req.UserID, req.Org); err != nil {
+			logger.Error(fmt.Sprintf("Failed to update organization for user %s", req.Email), err)
+		}
+	}
+
+	// Auto-associate user with organization in LMS organization_members if organization exists
+	if req.Org != "" {
+		if err := s.userRepo.AssociateUserWithOrganization(ctx, req.UserID, req.Org); err != nil {
+			logger.Error(fmt.Sprintf("Failed to auto-associate user with org %s", req.Org), err)
 		}
 	}
 
