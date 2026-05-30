@@ -44,6 +44,9 @@ public class User {
     @Column(nullable = false, length = 20)
     private String type;
 
+    @Column(nullable = true, length = 255)
+    private String organization;
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean active = true;

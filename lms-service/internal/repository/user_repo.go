@@ -18,7 +18,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 }
 
 // GetOrCreateUser gets user by ID or creates if not exists
-func (r *UserRepository) GetOrCreateUser(ctx context.Context, userID int64, email, fullName string) (*models.User, error) {
+func (r *UserRepository) GetOrCreateUser(ctx context.Context, userID int64, email, fullName, organization string) (*models.User, error) {
 	// Try to get user first
 	user, err := r.GetByID(ctx, userID)
 	if err == nil {
@@ -27,7 +27,7 @@ func (r *UserRepository) GetOrCreateUser(ctx context.Context, userID int64, emai
 
 	// If not found, create user
 	if err == sql.ErrNoRows {
-		return r.Create(ctx, userID, email, fullName)
+		return r.Create(ctx, userID, email, fullName, organization)
 	}
 
 	return nil, err
@@ -35,13 +35,14 @@ func (r *UserRepository) GetOrCreateUser(ctx context.Context, userID int64, emai
 
 // GetByID retrieves a user by ID
 func (r *UserRepository) GetByID(ctx context.Context, id int64) (*models.User, error) {
-	query := `SELECT id, email, full_name, created_at, updated_at FROM users WHERE id = $1`
+	query := `SELECT id, email, full_name, COALESCE(organization, ''), created_at, updated_at FROM users WHERE id = $1`
 
 	var user models.User
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID,
 		&user.Email,
 		&user.FullName,
+		&user.Organization,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -54,18 +55,19 @@ func (r *UserRepository) GetByID(ctx context.Context, id int64) (*models.User, e
 }
 
 // Create creates a new user
-func (r *UserRepository) Create(ctx context.Context, id int64, email, fullName string) (*models.User, error) {
+func (r *UserRepository) Create(ctx context.Context, id int64, email, fullName, organization string) (*models.User, error) {
 	query := `
-		INSERT INTO users (id, email, full_name)
-		VALUES ($1, $2, $3)
-		RETURNING id, email, full_name, created_at, updated_at
+		INSERT INTO users (id, email, full_name, organization)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, email, full_name, COALESCE(organization, ''), created_at, updated_at
 	`
 
 	var user models.User
-	err := r.db.QueryRowContext(ctx, query, id, email, fullName).Scan(
+	err := r.db.QueryRowContext(ctx, query, id, email, fullName, organization).Scan(
 		&user.ID,
 		&user.Email,
 		&user.FullName,
+		&user.Organization,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -203,7 +205,7 @@ func (r *UserRepository) GetByEmails(ctx context.Context, emails []string) ([]*m
 		return nil, nil
 	}
 
-	query := `SELECT id, email, full_name, created_at, updated_at FROM users WHERE email = ANY($1)`
+	query := `SELECT id, email, full_name, COALESCE(organization, ''), created_at, updated_at FROM users WHERE email = ANY($1)`
 
 	rows, err := r.db.QueryContext(ctx, query, pq.Array(emails))
 	if err != nil {
@@ -218,6 +220,7 @@ func (r *UserRepository) GetByEmails(ctx context.Context, emails []string) ([]*m
 			&user.ID,
 			&user.Email,
 			&user.FullName,
+			&user.Organization,
 			&user.CreatedAt,
 			&user.UpdatedAt,
 		)
@@ -232,4 +235,51 @@ func (r *UserRepository) GetByEmails(ctx context.Context, emails []string) ([]*m
 	}
 
 	return users, nil
+}
+
+// UpdateOrganization updates user's organization
+func (r *UserRepository) UpdateOrganization(ctx context.Context, userID int64, organization string) error {
+	query := `UPDATE users SET organization = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`
+
+	result, err := r.db.ExecContext(ctx, query, organization, userID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	return nil
+}
+
+// AssociateUserWithOrganization checks if organization exists by name or slug, and adds user as MEMBER
+func (r *UserRepository) AssociateUserWithOrganization(ctx context.Context, userID int64, orgNameOrSlug string) error {
+	if orgNameOrSlug == "" {
+		return nil
+	}
+	// 1. Find organization id by name or slug
+	var orgID int64
+	queryFind := `SELECT id FROM organizations WHERE name = $1 OR slug = $2`
+	err := r.db.QueryRowContext(ctx, queryFind, orgNameOrSlug, orgNameOrSlug).Scan(&orgID)
+	if err == sql.ErrNoRows {
+		// If org doesn't exist, we don't do anything (silent ignore)
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	// 2. Insert into organization_members
+	queryInsert := `
+		INSERT INTO organization_members (org_id, user_id, org_role)
+		VALUES ($1, $2, 'MEMBER')
+		ON CONFLICT (org_id, user_id) DO NOTHING
+	`
+	_, err = r.db.ExecContext(ctx, queryInsert, orgID, userID)
+	return err
 }

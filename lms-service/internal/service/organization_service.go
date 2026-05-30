@@ -620,8 +620,8 @@ func (s *OrganizationService) BulkAddMembers(ctx context.Context, orgID int64, r
 	}
 
 	// 4. Determine added vs not found
-	var addedEmails []string
-	var notFoundEmails []string
+	addedEmails := make([]string, 0)
+	notFoundEmails := make([]string, 0)
 	for _, email := range emails {
 		if _, ok := existingMap[email]; ok {
 			addedEmails = append(addedEmails, email)

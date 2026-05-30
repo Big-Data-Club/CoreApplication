@@ -18,4 +18,5 @@ public class RegisterRequest {
     private String team;
     private String code;
     private String type;
+    private String organization;
 }

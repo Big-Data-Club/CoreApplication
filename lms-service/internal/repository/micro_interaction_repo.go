@@ -77,37 +77,37 @@ func (r *MicroInteractionRepository) ApplyDelta(ctx context.Context, d MasteryCo
 			 mastery_level,
 			 last_interaction_at, updated_at)
 		VALUES ($1, $2, $3,
-			COALESCE($4, 0), CASE WHEN $4 IS NULL THEN 0 ELSE 1 END,
-			COALESCE($5, 0), CASE WHEN $5 IS NULL THEN 0 ELSE 1 END,
-			COALESCE($6, 0), CASE WHEN $6 IS NULL THEN 0 ELSE 1 END,
-			COALESCE($7, 0), CASE WHEN $7 IS NULL THEN 0 ELSE 1 END,
+			COALESCE($4::double precision, 0.0), CASE WHEN $4 IS NULL THEN 0 ELSE 1 END,
+			COALESCE($5::double precision, 0.0), CASE WHEN $5 IS NULL THEN 0 ELSE 1 END,
+			COALESCE($6::double precision, 0.0), CASE WHEN $6 IS NULL THEN 0 ELSE 1 END,
+			COALESCE($7::double precision, 0.0), CASE WHEN $7 IS NULL THEN 0 ELSE 1 END,
 			0,
 			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT (user_id, course_id, node_id) DO UPDATE SET
 			formal_quiz_score = CASE
 				WHEN $4 IS NULL THEN knowledge_node_mastery.formal_quiz_score
-				ELSE (knowledge_node_mastery.formal_quiz_score * knowledge_node_mastery.formal_quiz_count + $4)
+				ELSE (knowledge_node_mastery.formal_quiz_score * knowledge_node_mastery.formal_quiz_count + $4::double precision)
 				     / (knowledge_node_mastery.formal_quiz_count + 1)
 			END,
 			formal_quiz_count = knowledge_node_mastery.formal_quiz_count
 			                    + CASE WHEN $4 IS NULL THEN 0 ELSE 1 END,
 			mini_quiz_score = CASE
 				WHEN $5 IS NULL THEN knowledge_node_mastery.mini_quiz_score
-				ELSE (knowledge_node_mastery.mini_quiz_score * knowledge_node_mastery.mini_quiz_count + $5)
+				ELSE (knowledge_node_mastery.mini_quiz_score * knowledge_node_mastery.mini_quiz_count + $5::double precision)
 				     / (knowledge_node_mastery.mini_quiz_count + 1)
 			END,
 			mini_quiz_count = knowledge_node_mastery.mini_quiz_count
 			                    + CASE WHEN $5 IS NULL THEN 0 ELSE 1 END,
 			completion_score = CASE
 				WHEN $6 IS NULL THEN knowledge_node_mastery.completion_score
-				ELSE (knowledge_node_mastery.completion_score * knowledge_node_mastery.completion_count + $6)
+				ELSE (knowledge_node_mastery.completion_score * knowledge_node_mastery.completion_count + $6::double precision)
 				     / (knowledge_node_mastery.completion_count + 1)
 			END,
 			completion_count = knowledge_node_mastery.completion_count
 			                    + CASE WHEN $6 IS NULL THEN 0 ELSE 1 END,
 			engagement_score = CASE
 				WHEN $7 IS NULL THEN knowledge_node_mastery.engagement_score
-				ELSE (knowledge_node_mastery.engagement_score * knowledge_node_mastery.engagement_count + $7)
+				ELSE (knowledge_node_mastery.engagement_score * knowledge_node_mastery.engagement_count + $7::double precision)
 				     / (knowledge_node_mastery.engagement_count + 1)
 			END,
 			engagement_count = knowledge_node_mastery.engagement_count
