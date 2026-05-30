@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"example/hello/internal/models"
+	"github.com/lib/pq"
 )
 
 type UserRepository struct {
@@ -194,4 +195,41 @@ func (r *UserRepository) AddRoleWithSource(ctx context.Context, userID int64, ro
 	`
 	_, err := r.db.ExecContext(ctx, query, userID, role, source)
 	return err
+}
+
+// GetByEmails retrieves multiple users by their emails in a single query
+func (r *UserRepository) GetByEmails(ctx context.Context, emails []string) ([]*models.User, error) {
+	if len(emails) == 0 {
+		return nil, nil
+	}
+
+	query := `SELECT id, email, full_name, created_at, updated_at FROM users WHERE email = ANY($1)`
+
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(emails))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*models.User
+	for rows.Next() {
+		var user models.User
+		err := rows.Scan(
+			&user.ID,
+			&user.Email,
+			&user.FullName,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, &user)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return users, nil
 }

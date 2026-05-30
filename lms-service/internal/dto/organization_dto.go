@@ -69,3 +69,16 @@ type OrgStatsResponse struct {
 	CourseCount   int   `json:"course_count"`
 	EnrolledCount int   `json:"enrolled_count"`
 }
+
+// BulkAddMembersRequest represents the request to bulk add members by email or raw text input
+type BulkAddMembersRequest struct {
+	Emails   []string `json:"emails"`
+	RawInput string   `json:"raw_input"`
+	OrgRole  string   `json:"org_role" binding:"required,oneof=OWNER ADMIN MEMBER"`
+}
+
+// BulkAddMembersResponse represents the response for bulk adding members
+type BulkAddMembersResponse struct {
+	Added    []string `json:"added"`
+	NotFound []string `json:"not_found"`
+}

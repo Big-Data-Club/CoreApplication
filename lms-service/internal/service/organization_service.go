@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"example/hello/internal/dto"
@@ -35,6 +36,7 @@ func NewOrganizationService(
 }
 
 var slugRegex = regexp.MustCompile("^[a-z0-9-_]+$")
+var emailParserRegex = regexp.MustCompile(`(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}`)
 
 // CachedUserOrgs represents the structure cached in Redis for user visibility filters
 type CachedUserOrgs struct {
@@ -564,4 +566,88 @@ func (s *OrganizationService) toOrgResponse(org *models.Organization) *dto.OrgRe
 		CreatedAt:   org.CreatedAt,
 		UpdatedAt:   org.UpdatedAt,
 	}
+}
+
+// BulkAddMembers adds multiple members to an organization by email, parsing them intelligently
+func (s *OrganizationService) BulkAddMembers(ctx context.Context, orgID int64, req *dto.BulkAddMembersRequest, actorID int64, sysRole string) (*dto.BulkAddMembersResponse, error) {
+	// 1. Check access: actor must be Org Admin/Owner or Super Admin
+	hasAccess, err := s.checkOrgAccess(ctx, orgID, actorID, sysRole, models.OrgRoleAdmin)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAccess {
+		return nil, errors.New("unauthorized to manage members of this organization")
+	}
+
+	// 2. Extract and parse emails
+	emailMap := make(map[string]bool)
+	for _, email := range req.Emails {
+		if strings.TrimSpace(email) != "" {
+			emailMap[strings.ToLower(strings.TrimSpace(email))] = true
+		}
+	}
+	if req.RawInput != "" {
+		extracted := emailParserRegex.FindAllString(req.RawInput, -1)
+		for _, email := range extracted {
+			emailMap[strings.ToLower(strings.TrimSpace(email))] = true
+		}
+	}
+
+	if len(emailMap) == 0 {
+		return &dto.BulkAddMembersResponse{
+			Added:    []string{},
+			NotFound: []string{},
+		}, nil
+	}
+
+	var emails []string
+	for email := range emailMap {
+		emails = append(emails, email)
+	}
+
+	// 3. Find existing users by email in a single query
+	existingUsers, err := s.userRepo.GetByEmails(ctx, emails)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create mapping of existing users
+	existingMap := make(map[string]*models.User)
+	var userIDs []int64
+	for _, u := range existingUsers {
+		existingMap[strings.ToLower(u.Email)] = u
+		userIDs = append(userIDs, u.ID)
+	}
+
+	// 4. Determine added vs not found
+	var addedEmails []string
+	var notFoundEmails []string
+	for _, email := range emails {
+		if _, ok := existingMap[email]; ok {
+			addedEmails = append(addedEmails, email)
+		} else {
+			notFoundEmails = append(notFoundEmails, email)
+		}
+	}
+
+	// 5. Bulk insert member records in a single query
+	if len(userIDs) > 0 {
+		err = s.orgRepo.AddMembersBulk(ctx, orgID, userIDs, req.OrgRole)
+		if err != nil {
+			return nil, err
+		}
+
+		// 6. Invalidate caches for all added users and org stats
+		for _, u := range existingUsers {
+			s.invalidateUserOrgsCache(ctx, u.ID)
+		}
+		
+		statsKey := fmt.Sprintf("org_stats:%d", orgID)
+		_ = s.redisCache.Delete(ctx, statsKey)
+	}
+
+	return &dto.BulkAddMembersResponse{
+		Added:    addedEmails,
+		NotFound: notFoundEmails,
+	}, nil
 }
