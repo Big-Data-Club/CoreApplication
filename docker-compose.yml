@@ -179,6 +179,9 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       NEXT_TELEMETRY_DISABLED: 1
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
     ports:
       - "${FRONTEND_PORT:-3001}:3001"
     volumes:
@@ -210,7 +213,7 @@ services:
       - "service.type=frontend"
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.entrypoints=web"
-      - "traefik.http.routers.frontend.rule=Host(`bdc.hpcc.vn`)"
+      - "traefik.http.routers.frontend.rule=Host(`bdc.hpcc.vn`) || Host(`localhost`)"
       - "traefik.http.routers.frontend.priority=1"
       - "traefik.http.services.frontend.loadbalancer.server.port=3001"
       - "traefik.http.middlewares.compress-middleware.compress=true"
@@ -328,14 +331,14 @@ services:
       - "service.name=auth-service"
       - "traefik.enable=true"
       - "traefik.http.routers.backend.entrypoints=web"
-      - "traefik.http.routers.backend.rule=Host(`bdc.hpcc.vn`) && PathPrefix(`/apiv1`)"
+      - "traefik.http.routers.backend.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/apiv1`)"
       - "traefik.http.routers.backend.priority=10"
       - "traefik.http.services.backend.loadbalancer.server.port=8080"
       - "traefik.http.middlewares.strip-apiv1.stripprefix.prefixes=/apiv1"
       - "traefik.http.middlewares.backend-compress.compress=true"
       - "traefik.http.routers.backend.middlewares=strip-apiv1,backend-compress"
       - "traefik.http.routers.uploads.entrypoints=web"
-      - "traefik.http.routers.uploads.rule=Host(`bdc.hpcc.vn`) && PathPrefix(`/uploads`)"
+      - "traefik.http.routers.uploads.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/uploads`)"
       - "traefik.http.routers.uploads.priority=10"
       - "traefik.http.routers.uploads.service=backend"
       - "traefik.http.middlewares.uploads-cache.headers.customresponseheaders.Cache-Control=public, max-age=31536000, immutable"
@@ -376,6 +379,41 @@ services:
     labels:
       - "service.type=database"
       - "service.name=postgres-lms"
+
+  # Database: PostgreSQL (Lab Service)
+  postgres-lab:
+    image: postgres:15-alpine
+    container_name: postgres-lab
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LAB_POSTGRES_DB:-lab_db}
+      POSTGRES_USER: ${LAB_POSTGRES_USER:-lab_user}
+      POSTGRES_PASSWORD: ${LAB_POSTGRES_PASSWORD:-lab_password}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+      POSTGRES_MAX_CONNECTIONS: 100
+    ports:
+      - "${LAB_POSTGRES_PORT:-5436}:5432"
+    volumes:
+      - postgres_lab_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD-SHELL", "pg_isready -U $${LAB_POSTGRES_USER} -d $${LAB_POSTGRES_DB}"]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "service.type=database"
+      - "service.name=postgres-lab"
 
   # Redis
   redis-lms:
@@ -506,7 +544,7 @@ services:
       - "service.name=lms-service"
       - "traefik.enable=true"
       - "traefik.http.routers.lms.entrypoints=web"
-      - "traefik.http.routers.lms.rule=Host(`bdc.hpcc.vn`) && PathPrefix(`/lmsapiv1`)"
+      - "traefik.http.routers.lms.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/lmsapiv1`)"
       - "traefik.http.routers.lms.priority=10"
       - "traefik.http.services.lms.loadbalancer.server.port=8081"
       - "traefik.http.middlewares.rewrite-lms.replacepathregex.regex=^/lmsapiv1/(.*)"
@@ -514,7 +552,7 @@ services:
       - "traefik.http.middlewares.lms-compress.compress=true"
       - "traefik.http.routers.lms.middlewares=rewrite-lms,lms-compress"
       - "traefik.http.routers.files.entrypoints=web"
-      - "traefik.http.routers.files.rule=Host(`bdc.hpcc.vn`) && PathPrefix(`/files`)"
+      - "traefik.http.routers.files.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/files`)"
       - "traefik.http.routers.files.priority=10"
       - "traefik.http.middlewares.rewrite-files.replacepathregex.regex=^/files/(.*)"
       - "traefik.http.middlewares.rewrite-files.replacepathregex.replacement=/api/v1/files/serve/$$1"
@@ -522,6 +560,87 @@ services:
       - "traefik.http.routers.files.middlewares=rewrite-files,files-cache"
       - "traefik.http.routers.files.service=lms"
 
+
+  # Lab Backend Service: Go
+  lab-backend:
+    build:
+      context: ./lab-service
+      dockerfile: Dockerfile
+      args:
+        - BUILD_DATE=${BUILD_DATE:-unknown}
+        - VERSION=${VERSION:-1.0.0}
+    image: ${DOCKER_USERNAME}/bdc-lab:${IMAGE_TAG:-latest}
+    container_name: lab-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_PORT: ${LAB_PORT:-8082}
+      APP_NAME: "Lab Service"
+      GIN_MODE: release
+      LMS_SYNC_SECRET: ${LMS_SYNC_SECRET}
+      DB_HOST: postgres-lab
+      DB_PORT: 5432
+      DB_USER: ${LAB_POSTGRES_USER:-lab_user}
+      DB_PASSWORD: ${LAB_POSTGRES_PASSWORD:-lab_password}
+      DB_NAME: ${LAB_POSTGRES_DB:-lab_db}
+      DB_SSL_MODE: disable
+      DB_MAX_OPEN_CONNS: 50
+      DB_MAX_IDLE_CONNS: 10
+      DB_CONN_MAX_LIFETIME: 5m
+      DB_CONN_MAX_IDLE_TIME: 10m
+      KAFKA_BROKERS: kafka:9092
+      REDIS_HOST: redis-lms
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: 2
+      REDIS_POOL_SIZE: 10
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_HOURS: 1
+      STORAGE_TYPE: ${STORAGE_TYPE:-minio}
+      LAB_MINIO_ENDPOINT: ${LAB_MINIO_ENDPOINT:-minio:9000}
+      LAB_MINIO_ACCESS_KEY: ${LAB_MINIO_ACCESS_KEY:-minioadmin}
+      LAB_MINIO_SECRET_KEY: ${LAB_MINIO_SECRET_KEY:-minioadmin123}
+      LAB_MINIO_BUCKET: ${LAB_MINIO_BUCKET:-lab-files}
+      LAB_MINIO_USE_SSL: ${LAB_MINIO_USE_SSL:-false}
+    ports:
+      - "${LAB_PORT:-8082}:8082"
+    depends_on:
+      postgres-lab:
+        condition: service_healthy
+      redis-lms:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - app-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider",
+             "http://localhost:8082/health"]
+      start_period: 45s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "service.type=backend"
+      - "service.name=lab-service"
+      - "traefik.enable=true"
+      - "traefik.http.routers.lab.entrypoints=web"
+      - "traefik.http.routers.lab.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/labapiv1`)"
+      - "traefik.http.routers.lab.priority=10"
+      - "traefik.http.services.lab.loadbalancer.server.port=8082"
+      - "traefik.http.middlewares.rewrite-lab.replacepathregex.regex=^/labapiv1/(.*)"
+      - "traefik.http.middlewares.rewrite-lab.replacepathregex.replacement=/api/v1/$$1"
+      - "traefik.http.middlewares.lab-compress.compress=true"
+      - "traefik.http.routers.lab.middlewares=rewrite-lab,lab-compress"
 
   postgres-ai:
     image: postgres:15-alpine
@@ -784,6 +903,11 @@ volumes:
       - "backup.enabled=true"
       - "backup.schedule=daily"
   postgres_lms_data:
+    driver: local
+    labels:
+      - "backup.enabled=true"
+      - "backup.schedule=daily"
+  postgres_lab_data:
     driver: local
     labels:
       - "backup.enabled=true"

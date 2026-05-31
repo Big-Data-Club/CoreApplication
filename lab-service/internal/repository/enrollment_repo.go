@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-
-	"lab-service/internal/dto"
 )
 
 type EnrollmentRepository struct{ db *sql.DB }

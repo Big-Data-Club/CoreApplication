@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -60,7 +61,12 @@ func main() {
 	// ── Runtime Adapter Registry ────────────────────────────────
 	runtimeRegistry := runtime.NewRegistry()
 	runtimeRegistry.Register(runtime.NewCodingRunner())
-	logger.Info("Runtime adapters registered: CODING")
+	runtimeRegistry.Register(runtime.NewDatabaseRunner())
+	runtimeRegistry.Register(runtime.NewWorkspaceRunner())
+	runtimeRegistry.Register(runtime.NewHPCRunner())
+	runtimeRegistry.Register(runtime.NewJupyterRunner())
+	runtimeRegistry.Register(runtime.NewCustomRunner())
+	logger.Info("Runtime adapters registered: CODING, DATABASE, WORKSPACE, HPC, JUPYTER, CUSTOM")
 
 	// ── Repositories ────────────────────────────────────────────
 	labRepo := repository.NewLabRepository(db)
@@ -95,13 +101,15 @@ func main() {
 	r.Use(middleware.CORS(cfg.CORS))
 
 	// ── Health Check ────────────────────────────────────────────
-	r.GET("/health", func(c *gin.Context) {
+	healthHandler := func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "healthy",
 			"service": cfg.App.Name,
 			"version": cfg.App.Version,
 		})
-	})
+	}
+	r.GET("/health", healthHandler)
+	r.HEAD("/health", healthHandler)
 
 	// ── Sync Routes (service secret) ────────────────────────────
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
@@ -204,7 +212,7 @@ func main() {
 	logger.Info("Lab Service stopped")
 }
 
-func runMigrations(db interface{ Exec(string, ...interface{}) (interface{ RowsAffected() (int64, error) }, error) }) {
+func runMigrations(db *sql.DB) {
 	// Migrations are applied via init SQL files mounted in Docker
 	// For dev, you can run them manually or use a migration tool
 	logger.Info("Database migrations checked (applied via Docker init scripts)")

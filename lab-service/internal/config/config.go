@@ -117,11 +117,11 @@ func LoadStorageConfig() StorageConfig {
 	return StorageConfig{
 		Type:          getEnv("STORAGE_TYPE", "minio"),
 		LocalBasePath: getEnv("STORAGE_LOCAL_PATH", "./uploads"),
-		MinIOEndpoint: getEnv("MINIO_ENDPOINT", "minio:9000"),
-		MinIOAccessKey: getEnv("MINIO_ACCESS_KEY", "minioadmin"),
-		MinIOSecretKey: getEnv("MINIO_SECRET_KEY", "minioadmin123"),
-		MinIOBucket:   getEnv("MINIO_BUCKET", "lab-files"),
-		MinIOUseSSL:   getEnv("MINIO_USE_SSL", "false") == "true",
+		MinIOEndpoint: getEnv("LAB_MINIO_ENDPOINT", getEnv("MINIO_ENDPOINT", "minio:9000")),
+		MinIOAccessKey: getEnv("LAB_MINIO_ACCESS_KEY", getEnv("MINIO_ACCESS_KEY", "minioadmin")),
+		MinIOSecretKey: getEnv("LAB_MINIO_SECRET_KEY", getEnv("MINIO_SECRET_KEY", "minioadmin123")),
+		MinIOBucket:   getEnv("LAB_MINIO_BUCKET", getEnv("MINIO_BUCKET", "lab-files")),
+		MinIOUseSSL:   getEnv("LAB_MINIO_USE_SSL", getEnv("MINIO_USE_SSL", "false")) == "true",
 	}
 }
 
