@@ -329,6 +329,7 @@ func main() {
 				adminOrgs.GET("/:id/stats", orgHandler.GetOrgStats)
 				adminOrgs.GET("/:id/members", orgHandler.ListMembers)
 				adminOrgs.POST("/:id/members", orgHandler.AddMember)
+				adminOrgs.POST("/:id/members/bulk", orgHandler.BulkAddMembers)
 				adminOrgs.PUT("/:id/members/:userId/role", orgHandler.UpdateMemberRole)
 				adminOrgs.DELETE("/:id/members/:userId", orgHandler.RemoveMember)
 			}

@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 
 	"example/hello/internal/models"
 )
@@ -456,4 +458,31 @@ func (r *OrganizationRepository) GetStats(ctx context.Context, orgID int64) (*mo
 	}
 
 	return stats, nil
+}
+
+// AddMembersBulk adds multiple users to an organization in a single bulk insert query
+func (r *OrganizationRepository) AddMembersBulk(ctx context.Context, orgID int64, userIDs []int64, role string) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(`INSERT INTO organization_members (org_id, user_id, org_role) VALUES `)
+
+	// Pre-allocate parameters: orgID, role, and all userIDs
+	args := make([]interface{}, 0, len(userIDs)+2)
+	args = append(args, orgID, role) // $1, $2
+
+	for i, userID := range userIDs {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		// $1 is org_id, $2 is org_role, $(i+3) is user_id
+		sb.WriteString(fmt.Sprintf("($1, $%d, $2)", i+3))
+		args = append(args, userID)
+	}
+	sb.WriteString(` ON CONFLICT (org_id, user_id) DO UPDATE SET org_role = EXCLUDED.org_role`)
+
+	_, err := r.db.ExecContext(ctx, sb.String(), args...)
+	return err
 }

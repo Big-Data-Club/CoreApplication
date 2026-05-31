@@ -23,6 +23,7 @@ public class UserResponse {
     private AuthProvider authProvider;
     private Boolean      pendingApproval;
     private String     profilePicture;
+    private String     organization;
 
     public static UserResponse fromEntity(User user) {
         return UserResponse.builder()
@@ -38,6 +39,7 @@ public class UserResponse {
                 .profilePicture(user.getProfilePicture())
                 .authProvider(user.getAuthProvider())
                 .pendingApproval(user.getPendingApproval())
+                .organization(user.getOrganization())
                 .build();
     }
 }

@@ -79,6 +79,49 @@ x-ai-env: &ai-env
   YOUTUBE_WHISPER_FALLBACK: "true"
 
 services:
+  # ── Traefik Reverse Proxy ──────────────────────────────────────────────────
+  traefik:
+    image: traefik:v3.6
+    container_name: bdc-traefik
+    restart: unless-stopped
+    command:
+      - "--api.insecure=false"
+      - "--ping=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=app-network"
+      - "--entrypoints.web.address=:3000"
+      - "--entrypoints.web.forwardedheaders.trustedips=127.0.0.1,172.28.0.1"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--accesslog.format=json"
+    ports:
+      - "3000:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "service.type=proxy"
+      - "service.name=traefik"
+
   # ── Kafka Broker (KRaft Mode) ──────────────────────────────────────────────
   kafka:
     image: bitnamilegacy/kafka:3.7.0
@@ -123,11 +166,11 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      PORT: 3001
       HOSTNAME: 0.0.0.0
       BACKEND_URL: http://backend:8080
       LMS_API_URL: http://lms-backend:8081
-      AI_SERVICE_URL: http://localhost:8000
+      AI_SERVICE_URL: http://ai-service:8000
       GOOGLE_SCRIPT_URL: ${GOOGLE_SCRIPT_URL}
       YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID}
       YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET}
@@ -137,7 +180,7 @@ services:
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       NEXT_TELEMETRY_DISABLED: 1
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-3001}:3001"
     volumes:
       - ./frontend/logs:/app/logs
       - ./frontend/data:/app/data
@@ -150,7 +193,7 @@ services:
       - app-network
     healthcheck:
       <<: *common-healthcheck
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
       start_period: 45s
     logging: *common-logging
     deploy:
@@ -166,8 +209,13 @@ services:
     labels:
       - "service.type=frontend"
       - "traefik.enable=true"
+      - "traefik.http.routers.frontend.entrypoints=web"
       - "traefik.http.routers.frontend.rule=Host(`bdc.hpcc.vn`)"
-      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3001"
+      - "traefik.http.middlewares.compress-middleware.compress=true"
+      - "traefik.http.routers.frontend.middlewares=compress-middleware"
+
 
   # ── Auth DB: pure PostgreSQL (no AI extensions needed) ────────────────────
   postgres:
@@ -235,7 +283,7 @@ services:
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      CORS_ALLOWED_ORIGINS: http://frontend:3000,https://bdc.hpcc.vn,http://localhost:3000
+      CORS_ALLOWED_ORIGINS: https://bdc.hpcc.vn,http://localhost:3000,https://bdcweb.vercel.app
       LOGGING_LEVEL_ROOT: ${LOG_LEVEL:-INFO}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,metrics,prometheus
       MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
@@ -248,6 +296,7 @@ services:
       EMAIL_PASSWORD: ${EMAIL_PASSWORD}
       EMAIL: ${EMAIL}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     volumes:
@@ -278,8 +327,20 @@ services:
       - "service.type=backend"
       - "service.name=auth-service"
       - "traefik.enable=true"
+      - "traefik.http.routers.backend.entrypoints=web"
       - "traefik.http.routers.backend.rule=Host(`bdc.hpcc.vn`) && PathPrefix(`/apiv1`)"
+      - "traefik.http.routers.backend.priority=10"
       - "traefik.http.services.backend.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.strip-apiv1.stripprefix.prefixes=/apiv1"
+      - "traefik.http.middlewares.backend-compress.compress=true"
+      - "traefik.http.routers.backend.middlewares=strip-apiv1,backend-compress"
+      - "traefik.http.routers.uploads.entrypoints=web"
+      - "traefik.http.routers.uploads.rule=Host(`bdc.hpcc.vn`) && PathPrefix(`/uploads`)"
+      - "traefik.http.routers.uploads.priority=10"
+      - "traefik.http.routers.uploads.service=backend"
+      - "traefik.http.middlewares.uploads-cache.headers.customresponseheaders.Cache-Control=public, max-age=31536000, immutable"
+      - "traefik.http.routers.uploads.middlewares=uploads-cache"
+
 
   # Database: PostgreSQL (LMS Service)
   postgres-lms:
@@ -403,6 +464,11 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       CORS_ALLOWED_METHODS: "GET,POST,PUT,DELETE,OPTIONS,PATCH"
       CORS_ALLOWED_HEADERS: "Authorization,Content-Type,Accept"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: lms-files
+      MINIO_USE_SSL: "false"
       GOMAXPROCS: 2
       GOGC: 100
     ports:
@@ -439,9 +505,23 @@ services:
       - "service.type=backend"
       - "service.name=lms-service"
       - "traefik.enable=true"
+      - "traefik.http.routers.lms.entrypoints=web"
       - "traefik.http.routers.lms.rule=Host(`bdc.hpcc.vn`) && PathPrefix(`/lmsapiv1`)"
+      - "traefik.http.routers.lms.priority=10"
       - "traefik.http.services.lms.loadbalancer.server.port=8081"
-      - "traefik.http.services.lms.loadbalancer.responseTimeout=300s"
+      - "traefik.http.middlewares.rewrite-lms.replacepathregex.regex=^/lmsapiv1/(.*)"
+      - "traefik.http.middlewares.rewrite-lms.replacepathregex.replacement=/api/v1/$$1"
+      - "traefik.http.middlewares.lms-compress.compress=true"
+      - "traefik.http.routers.lms.middlewares=rewrite-lms,lms-compress"
+      - "traefik.http.routers.files.entrypoints=web"
+      - "traefik.http.routers.files.rule=Host(`bdc.hpcc.vn`) && PathPrefix(`/files`)"
+      - "traefik.http.routers.files.priority=10"
+      - "traefik.http.middlewares.rewrite-files.replacepathregex.regex=^/files/(.*)"
+      - "traefik.http.middlewares.rewrite-files.replacepathregex.replacement=/api/v1/files/serve/$$1"
+      - "traefik.http.middlewares.files-cache.headers.customresponseheaders.Cache-Control=public, max-age=31536000, immutable"
+      - "traefik.http.routers.files.middlewares=rewrite-files,files-cache"
+      - "traefik.http.routers.files.service=lms"
+
 
   postgres-ai:
     image: postgres:15-alpine
@@ -753,6 +833,7 @@ volumes:
 # Networks
 networks:
   app-network:
+    name: app-network
     driver: bridge
     ipam:
       driver: default

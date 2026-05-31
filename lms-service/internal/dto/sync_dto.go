@@ -6,6 +6,7 @@ type UserSyncRequest struct {
 	Email    string   `json:"email" binding:"required,email"`
 	FullName string   `json:"full_name" binding:"required"`
 	Roles    []string `json:"roles" binding:"required,min=1"`
+	Org      string   `json:"org" binding:"omitempty"`
 }
 
 // BulkUserSyncRequest represents bulk user sync request

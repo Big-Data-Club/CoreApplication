@@ -267,6 +267,51 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/organizations/{id}/members/bulk": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Bulk add org members",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Bulk add request data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.BulkAddMembersRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.BulkAddMembersResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/organizations/{id}/members/{userId}": {
             "delete": {
                 "security": [
@@ -6197,6 +6242,48 @@ const docTemplate = `{
                     "minItems": 1,
                     "items": {
                         "$ref": "#/definitions/dto.CreateQuestionRequest"
+                    }
+                }
+            }
+        },
+        "dto.BulkAddMembersRequest": {
+            "type": "object",
+            "required": [
+                "org_role"
+            ],
+            "properties": {
+                "emails": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "org_role": {
+                    "type": "string",
+                    "enum": [
+                        "OWNER",
+                        "ADMIN",
+                        "MEMBER"
+                    ]
+                },
+                "raw_input": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.BulkAddMembersResponse": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "not_found": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }

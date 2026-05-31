@@ -159,6 +159,7 @@ public class AuthService {
                             .team(reg.getTeam())
                             .code(reg.getCode())
                             .type(reg.getType())
+                            .organization(reg.getOrganization())
                             .active(true)
                             .totalScore(0)
                             .build();

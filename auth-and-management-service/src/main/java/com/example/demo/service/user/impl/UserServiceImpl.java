@@ -80,6 +80,7 @@ public class UserServiceImpl implements UserService {
         if (req.getTeam() != null)           user.setTeam(req.getTeam());
         if (req.getType() != null)           user.setType(req.getType());
         if (req.getProfilePicture() != null) user.setProfilePicture(req.getProfilePicture());
+        if (req.getOrganization() != null)   user.setOrganization(req.getOrganization());
         var saved = userRepository.save(user);
         userSyncService.syncUser(saved);
         return UserResponse.fromEntity(saved);

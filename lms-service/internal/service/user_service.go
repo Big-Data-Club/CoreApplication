@@ -37,7 +37,7 @@ func NewUserService(userRepo *repository.UserRepository, c *cache.RedisCache) *U
 func (s *UserService) GetMyRoles(ctx context.Context, userID int64, email string) (*dto.UserRolesResponse, error) {
 	// Ensure user exists in database (fast path: this normally hits the row
 	// inserted by the user-sync flow on first login).
-	if _, err := s.userRepo.GetOrCreateUser(ctx, userID, email, ""); err != nil {
+	if _, err := s.userRepo.GetOrCreateUser(ctx, userID, email, "", ""); err != nil {
 		return nil, err
 	}
 

@@ -114,6 +114,34 @@ definitions:
     required:
     - questions
     type: object
+  dto.BulkAddMembersRequest:
+    properties:
+      emails:
+        items:
+          type: string
+        type: array
+      org_role:
+        enum:
+        - OWNER
+        - ADMIN
+        - MEMBER
+        type: string
+      raw_input:
+        type: string
+    required:
+    - org_role
+    type: object
+  dto.BulkAddMembersResponse:
+    properties:
+      added:
+        items:
+          type: string
+        type: array
+      not_found:
+        items:
+          type: string
+        type: array
+    type: object
   dto.BulkEnrollmentRequest:
     properties:
       course_id:
@@ -1800,6 +1828,34 @@ paths:
       security:
       - BearerAuth: []
       summary: Update member role
+      tags:
+      - organizations
+  /admin/organizations/{id}/members/bulk:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Bulk add request data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.BulkAddMembersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.BulkAddMembersResponse'
+      security:
+      - BearerAuth: []
+      summary: Bulk add org members
       tags:
       - organizations
   /admin/organizations/{id}/stats:
