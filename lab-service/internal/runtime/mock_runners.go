@@ -6,58 +6,6 @@ import (
 	"lab-service/pkg/logger"
 )
 
-// ── DATABASE RUNNER ─────────────────────────────────────────────────────────
-
-type DatabaseRunner struct{}
-
-func NewDatabaseRunner() *DatabaseRunner {
-	return &DatabaseRunner{}
-}
-
-func (r *DatabaseRunner) Type() RuntimeType {
-	return RuntimeDatabase
-}
-
-func (r *DatabaseRunner) Validate(config map[string]interface{}) error {
-	return nil
-}
-
-func (r *DatabaseRunner) Execute(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error) {
-	logger.Info(fmt.Sprintf("DatabaseRunner: executing SQL query for submission %d", req.SubmissionID))
-	
-	result := &ExecutionResult{
-		TotalTests: len(req.TestCases),
-		MaxScore:   100,
-	}
-
-	if len(req.TestCases) == 0 {
-		result.Status = "ACCEPTED"
-		result.Score = 100
-		return result, nil
-	}
-
-	totalWeight := 0
-	passedWeight := 0
-	for _, tc := range req.TestCases {
-		totalWeight += tc.Weight
-		tr := TestResult{
-			TestCaseID:   tc.ID,
-			Status:       "PASSED",
-			ActualOutput: tc.Expected,
-			RuntimeMs:    5,
-			MemoryKB:     32,
-		}
-		result.TestResults = append(result.TestResults, tr)
-		result.PassedTests++
-		passedWeight += tc.Weight
-	}
-
-	result.Status = "ACCEPTED"
-	if totalWeight > 0 {
-		result.Score = float64(passedWeight) / float64(totalWeight) * result.MaxScore
-	}
-	return result, nil
-}
 
 // ── WORKSPACE RUNNER ────────────────────────────────────────────────────────
 

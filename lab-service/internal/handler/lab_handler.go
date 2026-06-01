@@ -1,13 +1,20 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
+	"sync"
+	"time"
 
 	"lab-service/internal/dto"
 	"lab-service/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 type LabHandler struct {
@@ -227,5 +234,145 @@ func (h *LabHandler) DeleteContent(c *gin.Context) {
 		return
 	}
 	c.JSON(status, dto.NewMessageResponse("Content deleted"))
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+func (h *LabHandler) StartSession(c *gin.Context) {
+	labID, err := strconv.ParseInt(c.Param("labId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid lab ID"))
+		return
+	}
+	
+	_, _, err = h.labService.GetLab(c.Request.Context(), labID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Lab not found"))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewSuccessResponse("Session provisioned successfully", gin.H{
+		"session_id": fmt.Sprintf("session-%d-%d", labID, time.Now().UnixNano()%100000),
+	}))
+}
+
+func (h *LabHandler) TerminalWS(c *gin.Context) {
+	labID, err := strconv.ParseInt(c.Param("labId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid lab ID"))
+		return
+	}
+
+	lab, _, err := h.labService.GetLab(c.Request.Context(), labID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Lab not found"))
+		return
+	}
+
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer ws.Close()
+
+	var shellCmd string
+	var args []string
+	if runtime.GOOS == "windows" {
+		shellCmd = "powershell.exe"
+		args = []string{"-NoLogo"}
+	} else {
+		shellCmd = "bash"
+		args = []string{"-i"}
+	}
+
+	cmd := exec.Command(shellCmd, args...)
+	
+	tempDir, err := os.MkdirTemp("", fmt.Sprintf("bdc-terminal-%d-", labID))
+	if err == nil {
+		cmd.Dir = tempDir
+		readmePath := fmt.Sprintf("%s/README.md", tempDir)
+		os.WriteFile(readmePath, []byte(fmt.Sprintf("# %s\n\nWelcome to your interactive workspace terminal. You can write scripts, compile code, and run files here.\n", lab.Title)), 0644)
+		defer os.RemoveAll(tempDir)
+	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to create stdin pipe: %v\r\n", err)))
+		return
+	}
+	defer stdin.Close()
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to create stdout pipe: %v\r\n", err)))
+		return
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to create stderr pipe: %v\r\n", err)))
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to start shell process: %v\r\n", err)))
+		return
+	}
+
+	var once sync.Once
+	killProcess := func() {
+		once.Do(func() {
+			if cmd.Process != nil {
+				cmd.Process.Kill()
+			}
+		})
+	}
+	defer killProcess()
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				ws.WriteMessage(websocket.BinaryMessage, buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+		ws.Close()
+	}()
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := stderr.Read(buf)
+			if n > 0 {
+				ws.WriteMessage(websocket.BinaryMessage, buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+		ws.Close()
+	}()
+
+	for {
+		mt, message, err := ws.ReadMessage()
+		if err != nil {
+			break
+		}
+		if mt == websocket.TextMessage || mt == websocket.BinaryMessage {
+			_, err = stdin.Write(message)
+			if err != nil {
+				break
+			}
+		}
+	}
 }
 
