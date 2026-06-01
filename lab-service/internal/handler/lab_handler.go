@@ -296,6 +296,7 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 	}
 
 	cmd := exec.Command(shellCmd, args...)
+	cmd.Env = append(os.Environ(), "TERM=dumb")
 	
 	tempDir, err := os.MkdirTemp("", fmt.Sprintf("bdc-terminal-%d-", labID))
 	if err == nil {

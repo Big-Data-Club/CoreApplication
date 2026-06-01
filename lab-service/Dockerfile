@@ -25,7 +25,7 @@ COPY --from=builder /lab-service .
 COPY migrations/ /app/migrations/
 
 RUN chown -R appuser:appgroup /app
-USER appuser
+# USER appuser
 
 EXPOSE 8082
 
