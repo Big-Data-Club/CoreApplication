@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"lab-service/internal/dto"
 )
@@ -71,3 +72,62 @@ func (r *TestCaseRepository) BulkCreate(ctx context.Context, labID int64, reqs [
 	}
 	return results, nil
 }
+
+func (r *TestCaseRepository) Update(ctx context.Context, testCaseID int64, req *dto.UpdateTestCaseRequest) error {
+	query := "UPDATE lab_test_cases SET "
+	var args []interface{}
+	argID := 1
+	first := true
+
+	updateField := func(field string, val interface{}) {
+		if !first {
+			query += ", "
+		}
+		first = false
+		query += fmt.Sprintf("%s = $%d", field, argID)
+		args = append(args, val)
+		argID++
+	}
+
+	if req.Name != nil {
+		updateField("name", *req.Name)
+	}
+	if req.OrderIndex != nil {
+		updateField("order_index", *req.OrderIndex)
+	}
+	if req.IsSample != nil {
+		updateField("is_sample", *req.IsSample)
+	}
+	if req.IsHidden != nil {
+		updateField("is_hidden", *req.IsHidden)
+	}
+	if req.Weight != nil {
+		updateField("weight", *req.Weight)
+	}
+	if req.Input != nil {
+		updateField("input", *req.Input)
+	}
+	if req.Expected != nil {
+		updateField("expected", *req.Expected)
+	}
+	if req.TimeLimitMs != nil {
+		updateField("time_limit_ms", req.TimeLimitMs)
+	}
+	if req.MemoryLimitMB != nil {
+		updateField("memory_limit_mb", req.MemoryLimitMB)
+	}
+	if req.Explanation != nil {
+		updateField("explanation", *req.Explanation)
+	}
+
+	if first {
+		return nil
+	}
+
+	query += fmt.Sprintf(" WHERE id = $%d", argID)
+	args = append(args, testCaseID)
+
+	_, err := r.db.ExecContext(ctx, query, args...)
+	return err
+}
+

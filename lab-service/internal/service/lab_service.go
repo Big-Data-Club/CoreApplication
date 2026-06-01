@@ -165,6 +165,21 @@ func (s *LabService) ListContent(ctx context.Context, sectionID int64) ([]dto.Co
 	return contents, http.StatusOK, nil
 }
 
+func (s *LabService) UpdateContent(ctx context.Context, contentID int64, req *dto.UpdateContentRequest) (int, error) {
+	if err := s.labRepo.UpdateContent(ctx, contentID, req); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("failed to update content: %w", err)
+	}
+	return http.StatusOK, nil
+}
+
+func (s *LabService) DeleteContent(ctx context.Context, contentID int64) (int, error) {
+	if err := s.labRepo.DeleteContent(ctx, contentID); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("failed to delete content: %w", err)
+	}
+	return http.StatusOK, nil
+}
+
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 func (s *LabService) checkOwnership(ctx context.Context, labID int64, userID int64, userRole string) error {

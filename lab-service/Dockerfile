@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 # ── Stage 2: Runtime ─────────────────────────────────────────────
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates wget tzdata \
+RUN apk add --no-cache ca-certificates wget tzdata python3 \
     && cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
     && echo "Asia/Ho_Chi_Minh" > /etc/timezone
 

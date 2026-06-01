@@ -433,3 +433,53 @@ func (r *LabRepository) ListContent(ctx context.Context, sectionID int64) ([]dto
 	}
 	return contents, nil
 }
+
+func (r *LabRepository) UpdateContent(ctx context.Context, contentID int64, req *dto.UpdateContentRequest) error {
+	query := "UPDATE lab_section_content SET updated_at = NOW()"
+	var args []interface{}
+	argID := 1
+
+	if req.Title != nil {
+		query += fmt.Sprintf(", title = $%d", argID)
+		args = append(args, *req.Title)
+		argID++
+	}
+	if req.Description != nil {
+		query += fmt.Sprintf(", description = $%d", argID)
+		args = append(args, *req.Description)
+		argID++
+	}
+	if req.OrderIndex != nil {
+		query += fmt.Sprintf(", order_index = $%d", argID)
+		args = append(args, *req.OrderIndex)
+		argID++
+	}
+	if req.Metadata != nil {
+		metaRaw, _ := json.Marshal(*req.Metadata)
+		query += fmt.Sprintf(", metadata = $%d", argID)
+		args = append(args, metaRaw)
+		argID++
+	}
+	if req.IsPublished != nil {
+		query += fmt.Sprintf(", is_published = $%d", argID)
+		args = append(args, *req.IsPublished)
+		argID++
+	}
+	if req.IsMandatory != nil {
+		query += fmt.Sprintf(", is_mandatory = $%d", argID)
+		args = append(args, *req.IsMandatory)
+		argID++
+	}
+
+	query += fmt.Sprintf(" WHERE id = $%d", argID)
+	args = append(args, contentID)
+
+	_, err := r.db.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (r *LabRepository) DeleteContent(ctx context.Context, contentID int64) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM lab_section_content WHERE id = $1", contentID)
+	return err
+}
+

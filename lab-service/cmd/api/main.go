@@ -145,12 +145,17 @@ func main() {
 		// Lab Content
 		api.POST("/sections/:sectionId/content", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.CreateContent)
 		api.GET("/sections/:sectionId/content", labHandler.ListContent)
+		api.PUT("/content/:contentId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.UpdateContent)
+		api.DELETE("/content/:contentId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.DeleteContent)
+
 
 		// Test Cases
 		api.POST("/labs/:labId/test-cases", middleware.RequireRoles("TEACHER", "ADMIN"), testCaseHandler.CreateTestCase)
 		api.GET("/labs/:labId/test-cases", testCaseHandler.ListTestCases)
+		api.PUT("/test-cases/:id", middleware.RequireRoles("TEACHER", "ADMIN"), testCaseHandler.UpdateTestCase)
 		api.DELETE("/test-cases/:id", middleware.RequireRoles("TEACHER", "ADMIN"), testCaseHandler.DeleteTestCase)
 		api.POST("/labs/:labId/test-cases/bulk", middleware.RequireRoles("TEACHER", "ADMIN"), testCaseHandler.BulkCreateTestCases)
+
 
 		// Submissions
 		api.POST("/labs/:labId/run", submissionHandler.RunCode)

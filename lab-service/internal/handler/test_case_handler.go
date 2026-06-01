@@ -73,3 +73,18 @@ func (h *TestCaseHandler) BulkCreateTestCases(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, dto.NewSuccessResponse("Test cases created", results))
 }
+
+func (h *TestCaseHandler) UpdateTestCase(c *gin.Context) {
+	tcID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	var req dto.UpdateTestCaseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+	if err := h.testCaseRepo.Update(c.Request.Context(), tcID, &req); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("error", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Test case updated"))
+}
+

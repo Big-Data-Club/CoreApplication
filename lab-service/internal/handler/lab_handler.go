@@ -203,3 +203,29 @@ func (h *LabHandler) ListContent(c *gin.Context) {
 	}
 	c.JSON(status, dto.NewDataResponse(contents))
 }
+
+func (h *LabHandler) UpdateContent(c *gin.Context) {
+	contentID, _ := strconv.ParseInt(c.Param("contentId"), 10, 64)
+	var req dto.UpdateContentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+	status, err := h.labService.UpdateContent(c.Request.Context(), contentID, &req)
+	if err != nil {
+		c.JSON(status, dto.NewErrorResponse("error", err.Error()))
+		return
+	}
+	c.JSON(status, dto.NewMessageResponse("Content updated"))
+}
+
+func (h *LabHandler) DeleteContent(c *gin.Context) {
+	contentID, _ := strconv.ParseInt(c.Param("contentId"), 10, 64)
+	status, err := h.labService.DeleteContent(c.Request.Context(), contentID)
+	if err != nil {
+		c.JSON(status, dto.NewErrorResponse("error", err.Error()))
+		return
+	}
+	c.JSON(status, dto.NewMessageResponse("Content deleted"))
+}
+

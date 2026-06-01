@@ -77,7 +77,7 @@ type LabResponse struct {
 type CreateSectionRequest struct {
 	Title       string `json:"title" binding:"required,min=3,max=255"`
 	Description string `json:"description" binding:"max=2000"`
-	OrderIndex  int    `json:"order_index" binding:"required,min=0"`
+	OrderIndex  int    `json:"order_index" binding:"min=0"`
 }
 
 type UpdateSectionRequest struct {
@@ -104,7 +104,7 @@ type CreateContentRequest struct {
 	Type        string                 `json:"type" binding:"required,oneof=TEXT DOCUMENT IMAGE CODE_TEMPLATE CHECKPOINT"`
 	Title       string                 `json:"title" binding:"required,min=3,max=255"`
 	Description string                 `json:"description" binding:"max=2000"`
-	OrderIndex  int                    `json:"order_index" binding:"required,min=0"`
+	OrderIndex  int                    `json:"order_index" binding:"min=0"`
 	Metadata    map[string]interface{} `json:"metadata"`
 	IsMandatory bool                   `json:"is_mandatory"`
 }

@@ -126,7 +126,9 @@ func normalizeRole(role string) string {
 	switch role {
 	case "ROLE_ADMIN", "ROLE_MANAGER":
 		return "ADMIN"
-	case "ROLE_USER":
+	case "ROLE_TEACHER":
+		return "TEACHER"
+	case "ROLE_USER", "ROLE_STUDENT":
 		return "STUDENT"
 	default:
 		return strings.ToUpper(role)
