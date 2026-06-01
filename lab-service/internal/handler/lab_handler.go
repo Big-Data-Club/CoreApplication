@@ -2,12 +2,12 @@ package handler
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
-	"sync"
 	"time"
 
 	"lab-service/internal/dto"
@@ -305,78 +305,10 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 		defer os.RemoveAll(tempDir)
 	}
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to create stdin pipe: %v\r\n", err)))
+	if err := startShellPTY(cmd, ws); err != nil {
+		log.Printf("[TerminalWS] startShellPTY failed: %v", err)
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to run terminal session: %v\r\n", err)))
 		return
-	}
-	defer stdin.Close()
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to create stdout pipe: %v\r\n", err)))
-		return
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to create stderr pipe: %v\r\n", err)))
-		return
-	}
-
-	if err := cmd.Start(); err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nFailed to start shell process: %v\r\n", err)))
-		return
-	}
-
-	var once sync.Once
-	killProcess := func() {
-		once.Do(func() {
-			if cmd.Process != nil {
-				cmd.Process.Kill()
-			}
-		})
-	}
-	defer killProcess()
-
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, err := stdout.Read(buf)
-			if n > 0 {
-				ws.WriteMessage(websocket.BinaryMessage, buf[:n])
-			}
-			if err != nil {
-				break
-			}
-		}
-		ws.Close()
-	}()
-
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, err := stderr.Read(buf)
-			if n > 0 {
-				ws.WriteMessage(websocket.BinaryMessage, buf[:n])
-			}
-			if err != nil {
-				break
-			}
-		}
-		ws.Close()
-	}()
-
-	for {
-		mt, message, err := ws.ReadMessage()
-		if err != nil {
-			break
-		}
-		if mt == websocket.TextMessage || mt == websocket.BinaryMessage {
-			_, err = stdin.Write(message)
-			if err != nil {
-				break
-			}
-		}
 	}
 }
 
