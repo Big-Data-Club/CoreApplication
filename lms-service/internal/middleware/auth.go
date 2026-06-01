@@ -1,12 +1,16 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"example/hello/internal/dto"
+	"example/hello/internal/repository"
+	"example/hello/pkg/cache"
 	"example/hello/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -361,6 +365,66 @@ func OptionalAuth(jwtSecret string) gin.HandlerFunc {
 			if len(normalizedRoles) > 0 {
 				c.Set("user_role", normalizedRoles[0])
 			}
+		}
+
+		c.Next()
+	}
+}
+
+// LoadLocalRoles loads user roles from the local database/cache and overrides the context roles.
+func LoadLocalRoles(userRepo *repository.UserRepository, redisCache *cache.RedisCache) gin.HandlerFunc {
+	loader := cache.NewLoader(redisCache)
+	return func(c *gin.Context) {
+		userIDVal, exists := c.Get("user_id")
+		if !exists {
+			c.Next()
+			return
+		}
+
+		userID, ok := userIDVal.(int64)
+		if !ok || userID <= 0 {
+			c.Next()
+			return
+		}
+
+		// Don't override for system/internal calls if already ADMIN
+		if c.GetString("user_email") == "system@bdc.internal" {
+			c.Next()
+			return
+		}
+
+		// Fetch roles using cache
+		roles, err := cache.GetOrLoad(c.Request.Context(), loader, cache.KeyUserRoles(userID), 5*time.Minute,
+			func(ctx context.Context) ([]string, error) {
+				return userRepo.GetUserRoles(ctx, userID)
+			})
+		if err != nil {
+			logger.Warn(fmt.Sprintf("Failed to load local roles for user %d: %v", userID, err))
+			c.Next()
+			return
+		}
+
+		if len(roles) > 0 {
+			c.Set("user_roles", roles)
+			
+			// Determine primary role (prefer ADMIN first, then TEACHER, then STUDENT, or first in list)
+			primaryRole := roles[0]
+			for _, r := range roles {
+				if r == "ADMIN" {
+					primaryRole = "ADMIN"
+					break
+				}
+			}
+			// If not ADMIN, check for TEACHER
+			if primaryRole != "ADMIN" {
+				for _, r := range roles {
+					if r == "TEACHER" {
+						primaryRole = "TEACHER"
+						break
+					}
+				}
+			}
+			c.Set("user_role", primaryRole)
 		}
 
 		c.Next()

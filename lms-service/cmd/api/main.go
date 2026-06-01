@@ -261,6 +261,7 @@ func main() {
 			// 1. Flexible endpoints (Internal Service Secret OR JWT)
 			flexible := files.Group("")
 			flexible.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+			flexible.Use(middleware.LoadLocalRoles(userRepo, redisClient))
 			{
 				flexible.GET("/presigned/*filepath", fileHandler.GetPresignedURL)
 			}
@@ -268,6 +269,7 @@ func main() {
 			// 2. Strict protected endpoints (JWT ONLY)
 			protected := files.Group("")
 			protected.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
+			protected.Use(middleware.LoadLocalRoles(userRepo, redisClient))
 			{
 				protected.POST("/upload", fileHandler.UploadFile)
 				protected.DELETE("/delete/*filepath", fileHandler.DeleteFile)
@@ -279,6 +281,7 @@ func main() {
 		// Normal users continue to use JWT authentication.
 		flexCourses := v1.Group("/courses")
 		flexCourses.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		flexCourses.Use(middleware.LoadLocalRoles(userRepo, redisClient))
 		{
 			flexCourses.POST("/:courseId/sections", courseHandler.CreateSection)
 			flexCourses.GET("/:courseId/sections", courseHandler.ListSections)
@@ -288,6 +291,7 @@ func main() {
 		// Protected routes - require authentication
 		auth := v1.Group("")
 		auth.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
+		auth.Use(middleware.LoadLocalRoles(userRepo, redisClient))
 		{
 			// User role management
 			auth.GET("/me/roles", userHandler.GetMyRoles)
@@ -433,6 +437,7 @@ func main() {
 			// ENROLLMENT MANAGEMENT (Internal Service Secret OR JWT)
 			enrollments := v1.Group("/enrollments")
 			enrollments.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+			enrollments.Use(middleware.LoadLocalRoles(userRepo, redisClient))
 			{
 				// Student enrollment
 				enrollments.POST("", enrollmentHandler.EnrollCourse)
