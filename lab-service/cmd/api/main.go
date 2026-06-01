@@ -61,7 +61,7 @@ func main() {
 	// ── Runtime Adapter Registry ────────────────────────────────
 	runtimeRegistry := runtime.NewRegistry()
 	runtimeRegistry.Register(runtime.NewCodingRunner())
-	runtimeRegistry.Register(runtime.NewDatabaseRunner())
+	runtimeRegistry.Register(runtime.NewDatabaseRunner(cfg.DatabaseLab))
 	runtimeRegistry.Register(runtime.NewWorkspaceRunner())
 	runtimeRegistry.Register(runtime.NewHPCRunner())
 	runtimeRegistry.Register(runtime.NewJupyterRunner())
@@ -135,6 +135,10 @@ func main() {
 		api.PUT("/labs/:labId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.UpdateLab)
 		api.DELETE("/labs/:labId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.DeleteLab)
 		api.POST("/labs/:labId/publish", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.PublishLab)
+
+		// Lab Interactive Session & Web Terminal
+		api.POST("/labs/:labId/session/start", labHandler.StartSession)
+		api.GET("/labs/:labId/session/terminal/ws", labHandler.TerminalWS)
 
 		// Lab Sections
 		api.POST("/labs/:labId/sections", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.CreateSection)

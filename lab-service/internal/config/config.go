@@ -22,6 +22,7 @@ type Config struct {
 	K8s      K8sConfig
 	SLURM    SLURMConfig
 	Kafka    KafkaConfig
+	DatabaseLab DatabaseLabConfig
 }
 
 type AppConfig struct {
@@ -111,6 +112,13 @@ type SLURMConfig struct {
 
 type KafkaConfig struct {
 	Brokers string
+}
+
+type DatabaseLabConfig struct {
+	PostgresURL  string
+	MySQLURL     string
+	SQLServerURL string
+	OracleURL    string
 }
 
 func LoadStorageConfig() StorageConfig {
@@ -206,6 +214,12 @@ func Load() (*Config, error) {
 		},
 		Kafka: KafkaConfig{
 			Brokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
+		},
+		DatabaseLab: DatabaseLabConfig{
+			PostgresURL:  getEnv("DB_LAB_POSTGRES_URL", "postgres://lab_user:lab_password@localhost:5436/lab_db?sslmode=disable"),
+			MySQLURL:     getEnv("DB_LAB_MYSQL_URL", "root:root_password@tcp(localhost:3306)/mysql_db"),
+			SQLServerURL: getEnv("DB_LAB_SQLSERVER_URL", "sqlserver://sa:SqlServerPassword123@localhost:1433?database=mssql_db"),
+			OracleURL:    getEnv("DB_LAB_ORACLE_URL", "oracle://system:oracle_password@localhost:1521/XE"),
 		},
 	}
 

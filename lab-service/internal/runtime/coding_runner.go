@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -116,28 +118,176 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 		tc.Name, language, timeLimitMs, memoryLimitMB))
 
 	lang := strings.ToLower(language)
-	if lang == "python" || lang == "python3" {
-		cmd := exec.Command("python3", "-c", code)
-		cmd.Stdin = bytes.NewBufferString(tc.Input)
 
+	// Create a temporary directory for code execution
+	tempDir, err := os.MkdirTemp("", "bdc-sandbox-")
+	if err != nil {
+		return TestResult{
+			TestCaseID:   tc.ID,
+			Status:       "RUNTIME_ERROR",
+			ActualOutput: fmt.Sprintf("Failed to create temporary sandbox directory: %v", err),
+			RuntimeMs:    0,
+		}
+	}
+	defer os.RemoveAll(tempDir)
+
+	var sourceFile string
+	var compileCmd *exec.Cmd
+	var runCmd *exec.Cmd
+	var isCompiled bool
+
+	switch lang {
+	case "python", "python3":
+		sourceFile = filepath.Join(tempDir, "solution.py")
+		if err := os.WriteFile(sourceFile, []byte(code), 0644); err != nil {
+			return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: err.Error()}
+		}
+		pyExe := "python3"
+		if _, err := exec.LookPath("python3"); err != nil {
+			if _, err2 := exec.LookPath("python"); err2 == nil {
+				pyExe = "python"
+			}
+		}
+		runCmd = exec.Command(pyExe, "solution.py")
+
+	case "c":
+		sourceFile = filepath.Join(tempDir, "solution.c")
+		if err := os.WriteFile(sourceFile, []byte(code), 0644); err != nil {
+			return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: err.Error()}
+		}
+		isCompiled = true
+		compileCmd = exec.Command("gcc", "-O2", "-o", "exec", "solution.c")
+		runCmd = exec.Command("./exec")
+
+	case "cpp", "c++":
+		sourceFile = filepath.Join(tempDir, "solution.cpp")
+		if err := os.WriteFile(sourceFile, []byte(code), 0644); err != nil {
+			return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: err.Error()}
+		}
+		isCompiled = true
+		compileCmd = exec.Command("g++", "-O2", "-o", "exec", "solution.cpp")
+		runCmd = exec.Command("./exec")
+
+	case "java":
+		sourceFile = filepath.Join(tempDir, "Main.java")
+		if err := os.WriteFile(sourceFile, []byte(code), 0644); err != nil {
+			return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: err.Error()}
+		}
+		isCompiled = true
+		compileCmd = exec.Command("javac", "Main.java")
+		runCmd = exec.Command("java", "Main")
+
+	case "go", "golang":
+		sourceFile = filepath.Join(tempDir, "main.go")
+		if err := os.WriteFile(sourceFile, []byte(code), 0644); err != nil {
+			return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: err.Error()}
+		}
+		isCompiled = true
+		compileCmd = exec.Command("go", "build", "-o", "exec", "main.go")
+		runCmd = exec.Command("./exec")
+
+	case "rust", "rs":
+		sourceFile = filepath.Join(tempDir, "main.rs")
+		if err := os.WriteFile(sourceFile, []byte(code), 0644); err != nil {
+			return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: err.Error()}
+		}
+		isCompiled = true
+		compileCmd = exec.Command("rustc", "-O", "-o", "exec", "main.rs")
+		runCmd = exec.Command("./exec")
+
+	case "scala":
+		sourceFile = filepath.Join(tempDir, "Main.scala")
+		if err := os.WriteFile(sourceFile, []byte(code), 0644); err != nil {
+			return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: err.Error()}
+		}
+		isCompiled = true
+		compileCmd = exec.Command("scalac", "Main.scala")
+		runCmd = exec.Command("scala", "Main")
+
+	default:
+		return TestResult{
+			TestCaseID:   tc.ID,
+			Status:       "RUNTIME_ERROR",
+			ActualOutput: fmt.Sprintf("Unsupported programming language: %s", language),
+		}
+	}
+
+	// Compilation step if required
+	if isCompiled && compileCmd != nil {
+		compileCmd.Dir = tempDir
+		var compileStderr bytes.Buffer
+		compileCmd.Stderr = &compileStderr
+		var compileStdout bytes.Buffer
+		compileCmd.Stdout = &compileStdout
+
+		// Check if compiler exists
+		if _, err := exec.LookPath(compileCmd.Path); err != nil {
+			return TestResult{
+				TestCaseID:   tc.ID,
+				Status:       "COMPILER_ERROR",
+				ActualOutput: fmt.Sprintf("Compiler %q is not installed on the system.", compileCmd.Args[0]),
+				RuntimeMs:    0,
+			}
+		}
+
+		compileCtx, compileCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer compileCancel()
+		
+		err := compileCmd.Run()
+		if compileCtx.Err() == context.DeadlineExceeded {
+			return TestResult{
+				TestCaseID:   tc.ID,
+				Status:       "COMPILER_ERROR",
+				ActualOutput: "Compilation timed out (max 10s)",
+			}
+		}
+		if err != nil {
+			compilerOutput := compileStderr.String()
+			if compilerOutput == "" {
+				compilerOutput = compileStdout.String()
+			}
+			if compilerOutput == "" {
+				compilerOutput = err.Error()
+			}
+			return TestResult{
+				TestCaseID:   tc.ID,
+				Status:       "COMPILER_ERROR",
+				ActualOutput: compilerOutput,
+			}
+		}
+	}
+
+	// Execution Step
+	if runCmd != nil {
+		runCmd.Dir = tempDir
+		runCmd.Stdin = bytes.NewBufferString(tc.Input)
 		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
+		runCmd.Stdout = &stdout
+		runCmd.Stderr = &stderr
+
+		// Check if runner exists
+		if _, err := exec.LookPath(runCmd.Path); err != nil {
+			return TestResult{
+				TestCaseID:   tc.ID,
+				Status:       "RUNTIME_ERROR",
+				ActualOutput: fmt.Sprintf("Runner/Interpreter %q is not installed on the system.", runCmd.Args[0]),
+			}
+		}
 
 		startTime := time.Now()
 		done := make(chan error, 1)
 		go func() {
-			done <- cmd.Run()
+			done <- runCmd.Run()
 		}()
 
-		var err error
+		var runErr error
 		select {
-		case err = <-done:
+		case runErr = <-done:
 			// Completed
 		case <-time.After(time.Duration(timeLimitMs) * time.Millisecond):
 			// Timeout
-			if cmd.Process != nil {
-				cmd.Process.Kill()
+			if runCmd.Process != nil {
+				runCmd.Process.Kill()
 			}
 			return TestResult{
 				TestCaseID:   tc.ID,
@@ -149,11 +299,15 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 
 		duration := int(time.Since(startTime).Milliseconds())
 
-		if err != nil {
+		if runErr != nil {
+			errStr := stderr.String()
+			if errStr == "" {
+				errStr = runErr.Error()
+			}
 			return TestResult{
 				TestCaseID:   tc.ID,
 				Status:       "RUNTIME_ERROR",
-				ActualOutput: stderr.String(),
+				ActualOutput: errStr,
 				RuntimeMs:    duration,
 			}
 		}
@@ -176,26 +330,15 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 		}
 	}
 
-	// For other languages in Phase 1, return simulation result based on code presence
-	duration := 5
-	status := "WRONG_ANSWER"
-	actual := ""
-	if len(strings.TrimSpace(code)) > 0 {
-		status = "PASSED"
-		actual = tc.Expected
-	}
-
 	return TestResult{
 		TestCaseID:   tc.ID,
-		Status:       status,
-		ActualOutput: actual,
-		RuntimeMs:    duration,
+		Status:       "RUNTIME_ERROR",
+		ActualOutput: "Failed to establish execution pipeline.",
 	}
 }
 
 // CompareOutput compares actual and expected output for EXACT_MATCH.
 func CompareOutput(actual, expected string) bool {
-	// Trim trailing whitespace/newlines from both
 	a := strings.TrimRight(actual, " \t\n\r")
 	e := strings.TrimRight(expected, " \t\n\r")
 	return a == e
