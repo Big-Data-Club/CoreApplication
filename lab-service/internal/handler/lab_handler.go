@@ -287,7 +287,11 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 		shellCmd = "powershell.exe"
 		args = []string{"-NoLogo"}
 	} else {
-		shellCmd = "bash"
+		if _, err := exec.LookPath("bash"); err == nil {
+			shellCmd = "bash"
+		} else {
+			shellCmd = "sh"
+		}
 		args = []string{"-i"}
 	}
 
