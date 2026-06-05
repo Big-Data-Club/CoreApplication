@@ -709,6 +709,18 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 		return
 	}
 
+	// Idempotency guard: reject if already processing to prevent double-indexing.
+	// GetContentByID uses COALESCE so AIIndexStatus.String is always populated.
+	if content.AIIndexStatus.String == "processing" {
+		logger.Warn(fmt.Sprintf("Auto-index: Content %d is already processing — rejecting duplicate request", contentID))
+		c.JSON(http.StatusConflict, dto.NewDataResponse(map[string]interface{}{
+			"content_id": contentID,
+			"status":     "processing",
+			"message":    "Document is already being indexed",
+		}))
+		return
+	}
+
 	// Log content details for debugging
 	logger.Info(fmt.Sprintf("Auto-index debug: ContentID=%d, Type=%s, FilePath.Valid=%v, FilePath.String='%s'",
 		contentID, content.Type, content.FilePath.Valid, content.FilePath.String))
@@ -833,10 +845,19 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 		return
 	}
 
+	// Update LMS DB to 'processing' immediately so that the batch polling endpoint
+	// returns the correct in-flight state before the AI worker sends its first
+	// status event back via Kafka. Without this, polls return 'not_indexed' and
+	// the UI reverts the button to the un-indexed state.
+	if dbErr := h.courseRepo.UpdateContentAIIndexStatus(c.Request.Context(), contentID, "processing"); dbErr != nil {
+		logger.Error(fmt.Sprintf("Auto-index: Failed to mark content %d as processing in DB", contentID), dbErr)
+		// Non-fatal: the Kafka event is already in flight; worker will update status when done.
+	}
+
 	c.JSON(http.StatusAccepted, dto.NewDataResponse(map[string]interface{}{
 		"job_id":     eventID,
 		"content_id": contentID,
-		"status":     "queued",
+		"status":     "processing",
 	}))
 }
 
