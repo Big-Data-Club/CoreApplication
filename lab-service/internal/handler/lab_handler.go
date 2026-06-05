@@ -237,8 +237,8 @@ func (h *LabHandler) DeleteContent(c *gin.Context) {
 }
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:  16384,
+	WriteBufferSize: 16384,
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
@@ -296,7 +296,7 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 	}
 
 	cmd := exec.Command(shellCmd, args...)
-	cmd.Env = append(os.Environ(), "TERM=dumb")
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	
 	tempDir, err := os.MkdirTemp("", fmt.Sprintf("bdc-terminal-%d-", labID))
 	if err == nil {
