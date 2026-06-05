@@ -217,6 +217,45 @@ class SectionOverviewService:
         add_log("Tác vụ sinh tổng quan chương hoàn tất thành công!")
         await self._post_status(job_id, "completed", 100, "done", "", "\n".join(job_logs))
 
+    async def _chat_complete_json_with_retry(
+        self,
+        *,
+        messages: list[dict],
+        model: str,
+        temperature: float = 0.3,
+        max_tokens: int = 2500,
+        task: str = "",
+        add_log = None,
+        max_retries: int = 3,
+    ) -> dict:
+        """
+        Call chat_complete_json with exponential backoff on failure.
+        """
+        import asyncio
+        delay = 2.0
+        for attempt in range(max_retries + 1):
+            try:
+                result = await chat_complete_json(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    task=task,
+                )
+                if isinstance(result, dict):
+                    return result
+                raise ValueError(f"LLM returned invalid response type: {type(result)}")
+            except Exception as exc:
+                if attempt == max_retries:
+                    if add_log:
+                        add_log(f"Thất bại: LLM Call không thành công sau {max_retries} lần thử lại: {exc}")
+                    raise exc
+                if add_log:
+                    add_log(f"Cảnh báo: LLM Call gặp lỗi ({exc}). Đang tự động thử lại lần {attempt + 1}/{max_retries} sau {delay}s...")
+                await asyncio.sleep(delay)
+                delay *= 2.0
+        return {}
+
     # ── Node fetching + topological sort ──────────────────────────────────────
 
     async def _fetch_all_nodes(self, content_ids: list[int]) -> list[dict]:
@@ -338,6 +377,80 @@ class SectionOverviewService:
 
     # ── Overview lesson generation ────────────────────────────────────────────
 
+    async def _verify_and_refine_lesson(
+        self,
+        *,
+        title: str,
+        summary: str,
+        markdown_content: str,
+        references: list[ContentRef],
+        language: str,
+        section_id: int,
+        add_log,
+    ) -> tuple[str, str, str]:
+        """
+        Runs a verifier agent to polish the synthesized lesson, verifying references
+        and formatting.
+        """
+        add_log("Lesson Verifier Agent: Đang bắt đầu kiểm tra chất lượng và tinh chỉnh bài học...")
+        lang_name = "Vietnamese" if language == "vi" else "English"
+        sys_msg = _LESSON_SYSTEM_VI if language == "vi" else _LESSON_SYSTEM_EN
+        
+        ref_list_str = "\n".join(
+            f"- content_id={r.content_id}, title=\"{r.title}\""
+            for r in references
+        )
+
+        user_msg = (
+            f"## TASK: Verify and Refine Overview Lesson\n\n"
+            f"You are a Quality Control (QC) agent. Review the following draft of the section overview lesson "
+            f"for Section ID {section_id} and refine it for maximum clarity, pedagogical quality, and smooth transitions.\n\n"
+            f"Please verify the following guidelines:\n"
+            f"1. Structure: Ensure proper Markdown headers (using #, ##, ###), clear paragraph structures, and list bullet points.\n"
+            f"2. Tone: Keep it highly engaging, educational, and professional.\n"
+            f"3. References: Ensure any resource mentions or links utilize valid content IDs from: \n{ref_list_str}.\n"
+            f"4. Format: Return the output as JSON matching the exact required schema.\n\n"
+            f"## REQUIRED JSON SCHEMA\n"
+            "{\n"
+            f'  "title": "Polished title in {lang_name}",\n'
+            f'  "summary": "Polished 2-3 sentence summary in {lang_name}",\n'
+            f'  "markdown_content": "Polished Markdown lesson content in {lang_name}"\n'
+            "}\n\n"
+            f"## ORIGINAL DRAFT TO REFINE\n"
+            f"Title: {title}\n"
+            f"Summary: {summary}\n"
+            f"Markdown Content:\n{markdown_content}\n"
+        )
+
+        try:
+            async with _LLM_SEMAPHORE:
+                result = await self._chat_complete_json_with_retry(
+                    messages=[
+                        {"role": "system", "content": sys_msg},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    model=settings.quiz_model,
+                    temperature=0.3,
+                    max_tokens=4000,
+                    task=TASK_SECTION_OVERVIEW_GEN,
+                    add_log=add_log,
+                )
+
+            if not isinstance(result, dict) or "markdown_content" not in result:
+                add_log("Lesson Verifier Agent: Cảnh báo - Phản hồi QC không hợp lệ. Giữ lại bản gốc.")
+                return title, summary, markdown_content
+
+            v_title = (result.get("title") or "").strip() or title
+            v_summary = (result.get("summary") or "").strip() or summary
+            v_md = (result.get("markdown_content") or "").strip() or markdown_content
+
+            add_log("Lesson Verifier Agent: Đã kiểm tra và tinh chỉnh bài học thành công!")
+            return v_title, v_summary, v_md
+        except Exception as exc:
+            logger.error("Lesson verifier failed: %s", exc)
+            add_log(f"Lesson Verifier Agent: Thất bại do lỗi ({exc}). Sử dụng bản nháp coordinator gốc.")
+            return title, summary, markdown_content
+
     async def _generate_lesson(
         self,
         nodes_with_chunks: list[dict],
@@ -392,18 +505,21 @@ class SectionOverviewService:
         add_log(f"Lesson Coordinator: Đang kích hoạt {num_agents} sub-agents song song...")
         await update_status_cb(1, "queued", "Bắt đầu các sub-agents...")
 
-        # Run sub-agents in parallel
-        tasks = [
-            self._generate_lesson_synopsis(
-                agent_id=i + 1,
-                nodes_group=groups[i],
-                language=language,
-                section_id=section_id,
-                update_status_cb=update_status_cb,
-                add_log=add_log,
+        # Run sub-agents in parallel with context bridging (previous group reference)
+        tasks = []
+        for i in range(num_agents):
+            prev_group = groups[i - 1] if i > 0 else None
+            tasks.append(
+                self._generate_lesson_synopsis(
+                    agent_id=i + 1,
+                    nodes_group=groups[i],
+                    prev_group_nodes=prev_group,
+                    language=language,
+                    section_id=section_id,
+                    update_status_cb=update_status_cb,
+                    add_log=add_log,
+                )
             )
-            for i in range(num_agents)
-        ]
 
         synopses = await asyncio.gather(*tasks)
         add_log(f"Lesson Coordinator: Tất cả {num_agents} sub-agents đã sinh bản synopsis cục bộ thành công.")
@@ -457,7 +573,7 @@ class SectionOverviewService:
         )
 
         async with _LLM_SEMAPHORE:
-            result = await chat_complete_json(
+            result = await self._chat_complete_json_with_retry(
                 messages=[
                     {"role": "system", "content": sys_msg},
                     {"role": "user", "content": user_msg},
@@ -466,6 +582,7 @@ class SectionOverviewService:
                 temperature=0.4,
                 max_tokens=4000,
                 task=TASK_SECTION_OVERVIEW_GEN,
+                add_log=add_log,
             )
 
         if not isinstance(result, dict):
@@ -479,14 +596,159 @@ class SectionOverviewService:
             raise ValueError("LLM returned empty markdown_content for lesson")
 
         add_log(f"Lesson Coordinator: Tích hợp hoàn tất. Tiêu đề: '{title}', Độ dài Markdown: {len(markdown_content)} ký tự.")
-        return OverviewLesson(
+
+        # Verify and refine the lesson using the QC Agent
+        v_title, v_summary, v_md = await self._verify_and_refine_lesson(
             title=title,
             summary=summary,
             markdown_content=markdown_content,
             references=references,
+            language=language,
+            section_id=section_id,
+            add_log=add_log,
+        )
+
+        return OverviewLesson(
+            title=v_title,
+            summary=v_summary,
+            markdown_content=v_md,
+            references=references,
         )
 
     # ── Overview quiz generation ──────────────────────────────────────────────
+
+    async def _verify_and_refine_quiz(
+        self,
+        *,
+        questions: list[OverviewQuestion],
+        language: str,
+        section_id: int,
+        add_log,
+    ) -> list[OverviewQuestion]:
+        """
+        Runs a verifier agent to de-duplicate, validate and refine the generated questions list.
+        """
+        if not questions:
+            return []
+            
+        add_log("Quiz Verifier Agent: Đang tiến hành thẩm định và làm sạch danh sách câu hỏi trắc nghiệm...")
+        lang_name = "Vietnamese" if language == "vi" else "English"
+        sys_msg = _QUIZ_SYSTEM_VI if language == "vi" else _QUIZ_SYSTEM_EN
+
+        # Serialize questions to pass to LLM
+        raw_list = []
+        for q in questions:
+            raw_list.append({
+                "question": q.question,
+                "options": q.options,
+                "explanation": q.explanation,
+                "bloom_level": q.bloom_level,
+                "reference_content_ids": q.reference_content_ids
+            })
+        
+        import json
+        raw_json_str = json.dumps(raw_list, ensure_ascii=False, indent=2)
+
+        user_msg = (
+            f"## TASK: Verify, Clean, and Refine Quiz Questions\n\n"
+            f"You are a Quality Control (QC) agent reviewing generated multiple-choice questions (MCQs) for Section ID {section_id}.\n"
+            f"Your job is to read the questions list and perform these verifications/refinements:\n"
+            f"1. De-duplication: Remove duplicate or highly similar questions (keep the single best version).\n"
+            f"2. Validation: Ensure each question has exactly 4 options (A, B, C, D) and exactly ONE option marked as 'is_correct': true.\n"
+            f"3. Formatting: Standardize the answer options (e.g., prefixing them clearly). Ensure the explanation is clear and pedagogical.\n"
+            f"4. Bloom Level: Keep the bloom level labels valid (e.g. remember, understand, apply, analyze, evaluate, create).\n"
+            f"5. Return the cleaned and verified list matching the exact required schema.\n\n"
+            f"## REQUIRED JSON SCHEMA\n"
+            "{\n"
+            '  "questions": [\n'
+            '    {\n'
+            f'      "question": "Cleaned question text in {lang_name}",\n'
+            f'      "options": [\n'
+            f'        {{"text": "A. ...", "is_correct": false}},\n'
+            f'        {{"text": "B. ...", "is_correct": true}},\n'
+            f'        {{"text": "C. ...", "is_correct": false}},\n'
+            f'        {{"text": "D. ...", "is_correct": false}}\n'
+            f'      ],\n'
+            f'      "explanation": "Clear explanation in {lang_name}",\n'
+            f'      "bloom_level": "understand",\n'
+            f'      "reference_content_ids": [1, 2]\n'
+            '    }\n'
+            '  ]\n'
+            "}\n\n"
+            f"## ORIGINAL QUESTIONS TO REVIEW AND CLEAN\n"
+            f"{raw_json_str}\n"
+        )
+
+        try:
+            async with _LLM_SEMAPHORE:
+                result = await self._chat_complete_json_with_retry(
+                    messages=[
+                        {"role": "system", "content": sys_msg},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    model=settings.quiz_model,
+                    temperature=0.3,
+                    max_tokens=4000,
+                    task=TASK_SECTION_OVERVIEW_GEN,
+                    add_log=add_log,
+                )
+
+            if not isinstance(result, dict) or "questions" not in result:
+                add_log("Quiz Verifier Agent: Cảnh báo - Phản hồi QC không hợp lệ. Giữ lại bản gốc.")
+                return questions
+
+            cleaned_raw = result.get("questions") or []
+            cleaned_questions = []
+            for raw_q in cleaned_raw:
+                if not isinstance(raw_q, dict):
+                    continue
+                q_text = (raw_q.get("question") or "").strip()
+                options_raw = raw_q.get("options") or []
+                if not q_text or not isinstance(options_raw, list) or len(options_raw) < 2:
+                    continue
+                
+                normalised_opts = []
+                has_correct = False
+                for opt in options_raw[:4]:
+                    if not isinstance(opt, dict):
+                        continue
+                    text = (opt.get("text") or "").strip()
+                    is_correct = bool(opt.get("is_correct", False))
+                    if text:
+                        normalised_opts.append({"text": text, "is_correct": is_correct})
+                        if is_correct:
+                            has_correct = True
+                            
+                if len(normalised_opts) < 2 or not has_correct:
+                    continue
+                    
+                bloom = (raw_q.get("bloom_level") or "understand").strip().lower()
+                if bloom not in BLOOM_LEVELS:
+                    bloom = "understand"
+                    
+                ref_cids = raw_q.get("reference_content_ids") or []
+                if not isinstance(ref_cids, list):
+                    ref_cids = []
+                ref_cids = [int(x) for x in ref_cids if isinstance(x, (int, float, str))
+                            and str(x).isdigit()]
+                            
+                cleaned_questions.append(OverviewQuestion(
+                    question=q_text,
+                    options=normalised_opts,
+                    explanation=(raw_q.get("explanation") or "").strip()[:1000],
+                    bloom_level=bloom,
+                    reference_content_ids=ref_cids,
+                ))
+            
+            diff_count = len(questions) - len(cleaned_questions)
+            if diff_count > 0:
+                add_log(f"Quiz Verifier Agent: Đã lọc bỏ {diff_count} câu hỏi trùng lặp hoặc không đạt yêu cầu.")
+            add_log(f"Quiz Verifier Agent: Thẩm định hoàn tất. Còn lại {len(cleaned_questions)} câu hỏi chất lượng cao.")
+            return cleaned_questions if cleaned_questions else questions
+        except Exception as exc:
+            logger.error("Quiz verifier failed: %s", exc)
+            add_log(f"Quiz Verifier Agent: Thất bại do lỗi ({exc}). Sử dụng danh sách câu hỏi gốc.")
+            return questions
 
     async def _generate_quiz(
         self,
@@ -595,10 +857,18 @@ class SectionOverviewService:
 
         # Truncate/pad to exact question_count
         questions = all_questions[:question_count]
-        add_log(f"Quiz Coordinator: Đã thu thập và lọc được {len(questions)} câu hỏi trắc nghiệm hợp lệ.")
+        add_log(f"Quiz Coordinator: Đã thu thập được {len(questions)} câu hỏi trắc nghiệm thô từ các sub-agents.")
 
-        if not questions:
-            raise ValueError("LLM generated 0 valid quiz questions")
+        # Verify and refine the quiz questions using the QC Agent
+        verified_questions = await self._verify_and_refine_quiz(
+            questions=questions,
+            language=language,
+            section_id=section_id,
+            add_log=add_log,
+        )
+
+        if not verified_questions:
+            raise ValueError("LLM generated 0 valid quiz questions after verification")
 
         # Notify quiz meta start
         add_log("Quiz Coordinator: Đang sinh tiêu đề và tóm tắt tổng quan cho Quiz...")
@@ -618,7 +888,7 @@ class SectionOverviewService:
         )
         
         async with _LLM_SEMAPHORE:
-            meta_result = await chat_complete_json(
+            meta_result = await self._chat_complete_json_with_retry(
                 messages=[
                     {"role": "system", "content": sys_msg},
                     {"role": "user", "content": user_msg},
@@ -627,6 +897,7 @@ class SectionOverviewService:
                 temperature=0.3,
                 max_tokens=500,
                 task=TASK_SECTION_OVERVIEW_GEN,
+                add_log=add_log,
             )
             
         quiz_title = meta_result.get("title") or f"Section {section_id} Overview Quiz"
@@ -649,32 +920,66 @@ class SectionOverviewService:
         return OverviewQuiz(
             title=quiz_title,
             summary=quiz_summary,
-            question_count=len(questions),
-            questions=questions,
+            question_count=len(verified_questions),
+            questions=verified_questions,
             references=references,
         )
 
     @staticmethod
-    def _partition_nodes(nodes: list[dict], max_nodes_per_agent: int = 8, max_agents: int = 5) -> list[list[dict]]:
+    def _partition_nodes(
+        nodes: list[dict],
+        max_nodes_per_agent: int = 8,
+        max_agents: int = 5,
+        max_chars_per_agent: int = 16000,
+    ) -> list[list[dict]]:
+        """
+        Partition nodes topologically into groups, ensuring each group has:
+          1. At most `max_nodes_per_agent` nodes.
+          2. At most `max_chars_per_agent` characters of chunk text.
+          3. We limit the number of groups to at most `max_agents` (merging adjacent groups if needed).
+        """
         n = len(nodes)
         if n == 0:
             return []
-        num_agents = min(max_agents, math.ceil(n / max_nodes_per_agent))
-        num_agents = max(1, num_agents)
-        
-        k, m = divmod(n, num_agents)
+
+        # Pack nodes sequentially based on limits
         groups = []
-        start = 0
-        for i in range(num_agents):
-            size = k + (1 if i < m else 0)
-            groups.append(nodes[start:start+size])
-            start += size
+        current_group = []
+        current_chars = 0
+        
+        for item in nodes:
+            node_chars = sum(len(c) for c in item.get("chunks", []))
+            if (len(current_group) >= max_nodes_per_agent) or (current_group and (current_chars + node_chars > max_chars_per_agent)):
+                groups.append(current_group)
+                current_group = [item]
+                current_chars = node_chars
+            else:
+                current_group.append(item)
+                current_chars += node_chars
+        if current_group:
+            groups.append(current_group)
+            
+        # If the number of groups exceeds max_agents, we merge adjacent groups to fit
+        while len(groups) > max_agents:
+            best_idx = 0
+            min_cost = float('inf')
+            for i in range(len(groups) - 1):
+                # cost is the combined size of adjacent groups
+                cost = len(groups[i]) + len(groups[i+1])
+                if cost < min_cost:
+                    min_cost = cost
+                    best_idx = i
+            # Merge best_idx and best_idx + 1
+            groups[best_idx].extend(groups[best_idx + 1])
+            groups.pop(best_idx + 1)
+            
         return groups
 
     async def _generate_lesson_synopsis(
         self,
         agent_id: int,
         nodes_group: list[dict],
+        prev_group_nodes: list[dict] | None,
         language: str,
         section_id: int,
         update_status_cb,
@@ -700,6 +1005,16 @@ class SectionOverviewService:
                 
                 nodes_context = "\n\n---\n\n".join(node_blocks)
                 
+                context_bridge = ""
+                if prev_group_nodes:
+                    prev_names = ", ".join(n["node"]["name"] for n in prev_group_nodes)
+                    context_bridge = (
+                        f"## CONTEXT: PREVIOUS TOPICS COVERED\n"
+                        f"The previous group of agents covered these topics: {prev_names}.\n"
+                        f"Please write a smooth transition from those topics at the beginning of your synopsis "
+                        f"to ensure narrative continuity.\n\n"
+                    )
+
                 user_msg = (
                     f"## TASK: Generate Local Synopsis\n\n"
                     f"You are a sub-agent preparing a detailed synopsis of a specific subset of knowledge topics "
@@ -707,6 +1022,7 @@ class SectionOverviewService:
                     f"1. Summarizes the concepts in this group, connecting them logically.\n"
                     f"2. Prepares a detailed explanation with headings and key points.\n"
                     f"3. Returns a clean JSON response matching the required schema.\n\n"
+                    f"{context_bridge}"
                     f"## REQUIRED JSON SCHEMA\n"
                     "{\n"
                     f'  "synopsis": "Detailed Markdown synopsis of these topics in {lang_name}"\n'
@@ -715,7 +1031,7 @@ class SectionOverviewService:
                     f"{nodes_context}\n"
                 )
                 
-                result = await chat_complete_json(
+                result = await self._chat_complete_json_with_retry(
                     messages=[
                         {"role": "system", "content": sys_msg},
                         {"role": "user", "content": user_msg},
@@ -724,6 +1040,7 @@ class SectionOverviewService:
                     temperature=0.3,
                     max_tokens=2500,
                     task=TASK_SECTION_OVERVIEW_GEN,
+                    add_log=add_log,
                 )
                 
             if not isinstance(result, dict) or "synopsis" not in result:
@@ -826,7 +1143,7 @@ class SectionOverviewService:
                     f"## ASSIGNED KNOWLEDGE NODES WITH CONTENT\n{nodes_context}\n"
                 )
                 
-                result = await chat_complete_json(
+                result = await self._chat_complete_json_with_retry(
                     messages=[
                         {"role": "system", "content": sys_msg},
                         {"role": "user", "content": user_msg},
@@ -835,6 +1152,7 @@ class SectionOverviewService:
                     temperature=0.5,
                     max_tokens=4000,
                     task=TASK_SECTION_OVERVIEW_GEN,
+                    add_log=add_log,
                 )
                 
             if not isinstance(result, dict) or "questions" not in result:
