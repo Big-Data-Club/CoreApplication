@@ -26,6 +26,7 @@ import (
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
 	"example/hello/pkg/ai"
+	"example/hello/pkg/cache"
 	"example/hello/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -35,17 +36,20 @@ type MicroLessonHandler struct {
 	microRepo  *repository.MicroLessonRepository
 	courseRepo *repository.CourseRepository
 	aiClient   *ai.Client
+	redisCache *cache.RedisCache
 }
 
 func NewMicroLessonHandler(
 	microRepo *repository.MicroLessonRepository,
 	courseRepo *repository.CourseRepository,
 	aiClient *ai.Client,
+	redisCache *cache.RedisCache,
 ) *MicroLessonHandler {
 	return &MicroLessonHandler{
 		microRepo:  microRepo,
 		courseRepo: courseRepo,
 		aiClient:   aiClient,
+		redisCache: redisCache,
 	}
 }
 
@@ -353,6 +357,11 @@ func (h *MicroLessonHandler) PublishLesson(c *gin.Context) {
 
 	if err := h.microRepo.MarkPublished(c.Request.Context(), lessonID, saved.ID); err != nil {
 		logger.Error("MarkPublished failed", err)
+	}
+
+	// Invalidate cache so the published lesson appears immediately
+	if h.redisCache != nil {
+		_ = h.redisCache.Delete(c.Request.Context(), cache.KeySectionContents(body.SectionID))
 	}
 
 	// Fire auto-index for the freshly created TEXT content using the

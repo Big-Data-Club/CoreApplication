@@ -33,6 +33,7 @@ from app.core.llm_gateway.types import (
     TASK_QUIZ_GEN,
     TASK_MICRO_LESSON_GEN,
     TASK_VLM_DESCRIBE,
+    TASK_SECTION_OVERVIEW_GEN,
 )
  
 logger = logging.getLogger(__name__)
@@ -308,6 +309,10 @@ async def bootstrap_llm_registry() -> None:
     chat_model_id = models_by_name.get(chat_env) or next(iter(models_by_name.values()))
     quiz_model_id = models_by_name.get(quiz_env) or chat_model_id
     vlm_model_id = models_by_name.get(vlm_env) or chat_model_id
+    # openai/gpt-oss-120b is used for section overview generation (long-context synthesis).
+    # Falls back to quiz_model_id if the model is not present in the catalog.
+    section_overview_model_id = models_by_name.get("openai/gpt-oss-120b") or quiz_model_id
+    section_overview_70b_model_id = models_by_name.get("llama-3.3-70b-versatile") or quiz_model_id
  
     # 3. Seed Groq API key from env if pool is empty
     existing_keys = await registry.list_api_keys(provider_id=provider.id)
@@ -383,35 +388,41 @@ async def bootstrap_llm_registry() -> None:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Default task bindings (Groq only — admins bind Gemini via the Admin UI)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    default_bindings: list[tuple[str, int]] = [
-        (TASK_CHAT,             chat_model_id),
-        (TASK_CLARIFICATION,    chat_model_id),
-        (TASK_LANGUAGE_DETECT,  chat_model_id),
-        (TASK_NODE_EXTRACT,     chat_model_id),
-        (TASK_AGENT_ROUTER,     chat_model_id),
-        (TASK_MEMORY_COMPRESS,  chat_model_id),
-        (TASK_FLASHCARD_GEN,    chat_model_id),
-        (TASK_GRAPH_LINK,       chat_model_id),
-        (TASK_DIAGNOSIS,        chat_model_id),
-        (TASK_QUIZ_GEN,         quiz_model_id),
-        (TASK_MICRO_LESSON_GEN, quiz_model_id),
-        (TASK_AGENT_REACT,      quiz_model_id),
-        (TASK_VLM_DESCRIBE,     vlm_model_id),
+    default_bindings: list[tuple[str, int, int]] = [
+        (TASK_CHAT,             chat_model_id, 10),
+        (TASK_CLARIFICATION,    chat_model_id, 10),
+        (TASK_LANGUAGE_DETECT,  chat_model_id, 10),
+        (TASK_NODE_EXTRACT,     chat_model_id, 10),
+        (TASK_AGENT_ROUTER,     chat_model_id, 10),
+        (TASK_MEMORY_COMPRESS,  chat_model_id, 10),
+        (TASK_FLASHCARD_GEN,    chat_model_id, 10),
+        (TASK_GRAPH_LINK,       chat_model_id, 10),
+        (TASK_DIAGNOSIS,        chat_model_id, 10),
+        (TASK_QUIZ_GEN,         quiz_model_id, 10),
+        (TASK_MICRO_LESSON_GEN, quiz_model_id, 10),
+        (TASK_AGENT_REACT,      quiz_model_id, 10),
+        (TASK_VLM_DESCRIBE,     vlm_model_id, 10),
+        (TASK_SECTION_OVERVIEW_GEN, section_overview_70b_model_id, 5),
+        (TASK_SECTION_OVERVIEW_GEN, section_overview_model_id, 10),
     ]
 
     existing = {(b.task_code, b.model.id) for b in await registry.list_bindings()}
-    for task_code, model_id in default_bindings:
+    for task_code, model_id, priority in default_bindings:
         if (task_code, model_id) in existing:
             continue
-        # Only seed if the task currently has no bindings at all — never overwrite
-        # an admin's choice.
+        # Only seed if the task currently has no bindings at all (or if we are adding the new 70b
+        # to section overview gen where only the old 120b/quiz binding is present)
         chain = await registry.list_bindings(task_code)
-        if chain:
+        if chain and task_code != TASK_SECTION_OVERVIEW_GEN:
             continue
+        if task_code == TASK_SECTION_OVERVIEW_GEN:
+            has_this_model = any(b.model.id == model_id for b in chain)
+            if has_this_model:
+                continue
         await registry.upsert_binding(
             task_code=task_code,
             model_id=model_id,
-            priority=10,
+            priority=priority,
             enabled=True,
             notes="seeded-default",
         )

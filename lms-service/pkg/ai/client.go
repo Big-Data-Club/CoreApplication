@@ -847,6 +847,41 @@ func (c *Client) GenerateMicroQuizzesFromYouTube(ctx context.Context, req Genera
 	return &resp, nil
 }
 
+// ── Section Overview ──────────────────────────────────────────────────────────
+
+// GenerateSectionOverviewRequest triggers section overview generation in ai-service.
+type GenerateSectionOverviewRequest struct {
+	JobID         int64                        `json:"job_id"`
+	SectionID     int64                        `json:"section_id"`
+	CourseID      int64                        `json:"course_id"`
+	QuestionCount int                          `json:"question_count"`
+	Language      string                       `json:"language"`
+	ContentsInfo  []SectionOverviewContentInfo `json:"contents_info"`
+}
+
+// SectionOverviewContentInfo describes one indexed content in a section.
+type SectionOverviewContentInfo struct {
+	ContentID   int64  `json:"content_id"`
+	Title       string `json:"title"`
+	ContentType string `json:"content_type"`
+	Description string `json:"description"`
+}
+
+// GenerateSectionOverviewResponse is the AI service response.
+type GenerateSectionOverviewResponse struct {
+	JobID  int64  `json:"job_id"`
+	Status string `json:"status"`
+}
+
+// GenerateSectionOverview fires the section overview pipeline.
+func (c *Client) GenerateSectionOverview(ctx context.Context, req GenerateSectionOverviewRequest) (*GenerateSectionOverviewResponse, error) {
+	var resp GenerateSectionOverviewResponse
+	if err := c.post(ctx, "/ai/section-overview/generate", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GenerateSectionOverview: %w", err)
+	}
+	return &resp, nil
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 func (c *Client) post(ctx context.Context, path string, body, result interface{}) error {

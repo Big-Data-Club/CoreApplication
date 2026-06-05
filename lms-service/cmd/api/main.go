@@ -112,6 +112,7 @@ func main() {
 	microLessonRepo := repository.NewMicroLessonRepository(db)
 	microInteractionRepo := repository.NewMicroInteractionRepository(db)
 	microQuizRepo := repository.NewMicroQuizRepository(db)
+	sectionOverviewRepo := repository.NewSectionOverviewRepository(db)
 
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
@@ -197,9 +198,10 @@ func main() {
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, aiClient)
 	aiHandler := handler.NewAIHandler(aiClient, courseRepo, quizRepo, redisClient)
 	flashcardHandler := handler.NewFlashcardHandler(flashcardService, enrollmentService)
-	microLessonHandler := handler.NewMicroLessonHandler(microLessonRepo, courseRepo, aiClient)
-	microQuizHandler := handler.NewMicroQuizHandler(microQuizRepo, courseRepo, quizRepo, aiClient)
+	microLessonHandler := handler.NewMicroLessonHandler(microLessonRepo, courseRepo, aiClient, redisClient)
+	microQuizHandler := handler.NewMicroQuizHandler(microQuizRepo, courseRepo, quizRepo, aiClient, redisClient)
 	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
+	sectionOverviewHandler := handler.NewSectionOverviewHandler(sectionOverviewRepo, courseRepo, quizRepo, aiClient, redisClient)
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 	permHandler := handler.NewPermissionHandler(permService)
 	orgHandler := handler.NewOrganizationHandler(orgService)
@@ -661,6 +663,27 @@ func main() {
 				microQuizGroup.POST("/:quizId/publish", microQuizHandler.PublishQuiz)
 				microQuizGroup.DELETE("/:quizId", microQuizHandler.DeleteQuiz)
 			}
+
+			// ── Section Overview (Teacher / Admin) ────────────────────────
+			// Per-section trigger and job listing routes.
+			sectionOverviewPerSection := auth.Group("/courses/:courseId/sections/:sectionId")
+			sectionOverviewPerSection.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
+			{
+				sectionOverviewPerSection.POST("/overview/generate", sectionOverviewHandler.GenerateOverview)
+				sectionOverviewPerSection.GET("/overview/jobs", sectionOverviewHandler.ListJobs)
+			}
+
+			// Single-job + lesson/quiz CRUD (section implied by the job row).
+			sectionOverviewGroup := auth.Group("/section-overview")
+			sectionOverviewGroup.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
+			{
+				sectionOverviewGroup.GET("/jobs/:jobId", sectionOverviewHandler.GetJob)
+				sectionOverviewGroup.DELETE("/jobs/:jobId", sectionOverviewHandler.DeleteJob)
+				sectionOverviewGroup.PUT("/lessons/:lessonId", sectionOverviewHandler.UpdateLesson)
+				sectionOverviewGroup.POST("/lessons/:lessonId/publish", sectionOverviewHandler.PublishLesson)
+				sectionOverviewGroup.PUT("/quizzes/:quizId", sectionOverviewHandler.UpdateQuiz)
+				sectionOverviewGroup.POST("/quizzes/:quizId/publish", sectionOverviewHandler.PublishQuiz)
+			}
 		}
 
 		// ── Internal callbacks (AI service → LMS) ─────────────────────────
@@ -678,6 +701,14 @@ func main() {
 		{
 			internalQuiz.POST("/status", microQuizHandler.CallbackStatus)
 			internalQuiz.POST("/quizzes", microQuizHandler.CallbackQuizzes)
+		}
+
+		// ── Section Overview internal callbacks (AI service → LMS) ─────
+		internalOverview := v1.Group("/internal/section-overview")
+		internalOverview.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		{
+			internalOverview.POST("/status", sectionOverviewHandler.CallbackStatus)
+			internalOverview.POST("/results", sectionOverviewHandler.CallbackResults)
 		}
 	}
 

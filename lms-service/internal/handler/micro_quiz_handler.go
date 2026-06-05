@@ -26,6 +26,7 @@ import (
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
 	"example/hello/pkg/ai"
+	"example/hello/pkg/cache"
 	"example/hello/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -34,8 +35,9 @@ import (
 type MicroQuizHandler struct {
 	microQuizRepo *repository.MicroQuizRepository
 	courseRepo    *repository.CourseRepository
-	quizRepo     *repository.QuizRepository
-	aiClient     *ai.Client
+	quizRepo      *repository.QuizRepository
+	aiClient      *ai.Client
+	redisCache    *cache.RedisCache
 }
 
 func NewMicroQuizHandler(
@@ -43,12 +45,14 @@ func NewMicroQuizHandler(
 	courseRepo *repository.CourseRepository,
 	quizRepo *repository.QuizRepository,
 	aiClient *ai.Client,
+	redisCache *cache.RedisCache,
 ) *MicroQuizHandler {
 	return &MicroQuizHandler{
 		microQuizRepo: microQuizRepo,
 		courseRepo:    courseRepo,
-		quizRepo:     quizRepo,
-		aiClient:     aiClient,
+		quizRepo:      quizRepo,
+		aiClient:      aiClient,
+		redisCache:    redisCache,
 	}
 }
 
@@ -379,6 +383,11 @@ func (h *MicroQuizHandler) PublishQuiz(c *gin.Context) {
 	// Step 4: Mark micro quiz as published
 	if err := h.microQuizRepo.MarkPublished(c.Request.Context(), quizID, saved.ID); err != nil {
 		logger.Error("MarkPublished (micro-quiz) failed", err)
+	}
+
+	// Invalidate cache so the published quiz appears immediately
+	if h.redisCache != nil {
+		_ = h.redisCache.Delete(c.Request.Context(), cache.KeySectionContents(body.SectionID))
 	}
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{
