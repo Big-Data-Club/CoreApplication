@@ -66,6 +66,21 @@ class SearchMaterialsTool(BaseTool):
                     ),
                 )
 
+            # Resolve document titles
+            content_ids = list({c.content_id for c in chunks if c.content_id})
+            titles = {}
+            if content_ids:
+                from app.core.database import get_ai_conn
+                try:
+                    async with get_ai_conn() as conn:
+                        rows = await conn.fetch(
+                            "SELECT content_id, title FROM content_index_status WHERE content_id = ANY($1)",
+                            content_ids
+                        )
+                        titles = {r["content_id"]: r["title"] for r in rows}
+                except Exception as db_err:
+                    logger.warning("Failed to fetch content titles: %s", db_err)
+
             results = [
                 {
                     "text": c.chunk_text,
@@ -73,6 +88,7 @@ class SearchMaterialsTool(BaseTool):
                     "source_type": c.source_type,
                     "page_number": c.page_number,
                     "content_id": c.content_id,
+                    "title": titles.get(c.content_id) or "Tài liệu học tập"
                 }
                 for c in chunks
             ]

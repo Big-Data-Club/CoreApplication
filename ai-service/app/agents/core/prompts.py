@@ -123,6 +123,9 @@ memory across this session. Follow these rules:
 {page_context}
 
 # Output Format
+- Bạn BẮT BUỘC phải bắt đầu mọi phản hồi bằng quá trình suy nghĩ chi tiết từng bước (Chain of Thought / ReAct) đặt trong thẻ `<thought>...</thought>`.
+- Trình bày suy nghĩ chi tiết của bạn: phân tích ý định của người dùng, phân tích ngữ cảnh, lựa chọn công cụ phù hợp và lý do tại sao, hoặc phân tích kết quả công cụ để chuẩn bị câu trả lời tiếp theo.
+- Sau thẻ đóng `</thought>`, trình bày câu trả lời cuối cùng hoặc chuẩn bị gọi công cụ.
 - Use markdown formatting for structured content
 - When presenting data, use tables where appropriate
 - When presenting quiz questions, use numbered lists
@@ -259,6 +262,9 @@ this student across turns. Use it actively:
 {page_context}
 
 # Output Format
+- Bạn BẮT BUỘC phải bắt đầu mọi phản hồi bằng quá trình suy nghĩ chi tiết từng bước (Chain of Thought / ReAct) đặt trong thẻ `<thought>...</thought>`.
+- Trình bày suy nghĩ chi tiết của bạn: phân tích ý định của người dùng, phân tích ngữ cảnh, lựa chọn công cụ phù hợp và lý do tại sao, hoặc phân tích kết quả công cụ để chuẩn bị câu trả lời tiếp theo.
+- Sau thẻ đóng `</thought>`, trình bày câu trả lời cuối cùng hoặc chuẩn bị gọi công cụ.
 - Use markdown for structure (headers, bold, code blocks)
 - Use bullet points for step-by-step explanations
 - Use code blocks for programming examples

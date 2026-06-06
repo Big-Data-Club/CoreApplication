@@ -229,6 +229,17 @@ async def get_session_messages(
     return {"messages": messages}
 
 
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
+):
+    """Delete a session and cascade delete its messages."""
+    _verify_secret(x_ai_secret)
+    await mtm.delete_session(session_id)
+    return {"status": "ok"}
+
+
 # ── Health check ─────────────────────────────────────────────────────────────
 
 @router.get("/health")

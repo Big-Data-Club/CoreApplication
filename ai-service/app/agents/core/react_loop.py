@@ -97,6 +97,93 @@ MAX_ITERATIONS = 5
 MAX_CLARIFICATIONS_PER_SESSION = 2
 
 
+class ThoughtStreamParser:
+    """
+    Parses streamed tokens on the fly to separate thoughts wrapped inside
+    <thought>...</thought> tags from the final content response.
+    """
+    def __init__(self):
+        self.buffer = ""
+        self.in_thought = False
+        self.thought_buffer = ""
+        self.content_buffer = ""
+        self.tag_checked = False
+
+    def feed(self, delta: str) -> list[tuple[str, str]]:
+        """
+        Feeds a chunk of text delta and returns a list of tuples (event_type, text_chunk).
+        event_type can be 'thought' or 'content'.
+        """
+        self.buffer += delta
+        events = []
+
+        if not self.tag_checked:
+            prefix = "<thought>"
+            if len(self.buffer) >= len(prefix):
+                if self.buffer.startswith(prefix):
+                    self.in_thought = True
+                    self.buffer = self.buffer[len(prefix):]
+                self.tag_checked = True
+            elif not prefix.startswith(self.buffer):
+                self.tag_checked = True
+
+        if self.in_thought:
+            end_tag = "</thought>"
+            idx = self.buffer.find(end_tag)
+            if idx != -1:
+                thought_part = self.buffer[:idx]
+                if thought_part:
+                    self.thought_buffer += thought_part
+                    events.append(("thought", thought_part))
+                
+                self.in_thought = False
+                self.buffer = self.buffer[idx + len(end_tag):]
+                
+                if self.buffer:
+                    self.content_buffer += self.buffer
+                    events.append(("content", self.buffer))
+                    self.buffer = ""
+            else:
+                # Only buffer what could potentially form the start of </thought>
+                # Check suffixes of self.buffer to see if they match prefixes of end_tag
+                overlap = 0
+                for i in range(1, min(len(self.buffer), len(end_tag)) + 1):
+                    suffix = self.buffer[-i:]
+                    if end_tag.startswith(suffix):
+                        overlap = i
+                
+                if overlap > 0:
+                    emit_part = self.buffer[:-overlap]
+                    if emit_part:
+                        self.thought_buffer += emit_part
+                        events.append(("thought", emit_part))
+                    self.buffer = self.buffer[-overlap:]
+                else:
+                    self.thought_buffer += self.buffer
+                    events.append(("thought", self.buffer))
+                    self.buffer = ""
+        else:
+            if self.tag_checked:
+                if self.buffer:
+                    self.content_buffer += self.buffer
+                    events.append(("content", self.buffer))
+                    self.buffer = ""
+                    
+        return events
+
+    def flush(self) -> list[tuple[str, str]]:
+        events = []
+        if self.buffer:
+            if self.in_thought:
+                events.append(("thought", self.buffer))
+                self.thought_buffer += self.buffer
+            else:
+                events.append(("content", self.buffer))
+                self.content_buffer += self.buffer
+            self.buffer = ""
+        return events
+
+
 async def run_react_loop(
     session_id: str,
     user_id: int,
@@ -375,7 +462,9 @@ async def run_react_loop(
 
     # Track assistant message across iterations for persistent storage
     assistant_text = ""
-    assistant_metadata: dict = {"toolActivities": []}
+    assistant_thinking = ""
+    turn_references = []
+    assistant_metadata: dict = {"toolActivities": [], "references": []}
 
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -402,6 +491,7 @@ async def run_react_loop(
         # ── 5b. Collect streaming response ───────────────────────────────────
         collected_text = ""
         collected_tool_calls: list[dict] = []
+        parser = ThoughtStreamParser()
 
         try:
             async for delta_text, usage, chunk in gateway.stream(req):
@@ -414,14 +504,25 @@ async def run_react_loop(
 
                 # Stream text deltas to frontend
                 if delta_text:
-                    collected_text += delta_text
-                    assistant_text += delta_text
-                    yield AgentEvent(
-                        type=AgentEventType.TEXT_DELTA,
-                        data={"delta": delta_text},
-                        session_id=session_id,
-                        turn_id=iter_id,
-                    )
+                    parsed_events = parser.feed(delta_text)
+                    for ev_type, text_chunk in parsed_events:
+                        if ev_type == "thought":
+                            assistant_thinking += text_chunk
+                            yield AgentEvent(
+                                type=AgentEventType.THINKING,
+                                data={"delta": text_chunk},
+                                session_id=session_id,
+                                turn_id=iter_id,
+                            )
+                        elif ev_type == "content":
+                            collected_text += text_chunk
+                            assistant_text += text_chunk
+                            yield AgentEvent(
+                                type=AgentEventType.TEXT_DELTA,
+                                data={"delta": text_chunk},
+                                session_id=session_id,
+                                turn_id=iter_id,
+                            )
 
                 # Collect tool calls (streamed incrementally)
                 if delta.tool_calls:
@@ -499,6 +600,26 @@ async def run_react_loop(
                 )
                 return
 
+        # Flush any remaining tokens inside parser buffer
+        for ev_type, text_chunk in parser.flush():
+            if ev_type == "thought":
+                assistant_thinking += text_chunk
+                yield AgentEvent(
+                    type=AgentEventType.THINKING,
+                    data={"delta": text_chunk},
+                    session_id=session_id,
+                    turn_id=iter_id,
+                )
+            elif ev_type == "content":
+                collected_text += text_chunk
+                assistant_text += text_chunk
+                yield AgentEvent(
+                    type=AgentEventType.TEXT_DELTA,
+                    data={"delta": text_chunk},
+                    session_id=session_id,
+                    turn_id=iter_id,
+                )
+
         iter_ms = (time.monotonic() - iter_start) * 1000
         logger.debug(
             "Iteration %d: text=%d chars, tool_calls=%d (%.0fms)",
@@ -515,6 +636,11 @@ async def run_react_loop(
 
             # Save full assistant response to persistent store BEFORE title gen
             # so the first-turn check sees consistent state.
+            if assistant_thinking:
+                assistant_metadata["thinking"] = assistant_thinking
+            if turn_references:
+                assistant_metadata["references"] = turn_references
+
             await message_store.save_message(
                 session_id, "assistant", assistant_text, assistant_metadata
             )
@@ -534,6 +660,7 @@ async def run_react_loop(
                     "text": collected_text,
                     "iterations": iteration + 1,
                     "intent": intent_type,
+                    "references": turn_references if turn_references else None,
                 },
                 session_id=session_id,
                 turn_id=turn_id,
@@ -618,6 +745,29 @@ async def run_react_loop(
                 session_id=session_id,
             )
 
+            # Extract references from successful search tools
+            if tool_result.status == "success" and tool_result.data:
+                if tool_name == "search_course_materials":
+                    chunks = tool_result.data.get("chunks") or []
+                    for ch in chunks:
+                        turn_references.append({
+                            "title": ch.get("title") or "Tài liệu khóa học",
+                            "content": ch.get("text") or "",
+                            "relevance_score": ch.get("similarity") or 0.0,
+                            "source_type": "material",
+                            "page_number": ch.get("page_number")
+                        })
+                elif tool_name == "search_web":
+                    web_results = tool_result.data.get("results") or []
+                    for wr in web_results:
+                        turn_references.append({
+                            "title": wr.get("title") or "Kết quả Web",
+                            "content": wr.get("snippet") or "",
+                            "relevance_score": 1.0,
+                            "source_type": "web",
+                            "url": wr.get("url")
+                        })
+
             # ── Yield UI component if present ────────────────────────────
             if tool_result.ui_instruction:
                 assistant_metadata["uiComponent"] = tool_result.ui_instruction
@@ -691,6 +841,11 @@ async def run_react_loop(
                     session_id, "assistant", tool_result.message,
                 )
                 # Save full assistant state to persistent store
+                if assistant_thinking:
+                    assistant_metadata["thinking"] = assistant_thinking
+                if turn_references:
+                    assistant_metadata["references"] = turn_references
+
                 await message_store.save_message(
                     session_id, "assistant", assistant_text, assistant_metadata
                 )

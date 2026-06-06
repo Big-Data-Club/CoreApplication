@@ -397,6 +397,14 @@ class MTMemory:
                 title, session_id
             )
 
+    async def delete_session(self, session_id: str) -> None:
+        """Delete a session from postgres (cascade deletes messages)."""
+        async with get_ai_conn() as conn:
+            await conn.execute(
+                "DELETE FROM agent_sessions WHERE id = $1",
+                session_id,
+            )
+
     async def list_sessions(
         self,
         user_id: int,
