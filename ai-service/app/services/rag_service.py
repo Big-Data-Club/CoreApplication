@@ -499,13 +499,31 @@ class RAGService:
             min_similarity=min_similarity,
             course_id=course_id, node_id=node_id, content_id=content_id,
         )
+        # Determine final ranked chunks
         if not candidates or not settings.use_reranker:
-            return candidates[:top_k]
-        from app.core.embeddings import rerank_chunks
-        return await rerank_chunks(
-            query=query, chunks=candidates,
-            text_fn=lambda c: c.chunk_text, top_k=top_k,
-        )
+            final_chunks = candidates[:top_k]
+        else:
+            from app.core.embeddings import rerank_chunks
+            final_chunks = await rerank_chunks(
+                query=query, chunks=candidates,
+                text_fn=lambda c: c.chunk_text, top_k=top_k,
+            )
+
+        # 1. Hydrate parent passages if hierarchical chunking is active
+        if final_chunks and settings.use_hierarchical_chunks:
+            try:
+                final_chunks = await self.hydrate_parents(final_chunks)
+            except Exception as exc:
+                logger.warning("Parent hydration failed in search_multilingual: %s", exc)
+
+        # 2. Enrich with Knowledge Graph context (prerequisites and related nodes)
+        if final_chunks:
+            try:
+                final_chunks = await self.enrich_chunks_with_graph_context(final_chunks)
+            except Exception as exc:
+                logger.warning("Graph context enrichment failed in search_multilingual: %s", exc)
+
+        return final_chunks
 
     async def search_for_question(
         self,
@@ -715,6 +733,109 @@ class RAGService:
             pt = parent_text_by_child.get(c.chunk_id)
             if pt:
                 c.chunk_text = pt
+        return chunks
+
+    async def enrich_chunks_with_graph_context(
+        self,
+        chunks: list[RetrievedChunk],
+    ) -> list[RetrievedChunk]:
+        """
+        Enriches a list of retrieved chunks with their Knowledge Graph context
+        (node description, prerequisites, and related nodes).
+        This helps the LLM understand the conceptual relationships and context.
+        """
+        if not chunks:
+            return chunks
+
+        # Collect unique node_ids
+        node_ids = list({c.node_id for c in chunks if c.node_id})
+        if not node_ids:
+            return chunks
+
+        # Fetch node info and relationships
+        node_info = {}
+        prereqs = {}
+        related = {}
+
+        # 1. Fetch Node Info
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, name, name_vi, description
+                FROM knowledge_nodes
+                WHERE id = ANY($1)
+                """,
+                node_ids,
+            )
+            for r in rows:
+                node_info[r["id"]] = {
+                    "name": r["name_vi"] or r["name"],
+                    "description": r["description"] or "",
+                }
+
+            # 2. Fetch Relationships (Prerequisites and Related)
+            # source -> target (PREREQUISITE: source is prerequisite of target)
+            rel_rows = await conn.fetch(
+                """
+                SELECT r.source_node_id, r.target_node_id, r.relation_type,
+                       src.name AS src_name, src.name_vi AS src_name_vi,
+                       tgt.name AS tgt_name, tgt.name_vi AS tgt_name_vi
+                FROM knowledge_node_relations r
+                JOIN knowledge_nodes src ON src.id = r.source_node_id
+                JOIN knowledge_nodes tgt ON tgt.id = r.target_node_id
+                WHERE r.source_node_id = ANY($1) OR r.target_node_id = ANY($1)
+                """,
+                node_ids,
+            )
+
+            for r in rel_rows:
+                src_id, tgt_id = r["source_node_id"], r["target_node_id"]
+                rel_type = r["relation_type"]
+                src_name = r["src_name_vi"] or r["src_name"]
+                tgt_name = r["tgt_name_vi"] or r["tgt_name"]
+
+                # If current node is the target, then source is its prerequisite
+                if rel_type == "PREREQUISITE":
+                    if tgt_id in node_ids:
+                        if tgt_id not in prereqs:
+                            prereqs[tgt_id] = []
+                        prereqs[tgt_id].append(src_name)
+                else:
+                    # Other relations are treated as related concepts
+                    for nid, other_name in [(src_id, tgt_name), (tgt_id, src_name)]:
+                        if nid in node_ids:
+                            if nid not in related:
+                                related[nid] = []
+                            if other_name not in related[nid]:
+                                related[nid].append(other_name)
+
+        # 3. Append Graph Context to chunk texts
+        for c in chunks:
+            if not c.node_id or c.node_id not in node_info:
+                continue
+
+            info = node_info[c.node_id]
+            node_name = info["name"]
+            node_desc = info["description"]
+
+            graph_lines = [f"\n\n[Ngữ cảnh Đồ thị Kiến thức (Khóa học):"]
+            graph_lines.append(f" - Khái niệm: {node_name}")
+            if node_desc:
+                graph_lines.append(f"   Mô tả: {node_desc}")
+
+            node_prereqs = prereqs.get(c.node_id)
+            if node_prereqs:
+                graph_lines.append(f" - Khái niệm tiên quyết cần học trước: {', '.join(node_prereqs)}")
+
+            node_related = related.get(c.node_id)
+            if node_related:
+                graph_lines.append(f" - Khái niệm liên quan/mở rộng: {', '.join(node_related)}")
+
+            graph_lines.append("]")
+            
+            # Enrich chunk text
+            c.chunk_text += "\n" + "\n".join(graph_lines)
+
         return chunks
 
     # ── Deletion ──────────────────────────────────────────────────────────────

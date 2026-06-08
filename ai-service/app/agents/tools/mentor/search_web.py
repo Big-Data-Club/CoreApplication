@@ -66,7 +66,8 @@ class SearchWebTool(BaseTool):
             )
 
     async def _search_ddg(self, query: str, max_results: int) -> list[dict]:
-        url = "https://html.duckduckgo.com/html/"
+        # Use lite.duckduckgo.com/lite/ as it has much lighter bot/CAPTCHA protection
+        url = "https://lite.duckduckgo.com/lite/"
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -78,67 +79,58 @@ class SearchWebTool(BaseTool):
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             resp = await client.post(url, data={"q": query}, headers=headers)
             if resp.status_code != 200:
-                raise Exception(f"DuckDuckGo HTML search returned status code {resp.status_code}")
+                raise Exception(f"DuckDuckGo Lite search returned status code {resp.status_code}")
 
             html = resp.text
             results = []
 
-            # 1. Try to find result bodies (standard structure)
-            bodies = re.findall(r'<div class="result__body">.*?</div>\s*</div>', html, re.DOTALL)
-            if not bodies:
-                bodies = re.findall(r'<div class="web-result.*?</div>\s*</div>', html, re.DOTALL)
+            # Find result links sequentially
+            link_matches = list(re.finditer(
+                r"<a[^>]+href=\"([^\"]+)\"[^>]+class='result-link'[^>]*>(.*?)</a>",
+                html,
+                re.DOTALL
+            ))
 
-            for body in bodies[:max_results]:
-                # Extract URL and Title
-                title_url_match = re.search(
-                    r'<a[^>]+class="result__url"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-                    body,
-                    re.DOTALL
-                )
-                if not title_url_match:
-                    title_url_match = re.search(
-                        r'<a[^>]+class="result__title"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-                        body,
-                        re.DOTALL
-                    )
-
-                # Extract Snippet
+            for idx, match in enumerate(link_matches[:max_results]):
+                raw_url = match.group(1)
+                title = re.sub(r'<[^>]+>', '', match.group(2)).strip()
+                
+                # Determine block of HTML before next link to extract snippet
+                end_pos = len(html)
+                if idx + 1 < len(link_matches):
+                    end_pos = link_matches[idx + 1].start()
+                    
+                search_block = html[match.end():end_pos]
                 snippet_match = re.search(
-                    r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
-                    body,
+                    r"<td class='result-snippet'[^>]*>(.*?)</td>",
+                    search_block,
                     re.DOTALL
                 )
-                if not snippet_match:
-                    snippet_match = re.search(
-                        r'<span class="result__snippet"[^>]*>(.*?)</span>',
-                        body,
-                        re.DOTALL
-                    )
+                
+                snippet = ""
+                if snippet_match:
+                    snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip()
+                    
+                # Clean html entities
+                title = title.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", '"').replace("&#x27;", "'")
+                snippet = snippet.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", '"').replace("&#x27;", "'")
+                
+                # Resolve redirect link from DuckDuckGo if present
+                url_val = raw_url
+                if "uddg=" in raw_url:
+                    parts = raw_url.split("uddg=")
+                    if len(parts) > 1:
+                        url_val = unquote(parts[1].split("&")[0])
+                elif raw_url.startswith("//"):
+                    url_val = "https:" + raw_url
+                    
+                results.append({
+                    "title": title,
+                    "url": url_val,
+                    "snippet": snippet
+                })
 
-                if title_url_match:
-                    raw_url = title_url_match.group(1)
-                    title = re.sub(r'<[^>]+>', '', title_url_match.group(2)).strip()
-
-                    # Resolve redirect link from DuckDuckGo
-                    url_val = raw_url
-                    if "uddg=" in raw_url:
-                        parts = raw_url.split("uddg=")
-                        if len(parts) > 1:
-                            url_val = unquote(parts[1].split("&")[0])
-                    elif raw_url.startswith("//"):
-                        url_val = "https:" + raw_url
-
-                    snippet = ""
-                    if snippet_match:
-                        snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip()
-
-                    results.append({
-                        "title": title,
-                        "url": url_val,
-                        "snippet": snippet
-                    })
-
-            # 2. Simple fallback: if no bodies matched, extract any external links and titles
+            # Fallback: if no matches, extract any external links
             if not results:
                 urls = re.findall(r'href="([^"]*?uddg=[^"]+?)"', html)
                 unique_urls = []
@@ -149,7 +141,6 @@ class SearchWebTool(BaseTool):
                         unique_urls.append(real_url)
 
                 for u in unique_urls[:max_results]:
-                    # Generate a clean title from the domain/URL path
                     domain_match = re.search(r'https?://(?:www\.)?([^/]+)', u)
                     domain = domain_match.group(1) if domain_match else "Website"
                     results.append({

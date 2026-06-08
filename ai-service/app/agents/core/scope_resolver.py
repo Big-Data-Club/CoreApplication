@@ -93,6 +93,16 @@ _GLOBAL_PATTERNS = (
 )
 _GLOBAL_RE = re.compile("|".join(_GLOBAL_PATTERNS), re.IGNORECASE)
 
+# Words that signal the user is asking about a general topic or denying selecting a course.
+_OUTSIDE_PATTERNS = (
+    r"\bchưa có môn\b", r"\bkhông có môn\b", r"\bkhông thuộc môn\b",
+    r"\bhỏi chung\b", r"\bngoài lề\b", r"\bngoài giáo trình\b",
+    r"\bkhông nằm trong\b", r"\bno course\b", r"\bgeneral topic\b",
+    r"\bnot in course\b", r"\bchưa học môn này\b", r"\bchưa có môn học này\b",
+    r"\bkhông có môn học nào\b", r"\bchưa có môn này\b"
+)
+_OUTSIDE_RE = re.compile("|".join(_OUTSIDE_PATTERNS), re.IGNORECASE)
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Public API
@@ -142,6 +152,14 @@ async def resolve_course_scope(
         )
 
     msg_lower = msg.lower()
+
+    # Step 1.5 — user explicitly says the topic is general or not in their courses.
+    if _OUTSIDE_RE.search(msg_lower):
+        return CourseScope(
+            mode="none",
+            confidence=1.0,
+            reason="user explicitly indicated the topic is general or outside existing courses",
+        )
 
     # Step 2 — global keyword wins.
     if _GLOBAL_RE.search(msg_lower):

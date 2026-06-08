@@ -1,6 +1,7 @@
 package com.example.demo.service.email;
 
 import java.util.Map;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public interface EmailService {
@@ -21,4 +22,6 @@ public interface EmailService {
     CompletableFuture<Void> sendPasswordChangedNotificationAsync(String to, String name);
 
     CompletableFuture<Void> sendForgotPasswordEmailAsync(String to, String name, String token);
+
+    CompletableFuture<Void> sendAdminMailAsync(String to, List<String> cc, List<String> bcc, String subject, String body, String signatureType, String templateType);
 }

@@ -73,16 +73,26 @@ async def handle_chat_message(
 
     # ── 1. Resolve session ────────────────────────────────────────────────────
     if session_id:
-        # Use existing session — just verify it exists
-        ctx = await mtm.get_context(session_id)
-        session_data = {
-            "session_id": session_id,
-            "context": ctx,
-            "turn_count": 0,
-        }
+        # Use existing session — just verify it exists and retrieve context + turn count
+        session_info = await mtm.get_session(session_id)
+        if session_info:
+            session_data = {
+                "session_id": session_id,
+                "context": session_info["context"],
+                "turn_count": session_info["turn_count"],
+            }
+        else:
+            # Fallback to creating a new session if the provided session_id wasn't found
+            session_data = await mtm.create_new_session(
+                user_id=user_id,
+                agent_type=agent_type,
+                course_id=course_id,
+            )
+            session_id = session_data["session_id"]
     else:
-        # Get or create session
-        session_data = await mtm.get_or_create_session(
+        # Create a new session instead of reusing the most recent active one
+        # to respect the clean slate / new conversation request when session_id is None.
+        session_data = await mtm.create_new_session(
             user_id=user_id,
             agent_type=agent_type,
             course_id=course_id,
