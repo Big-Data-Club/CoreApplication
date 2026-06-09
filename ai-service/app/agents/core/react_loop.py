@@ -415,6 +415,127 @@ async def run_react_loop(
             )
             return
 
+    # Save user message to STM and persistent store before processing
+    await stm.append(session_id, "user", user_message)
+    await message_store.save_message(session_id, "user", user_message)
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 3.5: Multi-Agent Spawning Decision & Flow
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    from app.agents.core.multi_agent_orchestrator import MultiAgentOrchestrator
+    
+    parent_context_length = memory_ctx.get("token_estimate", 0) + len(user_message) // 4
+    orchestrator = MultiAgentOrchestrator(session_id, turn_id)
+    score, breakdown = orchestrator.calculate_spawning_score(
+        user_message=user_message,
+        intent_type=intent_type,
+        parent_context_length=parent_context_length
+    )
+    
+    yield AgentEvent(
+        type=AgentEventType.THINKING,
+        data={
+            "step": "multi_agent_decision",
+            "score": score,
+            "breakdown": breakdown
+        },
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+    
+    if score >= 0.5:
+        logger.info("Spawning multi-agent flow: score=%s >= 0.5", score)
+        try:
+            final_answer = ""
+            async for ev in orchestrator.run_multi_agent_flow(
+                query=user_message,
+                course_id=effective_course_id,
+                intent_type=intent_type,
+                score_breakdown=breakdown
+            ):
+                if isinstance(ev, AgentEvent):
+                    yield ev
+                else:
+                    final_answer = ev
+            
+            # Save assistant response to STM and persistent store
+            await stm.append(session_id, "assistant", final_answer)
+            metadata = {
+                "thinking": "Multi-agent orchestration executed successfully.",
+                "toolActivities": [],
+                "multiAgentLogs": orchestrator.multi_agent_logs,
+                "critiqueReport": orchestrator.critique_report,
+                "consolidation": orchestrator.consolidation,
+                "spawningScore": orchestrator.spawning_score,
+                "spawningBreakdown": orchestrator.spawning_breakdown,
+            }
+            await message_store.save_message(
+                session_id, "assistant", final_answer, metadata
+            )
+
+            # Log full telemetry trace for future training/tuning datasets
+            try:
+                from app.services.agent_telemetry_service import agent_telemetry_service
+                await agent_telemetry_service.log_trace(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    user_query=user_message,
+                    spawning_score=orchestrator.spawning_score,
+                    spawning_breakdown=orchestrator.spawning_breakdown,
+                    consolidation=orchestrator.consolidation,
+                    multi_agent_logs=orchestrator.multi_agent_logs,
+                    critique_report=orchestrator.critique_report,
+                    final_answer=final_answer
+                )
+            except Exception as tel_err:
+                logger.warning("Telemetry log failed (non-fatal): %s", tel_err)
+            
+            async for evt in _maybe_emit_title_update(
+                session_id=session_id,
+                user_message=user_message,
+                turn_id=turn_id,
+            ):
+                yield evt
+                
+            yield AgentEvent(
+                type=AgentEventType.TEXT_DELTA,
+                data={"delta": final_answer},
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+            
+            yield AgentEvent(
+                type=AgentEventType.DONE,
+                data={
+                    "text": final_answer,
+                    "iterations": 1,
+                    "intent": intent_type,
+                    "references": None,
+                },
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+            
+            await _trigger_post_turn_consolidation(
+                session_id=session_id,
+                user_id=user_id,
+                agent_type=agent_type,
+                course_id=effective_course_id,
+                intent_type=intent_type,
+            )
+            return
+        except Exception as exc:
+            logger.warning("Multi-agent flow failed. Falling back to parent ReAct loop: %s", exc)
+            yield AgentEvent(
+                type=AgentEventType.THINKING,
+                data={
+                    "step": "multi_agent_fallback",
+                    "detail": f"Sub-agent error detected: {str(exc)}. Falling back to standard generation."
+                },
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 4: Build messages array for the LLM
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -452,10 +573,6 @@ async def run_react_loop(
 
     # Add the current user message
     messages.append({"role": "user", "content": user_message})
-
-    # Save user message to STM and persistent store
-    await stm.append(session_id, "user", user_message)
-    await message_store.save_message(session_id, "user", user_message)
 
     # Get tool schemas for this agent
     tool_schemas = get_tool_schemas(agent_type)

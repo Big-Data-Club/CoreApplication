@@ -36,6 +36,12 @@ class AgentEventType(str, Enum):
     HITL_REQUEST   = "hitl_request"
     SESSION        = "session"
     TITLE_UPDATE   = "title_update"
+    SUBAGENT_SPAWN = "subagent_spawn"
+    SUBAGENT_THINK = "subagent_thinking"
+    SUBAGENT_DONE  = "subagent_done"
+    SUBAGENT_ERROR = "subagent_error"
+    CRITIQUE_PHASE = "critique_phase"
+    CONSOLIDATION  = "context_consolidation"
     DONE           = "done"
     ERROR          = "error"
 

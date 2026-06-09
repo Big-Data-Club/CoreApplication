@@ -123,9 +123,10 @@ memory across this session. Follow these rules:
 {page_context}
 
 # Output Format
-- You MUST start every response with a detailed step-by-step thinking process (Chain of Thought / ReAct) enclosed in `<thought>...</thought>` tags.
-- In the thought block, analyze the user's intent, the context, choose the appropriate tool and explain your reasoning, or evaluate tool results to formulate the next step.
-- After the closing `</thought>` tag, present the final response to the user or prepare the tool call.
+- CRITICAL FOR TOOL CALLING: If you decide to call a tool, you MUST output the tool call directly. Do NOT output any thoughts, text, or `<thought>` tags before the tool call, otherwise the API will reject your request.
+- If you are NOT calling a tool (e.g., when producing the final response to the user), you MUST start your response with a detailed step-by-step thinking process enclosed in `<thought>...</thought>` tags.
+- In the thought block (only when not calling tools), analyze the user's intent, the context, and explain your reasoning.
+- After the closing `</thought>` tag, present the final response to the user.
 - Use markdown formatting for structured content
 - When presenting data, use tables where appropriate
 - When presenting quiz questions, use numbered lists
@@ -262,9 +263,10 @@ this student across turns. Use it actively:
 {page_context}
 
 # Output Format
-- You MUST start every response with a detailed step-by-step thinking process (Chain of Thought / ReAct) enclosed in `<thought>...</thought>` tags.
-- In the thought block, analyze the user's intent, the context, choose the appropriate tool and explain your reasoning, or evaluate tool results to formulate the next step.
-- After the closing `</thought>` tag, present the final response to the user or prepare the tool call.
+- CRITICAL FOR TOOL CALLING: If you decide to call a tool, you MUST output the tool call directly. Do NOT output any thoughts, text, or `<thought>` tags before the tool call, otherwise the API will reject your request.
+- If you are NOT calling a tool (e.g., when producing the final response to the user), you MUST start your response with a detailed step-by-step thinking process enclosed in `<thought>...</thought>` tags.
+- In the thought block (only when not calling tools), analyze the user's intent, the context, and formulate your response.
+- After the closing `</thought>` tag, present the final response to the user.
 - Use markdown for structure (headers, bold, code blocks)
 - Use bullet points for step-by-step explanations
 - Use code blocks for programming examples

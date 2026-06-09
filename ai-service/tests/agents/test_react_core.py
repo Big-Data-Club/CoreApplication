@@ -316,6 +316,42 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
             print(f"  [FAIL] {r.name} — {e}")
         results.append(r)
 
+    # ── Test 7: Multi-agent Spawning score calculation ───────────────────────
+    if not single_test or single_test == "spawning_score":
+        r = TestResult("Multi-Agent: spawning score calculation and threshold validation")
+        try:
+            from app.agents.core.multi_agent_orchestrator import MultiAgentOrchestrator
+            
+            orchestrator = MultiAgentOrchestrator(session_id="test_session", turn_id="test_turn")
+            
+            # Case A: general_chat, low context pressure -> score should be low (< 0.5)
+            score_a, breakdown_a = orchestrator.calculate_spawning_score(
+                user_message="Hello, how are you?",
+                intent_type="general_chat",
+                parent_context_length=100,
+                max_context_limit=32768
+            )
+            assert score_a < 0.5, f"General chat should have low score, got {score_a}"
+            assert breakdown_a["d_intent"] == 0.0
+            
+            # Case B: content_creation intent -> score should be high (>= 0.5)
+            score_b, breakdown_b = orchestrator.calculate_spawning_score(
+                user_message="Tạo 5 câu hỏi trắc nghiệm về cấu trúc dữ liệu giải thuật",
+                intent_type="content_creation",
+                parent_context_length=5000,
+                max_context_limit=32768
+            )
+            assert score_b >= 0.5, f"Content creation should trigger spawning, got {score_b}"
+            assert breakdown_b["d_intent"] == 1.0
+            assert breakdown_b["v_need"] == 1.0 # contains verification keyword 'trắc nghiệm'
+            
+            print(f"  [PASS] {r.name}")
+            r.passed = True
+        except Exception as e:
+            r.error = str(e)
+            print(f"  [FAIL] {r.name} — {e}")
+        results.append(r)
+
     # ── Summary ──────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     passed = sum(1 for r in results if r.passed)
