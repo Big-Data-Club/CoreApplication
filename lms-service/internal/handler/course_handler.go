@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"example/hello/internal/dto"
 	"example/hello/internal/service"
@@ -73,6 +74,10 @@ func (h *CourseHandler) CreateCourse(c *gin.Context) {
 
 	course, err := h.courseService.CreateCourse(c.Request.Context(), &req, userID)
 	if err != nil {
+		if strings.Contains(err.Error(), "unauthorized") {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
+			return
+		}
 		logger.Error("Failed to create course", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to create course"))
 		return

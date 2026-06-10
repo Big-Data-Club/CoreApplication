@@ -104,14 +104,17 @@ func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseR
 		return nil, fmt.Errorf("organization not found: %w", err)
 	}
 
-	// Verify permissions: only ADMIN or Org ADMIN/OWNER can create courses
+	// Verify permissions: only ADMIN, Org ADMIN/OWNER, or Org MEMBER with TEACHER system role can create courses
 	sysRoles, err := s.userRepo.GetUserRoles(ctx, creatorID)
 	isAdmin := false
+	isTeacher := false
 	if err == nil {
 		for _, r := range sysRoles {
 			if r == "ADMIN" {
 				isAdmin = true
-				break
+			}
+			if r == "TEACHER" {
+				isTeacher = true
 			}
 		}
 	}
@@ -121,8 +124,8 @@ func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseR
 		if err != nil {
 			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
 		}
-		if !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin) {
-			return nil, fmt.Errorf("unauthorized: must be Owner or Admin in the organization to create courses")
+		if !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin && !isTeacher) {
+			return nil, fmt.Errorf("unauthorized: must be Owner or Admin in the organization, or have Teacher role, to create courses")
 		}
 	}
 
@@ -218,14 +221,17 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	// Check if user is system admin
+	// Check if user is system admin/teacher
 	sysRoles, err := s.userRepo.GetUserRoles(ctx, userID)
 	isAdmin := role == models.RoleAdmin
+	isTeacher := role == models.RoleTeacher
 	if err == nil {
 		for _, r := range sysRoles {
 			if r == "ADMIN" {
 				isAdmin = true
-				break
+			}
+			if r == "TEACHER" {
+				isTeacher = true
 			}
 		}
 	}
@@ -254,9 +260,9 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 	if req.OrgID != nil {
 		targetOrgID := *req.OrgID
 		if !isAdmin {
-			// Must be Owner/Admin in target org to assign course to it
+			// Must be Owner/Admin in target org, or have Teacher role, to assign course to it
 			isMember, orgRole, err := s.orgRepo.IsMember(ctx, targetOrgID, userID)
-			if err != nil || !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin) {
+			if err != nil || !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin && !isTeacher) {
 				return fmt.Errorf("unauthorized to assign course to organization %d", targetOrgID)
 			}
 		}
