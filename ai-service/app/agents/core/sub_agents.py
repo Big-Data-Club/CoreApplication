@@ -54,7 +54,11 @@ class RetrievalSpecialist:
         self.subagent_id = f"retrieval-{turn_id}"
 
     async def execute(
-        self, query: str, course_id: Optional[int] = None
+        self,
+        query: str,
+        course_id: Optional[int] = None,
+        page_context: Optional[dict] = None,
+        system_context: Optional[dict] = None,
     ) -> AsyncIterator[AgentEvent | str]:
         """
         Runs RAG and Web search in parallel, performs context consolidation,
@@ -75,11 +79,26 @@ class RetrievalSpecialist:
         raw_chunks = []
         raw_web = []
 
+        # Get active page title if present to focus the search
+        page_title = ""
+        if page_context:
+            page_title = (
+                page_context.get("contentTitle")
+                or page_context.get("title")
+                or page_context.get("name")
+                or ""
+            )
+
+        search_query = query
+        # If query is generic or short, and we have a page title, combine them to focus on the page title
+        if page_title and len(query.strip()) < 50:
+            search_query = f"{query} {page_title}"
+
         # 1. Course material search
         if course_id:
             try:
                 chunks = await rag_service.search_multilingual(
-                    query=query, course_id=course_id, top_k=5
+                    query=search_query, course_id=course_id, top_k=5
                 )
                 raw_chunks = [c.chunk_text for c in chunks]
             except Exception as e:
@@ -88,14 +107,25 @@ class RetrievalSpecialist:
         # 2. Web search fallback / addition
         try:
             web_tool = SearchWebTool()
-            web_result = await web_tool.execute(query=query)
+            web_result = await web_tool.execute(query=search_query)
             if web_result.status == "success" and web_result.data:
                 results = web_result.data.get("results") or []
                 raw_web = [r.get("snippet") for r in results if r.get("snippet")]
         except Exception as e:
             logger.warning("Web search failed in RetrievalSpecialist: %s", e)
 
-        raw_text = "\n---\n".join(raw_chunks + raw_web)
+        from app.agents.core.prompts import _format_page_context, _format_system_context
+
+        context_parts = []
+        if page_context:
+            context_parts.append(_format_page_context(page_context))
+        if system_context:
+            context_parts.append(_format_system_context(system_context))
+
+        context_parts.extend(raw_chunks)
+        context_parts.extend(raw_web)
+
+        raw_text = "\n---\n".join(context_parts)
         raw_token_est = len(raw_text) // 4
 
         if not raw_text.strip():

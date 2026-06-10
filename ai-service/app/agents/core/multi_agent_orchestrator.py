@@ -116,7 +116,9 @@ class MultiAgentOrchestrator:
         query: str,
         course_id: Optional[int],
         intent_type: str,
-        score_breakdown: Dict[str, Any]
+        score_breakdown: Dict[str, Any],
+        page_context: Optional[Dict[str, Any]] = None,
+        system_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[AgentEvent | str]:
         """
         Runs the multi-agent pipeline:
@@ -129,7 +131,12 @@ class MultiAgentOrchestrator:
             # Step 1: Retrieval & Consolidation
             retrieval_agent = RetrievalSpecialist(self.session_id, self.turn_id)
             consolidated_context = ""
-            async for ev in retrieval_agent.execute(query, course_id):
+            async for ev in retrieval_agent.execute(
+                query=query,
+                course_id=course_id,
+                page_context=page_context,
+                system_context=system_context,
+            ):
                 if isinstance(ev, AgentEvent):
                     self._record_event(ev)
                     yield ev

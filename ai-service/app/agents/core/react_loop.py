@@ -451,7 +451,9 @@ async def run_react_loop(
                 query=user_message,
                 course_id=effective_course_id,
                 intent_type=intent_type,
-                score_breakdown=breakdown
+                score_breakdown=breakdown,
+                page_context=page_context,
+                system_context=system_context,
             ):
                 if isinstance(ev, AgentEvent):
                     yield ev
