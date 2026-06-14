@@ -611,8 +611,105 @@ services:
       - "service.type=worker"
       - "service.name=ai-worker"
 
+  # ── CDC Ingestion: Debezium ────────────────────────────────────────────────
+  debezium:
+    image: debezium/connect:2.5
+    container_name: bdc-cdc-debezium
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      - BOOTSTRAP_SERVERS=kafka:9092
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=my_connect_configs
+      - OFFSET_STORAGE_TOPIC=my_connect_offsets
+      - STATUS_STORAGE_TOPIC=my_connect_statuses
+      - KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - KEY_CONVERTER_SCHEMAS_ENABLE=false
+      - VALUE_CONVERTER_SCHEMAS_ENABLE=false
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ── Ingestion Gateway: Go Ingress ──────────────────────────────────────────
+  streaming-service:
+    build:
+      context: ./streaming-service
+      dockerfile: Dockerfile
+    container_name: bdc-streaming-gateway
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      - PORT=8085
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=clickstream.raw
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.streaming.entrypoints=web"
+      - "traefik.http.routers.streaming.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/events`)"
+      - "traefik.http.routers.streaming.priority=20"
+      - "traefik.http.services.streaming.loadbalancer.server.port=8085"
+
+  # ── Kafka Exporter: Exposes metrics to existing Prometheus ────────────────
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: bdc-kafka-exporter
+    restart: unless-stopped
+    command: ["--kafka.server=kafka:9092"]
+    ports:
+      - "9308:9308"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ── AKHQ: Kafka & Kafka Connect (Debezium) Management UI ───────────────────
+  akhq:
+    image: tchiotludo/akhq:0.25.0
+    container_name: bdc-akhq
+    restart: unless-stopped
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            docker-kafka:
+              properties:
+                bootstrap.servers: "kafka:9092"
+              connect:
+                - name: "debezium-cdc"
+                  url: "http://debezium:8083"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      debezium:
+        condition: service_healthy
+    networks:
+      - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.akhq.entrypoints=web"
+      - "traefik.http.routers.akhq.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/monitoring/kafka`)"
+      - "traefik.http.routers.akhq.priority=15"
+      - "traefik.http.routers.akhq.service=akhq"
+      - "traefik.http.services.akhq.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.akhq-strip.stripprefix.prefixes=/monitoring/kafka"
+      # Basic Auth Middleware (Username: admin, Password: admin_password_here)
+      - "traefik.http.middlewares.monitoring-auth.basicauth.users=admin:$$2y$$05$$5Hl1Qh2t3u4v5w6x7y8z9.examplehashedpwd"
+      - "traefik.http.routers.akhq.middlewares=akhq-strip,monitoring-auth"
+
 # Volumes
 volumes:
+
   ai_model_cache:
     driver: local
   kafka_data:
