@@ -102,4 +102,11 @@ public class UserController {
     public ResponseEntity<UserResponse> rejectUser(@PathVariable Long id) {
         return ResponseEntity.ok(userService.rejectUser(id));
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/sync-to-chat")
+    public ResponseEntity<java.util.Map<String, String>> syncToChat() {
+        userService.syncAllUsersToChat();
+        return ResponseEntity.ok(java.util.Map.of("message", "Triggered synchronization of all users to chat service."));
+    }
 }

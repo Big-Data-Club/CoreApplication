@@ -86,6 +86,11 @@ lms:
     url: ${LMS_API_URL}
     secret: ${LMS_API_SECRET}
 
+chat:
+  api:
+    url: ${CHAT_API_URL:}
+    secret: ${CHAT_SYNC_SECRET:}
+
 ai-service:
   api:
     url: ${AI_SERVICE_URL}

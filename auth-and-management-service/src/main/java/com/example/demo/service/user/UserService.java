@@ -46,4 +46,7 @@ public interface UserService {
 
     /** Reject a pending user: set active=false, pendingApproval=false (blocked). */
     UserResponse rejectUser(Long id);
+
+    /** Manually sync all existing users to the chat service. */
+    void syncAllUsersToChat();
 }

@@ -33,6 +33,7 @@ public class DataInitializer implements CommandLineRunner {
     private final TeamRepository teamRepository;
     private final UserTypeOptionRepository typeRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    private final com.example.demo.service.user.UserSyncService userSyncService;
 
     @org.springframework.beans.factory.annotation.Value("${app.admin.password:hehehe}")
     private String adminPassword;
@@ -55,6 +56,13 @@ public class DataInitializer implements CommandLineRunner {
         seedTeams();
         seedTypes();
         seedAdminUser();
+
+        log.info("Triggering automatic startup sync of existing users to chat-service...");
+        try {
+            userSyncService.syncUsersToChat(userRepository.findAll());
+        } catch (Exception e) {
+            log.error("Startup user sync to chat failed: {}", e.getMessage());
+        }
     }
 
     /**

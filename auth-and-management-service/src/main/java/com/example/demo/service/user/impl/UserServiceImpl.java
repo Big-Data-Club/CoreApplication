@@ -355,4 +355,15 @@ public class UserServiceImpl implements UserService {
         }
         return ".jpg";
     }
+
+    @Override
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public void syncAllUsersToChat() {
+        var users = userRepository.findAll();
+        userSyncService.syncUsersToChat(users)
+                .exceptionally(ex -> {
+                    log.error("Manual bulk chat sync failed: {}", ex.getMessage());
+                    return null;
+                });
+    }
 }
