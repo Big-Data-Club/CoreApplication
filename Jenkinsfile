@@ -69,7 +69,7 @@ pipeline {
                             env.CHAT_CHANGED = 'true'
                         } else if (file.startsWith("ai-service/")) {
                             env.AI_CHANGED = 'true'
-                        } else if (file.startsWith("frontend/")) {
+                        } else if (file.startsWith("frontend/") || file.equals("frontend")) {
                             env.FRONTEND_CHANGED = 'true'
                         } else if (file.equals("docker-compose.yml") || 
                                    file.equals("docker-compose.serverless.yml") || 
