@@ -999,7 +999,7 @@ services:
       - JENKINS_OPTS=--prefix=/cicd-dash
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=true
     volumes:
-      - jenkins_data:/var/jenkins_home
+      - /var/jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - app-network
@@ -1078,8 +1078,6 @@ volumes:
   ai_model_cache:
     driver: local
   kafka_data:
-    driver: local
-  jenkins_data:
     driver: local
 
 
