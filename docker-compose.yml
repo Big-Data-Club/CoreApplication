@@ -91,7 +91,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=app-network"
       - "--entrypoints.web.address=:3000"
-      - "--entrypoints.web.forwardedheaders.trustedips=127.0.0.1,172.28.0.1"
+      - "--entrypoints.web.forwardedheaders.trustedips=127.0.0.1,172.28.0.0/16,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"
       - "--log.level=INFO"
       - "--accesslog=true"
       - "--accesslog.format=json"
