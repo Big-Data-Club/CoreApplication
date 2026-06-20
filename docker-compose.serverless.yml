@@ -732,7 +732,9 @@ services:
       - "traefik.http.services.jenkins.loadbalancer.server.port=8080"
       - "traefik.http.middlewares.jenkins-redirect.redirectregex.regex=^(https?://[^/]+/cicd-dash)$$"
       - "traefik.http.middlewares.jenkins-redirect.redirectregex.replacement=$${1}/"
-      - "traefik.http.routers.jenkins.middlewares=jenkins-redirect"
+      - "traefik.http.routers.jenkins.middlewares=jenkins-redirect,jenkins-headers"
+      - "traefik.http.middlewares.jenkins-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.jenkins-headers.headers.customrequestheaders.X-Forwarded-Port=443"
 
 # Volumes
 volumes:
