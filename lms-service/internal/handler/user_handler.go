@@ -55,3 +55,32 @@ func (h *UserHandler) GetMyRoles(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(roles))
 }
+
+// SearchTeachers godoc
+// @Summary Search teachers
+// @Description Search for users with role TEACHER by name or email
+// @Tags User
+// @Accept json
+// @Produce json
+// @Param q query string true "Search query (name or email)"
+// @Security BearerAuth
+// @Success 200 {array} dto.UserSearchResponse "Teachers list retrieved successfully"
+// @Failure 401 {object} dto.ErrorResponse "Unauthorized"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
+// @Router /users/teachers [get]
+func (h *UserHandler) SearchTeachers(c *gin.Context) {
+	queryStr := c.Query("q")
+	if queryStr == "" {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("missing_query", "Query parameter 'q' is required"))
+		return
+	}
+
+	teachers, err := h.userService.SearchTeachers(c.Request.Context(), queryStr)
+	if err != nil {
+		logger.Error("Failed to search teachers", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to search teachers"))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(teachers))
+}

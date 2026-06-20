@@ -169,14 +169,16 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
 
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+
 	if course.Status == models.CourseStatusDraft {
-		if role != models.RoleAdmin && course.CreatedBy != userID {
+		if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 			return nil, fmt.Errorf("unauthorized to view this course")
 		}
 	}
 
 	// Org isolation checks
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 		isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, userID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
@@ -236,8 +238,9 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 		}
 	}
 
-	// Must be system admin or creator
-	if !isAdmin && course.CreatedBy != userID {
+	// Must be system admin, creator or co-teacher
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+	if !isAdmin && course.CreatedBy != userID && !isCoTeacher {
 		return fmt.Errorf("unauthorized to update this course")
 	}
 
@@ -326,7 +329,8 @@ func (s *CourseService) PublishCourse(ctx context.Context, courseID int64, userI
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 		return fmt.Errorf("unauthorized to publish this course")
 	}
 
@@ -419,7 +423,8 @@ func (s *CourseService) CreateSection(ctx context.Context, courseID int64, req *
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
 
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 		return nil, fmt.Errorf("unauthorized to create section in this course")
 	}
 
@@ -526,7 +531,8 @@ func (s *CourseService) UpdateSection(ctx context.Context, sectionID int64, req 
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 		return fmt.Errorf("unauthorized to update this section")
 	}
 
@@ -573,7 +579,8 @@ func (s *CourseService) DeleteSection(ctx context.Context, sectionID int64, user
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 		return fmt.Errorf("unauthorized to delete this section")
 	}
 
@@ -607,7 +614,8 @@ func (s *CourseService) CreateContent(ctx context.Context, sectionID int64, req 
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
 
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 		return nil, fmt.Errorf("unauthorized to create content in this section")
 	}
 
@@ -754,7 +762,8 @@ func (s *CourseService) UpdateContent(ctx context.Context, contentID int64, req 
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 		return fmt.Errorf("unauthorized to update this content")
 	}
 
@@ -828,7 +837,8 @@ func (s *CourseService) DeleteContent(ctx context.Context, contentID int64, user
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	if role != models.RoleAdmin && course.CreatedBy != userID {
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
 		return fmt.Errorf("unauthorized to delete this content")
 	}
 
@@ -978,6 +988,125 @@ func (s *CourseService) toContentResponse(content *models.SectionContent) (*dto.
 		if err := json.Unmarshal(content.Metadata, &metadata); err == nil {
 			resp.Metadata = metadata
 		}
+	}
+
+	return resp, nil
+}
+
+// AddCoTeacher adds a co-teacher to the course.
+// actorID must be the owner of the course or system ADMIN.
+// target user must have system role TEACHER.
+func (s *CourseService) AddCoTeacher(ctx context.Context, courseID, actorID int64, role string, req *dto.AddCoTeacherRequest) error {
+	course, err := s.getCourseCached(ctx, courseID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("course not found")
+		}
+		return fmt.Errorf("failed to get course: %w", err)
+	}
+
+	// Permission check: actor must be system ADMIN or course creator
+	if role != models.RoleAdmin && course.CreatedBy != actorID {
+		return fmt.Errorf("unauthorized: only the course owner or system admin can add co-teachers")
+	}
+
+	// Verify target user exists and has TEACHER role
+	sysRoles, err := s.userRepo.GetUserRoles(ctx, req.UserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("target user not found")
+		}
+		return fmt.Errorf("failed to check user roles: %w", err)
+	}
+
+	isTeacher := false
+	for _, r := range sysRoles {
+		if r == "TEACHER" {
+			isTeacher = true
+			break
+		}
+	}
+
+	if !isTeacher {
+		return fmt.Errorf("unauthorized: co-teacher must have system role TEACHER")
+	}
+
+	// Add to repo
+	err = s.courseRepo.AddCoTeacher(ctx, courseID, req.UserID, actorID)
+	if err != nil {
+		return fmt.Errorf("failed to add co-teacher: %w", err)
+	}
+
+	// Invalidate cache for co-teachers of this course
+	_ = s.cache.Delete(ctx, cache.KeyCourseCoTeachers(courseID))
+	return nil
+}
+
+// RemoveCoTeacher removes a co-teacher from the course.
+// actorID must be the owner of the course or system ADMIN.
+func (s *CourseService) RemoveCoTeacher(ctx context.Context, courseID, targetUserID, actorID int64, role string) error {
+	course, err := s.getCourseCached(ctx, courseID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("course not found")
+		}
+		return fmt.Errorf("failed to get course: %w", err)
+	}
+
+	// Permission check: actor must be system ADMIN or course creator
+	if role != models.RoleAdmin && course.CreatedBy != actorID {
+		return fmt.Errorf("unauthorized: only the course owner or system admin can remove co-teachers")
+	}
+
+	err = s.courseRepo.RemoveCoTeacher(ctx, courseID, targetUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("co-teacher record not found")
+		}
+		return fmt.Errorf("failed to remove co-teacher: %w", err)
+	}
+
+	// Invalidate cache for co-teachers of this course
+	_ = s.cache.Delete(ctx, cache.KeyCourseCoTeachers(courseID))
+	return nil
+}
+
+// ListCoTeachers returns the list of co-teachers for a course.
+// Both course owner, co-teachers, system ADMINs, and STUDENTS can view this.
+// Optimizes performance using Redis cache.
+func (s *CourseService) ListCoTeachers(ctx context.Context, courseID, actorID int64, role string) ([]*dto.CoTeacherResponse, error) {
+	// Let's check cache first
+	cacheKey := cache.KeyCourseCoTeachers(courseID)
+	cachedVal, err := s.cache.Get(ctx, cacheKey)
+	if err == nil {
+		var resp []*dto.CoTeacherResponse
+		if err := json.Unmarshal([]byte(cachedVal), &resp); err == nil {
+			return resp, nil
+		}
+	}
+
+	// Fetch from DB
+	coTeachers, err := s.courseRepo.ListCoTeachers(ctx, courseID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list co-teachers: %w", err)
+	}
+
+	resp := make([]*dto.CoTeacherResponse, len(coTeachers))
+	for i, ct := range coTeachers {
+		resp[i] = &dto.CoTeacherResponse{
+			ID:        ct.ID,
+			CourseID:  ct.CourseID,
+			UserID:    ct.UserID,
+			FullName:  ct.FullName,
+			Email:     ct.Email,
+			AddedBy:   ct.AddedBy,
+			CreatedAt: ct.CreatedAt,
+		}
+	}
+
+	// Cache the result for 1 hour (co-teacher list changes rarely)
+	if data, err := json.Marshal(resp); err == nil {
+		_ = s.cache.Set(ctx, cacheKey, data, 1*time.Hour)
 	}
 
 	return resp, nil

@@ -87,3 +87,19 @@ const (
 	ContentTypeForum        = "FORUM"
 	ContentTypeAnnouncement = "ANNOUNCEMENT"
 )
+
+// CourseCoTeacher represents a co-teacher mapped to a course
+type CourseCoTeacher struct {
+	ID        int64     `json:"id" db:"id"`
+	CourseID  int64     `json:"course_id" db:"course_id"`
+	UserID    int64     `json:"user_id" db:"user_id"`
+	AddedBy   int64     `json:"added_by" db:"added_by"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+// CourseCoTeacherWithUser represents a co-teacher along with user information
+type CourseCoTeacherWithUser struct {
+	CourseCoTeacher
+	FullName string `json:"full_name" db:"full_name"`
+	Email    string `json:"email" db:"email"`
+}

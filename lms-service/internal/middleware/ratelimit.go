@@ -40,12 +40,12 @@ func RateLimit(redisCache *cache.RedisCache, aiSecret string) gin.HandlerFunc {
 		}
 
 		// Set rate limit headers
-		c.Writer.Header().Set("X-RateLimit-Limit", "100")
-		c.Writer.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", max(0, 100-count)))
+		c.Writer.Header().Set("X-RateLimit-Limit", "1000")
+		c.Writer.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", max(0, 1000-count)))
 		c.Writer.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(1*time.Minute).Unix()))
 
 		// Check if limit exceeded
-		if count > 100 {
+		if count > 1000 {
 			c.JSON(http.StatusTooManyRequests, dto.NewErrorResponse("rate_limit_exceeded", "Too many requests. Please try again later."))
 			c.Abort()
 			return

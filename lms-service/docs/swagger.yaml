@@ -54,6 +54,13 @@ definitions:
       wrong_rate:
         type: number
     type: object
+  dto.AddCoTeacherRequest:
+    properties:
+      user_id:
+        type: integer
+    required:
+    - user_id
+    type: object
   dto.AddMemberRequest:
     properties:
       org_role:
@@ -214,6 +221,23 @@ definitions:
           $ref: '#/definitions/dto.UserSyncResponse'
         type: array
       total_users:
+        type: integer
+    type: object
+  dto.CoTeacherResponse:
+    properties:
+      added_by:
+        type: integer
+      course_id:
+        type: integer
+      created_at:
+        type: string
+      email:
+        type: string
+      full_name:
+        type: string
+      id:
+        type: integer
+      user_id:
         type: integer
     type: object
   dto.ContentResponse:
@@ -1539,11 +1563,22 @@ definitions:
       user_id:
         type: integer
     type: object
+  dto.UserSearchResponse:
+    properties:
+      email:
+        type: string
+      full_name:
+        type: string
+      id:
+        type: integer
+    type: object
   dto.UserSyncRequest:
     properties:
       email:
         type: string
       full_name:
+        type: string
+      org:
         type: string
       roles:
         items:
@@ -3155,6 +3190,139 @@ paths:
       summary: Bulk enroll students
       tags:
       - Enrollment
+  /courses/{courseId}/co-teachers:
+    get:
+      consumes:
+      - application/json
+      description: List co-teachers of a course (accessible to authenticated users)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.CoTeacherResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List co-teachers of a course
+      tags:
+      - co-teachers
+    post:
+      consumes:
+      - application/json
+      description: Add a co-teacher to a course (owner or admin only)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: Add co-teacher request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.AddCoTeacherRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add a co-teacher to a course
+      tags:
+      - co-teachers
+  /courses/{courseId}/co-teachers/{userId}:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a co-teacher from a course (owner or admin only)
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: User ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove a co-teacher from a course
+      tags:
+      - co-teachers
   /courses/{courseId}/learners:
     get:
       consumes:
@@ -3398,6 +3566,50 @@ paths:
       summary: Create a section
       tags:
       - sections
+  /courses/{courseId}/sections/{sectionId}/overview/generate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: Section ID
+        in: path
+        name: sectionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Trigger section overview generation (lesson + quiz) for a section
+      tags:
+      - Section-Overview
+  /courses/{courseId}/sections/{sectionId}/overview/jobs:
+    get:
+      parameters:
+      - description: Course ID
+        in: path
+        name: courseId
+        required: true
+        type: integer
+      - description: Section ID
+        in: path
+        name: sectionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: List section overview generation jobs for a section
+      tags:
+      - Section-Overview
   /courses/my:
     get:
       consumes:
@@ -5055,6 +5267,110 @@ paths:
       summary: Start quiz attempt
       tags:
       - Quiz - Student
+  /section-overview/jobs/{jobId}:
+    delete:
+      parameters:
+      - description: Job ID
+        in: path
+        name: jobId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Delete a section overview job and its draft lesson/quiz
+      tags:
+      - Section-Overview
+    get:
+      parameters:
+      - description: Job ID
+        in: path
+        name: jobId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get a single section overview job with its lesson and quiz
+      tags:
+      - Section-Overview
+  /section-overview/lessons/{lessonId}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Lesson ID
+        in: path
+        name: lessonId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Save teacher edits to a draft overview lesson
+      tags:
+      - Section-Overview
+  /section-overview/lessons/{lessonId}/publish:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Lesson ID
+        in: path
+        name: lessonId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Promote a draft overview lesson into a published SectionContent and
+        auto-index it
+      tags:
+      - Section-Overview
+  /section-overview/quizzes/{quizId}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Save teacher edits to a draft overview quiz
+      tags:
+      - Section-Overview
+  /section-overview/quizzes/{quizId}/publish:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: quizId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Promote a draft overview quiz into a published QUIZ SectionContent
+      tags:
+      - Section-Overview
   /sections/{sectionId}:
     delete:
       consumes:
@@ -5367,6 +5683,39 @@ paths:
       summary: Bulk sync multiple users
       tags:
       - Sync
+  /users/teachers:
+    get:
+      consumes:
+      - application/json
+      description: Search for users with role TEACHER by name or email
+      parameters:
+      - description: Search query (name or email)
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Teachers list retrieved successfully
+          schema:
+            items:
+              $ref: '#/definitions/dto.UserSearchResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Search teachers
+      tags:
+      - User
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and JWT token.

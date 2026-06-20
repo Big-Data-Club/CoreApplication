@@ -104,24 +104,27 @@ func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID i
 			return nil, errors.New("not authorized to view this attempt")
 		}
 
-		// Check if user is course owner
+		// Check if user is course owner or co-teacher
 		if course.CreatedBy != userID {
-			// Check if user is admin
-			roles, err := s.userRepo.GetUserRoles(ctx, userID)
-			if err != nil {
-				return nil, errors.New("not authorized to view this attempt")
-			}
-			
-			isAdmin := false
-			for _, role := range roles {
-				if role == "ADMIN" {
-					isAdmin = true
-					break
+			isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, course.ID, userID)
+			if err != nil || !isCoTeacher {
+				// Check if user is admin
+				roles, err := s.userRepo.GetUserRoles(ctx, userID)
+				if err != nil {
+					return nil, errors.New("not authorized to view this attempt")
 				}
-			}
-			
-			if !isAdmin {
-				return nil, errors.New("not authorized to view this attempt")
+				
+				isAdmin := false
+				for _, role := range roles {
+					if role == "ADMIN" {
+						isAdmin = true
+						break
+					}
+				}
+				
+				if !isAdmin {
+					return nil, errors.New("not authorized to view this attempt")
+				}
 			}
 		}
 	}

@@ -187,6 +187,7 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64) (
 		FROM courses c
 		LEFT JOIN users u ON c.created_by = u.id
 		WHERE c.created_by = $1
+		   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1)
 		ORDER BY c.created_at DESC
 	`
 
@@ -712,4 +713,85 @@ func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter Course
 	}
 
 	return courses, total, nil
+}
+
+// AddCoTeacher inserts a co-teacher into a course
+func (r *CourseRepository) AddCoTeacher(ctx context.Context, courseID, userID, addedBy int64) error {
+	query := `
+		INSERT INTO course_co_teachers (course_id, user_id, added_by)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (course_id, user_id) DO NOTHING
+	`
+	_, err := r.db.ExecContext(ctx, query, courseID, userID, addedBy)
+	return err
+}
+
+// RemoveCoTeacher deletes a co-teacher from a course
+func (r *CourseRepository) RemoveCoTeacher(ctx context.Context, courseID, userID int64) error {
+	query := `
+		DELETE FROM course_co_teachers
+		WHERE course_id = $1 AND user_id = $2
+	`
+	result, err := r.db.ExecContext(ctx, query, courseID, userID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ListCoTeachers lists all co-teachers of a course with user info
+func (r *CourseRepository) ListCoTeachers(ctx context.Context, courseID int64) ([]*models.CourseCoTeacherWithUser, error) {
+	query := `
+		SELECT ct.id, ct.course_id, ct.user_id, ct.added_by, ct.created_at,
+		       COALESCE(u.full_name, '') as full_name, u.email
+		FROM course_co_teachers ct
+		JOIN users u ON ct.user_id = u.id
+		WHERE ct.course_id = $1
+		ORDER BY ct.created_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, courseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var coTeachers []*models.CourseCoTeacherWithUser
+	for rows.Next() {
+		var ct models.CourseCoTeacherWithUser
+		err := rows.Scan(
+			&ct.ID,
+			&ct.CourseID,
+			&ct.UserID,
+			&ct.AddedBy,
+			&ct.CreatedAt,
+			&ct.FullName,
+			&ct.Email,
+		)
+		if err != nil {
+			return nil, err
+		}
+		coTeachers = append(coTeachers, &ct)
+	}
+
+	return coTeachers, rows.Err()
+}
+
+// IsCoTeacher checks if a user is a co-teacher of a course
+func (r *CourseRepository) IsCoTeacher(ctx context.Context, courseID, userID int64) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM course_co_teachers
+			WHERE course_id = $1 AND user_id = $2
+		)
+	`
+	var exists bool
+	err := r.db.QueryRowContext(ctx, query, courseID, userID).Scan(&exists)
+	return exists, err
 }

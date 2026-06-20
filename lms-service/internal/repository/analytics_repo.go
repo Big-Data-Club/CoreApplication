@@ -227,15 +227,43 @@ func (r *AnalyticsRepository) GetCourseStudentProgressOverview(ctx context.Conte
 			JOIN course_content cc ON cp.content_id = cc.content_id
 			GROUP BY cp.student_id
 		),
+		valid_attempts AS (
+			SELECT qa.student_id, qa.quiz_id, qa.percentage, qa.submitted_at
+			FROM (
+				SELECT 
+					qa.student_id, qa.quiz_id, qa.percentage, qa.submitted_at,
+					ROW_NUMBER() OVER (
+						PARTITION BY qa.student_id, qa.quiz_id
+						ORDER BY 
+							CASE 
+								WHEN COALESCE(ans_count.cnt, 0) < COALESCE(q_count.cnt, 0) AND qa.attempt_number = 1 THEN 2 
+								ELSE 1 
+							END ASC,
+							qa.attempt_number ASC
+					) as rn
+				FROM quiz_attempts qa
+				LEFT JOIN (
+					SELECT attempt_id, COUNT(*) as cnt 
+					FROM quiz_student_answers 
+					GROUP BY attempt_id
+				) ans_count ON ans_count.attempt_id = qa.id
+				LEFT JOIN (
+					SELECT quiz_id, COUNT(*) as cnt 
+					FROM quiz_questions 
+					GROUP BY quiz_id
+				) q_count ON q_count.quiz_id = qa.quiz_id
+				WHERE qa.status IN ('SUBMITTED', 'GRADED')
+			) qa
+			WHERE qa.rn = 1
+		),
 		student_quizzes AS (
 			SELECT
-				qa.student_id,
-				AVG(qa.percentage) AS quiz_avg_score,
-				MAX(qa.submitted_at) AS last_submitted
-			FROM quiz_attempts qa
-			WHERE qa.quiz_id IN (SELECT quiz_id FROM course_quizzes)
-			  AND qa.status IN ('SUBMITTED', 'GRADED')
-			GROUP BY qa.student_id
+				va.student_id,
+				AVG(va.percentage) AS quiz_avg_score,
+				MAX(va.submitted_at) AS last_submitted
+			FROM valid_attempts va
+			WHERE va.quiz_id IN (SELECT quiz_id FROM course_quizzes)
+			GROUP BY va.student_id
 		),
 		mandatory_stats AS (
 			SELECT
@@ -288,13 +316,42 @@ func (r *AnalyticsRepository) GetCourseStudentProgressOverview(ctx context.Conte
 // in a course, with a computed status string.
 func (r *AnalyticsRepository) GetStudentQuizScores(ctx context.Context, courseID, studentID int64) ([]StudentQuizScoreRow, error) {
 	rows, err := r.db.QueryContext(ctx, `
+		WITH valid_attempts AS (
+			SELECT qa.student_id, qa.quiz_id, qa.percentage, qa.earned_points, qa.is_passed
+			FROM (
+				SELECT 
+					qa.student_id, qa.quiz_id, qa.percentage, qa.earned_points, qa.is_passed,
+					ROW_NUMBER() OVER (
+						PARTITION BY qa.student_id, qa.quiz_id
+						ORDER BY 
+							CASE 
+								WHEN COALESCE(ans_count.cnt, 0) < COALESCE(q_count.cnt, 0) AND qa.attempt_number = 1 THEN 2 
+								ELSE 1 
+							END ASC,
+							qa.attempt_number ASC
+					) as rn
+				FROM quiz_attempts qa
+				LEFT JOIN (
+					SELECT attempt_id, COUNT(*) as cnt 
+					FROM quiz_student_answers 
+					GROUP BY attempt_id
+				) ans_count ON ans_count.attempt_id = qa.id
+				LEFT JOIN (
+					SELECT quiz_id, COUNT(*) as cnt 
+					FROM quiz_questions 
+					GROUP BY quiz_id
+				) q_count ON q_count.quiz_id = qa.quiz_id
+				WHERE qa.student_id = $2 AND qa.status IN ('SUBMITTED', 'GRADED')
+			) qa
+			WHERE qa.rn = 1
+		)
 		SELECT
 			q.id, q.title,
-			MAX(qa.percentage)      AS best_pct,
-			MAX(qa.earned_points)   AS best_points,
+			MAX(va.percentage)      AS best_pct,
+			MAX(va.earned_points)   AS best_points,
 			q.total_points,
 			COUNT(qa.id)            AS attempts_count,
-			BOOL_OR(COALESCE(qa.is_passed, FALSE)) AS is_passed,
+			BOOL_OR(COALESCE(va.is_passed, FALSE)) AS is_passed,
 			q.passing_score,
 			MAX(qa.submitted_at)    AS last_attempt_at,
 			CASE
@@ -302,18 +359,18 @@ func (r *AnalyticsRepository) GetStudentQuizScores(ctx context.Context, courseID
 					THEN 'not_started'
 				WHEN SUM(CASE WHEN qa.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) > 0
 					THEN 'in_progress'
-				WHEN BOOL_OR(COALESCE(qa.is_passed, FALSE))
+				WHEN BOOL_OR(COALESCE(va.is_passed, FALSE))
 					THEN 'passed'
 				WHEN COUNT(qa.id) FILTER (WHERE qa.status IN ('SUBMITTED','GRADED')) > 0
-					AND NOT BOOL_OR(COALESCE(qa.is_passed, FALSE))
+					AND NOT BOOL_OR(COALESCE(va.is_passed, FALSE))
 					THEN 'failed'
 				ELSE 'submitted'
 			END AS status
 		FROM quizzes q
 		JOIN section_content sc ON sc.id = q.content_id
 		JOIN course_sections cs ON cs.id = sc.section_id
-		LEFT JOIN quiz_attempts qa
-			ON qa.quiz_id = q.id AND qa.student_id = $2
+		LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.student_id = $2
+		LEFT JOIN valid_attempts va ON va.quiz_id = q.id
 		WHERE cs.course_id = $1
 		GROUP BY q.id, q.title, q.total_points, q.passing_score
 		ORDER BY MIN(cs.order_index) ASC, MIN(sc.order_index) ASC
@@ -626,20 +683,48 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 			WHERE e.status = 'ACCEPTED'
 			  AND e.course_id IN (SELECT id FROM teacher_courses)
 		),
+		valid_attempts AS (
+			SELECT qa.student_id, qa.quiz_id, qa.percentage
+			FROM (
+				SELECT 
+					qa.student_id, qa.quiz_id, qa.percentage,
+					ROW_NUMBER() OVER (
+						PARTITION BY qa.student_id, qa.quiz_id
+						ORDER BY 
+							CASE 
+								WHEN COALESCE(ans_count.cnt, 0) < COALESCE(q_count.cnt, 0) AND qa.attempt_number = 1 THEN 2 
+								ELSE 1 
+							END ASC,
+							qa.attempt_number ASC
+					) as rn
+				FROM quiz_attempts qa
+				LEFT JOIN (
+					SELECT attempt_id, COUNT(*) as cnt 
+					FROM quiz_student_answers 
+					GROUP BY attempt_id
+				) ans_count ON ans_count.attempt_id = qa.id
+				LEFT JOIN (
+					SELECT quiz_id, COUNT(*) as cnt 
+					FROM quiz_questions 
+					GROUP BY quiz_id
+				) q_count ON q_count.quiz_id = qa.quiz_id
+				WHERE qa.status IN ('SUBMITTED', 'GRADED')
+			) qa
+			WHERE qa.rn = 1
+		),
 		student_quizzes AS (
 			SELECT 
 				e.course_id,
-				qa.student_id,
-				AVG(qa.percentage) AS quiz_avg_score
+				va.student_id,
+				AVG(va.percentage) AS quiz_avg_score
 			FROM enrollments e
 			JOIN course_sections cs ON cs.course_id = e.course_id
 			JOIN section_content sc ON sc.section_id = cs.id
 			JOIN quizzes q ON q.content_id = sc.id
-			JOIN quiz_attempts qa ON qa.quiz_id = q.id AND qa.student_id = e.student_id
+			JOIN valid_attempts va ON va.quiz_id = q.id AND va.student_id = e.student_id
 			WHERE e.status = 'ACCEPTED'
-			  AND qa.status IN ('SUBMITTED', 'GRADED')
 			  AND e.course_id IN (SELECT id FROM teacher_courses)
-			GROUP BY e.course_id, qa.student_id
+			GROUP BY e.course_id, va.student_id
 		),
 		course_aggregates AS (
 			SELECT 

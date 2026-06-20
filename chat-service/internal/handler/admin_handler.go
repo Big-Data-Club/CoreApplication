@@ -165,6 +165,7 @@ func (h *AdminHandler) SetChannelRoles(c *gin.Context) {
 }
 
 // ─── GetChannelUsers GET /api/v1/admin/channels/:id/users ────────────────────
+// Returns full user objects — no extra client round-trip needed.
 
 func (h *AdminHandler) GetChannelUsers(c *gin.Context) {
 	id, ok := parseID(c, "id")
@@ -172,16 +173,28 @@ func (h *AdminHandler) GetChannelUsers(c *gin.Context) {
 		return
 	}
 
-	userIDs, err := h.chatRepo.GetChannelUsers(c.Request.Context(), id)
+	users, err := h.chatRepo.GetChannelUsersWithDetails(c.Request.Context(), id)
 	if err != nil {
+		logger.Errorf("get channel whitelist %d: %v", id, err)
 		c.JSON(dto.ErrInternal("Failed to get whitelist"))
 		return
 	}
 
-	c.JSON(dto.OK(gin.H{"user_ids": userIDs}))
+	resp := make([]dto.UserResponse, len(users))
+	for i, u := range users {
+		resp[i] = dto.UserResponse{
+			ID:             u.ID,
+			Email:          u.Email,
+			FullName:       u.FullName,
+			ProfilePicture: u.ProfilePicture,
+		}
+	}
+	c.JSON(dto.OK(dto.ChannelUsersResponse{Users: resp}))
 }
 
 // ─── SetChannelUsers PUT /api/v1/admin/channels/:id/users ────────────────────
+// Atomically replaces the whitelist and returns the updated full user list.
+// Callers do NOT need to issue a subsequent GET — saving is one round-trip.
 
 func (h *AdminHandler) SetChannelUsers(c *gin.Context) {
 	id, ok := parseID(c, "id")
@@ -196,9 +209,28 @@ func (h *AdminHandler) SetChannelUsers(c *gin.Context) {
 	}
 
 	if err := h.chatRepo.SetChannelUsers(c.Request.Context(), id, req.UserIDs); err != nil {
+		logger.Errorf("set channel whitelist %d: %v", id, err)
 		c.JSON(dto.ErrInternal("Failed to set whitelist"))
 		return
 	}
 
-	c.JSON(dto.OK(gin.H{"updated": true}))
+	// Return the final list so the client is immediately consistent — no extra GET.
+	users, err := h.chatRepo.GetChannelUsersWithDetails(c.Request.Context(), id)
+	if err != nil {
+		logger.Warnf("set whitelist OK but detail fetch failed for channel %d: %v", id, err)
+		// Graceful degradation: still signal success, client can re-fetch if needed.
+		c.JSON(dto.OK(dto.ChannelUsersResponse{Users: []dto.UserResponse{}}))
+		return
+	}
+
+	resp := make([]dto.UserResponse, len(users))
+	for i, u := range users {
+		resp[i] = dto.UserResponse{
+			ID:             u.ID,
+			Email:          u.Email,
+			FullName:       u.FullName,
+			ProfilePicture: u.ProfilePicture,
+		}
+	}
+	c.JSON(dto.OK(dto.ChannelUsersResponse{Users: resp}))
 }

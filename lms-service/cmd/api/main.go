@@ -189,6 +189,7 @@ func main() {
 	// Initialize handlers
 	userHandler := handler.NewUserHandler(userService)
 	courseHandler := handler.NewCourseHandler(courseService)
+	coTeacherHandler := handler.NewCoTeacherHandler(courseService)
 	enrollmentHandler := handler.NewEnrollmentHandler(enrollmentService)
 	fileHandler := handler.NewFileHandler(storageProvider, cfg.Upload)
 	syncHandler := handler.NewUserSyncHandler(userSyncService, syncSecret)
@@ -212,6 +213,7 @@ func main() {
 	}
 
 	router := gin.New()
+	_ = router.SetTrustedProxies(nil)
 	router.MaxMultipartMemory = 64 << 20 // 64 MB
 	router.Use(gin.Recovery())
 	router.Use(middleware.Logger())
@@ -297,6 +299,7 @@ func main() {
 		{
 			// User role management
 			auth.GET("/me/roles", userHandler.GetMyRoles)
+			auth.GET("/users/teachers", userHandler.SearchTeachers)
 
 			// Admin role management
 			adminRoles := auth.Group("/admin/roles")
@@ -374,6 +377,11 @@ func main() {
 				courses.PUT("/:courseId", courseHandler.UpdateCourse)
 				courses.DELETE("/:courseId", middleware.RequirePermission(permService, "COURSE_DELETE"), courseHandler.DeleteCourse)
 				courses.POST("/:courseId/publish", courseHandler.PublishCourse)
+
+				// Co-teachers management
+				courses.POST("/:courseId/co-teachers", coTeacherHandler.AddCoTeacher)
+				courses.DELETE("/:courseId/co-teachers/:userId", coTeacherHandler.RemoveCoTeacher)
+				courses.GET("/:courseId/co-teachers", coTeacherHandler.ListCoTeachers)
 
 				// ── Analytics (Teacher / Admin only)
 				courses.GET("/:courseId/quiz-analytics", analyticsHandler.GetCourseQuizAnalytics)

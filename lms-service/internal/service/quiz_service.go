@@ -71,9 +71,12 @@ func (s *QuizService) CreateQuiz(ctx context.Context, req *dto.CreateQuizRequest
 		return nil, fmt.Errorf("course not found")
 	}
 
-	// Check permission (owner or admin)
+	// Check permission (owner, co-teacher, or admin)
 	if userRole != "ADMIN" && course.CreatedBy != createdBy {
-		return nil, fmt.Errorf("permission denied: you don't own this course")
+		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, course.ID, createdBy)
+		if err != nil || !isCoTeacher {
+			return nil, fmt.Errorf("permission denied: you don't own this course")
+		}
 	}
 
 	// Create quiz model
@@ -715,8 +718,11 @@ func (s *QuizService) SubmitAnswer(ctx context.Context, req *dto.SubmitAnswerReq
 	}
 
 	if quiz.TimeLimitMinutes.Valid {
-		elapsed := time.Since(attempt.StartedAt)
-		if elapsed.Minutes() > float64(quiz.TimeLimitMinutes.Int32) {
+		elapsedSeconds, err := s.quizRepo.GetAttemptElapsedTime(ctx, req.AttemptID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get elapsed time: %w", err)
+		}
+		if float64(elapsedSeconds)/60.0 > float64(quiz.TimeLimitMinutes.Int32) {
 			return nil, fmt.Errorf("time limit exceeded")
 		}
 	}
@@ -803,7 +809,10 @@ func (s *QuizService) SubmitQuiz(ctx context.Context, attemptID, studentID int64
 	}
 
 	// Calculate time spent
-	timeSpent := int32(time.Since(attempt.StartedAt).Seconds())
+	timeSpent, err := s.quizRepo.GetAttemptElapsedTime(ctx, attemptID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate elapsed time: %w", err)
+	}
 	now := time.Now()
 
 	// Update attempt status
@@ -1638,7 +1647,7 @@ func (s *QuizService) validateAnswerData(questionType string, answerData map[str
 	return nil
 }
 
-// verifyQuizOwnership verifies user owns the quiz (or is admin)
+// verifyQuizOwnership verifies user owns the quiz, is a co-teacher, or is admin
 func (s *QuizService) verifyQuizOwnership(ctx context.Context, quizID, userID int64, userRole string) error {
 	if userRole == "ADMIN" {
 		return nil
@@ -1649,7 +1658,22 @@ func (s *QuizService) verifyQuizOwnership(ctx context.Context, quizID, userID in
 		return err
 	}
 
-	if ownerID != userID {
+	if ownerID == userID {
+		return nil
+	}
+
+	// Check if user is a co-teacher of the course containing the quiz
+	courseID, err := s.quizRepo.GetQuizCourseID(ctx, quizID)
+	if err != nil {
+		return err
+	}
+
+	isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+	if err != nil {
+		return err
+	}
+
+	if !isCoTeacher {
 		return fmt.Errorf("permission denied: you don't own this quiz")
 	}
 
@@ -2014,7 +2038,7 @@ func (s *QuizService) GetQuizByContentID(ctx context.Context, contentID int64, u
 	// Get quiz
 	quiz, err := s.quizRepo.GetQuizByContentID(ctx, contentID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == sql.ErrNoRows || strings.Contains(err.Error(), "quiz not found") {
 			return nil, fmt.Errorf("quiz not found")
 		}
 		return nil, fmt.Errorf("failed to get quiz: %w", err)

@@ -173,7 +173,10 @@ func (s *EnrollmentService) GetCourseLearners(ctx context.Context, courseID int6
 	}
 
 	if course.CreatedBy != userID && role != "ADMIN" {
-		return nil, fmt.Errorf("unauthorized: only course creator can view learners")
+		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+		if err != nil || !isCoTeacher {
+			return nil, fmt.Errorf("unauthorized: only course creator or co-teacher can view learners")
+		}
 	}
 
 	enrollments, err := s.enrollmentRepo.ListByCourse(ctx, courseID, status)
@@ -206,7 +209,10 @@ func (s *EnrollmentService) AcceptEnrollment(ctx context.Context, enrollmentID, 
 	}
 
 	if course.CreatedBy != userID && role != "ADMIN" {
-		return fmt.Errorf("unauthorized")
+		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+		if err != nil || !isCoTeacher {
+			return fmt.Errorf("unauthorized")
+		}
 	}
 
 	if err := s.enrollmentRepo.UpdateStatus(ctx, enrollmentID, models.EnrollmentAccepted); err != nil {
@@ -226,7 +232,10 @@ func (s *EnrollmentService) RejectEnrollment(ctx context.Context, enrollmentID, 
 	}
 
 	if course.CreatedBy != userID && role != "ADMIN" {
-		return fmt.Errorf("unauthorized")
+		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+		if err != nil || !isCoTeacher {
+			return fmt.Errorf("unauthorized")
+		}
 	}
 
 	if err := s.enrollmentRepo.UpdateStatus(ctx, enrollmentID, models.EnrollmentRejected); err != nil {
@@ -249,7 +258,12 @@ func (s *EnrollmentService) BulkEnroll(
 	total := len(studentIDs)
 
 	course, err := s.courseRepo.GetByID(ctx, courseID)
-	if err != nil || (course.CreatedBy != teacherID && role != "ADMIN") {
+	isCoTeacher := false
+	if err == nil && course.CreatedBy != teacherID && role != "ADMIN" {
+		isCoTeacher, _ = s.courseRepo.IsCoTeacher(ctx, courseID, teacherID)
+	}
+
+	if err != nil || (course.CreatedBy != teacherID && role != "ADMIN" && !isCoTeacher) {
 		return &dto.BulkEnrollmentResponse{
 			TotalCount: total,
 			Succeeded:  []int64{},

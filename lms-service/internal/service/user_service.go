@@ -61,3 +61,21 @@ func (s *UserService) GetMyRoles(ctx context.Context, userID int64, email string
 func (s *UserService) InvalidateRoles(ctx context.Context, userID int64) {
 	cache.Invalidate(ctx, s.cache, cache.KeyUserRoles(userID))
 }
+
+// SearchTeachers searches for users with TEACHER role by name or email
+func (s *UserService) SearchTeachers(ctx context.Context, queryStr string) ([]*dto.UserSearchResponse, error) {
+	users, err := s.userRepo.SearchTeachers(ctx, queryStr)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := make([]*dto.UserSearchResponse, len(users))
+	for i, u := range users {
+		resp[i] = &dto.UserSearchResponse{
+			ID:       u.ID,
+			Email:    u.Email,
+			FullName: u.FullName,
+		}
+	}
+	return resp, nil
+}

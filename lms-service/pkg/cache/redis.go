@@ -34,6 +34,10 @@ func KeyCourseTeachers(courseID int64) string {
 	return fmt.Sprintf("%s%d:teachers", PrefixCourse, courseID)
 }
 
+func KeyCourseCoTeachers(courseID int64) string {
+	return fmt.Sprintf("%s%d:co-teachers", PrefixCourse, courseID)
+}
+
 func KeyCourseStats(courseID int64) string {
 	return fmt.Sprintf("%s%d:stats", PrefixCourse, courseID)
 }

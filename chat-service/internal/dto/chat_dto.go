@@ -55,6 +55,12 @@ type SetChannelUsersRequest struct {
 	UserIDs []int64 `json:"user_ids" binding:"required"`
 }
 
+// ChannelUsersResponse is returned by both GET and PUT /admin/channels/:id/users.
+// It embeds full user objects so the caller never needs a second request.
+type ChannelUsersResponse struct {
+	Users []UserResponse `json:"users"`
+}
+
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 type SendMessageRequest struct {

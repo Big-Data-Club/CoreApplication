@@ -180,3 +180,18 @@ func (r *QuizRepository) GetAttempt(ctx context.Context, attemptID int64) (*mode
 
 	return &attempt, nil
 }
+
+// GetAttemptElapsedTime retrieves the elapsed seconds for an attempt directly using database clock
+func (r *QuizRepository) GetAttemptElapsedTime(ctx context.Context, attemptID int64) (int32, error) {
+	query := `
+		SELECT COALESCE(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - started_at))::INTEGER, 0)
+		FROM quiz_attempts
+		WHERE id = $1
+	`
+	var seconds int32
+	err := r.db.QueryRowContext(ctx, query, attemptID).Scan(&seconds)
+	if err != nil {
+		return 0, err
+	}
+	return seconds, nil
+}

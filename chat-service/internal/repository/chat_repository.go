@@ -414,6 +414,34 @@ func (r *ChatRepository) SetChannelUsers(ctx context.Context, channelID int64, u
 	return tx.Commit()
 }
 
+// GetChannelUsersWithDetails returns the whitelisted users for a channel with full
+// profile details joined in a single query — no N+1 issue regardless of list size.
+func (r *ChatRepository) GetChannelUsersWithDetails(ctx context.Context, channelID int64) ([]User, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT u.id, u.email, u.full_name, u.profile_picture
+		FROM users u
+		JOIN chat_channel_users ccu ON ccu.user_id = u.id
+		WHERE ccu.channel_id = $1
+		ORDER BY u.full_name ASC
+	`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		var pic sql.NullString
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &pic); err != nil {
+			return nil, err
+		}
+		u.ProfilePicture = pic.String
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
 // CanUserAccess returns (canRead, canWrite) for the given channel+user+roles combination.
 func (r *ChatRepository) CanUserAccess(
 	ctx context.Context,

@@ -201,7 +201,7 @@ func (s *AnalyticsService) GetMyQuizScores(ctx context.Context, courseID, studen
 
 // ─── Permission helpers ───────────────────────────────────────────────────────
 
-// VerifyCourseOwnership checks the caller owns the course or is an admin.
+// VerifyCourseOwnership checks the caller owns the course, is a co-teacher, or is an admin.
 func (s *AnalyticsService) VerifyCourseOwnership(ctx context.Context, courseID, userID int64, userRole string) error {
 	if userRole == "ADMIN" {
 		return nil
@@ -211,7 +211,10 @@ func (s *AnalyticsService) VerifyCourseOwnership(ctx context.Context, courseID, 
 		return fmt.Errorf("course not found")
 	}
 	if course.CreatedBy != userID {
-		return fmt.Errorf("permission denied: you don't own this course")
+		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+		if err != nil || !isCoTeacher {
+			return fmt.Errorf("permission denied: you don't own this course")
+		}
 	}
 	return nil
 }

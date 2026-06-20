@@ -283,3 +283,40 @@ func (r *UserRepository) AssociateUserWithOrganization(ctx context.Context, user
 	_, err = r.db.ExecContext(ctx, queryInsert, orgID, userID)
 	return err
 }
+
+// SearchTeachers searches for users with TEACHER role by name or email
+func (r *UserRepository) SearchTeachers(ctx context.Context, queryStr string) ([]*models.User, error) {
+	query := `
+		SELECT u.id, u.email, u.full_name, COALESCE(u.organization, ''), u.created_at, u.updated_at
+		FROM users u
+		JOIN user_roles ur ON u.id = ur.user_id
+		WHERE ur.role = 'TEACHER'
+		  AND (u.email ILIKE $1 OR u.full_name ILIKE $1)
+		ORDER BY u.full_name ASC
+		LIMIT 10
+	`
+	rows, err := r.db.QueryContext(ctx, query, "%"+queryStr+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*models.User
+	for rows.Next() {
+		var user models.User
+		err := rows.Scan(
+			&user.ID,
+			&user.Email,
+			&user.FullName,
+			&user.Organization,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, &user)
+	}
+
+	return users, rows.Err()
+}

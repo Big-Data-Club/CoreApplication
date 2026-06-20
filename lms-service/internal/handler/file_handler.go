@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"example/hello/internal/config"
 	"example/hello/internal/dto"
@@ -212,7 +215,11 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 
 	result, err := h.storage.GetObject(c.Request.Context(), filename)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to serve file %s", filename), err)
+		if strings.Contains(err.Error(), "file not found") {
+			logger.Warn(fmt.Sprintf("File not found when serving %s: %v", filename, err))
+		} else {
+			logger.Error(fmt.Sprintf("Failed to serve file %s", filename), err)
+		}
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("file_not_found", "File not found"))
 		return
 	}
@@ -326,7 +333,11 @@ func (h *FileHandler) GetPresignedURL(c *gin.Context) {
 	// Check file exists first
 	result, err := h.storage.GetObject(c.Request.Context(), filename)
 	if err != nil {
-		logger.Error(fmt.Sprintf("File not found: %s", filename), err)
+		if strings.Contains(err.Error(), "file not found") {
+			logger.Warn(fmt.Sprintf("File not found when generating presigned URL for %s: %v", filename, err))
+		} else {
+			logger.Error(fmt.Sprintf("Failed to check file %s", filename), err)
+		}
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("file_not_found", "File not found"))
 		return
 	}
@@ -355,12 +366,30 @@ func (h *FileHandler) GetPresignedURL(c *gin.Context) {
 }
 
 func sanitizeFilePath(rawPath string) (string, bool) {
-	cleaned := strings.TrimPrefix(rawPath, "/")
+	// Gin's wildcard parameter (*filepath) always retains the leading slash (e.g., "/document/file.pdf").
+	// We check and trim a single leading slash so we can validate and use it as a relative object key.
+	cleanedRaw := rawPath
+	if strings.HasPrefix(cleanedRaw, "/") {
+		cleanedRaw = cleanedRaw[1:]
+	}
+
+	if strings.HasPrefix(cleanedRaw, "/") || path.IsAbs(cleanedRaw) {
+		return "", false
+	}
+
+	decoded, err := url.PathUnescape(rawPath)
+	if err != nil {
+		decoded = rawPath
+	}
+
+	decoded = toUTF8(decoded)
+
+	cleaned := strings.TrimPrefix(decoded, "/")
 	if cleaned == "" {
 		return "", false
 	}
-	cleaned = filepath.Clean(cleaned)
-	if strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
+	cleaned = path.Clean(cleaned)
+	if strings.HasPrefix(cleaned, "..") || path.IsAbs(cleaned) {
 		return "", false
 	}
 	for _, r := range cleaned {
@@ -369,6 +398,17 @@ func sanitizeFilePath(rawPath string) (string, bool) {
 		}
 	}
 	return cleaned, true
+}
+
+func toUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	runes := make([]rune, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		runes = append(runes, rune(s[i]))
+	}
+	return string(runes)
 }
 
 func isAllowedPathChar(r rune) bool {
@@ -422,7 +462,7 @@ func isValidFileType(fileType, filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	allowedTypes := map[string][]string{
 		"video":    {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"},
-		"document": {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".csv"},
+		"document": {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".csv", ".zip", ".rar", ".7z", ".tar", ".gz", ".ipynb", ".py", ".cpp", ".sh", ".json", ".sql"},
 		"image":    {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp"},
 	}
 	if allowed, ok := allowedTypes[fileType]; ok {
@@ -435,7 +475,7 @@ func isValidFileType(fileType, filename string) bool {
 	}
 	all := []string{
 		".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v",
-		".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".csv",
+		".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".csv", ".zip", ".rar", ".7z", ".tar", ".gz", ".ipynb", ".py", ".cpp", ".sh", ".json", ".sql",
 		".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp",
 	}
 	for _, a := range all {

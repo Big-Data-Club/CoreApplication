@@ -110,3 +110,17 @@ type ContentResponse struct {
 	UpdatedAt   time.Time              `json:"updated_at"`
 	AIIndexStatus string               `json:"ai_index_status,omitempty"`	
 }
+
+type AddCoTeacherRequest struct {
+	UserID int64 `json:"user_id" binding:"required"`
+}
+
+type CoTeacherResponse struct {
+	ID        int64     `json:"id"`
+	CourseID  int64     `json:"course_id"`
+	UserID    int64     `json:"user_id"`
+	FullName  string    `json:"full_name"`
+	Email     string    `json:"email"`
+	AddedBy   int64     `json:"added_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
