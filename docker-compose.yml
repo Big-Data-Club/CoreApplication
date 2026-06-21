@@ -165,6 +165,7 @@ services:
         - NEXT_PUBLIC_CHAT_WS_URL=${NEXT_PUBLIC_CHAT_WS_URL:-wss://bdc.hpcc.vn/chatapiv1}
         - CHAT_API_URL=http://chat-backend:8083
         - LAB_API_URL=http://lab-backend:8082
+        - LATEX_API_URL=http://latex-backend:8084
     image: ${DOCKER_USERNAME}/bdc-frontend:${IMAGE_TAG:-latest}
     container_name: nextjs-prod
     restart: unless-stopped
@@ -189,6 +190,7 @@ services:
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
       AI_SERVICE_SECRET: ${AI_SERVICE_SECRET}
       CHAT_API_URL: http://chat-backend:8083
+      LATEX_API_URL: http://latex-backend:8084
       NEXT_PUBLIC_CHAT_WS_URL: ${NEXT_PUBLIC_CHAT_WS_URL:-wss://bdc.hpcc.vn/chatapiv1}
     ports:
       - "${FRONTEND_PORT:-3001}:3001"
@@ -201,6 +203,8 @@ services:
       lms-backend:
         condition: service_healthy
       chat-backend:
+        condition: service_healthy
+      latex-backend:
         condition: service_healthy
     networks:
       - app-network
@@ -426,6 +430,43 @@ services:
     labels:
       - "service.type=database"
       - "service.name=postgres-lab"
+
+  # Database: PostgreSQL (LaTeX Service)
+  postgres-latex:
+    image: postgres:15-alpine
+    container_name: postgres-latex
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LATEX_DB_NAME:-latexdb}
+      POSTGRES_USER: ${LATEX_DB_USER:-latexuser}
+      POSTGRES_PASSWORD: ${LATEX_DB_PASSWORD:-latexpass}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+      POSTGRES_MAX_CONNECTIONS: 100
+    ports:
+      - "${LATEX_DB_PORT:-5437}:5432"
+    volumes:
+      - postgres_latex_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${LATEX_DB_USER} -d $${LATEX_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "service.type=database"
+      - "service.name=postgres-latex"
 
   # Redis
   redis-lms:
@@ -733,6 +774,80 @@ services:
       - "traefik.http.middlewares.chat-compress.compress=true"
       - "traefik.http.routers.chat.middlewares=rewrite-chat,chat-compress"
 
+  # LaTeX Service: Go — BDCTex compile engine
+  latex-backend:
+    build:
+      context: ./latex-service
+      dockerfile: Dockerfile
+    image: ${DOCKER_USERNAME}/bdc-latex:${IMAGE_TAG:-latest}
+    container_name: latex-service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LATEX_PORT: 8084
+      LATEX_DB_HOST: postgres-latex
+      LATEX_DB_PORT_INTERNAL: 5432
+      LATEX_DB_USER: ${LATEX_DB_USER:-latexuser}
+      LATEX_DB_PASSWORD: ${LATEX_DB_PASSWORD:-latexpass}
+      LATEX_DB_NAME: ${LATEX_DB_NAME:-latexdb}
+      LATEX_DB_SSLMODE: disable
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis-lms
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: 4
+      REDIS_POOL_SIZE: 50
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      LATEX_MINIO_BUCKET: ${LATEX_MINIO_BUCKET:-latex-files}
+      MINIO_USE_SSL: "false"
+      LATEX_WORKER_COUNT: ${LATEX_WORKER_COUNT:-8}
+      LATEX_MAX_TIMEOUT: ${LATEX_MAX_TIMEOUT:-120}
+      LATEX_MAX_MEMORY_MB: ${LATEX_MAX_MEMORY_MB:-512}
+      STORAGE_TYPE: minio
+    ports:
+      - "${LATEX_PORT:-8084}:8084"
+    depends_on:
+      postgres-latex:
+        condition: service_healthy
+      redis-lms:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8084/api/v1/health"]
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4096M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "service.type=backend"
+      - "service.name=latex-service"
+      - "traefik.enable=true"
+      - "traefik.http.routers.latex.entrypoints=web"
+      - "traefik.http.routers.latex.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/latexapiv1`)"
+      - "traefik.http.routers.latex.priority=10"
+      - "traefik.http.services.latex.loadbalancer.server.port=8084"
+      - "traefik.http.middlewares.rewrite-latex.replacepathregex.regex=^/latexapiv1/(.*)"
+      - "traefik.http.middlewares.rewrite-latex.replacepathregex.replacement=/api/v1/$$1"
+      - "traefik.http.middlewares.latex-compress.compress=true"
+      - "traefik.http.routers.latex.middlewares=rewrite-latex,latex-compress"
+
   postgres-ai:
     image: postgres:15-alpine
     container_name: postgres-ai
@@ -1039,6 +1154,11 @@ volumes:
       - "backup.enabled=true"
       - "backup.schedule=daily"
   postgres_lab_data:
+    driver: local
+    labels:
+      - "backup.enabled=true"
+      - "backup.schedule=daily"
+  postgres_latex_data:
     driver: local
     labels:
       - "backup.enabled=true"
