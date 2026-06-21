@@ -644,11 +644,11 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DB: 4
       REDIS_POOL_SIZE: 50
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_ENDPOINT: ${R2_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       LATEX_MINIO_BUCKET: ${LATEX_MINIO_BUCKET:-latex-files}
-      MINIO_USE_SSL: "false"
+      MINIO_USE_SSL: "true"
       LATEX_WORKER_COUNT: ${LATEX_WORKER_COUNT:-8}
       LATEX_MAX_TIMEOUT: ${LATEX_MAX_TIMEOUT:-120}
       LATEX_MAX_MEMORY_MB: ${LATEX_MAX_MEMORY_MB:-512}
@@ -657,8 +657,6 @@ services:
       - "${LATEX_PORT:-8084}:8084"
     depends_on:
       redis-lms:
-        condition: service_healthy
-      minio:
         condition: service_healthy
     networks:
       - app-network
