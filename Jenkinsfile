@@ -17,6 +17,7 @@ pipeline {
         // Global variables
         DOCKER_BUILDKIT = '1'
         COMPOSE_DOCKER_CLI_BUILD = '1'
+        BDC_ENV_FILE = credentials('bdc-env-file')
     }
 
     stages {
@@ -24,6 +25,9 @@ pipeline {
             steps {
                 echo 'Checking out source code...'
                 checkout scm
+                
+                echo 'Copying environment configuration...'
+                sh 'cp "$BDC_ENV_FILE" .env'
                 
                 echo 'Synchronizing and updating git submodules (frontend)...'
                 sh 'git submodule update --init --recursive'
