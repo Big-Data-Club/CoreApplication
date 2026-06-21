@@ -187,3 +187,91 @@ func (r *ProjectRepository) Delete(ctx context.Context, id int64, userID int64) 
 
 	return nil
 }
+
+// GetByIDRaw retrieves a project by ID without ownership check.
+// Used by the access control layer to determine if a project exists.
+func (r *ProjectRepository) GetByIDRaw(ctx context.Context, id int64) (*dto.ProjectResponse, error) {
+	var resp dto.ProjectResponse
+	query := `
+		SELECT id, user_id, title, description, compiler, main_file, template_id, status, created_at, updated_at
+		FROM latex_projects
+		WHERE id = $1 AND status = 'active'
+	`
+	var tempID sql.NullString
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&resp.ID, &resp.UserID, &resp.Title, &resp.Description, &resp.Compiler, &resp.MainFile, &tempID, &resp.Status, &resp.CreatedAt, &resp.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("project not found")
+		}
+		return nil, err
+	}
+	if tempID.Valid {
+		resp.TemplateID = &tempID.String
+	}
+	return &resp, nil
+}
+
+// ListAccessibleByUser returns all active projects the user owns OR has been shared with.
+// The user_role field is populated: "owner" for owned projects, or the collaborator role.
+func (r *ProjectRepository) ListAccessibleByUser(ctx context.Context, userID int64, limit, offset int) ([]*dto.ProjectResponse, int, error) {
+	countQuery := `
+		SELECT COUNT(*) FROM (
+			SELECT id FROM latex_projects WHERE user_id = $1 AND status = 'active'
+			UNION ALL
+			SELECT lp.id FROM latex_projects lp
+			JOIN latex_project_collaborators lpc ON lp.id = lpc.project_id
+			WHERE lpc.user_id = $1 AND lp.status = 'active'
+		) sub
+	`
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, userID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, user_id, title, description, compiler, main_file, template_id, status, created_at, updated_at, user_role
+		FROM (
+			SELECT lp.id, lp.user_id, lp.title, lp.description, lp.compiler, lp.main_file,
+			       lp.template_id, lp.status, lp.created_at, lp.updated_at,
+			       'owner' AS user_role
+			FROM latex_projects lp
+			WHERE lp.user_id = $1 AND lp.status = 'active'
+
+			UNION ALL
+
+			SELECT lp.id, lp.user_id, lp.title, lp.description, lp.compiler, lp.main_file,
+			       lp.template_id, lp.status, lp.created_at, lp.updated_at,
+			       lpc.role AS user_role
+			FROM latex_projects lp
+			JOIN latex_project_collaborators lpc ON lp.id = lpc.project_id
+			WHERE lpc.user_id = $1 AND lp.status = 'active'
+		) combined
+		ORDER BY updated_at DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var projects []*dto.ProjectResponse
+	for rows.Next() {
+		var p dto.ProjectResponse
+		var tempID sql.NullString
+		if err := rows.Scan(
+			&p.ID, &p.UserID, &p.Title, &p.Description, &p.Compiler, &p.MainFile,
+			&tempID, &p.Status, &p.CreatedAt, &p.UpdatedAt, &p.UserRole,
+		); err != nil {
+			return nil, 0, err
+		}
+		if tempID.Valid {
+			p.TemplateID = &tempID.String
+		}
+		projects = append(projects, &p)
+	}
+	return projects, total, nil
+}
+

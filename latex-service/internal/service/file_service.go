@@ -22,22 +22,23 @@ type FileService struct {
 	fileRepo    *repository.FileRepository
 	projectRepo *repository.ProjectRepository
 	storage     storage.Storage
+	accessSvc   *AccessService
 }
 
-func NewFileService(fileRepo *repository.FileRepository, projectRepo *repository.ProjectRepository, storage storage.Storage) *FileService {
+func NewFileService(fileRepo *repository.FileRepository, projectRepo *repository.ProjectRepository, store storage.Storage, accessSvc *AccessService) *FileService {
 	return &FileService{
 		fileRepo:    fileRepo,
 		projectRepo: projectRepo,
-		storage:     storage,
+		storage:     store,
+		accessSvc:   accessSvc,
 	}
 }
 
 // UploadFile uploads a single file to storage and creates database record
 func (s *FileService) UploadFile(ctx context.Context, userID int64, projectID int64, filename string, reader io.Reader, size int64, contentType string) (*dto.FileResponse, error) {
-	// Verify project ownership
-	_, err := s.projectRepo.GetByID(ctx, projectID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify project: %w", err)
+	// Verify project access (editor or above)
+	if err := s.accessSvc.RequireAtLeast(ctx, projectID, userID, AccessEditor); err != nil {
+		return nil, fmt.Errorf("failed to verify project access: %w", err)
 	}
 
 	// Read content to calculate SHA-256 hash and size if size is unknown or for safety
@@ -86,10 +87,9 @@ func (s *FileService) UploadFile(ctx context.Context, userID int64, projectID in
 
 // GetFileContent retrieves file content as a string (primarily for .tex files)
 func (s *FileService) GetFileContent(ctx context.Context, userID int64, projectID int64, fileID int64) (string, error) {
-	// Verify project ownership
-	_, err := s.projectRepo.GetByID(ctx, projectID, userID)
-	if err != nil {
-		return "", fmt.Errorf("failed to verify project: %w", err)
+	// Verify project access (viewer or above)
+	if err := s.accessSvc.RequireAtLeast(ctx, projectID, userID, AccessViewer); err != nil {
+		return "", fmt.Errorf("failed to verify project access: %w", err)
 	}
 
 	fileMeta, err := s.fileRepo.GetByID(ctx, fileID)
@@ -117,10 +117,9 @@ func (s *FileService) GetFileContent(ctx context.Context, userID int64, projectI
 
 // UpdateFileContent updates the content of a text file
 func (s *FileService) UpdateFileContent(ctx context.Context, userID int64, projectID int64, fileID int64, content string) error {
-	// Verify project ownership
-	_, err := s.projectRepo.GetByID(ctx, projectID, userID)
-	if err != nil {
-		return fmt.Errorf("failed to verify project: %w", err)
+	// Verify project access (editor or above)
+	if err := s.accessSvc.RequireAtLeast(ctx, projectID, userID, AccessEditor); err != nil {
+		return fmt.Errorf("failed to verify project access: %w", err)
 	}
 
 	fileMeta, err := s.fileRepo.GetByID(ctx, fileID)
@@ -158,10 +157,9 @@ func (s *FileService) UpdateFileContent(ctx context.Context, userID int64, proje
 
 // ListFiles lists all files in a project
 func (s *FileService) ListFiles(ctx context.Context, userID int64, projectID int64) ([]*dto.FileResponse, error) {
-	// Verify project ownership
-	_, err := s.projectRepo.GetByID(ctx, projectID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify project: %w", err)
+	// Verify project access (viewer or above)
+	if err := s.accessSvc.RequireAtLeast(ctx, projectID, userID, AccessViewer); err != nil {
+		return nil, fmt.Errorf("failed to verify project access: %w", err)
 	}
 
 	return s.fileRepo.ListByProject(ctx, projectID)
@@ -169,10 +167,9 @@ func (s *FileService) ListFiles(ctx context.Context, userID int64, projectID int
 
 // DeleteFile deletes a file from project
 func (s *FileService) DeleteFile(ctx context.Context, userID int64, projectID int64, fileID int64) error {
-	// Verify project ownership
-	_, err := s.projectRepo.GetByID(ctx, projectID, userID)
-	if err != nil {
-		return fmt.Errorf("failed to verify project: %w", err)
+	// Verify project access (editor or above)
+	if err := s.accessSvc.RequireAtLeast(ctx, projectID, userID, AccessEditor); err != nil {
+		return fmt.Errorf("failed to verify project access: %w", err)
 	}
 
 	fileMeta, err := s.fileRepo.GetByID(ctx, fileID)
@@ -197,10 +194,9 @@ func (s *FileService) DeleteFile(ctx context.Context, userID int64, projectID in
 
 // ExtractAndUploadZip extracts a ZIP file and uploads all files to the project
 func (s *FileService) ExtractAndUploadZip(ctx context.Context, userID int64, projectID int64, zipReader io.ReaderAt, size int64) ([]*dto.FileResponse, error) {
-	// Verify project ownership
-	_, err := s.projectRepo.GetByID(ctx, projectID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify project: %w", err)
+	// Verify project access (editor or above)
+	if err := s.accessSvc.RequireAtLeast(ctx, projectID, userID, AccessEditor); err != nil {
+		return nil, fmt.Errorf("failed to verify project access: %w", err)
 	}
 
 	r, err := zip.NewReader(zipReader, size)

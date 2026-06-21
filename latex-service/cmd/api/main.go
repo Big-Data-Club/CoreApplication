@@ -15,6 +15,7 @@ import (
 	"latex-service/internal/middleware"
 	"latex-service/internal/repository"
 	"latex-service/internal/service"
+	pkgauth "latex-service/pkg/auth"
 	"latex-service/pkg/cache"
 	"latex-service/pkg/database"
 	"latex-service/pkg/logger"
@@ -66,24 +67,45 @@ func main() {
 	projectRepo := repository.NewProjectRepository(db)
 	fileRepo := repository.NewFileRepository(db)
 	compRepo := repository.NewCompilationRepository(db)
+	collabRepo := repository.NewCollaboratorRepository(db)
+	commentRepo := repository.NewCommentRepository(db)
+	shareLinkRepo := repository.NewShareLinkRepository(db)
 
-	// 7. Initialize Compilation Engine
+	// 7. Initialize Auth Client
+	authClient := pkgauth.NewAuthClient(cfg.Auth.ServiceURL)
+
+	// 8. Initialize Access Service (central permission resolver)
+	accessSvc := service.NewAccessService(projectRepo, collabRepo)
+
+	// 9. Initialize Compilation Engine
 	compEngine := compiler.NewCompileEngine(cfg.Compiler, redisCache, store, db, compRepo, fileRepo, projectRepo)
 	compEngine.Start()
 
-	// 8. Initialize Services
-	fileService := service.NewFileService(fileRepo, projectRepo, store)
-	projectService := service.NewProjectService(projectRepo, fileService)
-	compileService := service.NewCompileService(projectRepo, compRepo, compEngine, redisCache, store)
+	// 10. Initialize Services
+	fileService := service.NewFileService(fileRepo, projectRepo, store, accessSvc)
+	projectService := service.NewProjectService(projectRepo, fileService, accessSvc)
+	compileService := service.NewCompileService(projectRepo, compRepo, compEngine, redisCache, store, accessSvc)
 	templateService := service.NewTemplateService(projectRepo, fileService, "./templates")
+	collabService := service.NewCollaboratorService(collabRepo, projectRepo, accessSvc, authClient)
+	commentService := service.NewCommentService(commentRepo, accessSvc)
 
-	// 9. Initialize Handlers
+	// Determine frontend URL for share link construction
+	frontendURL := "https://bdc.hpcc.vn"
+	if cfg.App.Env != "production" {
+		frontendURL = "http://localhost:3000"
+	}
+	shareLinkService := service.NewShareLinkService(shareLinkRepo, collabRepo, accessSvc, frontendURL)
+
+	// 11. Initialize Handlers
 	projectHandler := handler.NewProjectHandler(projectService)
 	fileHandler := handler.NewFileHandler(fileService)
 	compileHandler := handler.NewCompileHandler(compileService)
 	templateHandler := handler.NewTemplateHandler(templateService)
+	collabHandler := handler.NewCollaboratorHandler(collabService)
+	commentHandler := handler.NewCommentHandler(commentService)
+	shareLinkHandler := handler.NewShareLinkHandler(shareLinkService)
 
-	// 10. Setup Gin Router
+	// 12. Setup Gin Router
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -170,9 +192,32 @@ func main() {
 		api.GET("/templates/:id", templateHandler.GetTemplate)
 		api.POST("/projects/from-template/:id", templateHandler.CreateFromTemplate)
 		api.GET("/packages", templateHandler.ListPackages)
+
+		// Collaborators
+		api.POST("/projects/:id/collaborators", collabHandler.Add)
+		api.GET("/projects/:id/collaborators", collabHandler.List)
+		api.PUT("/projects/:id/collaborators/:userId", collabHandler.UpdateRole)
+		api.DELETE("/projects/:id/collaborators/:userId", collabHandler.Remove)
+
+		// Comments
+		api.POST("/projects/:id/comments", commentHandler.Create)
+		api.GET("/projects/:id/comments", commentHandler.ListByProject)
+		api.GET("/projects/:id/files/:fileId/comments", commentHandler.ListByFile)
+		api.PUT("/projects/:id/comments/:commentId", commentHandler.Update)
+		api.DELETE("/projects/:id/comments/:commentId", commentHandler.Delete)
+		api.POST("/projects/:id/comments/:commentId/resolve", commentHandler.Resolve)
+		api.POST("/projects/:id/comments/:commentId/unresolve", commentHandler.Unresolve)
+
+		// Share Links
+		api.POST("/projects/:id/share-links", shareLinkHandler.Create)
+		api.GET("/projects/:id/share-links", shareLinkHandler.List)
+		api.DELETE("/projects/:id/share-links/:linkId", shareLinkHandler.Deactivate)
+
+		// Join via share link (token only, no project ID needed)
+		api.POST("/share/join/:token", shareLinkHandler.Join)
 	}
 
-	// 11. Start HTTP Server
+	// 13. Start HTTP Server
 	srv := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,

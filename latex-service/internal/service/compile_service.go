@@ -23,6 +23,7 @@ type CompileService struct {
 	engine      *compiler.CompileEngine
 	redis       *cache.RedisCache
 	storage     storage.Storage
+	accessSvc   *AccessService
 }
 
 func NewCompileService(
@@ -31,6 +32,7 @@ func NewCompileService(
 	engine *compiler.CompileEngine,
 	redis *cache.RedisCache,
 	storage storage.Storage,
+	accessSvc *AccessService,
 ) *CompileService {
 	return &CompileService{
 		projectRepo: projectRepo,
@@ -38,13 +40,18 @@ func NewCompileService(
 		engine:      engine,
 		redis:       redis,
 		storage:     storage,
+		accessSvc:   accessSvc,
 	}
 }
 
 // Compile submits a new compilation job
 func (s *CompileService) Compile(ctx context.Context, userID int64, projectID int64, req *dto.CompileRequest) (*dto.CompileResponse, error) {
-	// 1. Verify project exists and user owns it
-	p, err := s.projectRepo.GetByID(ctx, projectID, userID)
+	// 1. Verify project exists and user has at least editor access
+	if err := s.accessSvc.RequireAtLeast(ctx, projectID, userID, AccessEditor); err != nil {
+		return nil, err
+	}
+
+	p, err := s.projectRepo.GetByIDRaw(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify project: %w", err)
 	}

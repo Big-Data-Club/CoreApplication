@@ -18,6 +18,12 @@ type Config struct {
 	Storage  StorageConfig
 	Server   ServerConfig
 	Compiler CompilerConfig
+	Auth     AuthConfig
+}
+
+// AuthConfig holds auth service configuration
+type AuthConfig struct {
+	ServiceURL string // AUTH_SERVICE_URL (default: http://backend:8080)
 }
 
 // AppConfig holds application-specific configuration
@@ -147,6 +153,10 @@ func Load() (*Config, error) {
 			MaxTimeout:  getEnvAsInt("LATEX_MAX_TIMEOUT", 120),
 			MaxMemoryMB: getEnvAsInt("LATEX_MAX_MEMORY_MB", 512),
 			TempDir:     getEnv("LATEX_TEMP_DIR", "/tmp/latex-builds"),
+		},
+
+		Auth: AuthConfig{
+			ServiceURL: getEnv("AUTH_SERVICE_URL", "http://backend:8080"),
 		},
 	}
 
