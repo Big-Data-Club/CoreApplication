@@ -1101,45 +1101,7 @@ services:
       - "service.type=database"
       - "service.name=neo4j"
 
-  # ── Jenkins CI/CD Server ────────────────────────────────────────────────────
-  jenkins:
-    build:
-      context: .
-      dockerfile: ./jenkins/Dockerfile
-    image: ${DOCKER_USERNAME}/bdc-jenkins:${IMAGE_TAG:-latest}
-    container_name: bdc-jenkins
-    restart: unless-stopped
-    user: root
-    environment:
-      - JENKINS_OPTS=--prefix=/cicd-dash
-      - JAVA_OPTS=-Djenkins.install.runSetupWizard=true
-    volumes:
-      - /var/jenkins_home:/var/jenkins_home
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - app-network
-    logging: *common-logging
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    labels:
-      - "service.type=cicd"
-      - "service.name=jenkins"
-      - "traefik.enable=true"
-      - "traefik.http.routers.jenkins.entrypoints=web"
-      - "traefik.http.routers.jenkins.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/cicd-dash`)"
-      - "traefik.http.routers.jenkins.service=jenkins"
-      - "traefik.http.services.jenkins.loadbalancer.server.port=8080"
-      - "traefik.http.middlewares.jenkins-redirect.redirectregex.regex=^(https?://[^/]+/cicd-dash)$$"
-      - "traefik.http.middlewares.jenkins-redirect.redirectregex.replacement=$${1}/"
-      - "traefik.http.routers.jenkins.middlewares=jenkins-redirect,jenkins-headers"
-      - "traefik.http.middlewares.jenkins-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
-      - "traefik.http.middlewares.jenkins-headers.headers.customrequestheaders.X-Forwarded-Port=443"
+
 
 # Volumes
 volumes:
