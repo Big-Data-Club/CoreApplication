@@ -2,10 +2,12 @@ FROM maven:3.9.4-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
 
 COPY pom.xml .
-RUN mvn dependency:go-offline -B
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn dependency:go-offline -B
 
 COPY src ./src
-RUN mvn clean package -DskipTests -B && \
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn clean package -DskipTests -B && \
     java -Djarmode=layertools -jar target/*.jar extract
 
 FROM eclipse-temurin:21-jdk-alpine AS jre-builder
