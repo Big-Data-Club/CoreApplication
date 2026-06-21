@@ -101,7 +101,7 @@ pipeline {
                     steps {
                         echo 'Running Auth Service Maven tests inside Eclipse Temurin Docker container...'
                         dir('auth-and-management-service') {
-                            sh 'docker run --rm -v "$(pwd)":/app -v "$HOME/.m2":/root/.m2 -w /app maven:3.9-eclipse-temurin-21 mvn clean test'
+                            sh 'docker run --rm -v "$(pwd)":/app -v "${WORKSPACE}/.m2":/root/.m2 -w /app maven:3.9-eclipse-temurin-21 mvn clean test'
                         }
                     }
                 }
@@ -111,7 +111,7 @@ pipeline {
                     steps {
                         echo 'Running LMS Service Go tests inside Golang Docker container...'
                         dir('lms-service') {
-                            sh 'docker run --rm -v "$(pwd)":/app -w /app golang:1.25-alpine go test ./...'
+                            sh 'docker run --rm -v "$(pwd)":/app -v "${WORKSPACE}/.go-cache/pkg/mod":/go/pkg/mod -v "${WORKSPACE}/.go-cache/cache":/root/.cache/go-build -w /app golang:1.25-alpine go test ./...'
                         }
                     }
                 }
@@ -121,7 +121,7 @@ pipeline {
                     steps {
                         echo 'Running Chat Service Go tests inside Golang Docker container...'
                         dir('chat-service') {
-                            sh 'docker run --rm -v "$(pwd)":/app -w /app golang:1.25-alpine go test ./...'
+                            sh 'docker run --rm -v "$(pwd)":/app -v "${WORKSPACE}/.go-cache/pkg/mod":/go/pkg/mod -v "${WORKSPACE}/.go-cache/cache":/root/.cache/go-build -w /app golang:1.25-alpine go test ./...'
                         }
                     }
                 }
