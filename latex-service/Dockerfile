@@ -14,9 +14,13 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install TeX Live Full (~4.5GB) and basic utilities
+# Install TeX Live packages and basic utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    texlive-full \
+    texlive-latex-recommended \
+    texlive-latex-extra \
+    texlive-fonts-recommended \
+    texlive-xetex \
+    texlive-luatex \
     latexmk \
     ca-certificates \
     tzdata \
