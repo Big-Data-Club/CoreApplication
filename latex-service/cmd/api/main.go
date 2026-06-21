@@ -108,8 +108,8 @@ func main() {
 		"http://frontend:3001",
 	}))
 
-	// Health check endpoint
-	r.GET("/api/v1/health", func(c *gin.Context) {
+	// Health check handler
+	healthHandler := func(c *gin.Context) {
 		dbErr := db.PingContext(c.Request.Context())
 		redisClient := redisCache.GetClient()
 		redisErr := redisClient.Ping(c.Request.Context()).Err()
@@ -135,7 +135,10 @@ func main() {
 			}(),
 			"queue_depth": compEngine.GetQueueDepth(),
 		})
-	})
+	}
+
+	r.GET("/api/v1/health", healthHandler)
+	r.HEAD("/api/v1/health", healthHandler)
 
 	// API Group with JWT Auth
 	api := r.Group("/api/v1")
