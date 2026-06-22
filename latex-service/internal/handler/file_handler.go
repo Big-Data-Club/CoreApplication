@@ -8,6 +8,7 @@ import (
 
 	"latex-service/internal/dto"
 	"latex-service/internal/service"
+	"latex-service/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -50,6 +51,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 			defer file.Close()
 			res, err := h.fileService.UploadFile(c.Request.Context(), userID, projectID, header.Filename, file, header.Size, header.Header.Get("Content-Type"))
 			if err != nil {
+				logger.Error("Failed to upload single file", err)
 				c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("upload_failed", err.Error()))
 				return
 			}
@@ -72,6 +74,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		file.Close()
 
 		if err != nil {
+			logger.Error("Failed to upload file chunk", err)
 			c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("upload_failed", "Failed to upload file "+fileHeader.Filename+": "+err.Error()))
 			return
 		}
@@ -117,6 +120,7 @@ func (h *FileHandler) UploadZip(c *gin.Context) {
 
 	res, err := h.fileService.ExtractAndUploadZip(c.Request.Context(), userID, projectID, readerAt, size)
 	if err != nil {
+		logger.Error("Failed to extract and upload ZIP", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("zip_extraction_failed", err.Error()))
 		return
 	}
@@ -142,6 +146,7 @@ func (h *FileHandler) List(c *gin.Context) {
 
 	res, err := h.fileService.ListFiles(c.Request.Context(), userID, projectID)
 	if err != nil {
+		logger.Error("Failed to list files", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
 		return
 	}
