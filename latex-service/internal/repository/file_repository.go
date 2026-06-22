@@ -143,3 +143,24 @@ func (r *FileRepository) Delete(ctx context.Context, id int64) error {
 	}
 	return nil
 }
+
+// UpdateFilename updates a file's name
+func (r *FileRepository) UpdateFilename(ctx context.Context, id int64, filename string) error {
+	query := `
+		UPDATE latex_project_files
+		SET filename = $1, updated_at = NOW()
+		WHERE id = $2
+	`
+	res, err := r.db.ExecContext(ctx, query, filename, id)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("file not found")
+	}
+	return nil
+}

@@ -17,3 +17,12 @@ type FileResponse struct {
 type UpdateFileContentRequest struct {
 	Content string `json:"content" binding:"required"`
 }
+
+type RenameFileRequest struct {
+	Filename string `json:"filename" binding:"required"`
+}
+
+type CreateFileRequest struct {
+	Filename string `json:"filename" binding:"required"`
+	Content  string `json:"content"`
+}

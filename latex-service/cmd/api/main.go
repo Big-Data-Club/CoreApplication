@@ -181,9 +181,11 @@ func main() {
 		// Files
 		api.POST("/projects/:id/files", fileHandler.Upload)
 		api.POST("/projects/:id/files/upload-zip", fileHandler.UploadZip)
+		api.POST("/projects/:id/files/create", fileHandler.Create)
 		api.GET("/projects/:id/files", fileHandler.List)
 		api.GET("/projects/:id/files/:fileId", fileHandler.GetContent)
 		api.PUT("/projects/:id/files/:fileId", fileHandler.UpdateContent)
+		api.PUT("/projects/:id/files/:fileId/rename", fileHandler.Rename)
 		api.DELETE("/projects/:id/files/:fileId", fileHandler.Delete)
 
 		// Compilation (Rate limited to 5 compiles per minute)

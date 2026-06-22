@@ -250,3 +250,72 @@ func (h *FileHandler) Delete(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewMessageResponse("File deleted successfully"))
 }
+
+// Rename handles renaming a file in a project
+func (h *FileHandler) Rename(c *gin.Context) {
+	projectIDStr := c.Param("id")
+	projectID, err := strconv.ParseInt(projectIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("bad_request", "Invalid project ID"))
+		return
+	}
+
+	fileIDStr := c.Param("fileId")
+	fileID, err := strconv.ParseInt(fileIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("bad_request", "Invalid file ID"))
+		return
+	}
+
+	var req dto.RenameFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("bad_request", err.Error()))
+		return
+	}
+
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Unauthorized"))
+		return
+	}
+	userID := userIDVal.(int64)
+
+	err = h.fileService.RenameFile(c.Request.Context(), userID, projectID, fileID, req.Filename)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewMessageResponse("File renamed successfully"))
+}
+
+// Create handles creating a new file with content
+func (h *FileHandler) Create(c *gin.Context) {
+	projectIDStr := c.Param("id")
+	projectID, err := strconv.ParseInt(projectIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("bad_request", "Invalid project ID"))
+		return
+	}
+
+	var req dto.CreateFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("bad_request", err.Error()))
+		return
+	}
+
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Unauthorized"))
+		return
+	}
+	userID := userIDVal.(int64)
+
+	res, err := h.fileService.CreateFile(c.Request.Context(), userID, projectID, req.Filename, req.Content)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusCreated, dto.NewDataResponse(res))
+}

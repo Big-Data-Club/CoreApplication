@@ -238,3 +238,46 @@ func (s *FileService) ExtractAndUploadZip(ctx context.Context, userID int64, pro
 
 	return uploadedFiles, nil
 }
+
+// RenameFile renames a file in the project
+func (s *FileService) RenameFile(ctx context.Context, userID int64, projectID int64, fileID int64, newFilename string) error {
+	// Verify project access (editor or above)
+	if err := s.accessSvc.RequireAtLeast(ctx, projectID, userID, AccessEditor); err != nil {
+		return fmt.Errorf("failed to verify project access: %w", err)
+	}
+
+	fileMeta, err := s.fileRepo.GetByID(ctx, fileID)
+	if err != nil {
+		return err
+	}
+
+	if fileMeta.ProjectID != projectID {
+		return errors.New("file does not belong to project")
+	}
+
+	// Normalize filename
+	newFilename = strings.TrimSpace(newFilename)
+	if newFilename == "" {
+		return errors.New("filename cannot be empty")
+	}
+
+	// Update DB filename
+	err = s.fileRepo.UpdateFilename(ctx, fileID, newFilename)
+	if err != nil {
+		return fmt.Errorf("failed to rename file: %w", err)
+	}
+
+	return nil
+}
+
+// CreateFile creates a new file with content
+func (s *FileService) CreateFile(ctx context.Context, userID int64, projectID int64, filename string, content string) (*dto.FileResponse, error) {
+	// Normalize filename
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return nil, errors.New("filename cannot be empty")
+	}
+
+	buf := bytes.NewBufferString(content)
+	return s.UploadFile(ctx, userID, projectID, filename, buf, int64(buf.Len()), "text/plain")
+}
