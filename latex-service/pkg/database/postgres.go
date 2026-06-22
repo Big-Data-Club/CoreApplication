@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"latex-service/internal/config"
 )
 
 // NewPostgresDB creates a new PostgreSQL database connection
 func NewPostgresDB(cfg config.DatabaseConfig) (*sql.DB, error) {
 	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=5",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=5 default_query_exec_mode=simple_protocol",
 		cfg.Host,
 		cfg.Port,
 		cfg.User,
@@ -22,7 +22,7 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*sql.DB, error) {
 		cfg.SSLMode,
 	)
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
