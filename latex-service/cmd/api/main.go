@@ -115,10 +115,15 @@ func main() {
 
 	// Logger middleware using our logger
 	r.Use(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if path == "/api/v1/health" {
+			c.Next()
+			return
+		}
 		start := time.Now()
 		c.Next()
 		latency := time.Since(start)
-		logger.Info(fmt.Sprintf("%s %s %d %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), latency))
+		logger.Info(fmt.Sprintf("%s %s %d %s", c.Request.Method, path, c.Writer.Status(), latency))
 	})
 
 	// CORS

@@ -99,7 +99,7 @@ func (h *ProjectHandler) List(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.NewListResponse(res, page, limit, total))
+	c.JSON(http.StatusOK, dto.NewDataResponse(dto.NewListResponse(res, page, limit, total)))
 }
 
 // Update handles updating project metadata
