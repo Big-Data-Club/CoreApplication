@@ -213,7 +213,14 @@ func main() {
 	}
 
 	router := gin.New()
-	_ = router.SetTrustedProxies(nil)
+	// Trust private network proxies to correctly resolve client IP (matching the Docker/Traefik network setup)
+	_ = router.SetTrustedProxies([]string{
+		"127.0.0.1",
+		"172.16.0.0/12",
+		"172.28.0.0/16",
+		"10.0.0.0/8",
+		"192.168.0.0/16",
+	})
 	router.MaxMultipartMemory = 64 << 20 // 64 MB
 	router.Use(gin.Recovery())
 	router.Use(middleware.Logger())
