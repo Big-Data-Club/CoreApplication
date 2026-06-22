@@ -41,6 +41,10 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		}
 
 		if tokenString == "" {
+			tokenString = c.Query("token")
+		}
+
+		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Missing authorization header or cookie"))
 			c.Abort()
 			return
