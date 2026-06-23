@@ -2,13 +2,35 @@ package middleware
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"example/hello/internal/dto"
 	"example/hello/pkg/cache"
 )
+
+// isInternalDockerIP checks if an IP address is a loopback or within private subnet ranges
+// (specifically 172.16.0.0/12 which covers docker networks like 172.28.0.0/16).
+func isInternalDockerIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	ip4 := ip.To4()
+	if ip4 != nil {
+		// Check if it's in 172.16.0.0/12 (172.16.x.x - 172.31.x.x)
+		if ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 {
+			return true
+		}
+	}
+	return false
+}
 
 // RateLimit middleware limits requests per IP address
 func RateLimit(redisCache *cache.RedisCache, aiSecret string) gin.HandlerFunc {
@@ -25,8 +47,20 @@ func RateLimit(redisCache *cache.RedisCache, aiSecret string) gin.HandlerFunc {
 			return
 		}
 
+		// Bypass rate limit for public file serving endpoints
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v1/files/serve") || strings.HasPrefix(c.Request.URL.Path, "/api/v1/files/download") {
+			c.Next()
+			return
+		}
+
 		// Get client IP
 		ip := c.ClientIP()
+
+		// Bypass rate limit for localhost and internal Docker network IPs (e.g. frontend container)
+		if isInternalDockerIP(ip) {
+			c.Next()
+			return
+		}
 		
 		// Create rate limit key
 		key := fmt.Sprintf("ratelimit:%s", ip)

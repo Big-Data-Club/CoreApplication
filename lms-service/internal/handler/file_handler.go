@@ -217,6 +217,17 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 	if err != nil {
 		if strings.Contains(err.Error(), "file not found") {
 			logger.Warn(fmt.Sprintf("File not found when serving %s: %v", filename, err))
+			ext := strings.ToLower(filepath.Ext(filename))
+			if isImage(ext) {
+				c.Header("Content-Type", "image/svg+xml")
+				c.Header("Cache-Control", "public, max-age=3600")
+				svg := `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+					<rect width="100%" height="100%" fill="#eee"/>
+					<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#aaa">Image Not Found</text>
+				</svg>`
+				c.String(http.StatusNotFound, svg)
+				return
+			}
 		} else {
 			logger.Error(fmt.Sprintf("Failed to serve file %s", filename), err)
 		}

@@ -403,6 +403,20 @@ func (s *AnalyticsService) GetStudentAnalyticsSummary(ctx context.Context, cours
 }
 
 func (s *AnalyticsService) GetTeacherDashboardSummary(ctx context.Context, teacherID int64) (*dto.TeacherDashboardSummaryResponse, error) {
+	cacheKey := fmt.Sprintf("analytics:teacher:%d:dashboard", teacherID)
+
+	// Check cache
+	if s.redisCache != nil {
+		if cachedVal, err := s.redisCache.Get(ctx, cacheKey); err == nil && cachedVal != "" {
+			var cachedResp dto.TeacherDashboardSummaryResponse
+			if err := json.Unmarshal([]byte(cachedVal), &cachedResp); err == nil {
+				logger.Info(fmt.Sprintf("Cache HIT: teacher dashboard summary for teacher %d", teacherID))
+				return &cachedResp, nil
+			}
+		}
+	}
+	logger.Info(fmt.Sprintf("Cache MISS: teacher dashboard summary for teacher %d", teacherID))
+
 	repoSummary, err := s.analyticsRepo.GetTeacherDashboardSummary(ctx, teacherID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get teacher dashboard summary: %w", err)
@@ -444,6 +458,13 @@ func (s *AnalyticsService) GetTeacherDashboardSummary(ctx context.Context, teach
 			AvgProgress:  item.AvgProgress,
 			AvgQuiz:      avgQuiz,
 		})
+	}
+
+	// Cache the result for 5 minutes (300 seconds)
+	if s.redisCache != nil {
+		if data, err := json.Marshal(resp); err == nil {
+			_ = s.redisCache.Set(ctx, cacheKey, data, 5*time.Minute)
+		}
 	}
 
 	return resp, nil
