@@ -114,7 +114,7 @@ func (h *CourseHandler) GetCourse(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
 			return
 		}
-		if err.Error() == "unauthorized to view this course" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -163,7 +163,7 @@ func (h *CourseHandler) UpdateCourse(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
 			return
 		}
-		if err.Error() == "unauthorized to update this course" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -204,7 +204,7 @@ func (h *CourseHandler) DeleteCourse(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
 			return
 		}
-		if err.Error() == "unauthorized to delete this course" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -245,7 +245,7 @@ func (h *CourseHandler) PublishCourse(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
 			return
 		}
-		if err.Error() == "unauthorized to publish this course" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -342,7 +342,7 @@ func (h *CourseHandler) CreateSection(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
 			return
 		}
-		if err.Error() == "unauthorized to create section in this course" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -382,7 +382,7 @@ func (h *CourseHandler) GetSection(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Section not found"))
 			return
 		}
-		if err.Error() == "unauthorized to view this section" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -477,7 +477,7 @@ func (h *CourseHandler) UpdateSection(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Section not found"))
 			return
 		}
-		if err.Error() == "unauthorized to update this section" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -518,7 +518,7 @@ func (h *CourseHandler) DeleteSection(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Section not found"))
 			return
 		}
-		if err.Error() == "unauthorized to delete this section" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -568,7 +568,7 @@ func (h *CourseHandler) CreateContent(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Section not found"))
 			return
 		}
-		if err.Error() == "unauthorized to create content in this section" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -608,7 +608,7 @@ func (h *CourseHandler) GetContent(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Content not found"))
 			return
 		}
-		if err.Error() == "unauthorized to view this content" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -692,7 +692,7 @@ func (h *CourseHandler) UpdateContent(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Content not found"))
 			return
 		}
-		if err.Error() == "unauthorized to update this content" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}
@@ -733,7 +733,7 @@ func (h *CourseHandler) DeleteContent(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Content not found"))
 			return
 		}
-		if err.Error() == "unauthorized to delete this content" {
+		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
 		}

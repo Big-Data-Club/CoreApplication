@@ -137,6 +137,7 @@ services:
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_NUM_PARTITIONS=3
     ports:
       - "9092:9092"
     volumes:
@@ -983,7 +984,6 @@ services:
       context: ./ai-service
       dockerfile: Dockerfile
     image: ${DOCKER_USERNAME}/bdc-ai:${IMAGE_TAG:-latest}
-    container_name: ai-worker
     restart: unless-stopped
     shm_size: '1gb'
     # concurrency=1: one model set (~900 MB) per process.
@@ -1011,11 +1011,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.5'
-          memory: 2G
+          cpus: '3.0'
+          memory: 4G
         reservations:
-          cpus: '0.5'
-          memory: 1G
+          cpus: '1.0'
+          memory: 2G
     volumes:
       - ai_model_cache:/app/.cache/models
     labels:

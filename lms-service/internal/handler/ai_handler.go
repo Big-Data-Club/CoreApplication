@@ -836,7 +836,7 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 		eventPayload.TextContent = finalTextContent
 	}
 
-	key := []byte(fmt.Sprintf("%d", contentID))
+	key := []byte(fmt.Sprintf("%d", course.ID))
 	err = kafka.PublishEvent(c.Request.Context(), "lms.document.uploaded", key, eventPayload)
 
 	if err != nil {
