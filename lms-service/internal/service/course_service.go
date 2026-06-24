@@ -177,8 +177,13 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		}
 	}
 
+	isEnrolled := false
+	if role == models.RoleStudent {
+		isEnrolled = s.isStudentEnrolled(ctx, userID, courseID)
+	}
+
 	// Org isolation checks
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher && !isEnrolled {
 		isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, userID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
@@ -195,7 +200,7 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 				return nil, fmt.Errorf("failed to get user organizations: %w", err)
 			}
 
-			allowCross := false
+			allowCross := len(userOrgs) == 0
 			for _, uo := range userOrgs {
 				var settings models.OrgSettings
 				if err := json.Unmarshal(uo.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {

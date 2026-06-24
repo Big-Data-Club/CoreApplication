@@ -127,6 +127,40 @@ func main() {
 
 	go kafka.StartAIJobStatusConsumer(context.Background(), func(ctx context.Context, event kafka.AIJobStatusEvent) error {
 		logger.Info(fmt.Sprintf("Received AI job status for %s: %s", event.JobID, event.Status))
+		
+		// Enrich suggested documents if completed
+		if event.Status == "completed" && event.Result != nil {
+			if resultFields, ok := event.Result.(map[string]interface{}); ok {
+				if docs, ok := resultFields["suggested_documents"].([]interface{}); ok {
+					for _, docItem := range docs {
+						if docMap, ok := docItem.(map[string]interface{}); ok {
+							var contentID int64
+							if cidVal, ok := docMap["content_id"]; ok {
+								switch v := cidVal.(type) {
+								case float64:
+									contentID = int64(v)
+								case int64:
+									contentID = v
+								case int:
+									contentID = int64(v)
+								}
+							}
+
+							if contentID > 0 {
+								content, err := courseRepo.GetContentByID(ctx, contentID)
+								if err == nil && content != nil {
+									docMap["title"] = content.Title
+									if content.FilePath.Valid && content.FilePath.String != "" {
+										docMap["file_url"] = fmt.Sprintf("/lmsapiv1/files/serve/%s", content.FilePath.String)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
 		// Serialize and store into Redis
 		data, _ := json.Marshal(event)
 		redisKey := "ai_job:" + event.JobID

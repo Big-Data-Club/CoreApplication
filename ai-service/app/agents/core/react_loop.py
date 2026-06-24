@@ -898,7 +898,8 @@ async def run_react_loop(
                             "content": ch.get("text") or "",
                             "relevance_score": ch.get("similarity") or 0.0,
                             "source_type": "material",
-                            "page_number": ch.get("page_number")
+                            "page_number": ch.get("page_number"),
+                            "content_id": ch.get("content_id")
                         })
                 elif tool_name == "search_web":
                     web_results = tool_result.data.get("results") or []
