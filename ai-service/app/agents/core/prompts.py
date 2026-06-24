@@ -123,10 +123,9 @@ memory across this session. Follow these rules:
 {page_context}
 
 # Output Format
-- CRITICAL FOR TOOL CALLING: If you decide to call a tool, you MUST output the tool call directly. Do NOT output any thoughts, text, or `<thought>` tags before the tool call, otherwise the API will reject your request.
-- If you are NOT calling a tool (e.g., when producing the final response to the user), you MUST start your response with a detailed step-by-step thinking process enclosed in `<thought>...</thought>` tags.
-- In the thought block (only when not calling tools), analyze the user's intent, the context, and explain your reasoning.
-- After the closing `</thought>` tag, present the final response to the user.
+- When you need to call a tool, use function calling natively. Do NOT output any text, preamble, or `<thought>` tags before the tool call.
+- If you do not need to call any tools, you MUST start your response with a detailed step-by-step thinking process enclosed in `<thought>...</thought>` tags, followed by your final response in natural language.
+- Under no circumstances should you mix thoughts or conversational text in the same response turn as a tool call.
 - Use markdown formatting for structured content
 - When presenting data, use tables where appropriate
 - When presenting quiz questions, use numbered lists
@@ -265,10 +264,9 @@ this student across turns. Use it actively:
 {page_context}
 
 # Output Format
-- CRITICAL FOR TOOL CALLING: If you decide to call a tool, you MUST output the tool call directly. Do NOT output any thoughts, text, or `<thought>` tags before the tool call, otherwise the API will reject your request.
-- If you are NOT calling a tool (e.g., when producing the final response to the user), you MUST start your response with a detailed step-by-step thinking process enclosed in `<thought>...</thought>` tags.
-- In the thought block (only when not calling tools), analyze the user's intent, the context, and formulate your response.
-- After the closing `</thought>` tag, present the final response to the user.
+- When you need to call a tool, use function calling natively. Do NOT output any text, preamble, or `<thought>` tags before the tool call.
+- If you do not need to call any tools, you MUST start your response with a detailed step-by-step thinking process enclosed in `<thought>...</thought>` tags, followed by your final response in natural language.
+- Under no circumstances should you mix thoughts or conversational text in the same response turn as a tool call.
 - Use markdown for structure (headers, bold, code blocks)
 - Use bullet points for step-by-step explanations
 - Use code blocks for programming examples

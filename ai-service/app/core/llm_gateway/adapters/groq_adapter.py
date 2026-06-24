@@ -6,7 +6,8 @@ admin-configurable key.
 """
 from __future__ import annotations
  
-from typing import Any
+from typing import Any, AsyncIterator, Optional
+import logging
  
 from groq import AsyncGroq
 from groq._exceptions import APIStatusError, AuthenticationError, RateLimitError
@@ -14,6 +15,8 @@ from groq._exceptions import APIStatusError, AuthenticationError, RateLimitError
 from app.core.llm_gateway.adapters.base import LLMAdapter
 from app.core.llm_gateway.errors import AuthError, ContextLengthError, ProviderError, RateLimitedError
 from app.core.llm_gateway.types import Model, Usage
+ 
+logger = logging.getLogger(__name__)
  
  
 class GroqAdapter(LLMAdapter):
