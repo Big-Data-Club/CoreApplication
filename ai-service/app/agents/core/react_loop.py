@@ -234,6 +234,8 @@ async def run_react_loop(
         user_message=user_message,
         active_courses=active_courses,
         agent_type=agent_type,
+        current_course_id=course_id,
+        page_context=page_context,
     )
     intent_type = router_output.intent
 

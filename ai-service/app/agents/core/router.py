@@ -47,6 +47,8 @@ Your job is to analyze the user's message, classify their intent, and determine 
 Active courses for this user:
 {course_list}
 
+{current_context}
+
 Intent types:
 - knowledge_question: Asking about a concept (what, how, why, explain)
 - progress_advice: Asking about scores, progress, study advice, grades
@@ -55,9 +57,10 @@ Intent types:
 - general_chat: Greetings, thank you, chitchat, or generic conversational input
 
 Ambiguity Rules:
-1. Set is_ambiguous = true if the request is not general_chat, but is too vague to act on, OR if it requires a course context but the user has multiple courses and hasn't specified which one (and you cannot clearly match the course).
-2. If the user explicitly mentions a course title or keywords that map uniquely to one of the active courses, set matched_course_id to that course's ID.
-3. If the request is a general greeting, thank you, or chitchat, set intent to general_chat and is_ambiguous = false.
+1. Set is_ambiguous = true if the request is not general_chat, but is too vague to act on, OR if it requires a course context but the user has multiple courses and hasn't specified which one (and you cannot clearly match the course, and no current course context is provided).
+2. If the user is currently viewing/interacting inside a specific course context (as shown in the Current context block), treat that course as specified and do NOT flag course-selection ambiguity. Set matched_course_id to that current course ID.
+3. If the user explicitly mentions a course title or keywords that map uniquely to one of the active courses, set matched_course_id to that course's ID.
+4. If the request is a general greeting, thank you, or chitchat, set intent to general_chat and is_ambiguous = false.
 """
 
 
@@ -65,6 +68,8 @@ async def classify_intent(
     user_message: str,
     active_courses: dict | None = None,
     agent_type: str = "mentor",
+    current_course_id: int | None = None,
+    page_context: dict | None = None,
 ) -> RouterOutput:
     """
     Classify the user's message into an intent type with structured details.
@@ -95,7 +100,27 @@ async def classify_intent(
             course_lines.append(f"  - id={cid}: \"{title}\"")
         course_list = "\n".join(course_lines) if course_lines else "  (No active courses)"
 
-        prompt = ROUTER_PROMPT.format(course_list=course_list)
+        current_context_lines = []
+        if current_course_id:
+            course_title = ""
+            for c in courses:
+                if c.get("id") == current_course_id:
+                    course_title = c.get("title", "")
+                    break
+            current_context_lines.append(f"  - Course Context: id={current_course_id} (\"{course_title}\")")
+        if page_context:
+            page_type = page_context.get("pageType") or page_context.get("type") or page_context.get("page_type")
+            if page_type:
+                current_context_lines.append(f"  - Page Type: {page_type}")
+            content_title = page_context.get("contentTitle") or page_context.get("title") or page_context.get("name")
+            if content_title:
+                current_context_lines.append(f"  - Page Title/Topic: \"{content_title}\"")
+
+        current_context = ""
+        if current_context_lines:
+            current_context = "Current context where the user is viewing/asking this:\n" + "\n".join(current_context_lines)
+
+        prompt = ROUTER_PROMPT.format(course_list=course_list, current_context=current_context)
 
         output = await chat_complete_structured(
             messages=[
