@@ -1036,7 +1036,7 @@ services:
       AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-ai-service-secret-change-me}
       DATA_DIR: /app/data
     ports:
-      - "8082:8082"
+      - "8085:8082"
     depends_on:
       kafka:
         condition: service_healthy
