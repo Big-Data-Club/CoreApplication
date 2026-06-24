@@ -65,15 +65,38 @@ func (r *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
 	return count > 0, err
 }
 
+var incrWithExpiryScript = redis.NewScript(`
+	local current = redis.call('INCR', KEYS[1])
+	if current == 1 then
+		redis.call('PEXPIRE', KEYS[1], ARGV[1])
+	else
+		local ttl = redis.call('TTL', KEYS[1])
+		if ttl == -1 then
+			redis.call('PEXPIRE', KEYS[1], ARGV[1])
+		end
+	end
+	return current
+`)
+
 // IncrementWithExpiry increments and sets expiry if key is new
 func (r *RedisCache) IncrementWithExpiry(ctx context.Context, key string, expiration time.Duration) (int64, error) {
-	val, err := r.client.Incr(ctx, key).Result()
+	ms := expiration.Milliseconds()
+	if ms <= 0 {
+		ms = 1
+	}
+
+	res, err := incrWithExpiryScript.Run(ctx, r.client, []string{key}, ms).Result()
 	if err != nil {
 		return 0, err
 	}
-	if val == 1 {
-		r.client.Expire(ctx, key, expiration)
+
+	switch v := res.(type) {
+	case int:
+		return int64(v), nil
+	case int64:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("unexpected return type from redis script: %T", res)
 	}
-	return val, nil
 }
 

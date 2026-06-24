@@ -227,18 +227,39 @@ func (c *RedisCache) Increment(ctx context.Context, key string) (int64, error) {
 	return c.client.Incr(ctx, key).Result()
 }
 
+var incrWithExpiryScript = redis.NewScript(`
+	local current = redis.call('INCR', KEYS[1])
+	if current == 1 then
+		redis.call('PEXPIRE', KEYS[1], ARGV[1])
+	else
+		local ttl = redis.call('PTTL', KEYS[1])
+		if ttl == -1 then
+			redis.call('PEXPIRE', KEYS[1], ARGV[1])
+		end
+	end
+	return current
+`)
+
 // IncrementWithExpiry increments and sets expiry if key is new
 func (c *RedisCache) IncrementWithExpiry(ctx context.Context, key string, expiration time.Duration) (int64, error) {
-	val, err := c.client.Incr(ctx, key).Result()
+	ms := expiration.Milliseconds()
+	if ms <= 0 {
+		ms = 1
+	}
+
+	res, err := incrWithExpiryScript.Run(ctx, c.client, []string{key}, ms).Result()
 	if err != nil {
 		return 0, err
 	}
-	
-	if val == 1 {
-		c.client.Expire(ctx, key, expiration)
+
+	switch v := res.(type) {
+	case int:
+		return int64(v), nil
+	case int64:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("unexpected return type from redis script: %T", res)
 	}
-	
-	return val, nil
 }
 
 // SetNX sets value only if key doesn't exist (for locks)
