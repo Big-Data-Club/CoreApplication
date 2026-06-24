@@ -108,6 +108,8 @@ async def execute_tool(
     user_id: int = 0,
     course_id: int | None = None,
     session_id: str | None = None,
+    content_id: int | None = None,
+    node_id: int | None = None,
 ) -> ToolResult:
     """
     Execute a tool by name with the given arguments.
@@ -129,6 +131,10 @@ async def execute_tool(
         arguments["_course_id"] = course_id
     if session_id is not None:
         arguments["_session_id"] = session_id
+    if content_id is not None:
+        arguments["_content_id"] = content_id
+    if node_id is not None:
+        arguments["_node_id"] = node_id
 
     try:
         return await tool.execute(**arguments)

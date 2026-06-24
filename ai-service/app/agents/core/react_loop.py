@@ -854,16 +854,38 @@ async def run_react_loop(
 
             logger.info("Executing tool: %s(%s)", tool_name, list(args.keys()))
 
-            # ── Execute the tool ─────────────────────────────────────────
-            # `effective_course_id` reflects the scope resolver's decision:
-            # the focused course for "single", None for "multi"/"all"/
-            # "none"/"ambiguous" (so cross-course tools run unscoped).
+            # Extract content_id and node_id from page_context or system_context if present
+            loop_content_id = None
+            loop_node_id = None
+            if page_context:
+                loop_content_id = page_context.get("contentId") or page_context.get("content_id")
+                loop_node_id = page_context.get("nodeId") or page_context.get("node_id")
+            if not loop_content_id and system_context:
+                loop_content_id = system_context.get("lesson_id") or system_context.get("content_id")
+            if not loop_node_id and system_context:
+                loop_node_id = system_context.get("node_id")
+
+            # Safely cast to int
+            try:
+                if loop_content_id is not None:
+                    loop_content_id = int(loop_content_id)
+            except (ValueError, TypeError):
+                loop_content_id = None
+
+            try:
+                if loop_node_id is not None:
+                    loop_node_id = int(loop_node_id)
+            except (ValueError, TypeError):
+                loop_node_id = None
+
             tool_result = await execute_tool(
                 name=tool_name,
                 arguments=args,
                 user_id=user_id,
                 course_id=effective_course_id,
                 session_id=session_id,
+                content_id=loop_content_id,
+                node_id=loop_node_id,
             )
 
             # Extract references from successful search tools

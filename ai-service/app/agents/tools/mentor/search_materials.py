@@ -47,12 +47,17 @@ class SearchMaterialsTool(BaseTool):
         query = kwargs["query"]
         # course_id is optional — use injected context or LLM-provided value
         course_id: int | None = kwargs.get("_course_id") or kwargs.get("course_id")
+        # content_id and node_id are injected from active page/lesson context
+        content_id: int | None = kwargs.get("_content_id") or kwargs.get("content_id")
+        node_id: int | None = kwargs.get("_node_id") or kwargs.get("node_id")
         top_k = kwargs.get("top_k", 3)
 
         try:
             chunks = await rag_service.search_multilingual(
                 query=query,
                 course_id=course_id,
+                content_id=content_id,
+                node_id=node_id,
                 top_k=top_k,
             )
 
