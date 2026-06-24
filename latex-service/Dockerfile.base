@@ -1,0 +1,17 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install TeX Live packages and basic utilities
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    texlive-latex-recommended \
+    texlive-latex-extra \
+    texlive-fonts-recommended \
+    texlive-science \
+    texlive-xetex \
+    texlive-luatex \
+    latexmk \
+    ca-certificates \
+    tzdata \
+    wget \
+    && rm -rf /var/lib/apt/lists/*

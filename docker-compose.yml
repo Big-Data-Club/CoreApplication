@@ -781,6 +781,8 @@ services:
     build:
       context: ./latex-service
       dockerfile: Dockerfile
+      args:
+        - BASE_IMAGE=${LATEX_BASE_IMAGE:-ubuntu:24.04}
     image: ${DOCKER_USERNAME}/bdc-latex:${IMAGE_TAG:-latest}
     container_name: latex-service
     restart: unless-stopped
