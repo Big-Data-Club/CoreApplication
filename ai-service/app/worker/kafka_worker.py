@@ -263,6 +263,22 @@ async def process_ai_command(payload: dict):
         await publish_ai_job_status(job_id=job_id, status="failed", error=str(exc))
 
 
+async def process_personalize_profile_update(payload: dict):
+    user_id = payload.get("user_id")
+    course_id = payload.get("course_id")
+    profile = payload.get("profile", {})
+    if not user_id or not course_id:
+        logger.warning("Received personalization profile update with missing keys")
+        return
+
+    logger.info("Personalization profile update received", extra={"user_id": user_id, "course_id": course_id})
+    from app.services.mastery_service import mastery_service
+    try:
+        await mastery_service.sync_duckdb_personalization_profile(int(user_id), int(course_id), profile)
+    except Exception as e:
+        logger.error("Failed to sync personalization profile to Postgres", extra={"error": str(e)})
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _is_youtube(url: str) -> bool:
@@ -309,6 +325,7 @@ async def main():
         "lms.graph.command",
         "lms.maintenance.command",
         "lms.ai.command",
+        "personalize.profile.updated",
         bootstrap_servers=brokers,
         group_id="ai-worker-group",
         value_deserializer=lambda x: json.loads(x.decode("utf-8")),
@@ -345,6 +362,8 @@ async def main():
                 await process_ai_command(payload)
             elif msg.topic == "lms.maintenance.command":
                 await process_maintenance_command(payload)
+            elif msg.topic == "personalize.profile.updated":
+                await process_personalize_profile_update(payload)
 
     except asyncio.CancelledError:
         logger.info("Worker cancelled", extra={"event": "shutdown"})

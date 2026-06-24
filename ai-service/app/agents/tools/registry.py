@@ -33,6 +33,7 @@ from app.agents.tools.mentor.generate_flashcard import GenerateFlashcardTool
 from app.agents.tools.mentor.get_study_plan import GetStudyPlanTool
 from app.agents.tools.mentor.explain_concept import ExplainConceptTool
 from app.agents.tools.mentor.search_web import SearchWebTool
+from app.agents.tools.mentor.save_to_notebook import SaveToNotebookTool
 
 # ── Shared tools (available to both agents) ───────────────────────────────────
 
@@ -60,6 +61,7 @@ _MENTOR_ONLY_TOOLS: list[BaseTool] = [
     GenerateFlashcardTool(),
     GetStudyPlanTool(),
     ExplainConceptTool(),
+    SaveToNotebookTool(),
 ]
 
 # ── Public API ────────────────────────────────────────────────────────────────

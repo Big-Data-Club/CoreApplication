@@ -70,6 +70,7 @@ x-ai-env: &ai-env
   # Internal auth
   AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-ai-service-secret-change-me}
   LMS_SERVICE_URL: http://lms-service:8081
+  PERSONALIZE_SERVICE_URL: ${PERSONALIZE_SERVICE_URL:-http://personalize-service:8082}
 
   # Neo4j Knowledge Graph
   NEO4J_URI: bolt://neo4j:7687
@@ -1022,6 +1023,38 @@ services:
       - "service.type=worker"
       - "service.name=ai-worker"
 
+  personalize-service:
+    build:
+      context: ./personalize-service
+      dockerfile: Dockerfile
+    image: ${DOCKER_USERNAME}/bdc-personalize:${IMAGE_TAG:-latest}
+    container_name: personalize-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-ai-service-secret-change-me}
+      DATA_DIR: /app/data
+    ports:
+      - "8082:8082"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *common-logging
+    volumes:
+      - personalize_data:/app/data
+    labels:
+      - "service.type=personalize"
+      - "service.name=personalize-service"
+
   # Object Storage
   minio:
     image: minio/minio:latest
@@ -1166,6 +1199,9 @@ volumes:
     driver: local
   kafka_data:
     driver: local
+  personalize_data:
+    driver: local
+
 
 
 # Networks

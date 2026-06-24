@@ -240,6 +240,58 @@ async def delete_session(
     return {"status": "ok"}
 
 
+# ── Notebook CRUD Proxy ───────────────────────────────────────────────────────
+
+@router.get("/notebook")
+async def list_notebook(
+    user_id: int,
+    course_id: Optional[int] = None,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
+):
+    """Proxy request to personalize-service to load saved notebook entries."""
+    _verify_secret(x_ai_secret)
+    import httpx
+    url = f"{settings.personalize_service_url}/personalize/notebook"
+    params = {"user_id": user_id}
+    if course_id is not None:
+        params["course_id"] = course_id
+    headers = {"X-AI-Secret": settings.ai_service_secret}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get(url, params=params, headers=headers)
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=res.text)
+        return {"notes": res.json()}
+    except Exception as e:
+        logger.error(f"Failed to proxy list_notebook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/notebook/{entry_id}")
+async def delete_notebook_entry(
+    entry_id: str,
+    user_id: int,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
+):
+    """Proxy request to personalize-service to delete a notebook entry."""
+    _verify_secret(x_ai_secret)
+    import httpx
+    url = f"{settings.personalize_service_url}/personalize/notebook/{entry_id}"
+    params = {"user_id": user_id}
+    headers = {"X-AI-Secret": settings.ai_service_secret}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.delete(url, params=params, headers=headers)
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=res.text)
+        return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy delete_notebook_entry: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Health check ─────────────────────────────────────────────────────────────
 
 @router.get("/health")

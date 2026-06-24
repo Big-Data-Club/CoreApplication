@@ -305,6 +305,8 @@ async def run_react_loop(
         course_id=effective_course_id,
         intent_type=intent_type,
         scope_course_ids=scope.candidate_course_ids or None,
+        page_context=page_context,
+        system_context=system_context,
     )
 
     yield AgentEvent(

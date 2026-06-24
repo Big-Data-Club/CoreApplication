@@ -74,6 +74,8 @@ class ContextBuilder:
         course_id: Optional[int] = None,
         intent_type: str = "general_chat",
         scope_course_ids: Optional[list[int]] = None,
+        page_context: Optional[dict] = None,
+        system_context: Optional[dict] = None,
     ) -> dict[str, Any]:
         """
         Build a context dict from all active memory tiers.
@@ -141,10 +143,16 @@ class ContextBuilder:
 
         # ── 3. LTM Facts: Student concept mastery / struggles / strengths ─────
         if weights["ltm_facts"] >= 0.3 and course_id:
-            # Determine current active node ID from MTM state if present
-            working_state = mtm_ctx.get("working_state") or {}
-            key_facts = mtm_ctx.get("key_facts") or {}
-            current_node_id = working_state.get("current_node_id") or key_facts.get("current_node_id")
+            # Determine current active node ID from input contexts or MTM state
+            current_node_id = None
+            if system_context:
+                current_node_id = system_context.get("node_id") or system_context.get("nodeId")
+            if not current_node_id and page_context:
+                current_node_id = page_context.get("node_id") or page_context.get("nodeId")
+            if not current_node_id:
+                working_state = mtm_ctx.get("working_state") or {}
+                key_facts = mtm_ctx.get("key_facts") or {}
+                current_node_id = working_state.get("current_node_id") or key_facts.get("current_node_id")
 
             # Calculate multi-signal scores
             scored_concepts = await self._compute_multi_signal_scoring(
@@ -195,6 +203,43 @@ class ContextBuilder:
         # Fetch all user concept mastery records
         concepts = await mastery_service.get_user_concept_mastery_list(user_id, course_id)
         if not concepts:
+            concepts = []
+
+        # Convert current_node_id to int if present, and query knowledge_nodes if missing
+        current_node_id_int = None
+        if current_node_id is not None:
+            try:
+                current_node_id_int = int(current_node_id)
+            except (ValueError, TypeError):
+                current_node_id_int = None
+
+        if current_node_id_int:
+            has_active = any(c["concept_id"] == current_node_id_int for c in concepts)
+            if not has_active:
+                try:
+                    async with get_ai_conn() as conn:
+                        node_row = await conn.fetchrow(
+                            """
+                            SELECT id, name, name_vi
+                            FROM knowledge_nodes
+                            WHERE id = $1 AND course_id = $2
+                            """,
+                            current_node_id_int,
+                            course_id,
+                        )
+                    if node_row:
+                        concepts.append({
+                            "concept_id": node_row["id"],
+                            "name": node_row["name"],
+                            "name_vi": node_row["name_vi"],
+                            "mastery_level": 0.0,
+                            "struggles": False,
+                            "last_interaction": datetime.now(timezone.utc),
+                        })
+                except Exception as exc:
+                    logger.warning("Failed to query active knowledge node: %s", exc)
+
+        if not concepts:
             return []
 
         # 1. Semantic relevance (Cosine similarity between query and concept name)
@@ -226,8 +271,8 @@ class ContextBuilder:
 
         # 3. Structural score (relationship to current active node in KG)
         structural_scores = {}
-        if current_node_id:
-            structural_scores[current_node_id] = 1.0
+        if current_node_id_int:
+            structural_scores[current_node_id_int] = 2.0  # Boost active concept structural score
             try:
                 async with get_ai_conn() as conn:
                     rows = await conn.fetch(
@@ -237,11 +282,11 @@ class ContextBuilder:
                         WHERE course_id = $1 AND (source_node_id = $2 OR target_node_id = $2)
                         """,
                         course_id,
-                        current_node_id,
+                        current_node_id_int,
                     )
                 for r in rows:
                     src, tgt, rel = r["source_node_id"], r["target_node_id"], r["relation_type"]
-                    other = src if tgt == current_node_id else tgt
+                    other = src if tgt == current_node_id_int else tgt
                     score = 0.8 if rel == "prerequisite" else (0.7 if rel in ("extends", "equivalent") else 0.5)
                     structural_scores[other] = max(structural_scores.get(other, 0.0), score)
             except Exception as exc:
@@ -297,8 +342,21 @@ class ContextBuilder:
         max_chars = budget_tokens * 4
         current_chars = len(parts[0])
 
-        struggles = [c for c in concepts if c["struggles"]]
-        strengths = [c for c in concepts if c["mastery_level"] >= 0.8]
+        # Active concept is identified by structural_score == 2.0
+        active_concept = next((c for c in concepts if c.get("structural_score") == 2.0), None)
+        struggles = [c for c in concepts if c["struggles"] and c.get("structural_score") != 2.0]
+        strengths = [c for c in concepts if c["mastery_level"] >= 0.8 and c.get("structural_score") != 2.0]
+
+        # 0. Add active concept
+        if active_concept:
+            line = "  Active Concept (Student is currently viewing this):"
+            if current_chars + len(line) + 1 <= max_chars:
+                parts.append(line)
+                current_chars += len(line) + 1
+                line = f"    - {active_concept['name']} (Mastery: {active_concept['mastery_level']:.1%})"
+                if current_chars + len(line) + 1 <= max_chars:
+                    parts.append(line)
+                    current_chars += len(line) + 1
 
         # 1. Add struggles
         if struggles:

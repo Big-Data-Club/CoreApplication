@@ -133,5 +133,56 @@ class MasteryService:
             struggles,
         )
 
+    async def sync_duckdb_personalization_profile(self, user_id: int, course_id: int, profile: dict) -> None:
+        """
+        Synchronizes the DuckDB calculated personalization profile with the Postgres AI database.
+        Sets concept struggles and writes learning progress summary facts.
+        """
+        struggle_nodes = profile.get("struggle_nodes", [])
+        
+        async with get_ai_conn() as conn:
+            # 1. Update concept struggles flags in user_concept_mastery
+            rows = await conn.fetch("SELECT id FROM knowledge_nodes WHERE course_id = $1", course_id)
+            all_node_ids = [r["id"] for r in rows]
+            
+            for node_id in all_node_ids:
+                is_struggling = node_id in struggle_nodes
+                # Upsert struggles and update last interaction
+                await conn.execute(
+                    """
+                    INSERT INTO user_concept_mastery (
+                        user_id, concept_id, mastery_level, struggles, interaction_count, last_interaction
+                    )
+                    VALUES ($1, $2, $3, $4, 1, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id, concept_id) DO UPDATE SET
+                        struggles = EXCLUDED.struggles,
+                        last_interaction = CURRENT_TIMESTAMP
+                    """,
+                    user_id, node_id, 0.3 if is_struggling else 0.7, is_struggling
+                )
+                
+            # 2. Update general student learning progress in student_facts
+            completed_count = profile.get("completed_lessons", 0)
+            attempted_count = profile.get("attempted_lessons", 0)
+            accuracy = profile.get("check_accuracy", 0.0)
+            
+            fact_text = f"Đã hoàn thành {completed_count}/{attempted_count} bài học, độ chính xác quick check {accuracy * 100}%."
+            
+            existing_fact = await conn.fetchrow(
+                "SELECT id FROM student_facts WHERE user_id = $1 AND course_id = $2 AND category = 'progress'",
+                user_id, course_id
+            )
+            if existing_fact:
+                await conn.execute(
+                    "UPDATE student_facts SET fact = $1, updated_at = NOW() WHERE id = $2",
+                    fact_text, existing_fact["id"]
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO student_facts (user_id, fact, category, course_id) VALUES ($1, $2, 'progress', $3)",
+                    user_id, fact_text, course_id
+                )
+            logger.info(f"Synced personalization profile in Postgres for user={user_id} course={course_id}")
+
 
 mastery_service = MasteryService()

@@ -12,9 +12,9 @@ import (
 	"example/hello/pkg/cache"
 )
 
-// isInternalDockerIP checks if an IP address is a loopback or within private subnet ranges
-// (specifically 172.16.0.0/12 which covers docker networks like 172.28.0.0/16).
-func isInternalDockerIP(ipStr string) bool {
+// isPrivateOrLocalIP checks if an IP address is a loopback or within private subnet ranges
+// (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
+func isPrivateOrLocalIP(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
@@ -24,8 +24,16 @@ func isInternalDockerIP(ipStr string) bool {
 	}
 	ip4 := ip.To4()
 	if ip4 != nil {
-		// Check if it's in 172.16.0.0/12 (172.16.x.x - 172.31.x.x)
+		// 10.0.0.0/8
+		if ip4[0] == 10 {
+			return true
+		}
+		// 172.16.0.0/12 (172.16.x.x - 172.31.x.x)
 		if ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 {
+			return true
+		}
+		// 192.168.0.0/16
+		if ip4[0] == 192 && ip4[1] == 168 {
 			return true
 		}
 	}
@@ -56,8 +64,8 @@ func RateLimit(redisCache *cache.RedisCache, aiSecret string) gin.HandlerFunc {
 		// Get client IP
 		ip := c.ClientIP()
 
-		// Bypass rate limit for localhost and internal Docker network IPs (e.g. frontend container)
-		if isInternalDockerIP(ip) {
+		// Bypass rate limit for localhost and private network/intranet IPs (e.g. frontend, VPN, campus LAN)
+		if isPrivateOrLocalIP(ip) {
 			c.Next()
 			return
 		}
