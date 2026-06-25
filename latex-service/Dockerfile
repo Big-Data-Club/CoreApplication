@@ -1,3 +1,5 @@
+ARG BASE_IMAGE=ubuntu:24.04
+
 # --- Build stage ---
 FROM golang:1.24-alpine AS builder
 
@@ -14,7 +16,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o api ./cmd/api
 #   docker build -f Dockerfile.base -t bdc-latex-base:latest .
 # And build this Dockerfile with:
 #   docker build --build-arg BASE_IMAGE=bdc-latex-base:latest -t bdc-latex:latest .
-ARG BASE_IMAGE=ubuntu:24.04
 FROM ${BASE_IMAGE}
 
 # Redeclare the arg inside the stage to make it available in the RUN command
