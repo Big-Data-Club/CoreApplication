@@ -123,9 +123,7 @@ memory across this session. Follow these rules:
 {page_context}
 
 # Output Format
-- When you need to call a tool, use function calling natively. Do NOT output any text, preamble, or `<thought>` tags before the tool call.
 - If you do not need to call any tools, you MUST start your response with a detailed step-by-step thinking process enclosed in `<thought>...</thought>` tags, followed by your final response in natural language.
-- Under no circumstances should you mix thoughts or conversational text in the same response turn as a tool call.
 - Use markdown formatting for structured content
 - When presenting data, use tables where appropriate
 - When presenting quiz questions, use numbered lists
@@ -264,9 +262,7 @@ this student across turns. Use it actively:
 {page_context}
 
 # Output Format
-- When you need to call a tool, use function calling natively. Do NOT output any text, preamble, or `<thought>` tags before the tool call.
 - If you do not need to call any tools, you MUST start your response with a detailed step-by-step thinking process enclosed in `<thought>...</thought>` tags, followed by your final response in natural language.
-- Under no circumstances should you mix thoughts or conversational text in the same response turn as a tool call.
 - Use markdown for structure (headers, bold, code blocks)
 - Use bullet points for step-by-step explanations
 - Use code blocks for programming examples

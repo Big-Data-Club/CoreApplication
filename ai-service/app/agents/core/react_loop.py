@@ -662,7 +662,7 @@ async def run_react_loop(
                         if tc.id:
                             entry["id"] = tc.id
                         if tc.function and tc.function.name:
-                            entry["name"] = tc.function.name
+                            entry["name"] += tc.function.name
                         if tc.function and tc.function.arguments:
                             entry["arguments"] += tc.function.arguments
 
@@ -687,15 +687,13 @@ async def run_react_loop(
                     session_id=session_id,
                     turn_id=turn_id,
                 )
-                # Append a system-style nudge so the next streaming call
-                # steers the model toward a valid call (or a text answer).
                 messages.append({
-                    "role": "system",
+                    "role": "user",
                     "content": (
-                        "Your previous tool call was REJECTED by schema "
+                        "[SYSTEM NUDGE: Your previous tool call was REJECTED by schema "
                         "validation with this error:\n"
                         f"  {err_str}\n"
-                        "Fix your tool call:\n"
+                        "Please fix your tool call:\n"
                         "- Use ONLY the enum values listed in the tool "
                         "schema.\n"
                         "- If you wanted to create a quiz/test/questions, "
@@ -707,8 +705,8 @@ async def run_react_loop(
                         "- If you are missing a required ID (course_id, "
                         "node_id), call the corresponding `list_*` tool "
                         "first.\n"
-                        "Retry now with a corrected call, or reply in "
-                        "natural language if no tool fits."
+                        "Please retry now with a corrected call, or reply in "
+                        "natural language if no tool fits.]"
                     ),
                 })
                 # Drop any partial collected state and retry the iteration.
