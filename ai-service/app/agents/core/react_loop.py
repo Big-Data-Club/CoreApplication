@@ -430,10 +430,12 @@ async def run_react_loop(
     
     parent_context_length = memory_ctx.get("token_estimate", 0) + len(user_message) // 4
     orchestrator = MultiAgentOrchestrator(session_id, turn_id)
+    requires_tool = router_output.requires_tool if router_output else False
     score, breakdown = orchestrator.calculate_spawning_score(
         user_message=user_message,
         intent_type=intent_type,
-        parent_context_length=parent_context_length
+        parent_context_length=parent_context_length,
+        requires_tool=requires_tool,
     )
     
     yield AgentEvent(

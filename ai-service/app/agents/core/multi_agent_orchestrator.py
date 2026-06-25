@@ -32,7 +32,8 @@ class MultiAgentOrchestrator:
         user_message: str,
         intent_type: str,
         parent_context_length: int,
-        max_context_limit: int = 32768
+        max_context_limit: int = 32768,
+        requires_tool: bool = False,
     ) -> Tuple[float, Dict[str, Any]]:
         """
         Calculates the decision score for spawning sub-agents.
@@ -62,12 +63,19 @@ class MultiAgentOrchestrator:
         w_c, w_d, w_r, w_v = 0.3, 0.4, 0.1, 0.2
         score = w_c * c_ratio + w_d * d_intent + w_r * r_docs + w_v * v_need
 
+        # If the LLM Router detected that the user wants to execute a system tool/action,
+        # we bypass the Multi-Agent flow (which cannot execute tool calls) and run the ReAct loop instead.
+        if requires_tool:
+            logger.info("Bypassing multi-agent flow: LLM router flagged requires_tool = True.")
+            score = 0.0
+
         breakdown = {
             "c_ratio": c_ratio,
             "d_intent": d_intent,
             "r_docs": r_docs,
             "v_need": v_need,
-            "score": round(score, 3)
+            "score": round(score, 3),
+            "requires_tool": requires_tool,
         }
 
         self.spawning_score = round(score, 3)

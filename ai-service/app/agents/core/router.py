@@ -38,6 +38,10 @@ class RouterOutput(BaseModel):
         None,
         description="The course ID if the user explicitly names or implies a specific course from the active courses list, otherwise null."
     )
+    requires_tool: bool = Field(
+        default=False,
+        description="True if the user is explicitly requesting a system action or database modification that requires a tool (such as generating quiz drafts, creating flashcards, starting a practice challenge, or indexing documents) rather than just requesting a textual answer/explanation or study advice."
+    )
 
 
 ROUTER_PROMPT = """\
@@ -61,6 +65,10 @@ Ambiguity Rules:
 2. If the user is currently viewing/interacting inside a specific course context (as shown in the Current context block), treat that course as specified and do NOT flag course-selection ambiguity. Set matched_course_id to that current course ID.
 3. If the user explicitly mentions a course title or keywords that map uniquely to one of the active courses, set matched_course_id to that course's ID.
 4. If the request is a general greeting, thank you, or chitchat, set intent to general_chat and is_ambiguous = false.
+
+Tool Rules:
+1. Set requires_tool = true if the user's message explicitly requests a system action or database modification that requires a tool (e.g. generating a quiz draft, saving/creating new flashcards in the database, starting an interactive challenge, triggering document index).
+2. Set requires_tool = false if they are only asking for explanations, definitions, summaries, advice, or general conversation.
 """
 
 
@@ -90,6 +98,7 @@ async def classify_intent(
                 ambiguity_reason=None,
                 missing_context=None,
                 matched_course_id=None,
+                requires_tool=False,
             )
 
         courses = (active_courses or {}).get("courses") or []
@@ -138,8 +147,8 @@ async def classify_intent(
             output.intent = "general_chat"
 
         logger.debug(
-            "Intent classified: intent=%s, is_ambiguous=%s, matched_course_id=%s",
-            output.intent, output.is_ambiguous, output.matched_course_id
+            "Intent classified: intent=%s, is_ambiguous=%s, matched_course_id=%s, requires_tool=%s",
+            output.intent, output.is_ambiguous, output.matched_course_id, output.requires_tool
         )
         return output
 
@@ -151,5 +160,6 @@ async def classify_intent(
             ambiguity_reason="error",
             missing_context=None,
             matched_course_id=None,
+            requires_tool=False,
         )
 
