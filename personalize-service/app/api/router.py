@@ -75,3 +75,42 @@ async def delete_notebook(
         return {"status": "success", "message": "Notebook entry deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Gold Medallion Analytics Endpoints ────────────────────────────────────
+
+@router.get("/personalize/analytics/gold/student-metrics")
+async def get_gold_student_metrics(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_student_metrics()
+
+
+@router.get("/personalize/analytics/gold/concept-struggles")
+async def get_gold_concept_struggles(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_concept_struggles()
+
+
+@router.get("/personalize/analytics/gold/interaction-matrix")
+async def get_gold_user_item_matrix(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_user_item_matrix()
+
+
+@router.get("/personalize/analytics/gold/struggle-alerts")
+async def get_gold_struggle_alerts(
+    user_id: Optional[int] = Query(None, description="Filter alerts by user ID"),
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")
+):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_struggle_alerts(user_id)
+
+
+@router.post("/personalize/analytics/gold/export")
+async def export_gold_tables(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    try:
+        exported_files = lakehouse_service.export_gold_tables()
+        return {"status": "success", "message": "Gold views successfully exported to Parquet", "files": exported_files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

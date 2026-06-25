@@ -168,10 +168,10 @@
 		</dependency>
 
 		<!-- 4. Spring Security Test (cookie assertions, @WithMockUser) -->
+		<!-- Spring Kafka -->
 		<dependency>
-			<groupId>org.springframework.security</groupId>
-			<artifactId>spring-security-test</artifactId>
-			<scope>test</scope>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
 		</dependency>
 
 	</dependencies>

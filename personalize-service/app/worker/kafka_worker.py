@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 # Set up logging
@@ -70,6 +71,80 @@ async def process_interaction_event(event: dict):
     await publish_profile_update(int(user_id), int(course_id), profile)
 
 
+async def publish_notification_trigger(user_id: int, course_id: int, alert_type: str, alert_message: str):
+    """Publish a struggle alert/inactivity trigger to Kafka."""
+    try:
+        producer = await get_producer()
+        topic = "personalize.notification.trigger"
+        payload = {
+            "user_id": user_id,
+            "course_id": course_id,
+            "alert_type": alert_type,
+            "alert_message": alert_message,
+            "detected_at": datetime.now().isoformat()
+        }
+        key = f"{user_id}:{alert_type}".encode("utf-8")
+        await producer.send_and_wait(topic, value=payload, key=key)
+        logger.info(f"Published notification trigger to {topic} for student={user_id}, type={alert_type}")
+    except Exception as e:
+        logger.error(f"Failed to publish notification trigger event: {str(e)}")
+
+
+async def run_notification_detector():
+    """Background task to scan Gold alerts and trigger Kafka notifications."""
+    # Wait for the system to settle on startup
+    await asyncio.sleep(10)
+    while True:
+        try:
+            logger.info("Running struggle alert detector query...")
+            alerts = lakehouse_service.get_gold_struggle_alerts()
+            for alert in alerts:
+                user_id = alert["user_id"]
+                course_id = alert["course_id"]
+                alert_type = alert["alert_type"]
+                alert_message = alert["alert_message"]
+                node_id = alert.get("node_id")
+                
+                # Normalize node_id (DuckDB might return float, None, or int)
+                if node_id is not None:
+                    try:
+                        import math
+                        if isinstance(node_id, float) and math.isnan(node_id):
+                            node_id = None
+                        else:
+                            node_id = int(node_id)
+                    except (ValueError, TypeError):
+                        node_id = None
+
+                # Check if notification was recently sent (24h cooldown)
+                recently_sent = lakehouse_service.has_notification_been_sent_recently(
+                    user_id=int(user_id),
+                    alert_type=alert_type,
+                    node_id=node_id,
+                    cooldown_hours=24
+                )
+                
+                if not recently_sent:
+                    # Publish to Kafka
+                    await publish_notification_trigger(
+                        user_id=int(user_id),
+                        course_id=int(course_id),
+                        alert_type=alert_type,
+                        alert_message=alert_message
+                    )
+                    # Record in ledger
+                    lakehouse_service.record_sent_notification(
+                        user_id=int(user_id),
+                        alert_type=alert_type,
+                        node_id=node_id
+                    )
+        except Exception as e:
+            logger.error(f"Error in notification detector loop: {str(e)}")
+        
+        # Check every 2 minutes for new alerts
+        await asyncio.sleep(120)
+
+
 async def run_archive_scheduler():
     """Background task to run Lakehouse Parquet archiving pipeline once every 1 hour."""
     while True:
@@ -84,8 +159,9 @@ async def run_archive_scheduler():
 async def main():
     logger.info("Initializing Personalize Kafka Worker")
     
-    # Start background archival task
+    # Start background tasks
     asyncio.create_task(run_archive_scheduler())
+    asyncio.create_task(run_notification_detector())
 
     consumer = AIOKafkaConsumer(
         "lms.analytics.interactions",

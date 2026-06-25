@@ -292,6 +292,31 @@ async def delete_notebook_entry(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Notifications Proxy ────────────────────────────────────────────────────────
+
+@router.get("/notifications")
+async def list_notifications(
+    user_id: int,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
+):
+    """Proxy request to personalize-service to load study alerts."""
+    _verify_secret(x_ai_secret)
+    import httpx
+    url = f"{settings.personalize_service_url}/personalize/analytics/gold/struggle-alerts"
+    params = {"user_id": user_id}
+    headers = {"X-AI-Secret": settings.ai_service_secret}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get(url, params=params, headers=headers)
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=res.text)
+        return {"alerts": res.json()}
+    except Exception as e:
+        logger.error(f"Failed to proxy list_notifications: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Health check ─────────────────────────────────────────────────────────────
 
 @router.get("/health")

@@ -26,7 +26,7 @@ class LakehouseService:
         os.makedirs(self.gold_parquet_dir, exist_ok=True)
 
         self.db_path = os.path.join(self.db_dir, "student_analytics.duckdb")
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         
         # Thread-safe persistent connection
         self.conn = duckdb.connect(self.db_path)
@@ -62,7 +62,24 @@ class LakehouseService:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # 3. Notification tracking table
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS sent_notifications (
+                    user_id BIGINT NOT NULL,
+                    alert_type VARCHAR NOT NULL,
+                    node_id BIGINT,
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sent_notifications_lookup 
+                ON sent_notifications (user_id, alert_type, node_id)
+            """)
             logger.info("DuckDB Tables initialized successfully")
+            
+            # Initialize Views
+            self.refresh_views()
 
     # ── Ingestion ────────────────────────────────────────────────────────────
 
@@ -141,6 +158,7 @@ class LakehouseService:
                     (age_days,)
                 )
                 logger.info(f"Archived {count} old interactions to Parquet under {temp_dir}")
+                self.refresh_views()
             except Exception as e:
                 logger.error(f"Failed to archive interactions to Parquet: {str(e)}")
 
@@ -156,7 +174,7 @@ class LakehouseService:
                 # 1. Lesson completion metrics
                 completion_res = self.conn.execute("""
                     SELECT 
-                        COUNT(DISTINCT lesson_id) FILTER (WHERE action_type = 'lesson_completed') as completed_lessons,
+                        COUNT(DISTINCT lesson_id) FILTER (WHERE action_type IN ('lesson_complete', 'lesson_completed')) as completed_lessons,
                         COUNT(DISTINCT lesson_id) as attempted_lessons
                     FROM bronze_interactions
                     WHERE user_id = ? AND course_id = ?
@@ -321,6 +339,219 @@ class LakehouseService:
                 logger.info(f"Deleted notebook entry {entry_id} for user {user_id}")
             except Exception as e:
                 logger.error(f"Failed to delete notebook: {str(e)}")
+                raise
+
+    def refresh_views(self):
+        """Update or create Silver/Gold views dynamically based on Parquet file existence."""
+        with self.lock:
+            try:
+                # Check if there are any parquet files in the bronze parquet directory
+                has_parquet = False
+                interactions_parquet_path = os.path.join(self.bronze_parquet_dir, "interactions")
+                if os.path.exists(interactions_parquet_path):
+                    # Check if there are actually files inside (recursively find .parquet)
+                    for root, dirs, files in os.walk(interactions_parquet_path):
+                        if any(f.endswith('.parquet') for f in files):
+                            has_parquet = True
+                            break
+                
+                if has_parquet:
+                    parquet_pattern = os.path.join(interactions_parquet_path, "*", "*", "*.parquet").replace("\\", "/")
+                    logger.info(f"Registering unified view with Parquet files at: {parquet_pattern}")
+                    self.conn.execute(f"""
+                        CREATE OR REPLACE VIEW unified_interactions AS
+                        SELECT 
+                            interaction_id, user_id, course_id, lesson_id, node_id, action_type, score, status, created_at
+                        FROM bronze_interactions
+                        UNION ALL
+                        SELECT 
+                            interaction_id, user_id, course_id, lesson_id, node_id, action_type, score, status, created_at
+                        FROM read_parquet('{parquet_pattern}', union_by_name=True)
+                    """)
+                else:
+                    logger.info("Registering unified view pointing only to bronze_interactions table")
+                    self.conn.execute("""
+                        CREATE OR REPLACE VIEW unified_interactions AS
+                        SELECT 
+                            interaction_id, user_id, course_id, lesson_id, node_id, action_type, score, status, created_at
+                        FROM bronze_interactions
+                    """)
+                
+                # Register Gold Views
+                # A. Student course metrics
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_student_course_metrics AS
+                    SELECT 
+                        user_id,
+                        course_id,
+                        COUNT(DISTINCT lesson_id) FILTER (WHERE action_type IN ('lesson_complete', 'lesson_completed')) as completed_lessons_count,
+                        COUNT(DISTINCT lesson_id) FILTER (WHERE action_type IN ('lesson_view', 'lesson_viewed')) as viewed_lessons_count,
+                        COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') as correct_checks_count,
+                        COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') as incorrect_checks_count,
+                        COUNT(*) FILTER (WHERE action_type = 'ask_ai') as ask_ai_count,
+                        COUNT(*) FILTER (WHERE action_type = 'flashcard_flip') as flashcard_flips_count,
+                        ROUND(
+                            CASE 
+                                WHEN (COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') + COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect')) > 0 
+                                THEN (COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') * 1.0 / (COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') + COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect')))
+                                ELSE 0.0 
+                            END, 
+                            2
+                        ) as check_accuracy,
+                        MAX(created_at) as last_active_at
+                    FROM unified_interactions
+                    GROUP BY user_id, course_id
+                """)
+
+                # B. Concept struggles
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_concept_struggles AS
+                    SELECT 
+                        user_id,
+                        course_id,
+                        node_id,
+                        COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') as incorrect_checks_count,
+                        COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') as correct_checks_count,
+                        ROUND(
+                            CASE 
+                                WHEN (COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') + COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect')) > 0 
+                                THEN (COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') * 1.0 / (COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') + COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect')))
+                                ELSE 0.0 
+                            END, 
+                            2
+                        ) as struggle_rate,
+                        MAX(created_at) as last_attempt_at
+                    FROM unified_interactions
+                    WHERE node_id IS NOT NULL
+                    GROUP BY user_id, course_id, node_id
+                    HAVING COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') >= 2 
+                       OR COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') > COUNT(*) FILTER (WHERE action_type = 'quick_check_correct')
+                """)
+
+                # C. User-Item Affinity Matrix (for DS ML Models)
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_user_item_matrix AS
+                    SELECT 
+                        user_id,
+                        course_id,
+                        node_id,
+                        COUNT(*) as total_interactions,
+                        SUM(
+                            CASE 
+                                WHEN action_type IN ('lesson_view', 'lesson_viewed') THEN 1.0
+                                WHEN action_type IN ('lesson_complete', 'lesson_completed') THEN 2.0
+                                WHEN action_type = 'flashcard_flip' THEN 1.0
+                                WHEN action_type = 'quick_check_correct' THEN 2.0
+                                WHEN action_type = 'quick_check_incorrect' THEN 0.5
+                                WHEN action_type = 'ask_ai' THEN 1.5
+                                ELSE 0.5
+                            END
+                        ) as implicit_affinity_score,
+                        MAX(created_at) as last_interaction_at
+                    FROM unified_interactions
+                    WHERE node_id IS NOT NULL
+                    GROUP BY user_id, course_id, node_id
+                """)
+
+                # D. Struggle Alerts
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_struggle_alerts AS
+                    SELECT 
+                        user_id,
+                        course_id,
+                        node_id,
+                        'concept_struggle' as alert_type,
+                        'Học viên đang gặp khó khăn ở phần kiến thức (Node ID: ' || CAST(node_id AS VARCHAR) || '). Vui lòng ôn tập lại bài học liên quan!' as alert_message,
+                        last_attempt_at as detected_at
+                    FROM gold_concept_struggles
+                    WHERE incorrect_checks_count >= 3 AND correct_checks_count = 0
+                    
+                    UNION ALL
+                    
+                    SELECT 
+                        user_id,
+                        course_id,
+                        NULL as node_id,
+                        'inactivity' as alert_type,
+                        'Đã lâu bạn chưa tham gia học tập trong khóa học (Course ID: ' || CAST(course_id AS VARCHAR) || '). Hãy quay lại ôn luyện ngay nhé!' as alert_message,
+                        last_active_at as detected_at
+                    FROM gold_student_course_metrics
+                    WHERE last_active_at < NOW() - INTERVAL 7 DAY
+                """)
+                logger.info("DuckDB Silver and Gold Views refreshed successfully")
+            except Exception as e:
+                logger.error(f"Failed to refresh Lakehouse views: {str(e)}")
+
+    def _query_to_dict_list(self, query: str, params: tuple = ()) -> List[Dict[str, Any]]:
+        with self.lock:
+            try:
+                res = self.conn.execute(query, params).fetchall()
+                cols = [desc[0] for desc in self.conn.description]
+                return [dict(zip(cols, row)) for row in res]
+            except Exception as e:
+                logger.error(f"Failed to run query {query}: {str(e)}")
+                return []
+
+    def get_gold_student_metrics(self) -> List[Dict[str, Any]]:
+        return self._query_to_dict_list("SELECT * FROM gold_student_course_metrics")
+
+    def get_gold_concept_struggles(self) -> List[Dict[str, Any]]:
+        return self._query_to_dict_list("SELECT * FROM gold_concept_struggles")
+
+    def get_gold_user_item_matrix(self) -> List[Dict[str, Any]]:
+        return self._query_to_dict_list("SELECT * FROM gold_user_item_matrix")
+
+    def get_gold_struggle_alerts(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        if user_id is not None:
+            return self._query_to_dict_list("SELECT * FROM gold_struggle_alerts WHERE user_id = ?", (user_id,))
+        return self._query_to_dict_list("SELECT * FROM gold_struggle_alerts")
+
+    def has_notification_been_sent_recently(self, user_id: int, alert_type: str, node_id: Optional[int], cooldown_hours: int = 24) -> bool:
+        with self.lock:
+            try:
+                if node_id is not None:
+                    res = self.conn.execute("""
+                        SELECT COUNT(*) FROM sent_notifications 
+                        WHERE user_id = ? AND alert_type = ? AND node_id = ? 
+                          AND sent_at > NOW() - INTERVAL ? HOUR
+                    """, (user_id, alert_type, node_id, cooldown_hours)).fetchone()
+                else:
+                    res = self.conn.execute("""
+                        SELECT COUNT(*) FROM sent_notifications 
+                        WHERE user_id = ? AND alert_type = ? AND node_id IS NULL
+                          AND sent_at > NOW() - INTERVAL ? HOUR
+                    """, (user_id, alert_type, cooldown_hours)).fetchone()
+                return res[0] > 0 if res else False
+            except Exception as e:
+                logger.error(f"Error checking sent notifications: {e}")
+                return False
+
+    def record_sent_notification(self, user_id: int, alert_type: str, node_id: Optional[int]):
+        with self.lock:
+            try:
+                self.conn.execute("""
+                    INSERT INTO sent_notifications (user_id, alert_type, node_id, sent_at)
+                    VALUES (?, ?, ?, ?)
+                """, (user_id, alert_type, node_id, datetime.now()))
+                logger.debug(f"Recorded notification sent to user={user_id}, type={alert_type}, node={node_id}")
+            except Exception as e:
+                logger.error(f"Error recording sent notification: {e}")
+
+    def export_gold_tables(self) -> Dict[str, str]:
+        """Export all Gold views to Parquet files in the gold lakehouse directory."""
+        with self.lock:
+            try:
+                os.makedirs(self.gold_parquet_dir, exist_ok=True)
+                tables = ["gold_student_course_metrics", "gold_concept_struggles", "gold_user_item_matrix", "gold_struggle_alerts"]
+                exports = {}
+                for t in tables:
+                    dest_file = os.path.join(self.gold_parquet_dir, f"{t}.parquet").replace("\\", "/")
+                    self.conn.execute(f"COPY (SELECT * FROM {t}) TO '{dest_file}' (FORMAT 'PARQUET', OVERWRITE True)")
+                    exports[t] = dest_file
+                logger.info("Successfully exported Gold views to Parquet")
+                return exports
+            except Exception as e:
+                logger.error(f"Failed to export Gold views: {e}")
                 raise
 
 
