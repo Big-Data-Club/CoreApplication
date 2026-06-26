@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Groq LLM
     groq_api_key: str = ""
-    chat_model: str = "llama-3.1-8b-instant"
+    chat_model: str = "llama-3.3-70b-versatile"
     quiz_model: str = "llama-3.3-70b-versatile"
 
     # Google Gemini
