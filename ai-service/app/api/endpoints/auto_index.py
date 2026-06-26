@@ -1,13 +1,13 @@
 """
 ai-service/app/api/endpoints/auto_index.py
 
-POST /ai/auto-index              — trigger auto-indexing via Kafka
-POST /ai/auto-index/text         — trigger text content indexing via Kafka
-GET  /ai/auto-index/{id}/status  — poll status from AI DB (no Celery)
+POST /ai/auto-index              - trigger auto-indexing via Kafka
+POST /ai/auto-index/text         - trigger text content indexing via Kafka
+GET  /ai/auto-index/{id}/status  - poll status from AI DB (no Celery)
 
-POST /ai/knowledge-graph/global          — trigger global cross-course linking
-GET  /ai/knowledge-graph/global          — get full graph (admin)
-GET  /ai/knowledge-graph/{course_id}     — get course graph
+POST /ai/knowledge-graph/global          - trigger global cross-course linking
+GET  /ai/knowledge-graph/global          - get full graph (admin)
+GET  /ai/knowledge-graph/{course_id}     - get course graph
 DELETE /ai/knowledge-graph/node/{node_id}
 GET  /ai/knowledge-graph/node/{node_id}/neighbors
 """

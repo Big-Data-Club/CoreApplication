@@ -122,7 +122,7 @@ public class GoogleAuthService {
             throw new DuplicateResourceException("User", "code", req.getCode());
         }
 
-        // Generate a random password (user won't use it — Google login only)
+        // Generate a random password (user won't use it - Google login only)
         String randomPassword = PasswordGenerator.generateStrongPassword();
 
         String resolvedRole = defaultRole;

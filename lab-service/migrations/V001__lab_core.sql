@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS lab_enrollments (
 CREATE INDEX idx_enrollments_user ON lab_enrollments(user_id);
 
 -- ═══════════════════════════════════════════════════════════════
--- Lab Sessions (runtime containers — WORKSPACE/JUPYTER labs)
+-- Lab Sessions (runtime containers - WORKSPACE/JUPYTER labs)
 -- ═══════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS lab_sessions (
     id                 BIGSERIAL PRIMARY KEY,

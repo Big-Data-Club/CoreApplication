@@ -49,7 +49,7 @@ class TestResult:
 
     def __repr__(self):
         s = "PASS" if self.passed else "FAIL"
-        e = f" — {self.error}" if self.error else ""
+        e = f" - {self.error}" if self.error else ""
         return f"  [{s}] {self.name}{e}"
 
 
@@ -57,7 +57,7 @@ async def run_all_tests():
     results: list[TestResult] = []
 
     print("=" * 70)
-    print("  BDC Agent Tool Registry — Tests")
+    print("  BDC Agent Tool Registry - Tests")
     print("=" * 70)
 
     # ── Test 1: Teacher tools registered ─────────────────────────────────────
@@ -72,11 +72,11 @@ async def run_all_tests():
         assert "teacher" in all_tools
         assert "mentor" in all_tools
 
-        print(f"  [PASS] {r.name} — {len(teacher_tools)} tools")
+        print(f"  [PASS] {r.name} - {len(teacher_tools)} tools")
         r.passed = True
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 2: Mentor tools registered ──────────────────────────────────────
@@ -95,11 +95,11 @@ async def run_all_tests():
         assert "explain_concept" in tool_names
         assert "generate_flashcard" in tool_names
 
-        print(f"  [PASS] {r.name} — {len(mentor_tools)} tools")
+        print(f"  [PASS] {r.name} - {len(mentor_tools)} tools")
         r.passed = True
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 3: Schema generation ────────────────────────────────────────────
@@ -122,12 +122,12 @@ async def run_all_tests():
 
         # Print one schema for manual verification
         sample = schemas[0]
-        print(f"  [PASS] {r.name} — {len(schemas)} schemas")
+        print(f"  [PASS] {r.name} - {len(schemas)} schemas")
         print(f"         Sample: {sample['function']['name']}")
         r.passed = True
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 4: Tool lookup by name ──────────────────────────────────────────
@@ -149,7 +149,7 @@ async def run_all_tests():
         r.passed = True
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 5: Execute nonexistent tool ─────────────────────────────────────
@@ -165,7 +165,7 @@ async def run_all_tests():
         r.passed = True
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 6: Schema is valid JSON ─────────────────────────────────────────
@@ -183,7 +183,7 @@ async def run_all_tests():
         r.passed = True
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 7: Shared tools appear in both agents ───────────────────────────
@@ -212,7 +212,7 @@ async def run_all_tests():
         r.passed = True
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 8: Print all tool schemas (informational) ───────────────────────
@@ -227,7 +227,7 @@ async def run_all_tests():
         r.passed = True
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Summary ──────────────────────────────────────────────────────────────

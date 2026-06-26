@@ -221,7 +221,7 @@ class DiagnosisService:
             )
         return row["id"]
 
-    # ── Heatmaps (no cache needed — called infrequently) ─────────────────────
+    # ── Heatmaps (no cache needed - called infrequently) ─────────────────────
 
     async def get_class_heatmap(self, course_id: int) -> list[dict]:
         async with get_ai_conn() as conn:

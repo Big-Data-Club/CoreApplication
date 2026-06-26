@@ -365,7 +365,7 @@ def main() -> int:
                 "and verifying for at least 24 hours."
             )
         else:
-            log.error("\n✗ Verification failed — some vectors are missing. Re-run migration.")
+            log.error("\n✗ Verification failed - some vectors are missing. Re-run migration.")
             return 1
 
     return 0

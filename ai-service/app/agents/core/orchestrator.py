@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/core/orchestrator.py
 
-Session Orchestrator — top-level entry point for agent chat.
+Session Orchestrator - top-level entry point for agent chat.
 
 This is the single function that the API endpoint calls.
 It manages the full session lifecycle:
@@ -47,7 +47,7 @@ async def handle_chat_message(
         user_id: Authenticated user ID (from JWT via lms-service proxy).
         agent_type: "teacher" or "mentor".
         message: The user's message text.
-        course_id: Optional EXPLICIT course context — when the FE opens a
+        course_id: Optional EXPLICIT course context - when the FE opens a
             course-scoped chat panel ("Quiz for course X"), it pins the
             scope. Omit (None) for a global session where the user can
             roam across all their courses.
@@ -73,7 +73,7 @@ async def handle_chat_message(
 
     # ── 1. Resolve session ────────────────────────────────────────────────────
     if session_id:
-        # Use existing session — just verify it exists and retrieve context + turn count
+        # Use existing session - just verify it exists and retrieve context + turn count
         session_info = await mtm.get_session(session_id)
         if session_info:
             session_data = {

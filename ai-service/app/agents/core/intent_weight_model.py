@@ -12,7 +12,7 @@ Solution:
   to calculate and compare:
     (A) Current context weight (page_context / MTM anchor)
     (B) User's explicit intent weight (explicit intent signal)
-  to decide which one should win — and when (B) > (A), override the scope to "general" or the new topic.
+  to decide which one should win - and when (B) > (A), override the scope to "general" or the new topic.
 
 Regex is not used. All signals are analyzed via a single LLM call with
 structured output -> ensuring it is multilingual-safe.
@@ -96,7 +96,7 @@ You are an Intent Weight Analyzer for a multilingual Learning Management System.
 Your job: Given what the student is currently reading (active lesson) and their new message, \
 determine whether the student wants to:
   (A) Work on the CURRENT active lesson (review it, do exercises, ask about it), or
-  (B) PIVOT away — asking for general support, a different topic, or general review unrelated to the active lesson.
+  (B) PIVOT away - asking for general support, a different topic, or general review unrelated to the active lesson.
 
 This is critical because many students say "help me review" or "ôn tập đi" when they want GENERAL review, \
 not a review of the specific lesson they happen to have open.
@@ -133,7 +133,7 @@ async def analyze_intent_weight(
     Returns:
         IntentWeightOutput with pivot_strength and explicit_intent.
     """
-    # Build context description for LLM — không dùng regex, để LLM phân tích
+    # Build context description for LLM - không dùng regex, để LLM phân tích
     context_lines = []
     if active_lesson_title:
         context_lines.append(f"Active lesson the student has open: \"{active_lesson_title}\"")
@@ -142,7 +142,7 @@ async def analyze_intent_weight(
     if mtm_anchor_topic:
         context_lines.append(f"MTM session anchor (last focused topic): \"{mtm_anchor_topic}\"")
     if not context_lines:
-        context_lines.append("No active lesson context — student has no lesson open.")
+        context_lines.append("No active lesson context - student has no lesson open.")
 
     context_str = "\n".join(context_lines)
 

@@ -73,7 +73,7 @@ def configure_logging() -> None:
         # Fallback: human-readable format for local dev
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(logging.Formatter(
-            fmt="%(asctime)s [%(name)s] %(levelname)s — %(message)s",
+            fmt="%(asctime)s [%(name)s] %(levelname)s - %(message)s",
             datefmt="%Y-%m-%dT%H:%M:%S",
         ))
 

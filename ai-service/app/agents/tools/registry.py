@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/tools/registry.py
 
-Tool Registry — maps agent types to their available tools.
+Tool Registry - maps agent types to their available tools.
 
 This is the ONLY place where new tools need to be registered.
 The ReAct loop calls `get_tools()` and `get_tool_schemas()` to

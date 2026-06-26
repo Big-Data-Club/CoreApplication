@@ -1,11 +1,11 @@
 """
 ai-service/app/api/endpoints/diagnose.py
 Phase 1 endpoints:
-POST /ai/diagnose   — analyze a wrong answer
-GET  /ai/heatmap/class/{course_id}   — class-wide knowledge heatmap
+POST /ai/diagnose   - analyze a wrong answer
+GET  /ai/heatmap/class/{course_id}   - class-wide knowledge heatmap
 GET  /ai/heatmap/student/{student_id}/course/{course_id}
-POST /ai/knowledge-nodes   — create knowledge node
-GET  /ai/knowledge-nodes/course/{course_id}  — get node tree
+POST /ai/knowledge-nodes   - create knowledge node
+GET  /ai/knowledge-nodes/course/{course_id}  - get node tree
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from app.services.diagnosis_service import diagnosis_service
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(prefix="/diagnose", tags=["Phase 1 — Diagnosis"])
+router = APIRouter(prefix="/diagnose", tags=["Phase 1 - Diagnosis"])
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

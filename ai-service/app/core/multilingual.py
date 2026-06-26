@@ -1,12 +1,12 @@
 """
 ai-service/app/core/multilingual.py
 
-Cross-lingual retrieval strategy — two modes:
+Cross-lingual retrieval strategy - two modes:
 
 NATIVE MODE  (settings.use_native_multilingual = True, default with bge-m3)
 
   BAAI/bge-m3 maps Vietnamese and English text into the same vector space.
-  A Vietnamese query finds English chunks directly — no translation needed.
+  A Vietnamese query finds English chunks directly - no translation needed.
   This eliminates ~100 ms of Groq latency and saves token quota entirely.
 
 TRANSLATION MODE  (settings.use_native_multilingual = False, nomic-ai)
@@ -129,7 +129,7 @@ async def multilingual_search(
     Route to native mode or translation mode based on settings.
 
     Native mode (bge-m3):
-      Single search — the model handles cross-lingual natively.
+      Single search - the model handles cross-lingual natively.
       ~2x faster, no LLM translation cost.
 
     Translation mode (nomic-ai):

@@ -41,7 +41,7 @@ async def close_ai_pool() -> None:
 @asynccontextmanager
 async def get_ai_conn() -> AsyncIterator[asyncpg.Connection]:
     """Acquire a connection from the AI pool. Releases on context exit."""
-    assert _ai_pool is not None, "AI pool not initialised — call init_ai_pool()"
+    assert _ai_pool is not None, "AI pool not initialised - call init_ai_pool()"
     async with _ai_pool.acquire() as conn:
         yield conn
 
@@ -60,7 +60,7 @@ def _make_sync_conn(
 
 @contextmanager
 def get_sync_ai_conn() -> Iterator[psycopg2.extensions.connection]:
-    """Sync context manager for AI tables — use in migration scripts only."""
+    """Sync context manager for AI tables - use in migration scripts only."""
     conn = _make_sync_conn(
         settings.ai_db_host, settings.ai_db_port,
         settings.ai_db_user, settings.ai_db_password, settings.ai_db_name,

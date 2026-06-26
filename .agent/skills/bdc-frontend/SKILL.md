@@ -1,7 +1,7 @@
 ---
 name: bdc-frontend
 description: >
-  Use for every task touching frontend/src/ — components, hooks, service calls,
+  Use for every task touching frontend/src/ - components, hooks, service calls,
   page routes, API route handlers, Tailwind styling, dark mode, modals, forms,
   or any new feature. Also consult when wiring up environment variables,
   proxy-aware fetches, or reviewing code consistency.
@@ -22,7 +22,7 @@ requires:
   - bdc-core-orchestrator
 ---
 
-# BDC Frontend — Developer Skill
+# BDC Frontend - Developer Skill
 
 **Runtime:** Node.js 20 Alpine
 **Framework:** Next.js 14 App Router
@@ -40,11 +40,11 @@ frontend/src/
 ├── app/
 │   ├── (auth)/               login, confirm-password-change
 │   ├── (landing)/            public landing pages
-│   ├── (main)/               authenticated sidebar app — dashboard, events, tasks, users
-│   ├── (learning)/lms/       LMS area — admin, student, teacher, forums
+│   ├── (main)/               authenticated sidebar app - dashboard, events, tasks, users
+│   ├── (learning)/lms/       LMS area - admin, student, teacher, forums
 │   └── api/                  Next.js Route Handlers (NextAuth, upload, youtube, health)
 ├── components/
-│   ├── ui/                   shadcn/ui primitives — do not modify directly
+│   ├── ui/                   shadcn/ui primitives - do not modify directly
 │   ├── layout/               Sidebar, MobileNav, Navbar, Footer
 │   ├── common/               SafeImage and other cross-feature components
 │   ├── dashboard/            announcement/, event/, calendar/, modals/
@@ -52,11 +52,11 @@ frontend/src/
 │   ├── lms/student/          AIDiagnosisModal, ContentViewer, QuizHistoryModal
 │   └── lms/teacher/          AINodeManager, AIQuizGenPanel, BulkUploadModal
 ├── hooks/                    useAuth, useCurrentUser, useAnnouncements, useEvents, useTasks
-├── services/                 ALL fetch() calls live here — never in components or hooks
-├── types/                    All shared TypeScript interfaces — re-export from index.ts
+├── services/                 ALL fetch() calls live here - never in components or hooks
+├── types/                    All shared TypeScript interfaces - re-export from index.ts
 ├── store/UserContext.tsx      Global user state
 ├── providers/MainProvider.tsx SessionProvider + UserContext + ThemeProvider
-└── utils/                    Pure helpers — no React imports
+└── utils/                    Pure helpers - no React imports
 ```
 
 ---
@@ -73,10 +73,10 @@ Never call backend ports directly from client code. Use the proxy paths.
 | `/files/:path*` | `LMS_API_URL/api/v1/files/serve/:path*` | LMS file serving |
 
 ```ts
-// ✅ Correct — works in Docker and production
+// ✅ Correct - works in Docker and production
 const res = await fetch("/apiv1/announcements");
 
-// ❌ Wrong — hardcoded port, breaks in Docker
+// ❌ Wrong - hardcoded port, breaks in Docker
 const res = await fetch("http://localhost:8080/announcements");
 ```
 
@@ -84,7 +84,7 @@ const res = await fetch("http://localhost:8080/announcements");
 
 ## API Clients
 
-Two base clients — every service file imports from one of them:
+Two base clients - every service file imports from one of them:
 
 | Client | File | Use for |
 |--------|------|---------|
@@ -196,7 +196,7 @@ export function useFeature() {
 
 ## Page Composition Pattern
 
-`page.tsx` is a composition shell — no `useState`, `useEffect`, or `fetch()` directly.
+`page.tsx` is a composition shell - no `useState`, `useEffect`, or `fetch()` directly.
 
 ```tsx
 // app/(main)/feature/page.tsx
@@ -323,16 +323,16 @@ export default function FeaturePage() {
 
 ```
 [ ] New type in src/types/ and re-exported from index.ts
-[ ] Service uses api.ts or lmsApiClient.ts — no raw fetch() in hooks or components
+[ ] Service uses api.ts or lmsApiClient.ts - no raw fetch() in hooks or components
 [ ] Hook follows CRUD + modal pattern
 [ ] Component in correct folder with named export
 [ ] Props interface named <Component>Props, fully typed
-[ ] page.tsx is composition only — no useState/useEffect/fetch inside
+[ ] page.tsx is composition only - no useState/useEffect/fetch inside
 [ ] All colours from approved token table with dark: counterpart
 [ ] Buttons have active:scale-95 transition-all duration-200
 [ ] Cards use rounded-2xl border-slate-200 dark:border-slate-800 shadow-sm
 [ ] Inputs use focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500
-[ ] Loading uses <LoadingState /> — no custom spinner
+[ ] Loading uses <LoadingState /> - no custom spinner
 [ ] Empty state has visible message
 [ ] Admin mutations guarded with checkAdminAccess()
 [ ] No hardcoded localhost URLs

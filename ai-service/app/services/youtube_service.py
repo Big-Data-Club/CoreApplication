@@ -1,7 +1,7 @@
 """
 app/services/youtube_service.py
 
-Fetch YouTube transcript — ưu tiên youtube-transcript-api (~50ms, 0 CPU).
+Fetch YouTube transcript - ưu tiên youtube-transcript-api (~50ms, 0 CPU).
 Whisper fallback bị tắt mặc định vì tốn ~500MB RAM cho server nhỏ.
 Bật qua env: YOUTUBE_WHISPER_FALLBACK=true
 """
@@ -60,7 +60,7 @@ class YouTubeTranscriptFetcher:
         if result:
             return result
 
-        # Method 2: Whisper fallback (nặng — chỉ bật khi cần)
+        # Method 2: Whisper fallback (nặng - chỉ bật khi cần)
         if _WHISPER_FALLBACK:
             logger.warning(
                 "No transcript via API for %s, falling back to Whisper", video_id
@@ -241,7 +241,7 @@ class YouTubeTranscriptFetcher:
                 return None
 
             try:
-                # "base" thay vì "small" — nhanh hơn 2x, đủ cho tiếng Việt
+                # "base" thay vì "small" - nhanh hơn 2x, đủ cho tiếng Việt
                 model = WhisperModel("base", device="cpu", compute_type="int8")
                 lang_code = language if language in ("vi", "en") else None
                 segs, info = model.transcribe(

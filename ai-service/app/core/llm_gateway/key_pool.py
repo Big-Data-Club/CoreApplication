@@ -1,11 +1,11 @@
 """
-KeyPool — picks an API key to use for a provider and maintains its health.
+KeyPool - picks an API key to use for a provider and maintains its health.
  
 Strategy
 --------
 * `lease(provider_id)` returns the least-loaded *active* key whose cooldown has
   expired and whose daily quota hasn't been exceeded. If none are available it
-  raises NoKeyAvailableError — the gateway then moves to the next model in the
+  raises NoKeyAvailableError - the gateway then moves to the next model in the
   fallback chain.
  
 * `record_success(key_id, tokens)` / `record_failure(key_id, kind, …)` update
@@ -13,7 +13,7 @@ Strategy
   exponential cooldown; auth errors mark the key `invalid` so the admin is
   alerted.
  
-* All state is in Postgres — no Redis dependency is introduced in Phase 1 so
+* All state is in Postgres - no Redis dependency is introduced in Phase 1 so
   the pool "just works" across worker processes. Counters are rolled over
   daily via `used_window_start`.
 """
@@ -31,7 +31,7 @@ from app.core.llm_gateway.types import ApiKey
 logger = logging.getLogger(__name__)
  
  
-# Exponential cooldown caps at 5 minutes — long enough to let a minute-level
+# Exponential cooldown caps at 5 minutes - long enough to let a minute-level
 # rate limit reset, short enough that admins don't notice a false positive.
 _COOLDOWN_BASE_SECONDS = 15
 _COOLDOWN_MAX_SECONDS = 300

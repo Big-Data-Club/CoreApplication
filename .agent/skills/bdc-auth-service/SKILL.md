@@ -1,7 +1,7 @@
 ---
 name: bdc-auth-service
 description: >
-  Use when working in auth-and-management-service/ — Java 21 + Spring Boot 3.x.
+  Use when working in auth-and-management-service/ - Java 21 + Spring Boot 3.x.
   Covers: JWT, user sync, layered architecture, JPA, email, password reset,
   events, tasks, announcements, CORS, security config.
 triggers:
@@ -17,11 +17,11 @@ requires:
   - bdc-core-orchestrator
 ---
 
-# BDC Auth & Management Service — Developer Skill
+# BDC Auth & Management Service - Developer Skill
 
 ## Role & Scope
 
-You are working on `auth-and-management-service/` — the authentication and
+You are working on `auth-and-management-service/` - the authentication and
 club management backend. Built with Java 21 + Spring Boot 3.x + PostgreSQL.
 
 **Root package:** `com.example.demo`
@@ -39,13 +39,13 @@ auth-and-management-service/
 │   ├── config/
 │   │   ├── CorsConfig.java               CORS whitelist (update together with SecurityConfig)
 │   │   ├── DataInitializer.java          Seeds default admin from ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}
-│   │   ├── GlobalExceptionHandler.java   @RestControllerAdvice — ALL error responses here
+│   │   ├── GlobalExceptionHandler.java   @RestControllerAdvice - ALL error responses here
 │   │   ├── JwtAuthFilter.java            Reads JWT from Authorization header OR authToken cookie
 │   │   ├── RestTemplateConfig.java       RestTemplate bean + @EnableAsync
 │   │   ├── SecurityConfig.java           Spring Security filter chain + CORS source
 │   │   ├── SwaggerConfig.java            OpenAPI with BearerAuth scheme
 │   │   └── WebConfig.java                Static resource handler for /uploads/**
-│   ├── controller/                       @RestController — HTTP only, no business logic
+│   ├── controller/                       @RestController - HTTP only, no business logic
 │   ├── service/                          Business logic, transactions, external calls
 │   │   └── impl/                         UserServiceImpl implements UserService
 │   ├── repository/                       Spring Data JPA + custom @Query
@@ -85,15 +85,15 @@ Database
 
 **Hard rules:**
 - Controllers never call Repository directly.
-- Services never return raw Entity to Controller — always go through Mapper.
+- Services never return raw Entity to Controller - always go through Mapper.
 - `@Transactional` belongs on Service methods, not Controllers.
-- Use `@Slf4j` + `log.info()` / `log.error()` — never `System.out.println`.
+- Use `@Slf4j` + `log.info()` / `log.error()` - never `System.out.println`.
 
 ---
 
-## Adding a New Feature — Standard Workflow
+## Adding a New Feature - Standard Workflow
 
-### Step 1 — Domain Model
+### Step 1 - Domain Model
 
 ```java
 @Entity
@@ -118,7 +118,7 @@ public class MyEntity {
 }
 ```
 
-### Step 2 — DTOs
+### Step 2 - DTOs
 
 ```java
 @Data @Builder
@@ -135,7 +135,7 @@ public class MyEntityResponse {
 }
 ```
 
-### Step 3 — Repository
+### Step 3 - Repository
 
 ```java
 @Repository
@@ -147,7 +147,7 @@ public interface MyEntityRepository
 }
 ```
 
-### Step 4 — Mapper
+### Step 4 - Mapper
 
 ```java
 public class MyEntityMapper {
@@ -166,7 +166,7 @@ public class MyEntityMapper {
 }
 ```
 
-### Step 5 — Service
+### Step 5 - Service
 
 ```java
 @Service
@@ -190,7 +190,7 @@ public class MyEntityService {
 }
 ```
 
-### Step 6 — Controller
+### Step 6 - Controller
 
 ```java
 @RestController
@@ -234,7 +234,7 @@ ROLE_USER     read-only on most resources
 ### Getting Current User in a Service
 
 ```java
-// Correct — read email from SecurityContext, load user from DB
+// Correct - read email from SecurityContext, load user from DB
 private User getCurrentUser() {
     String email = (String) SecurityContextHolder.getContext()
         .getAuthentication().getPrincipal();
@@ -242,7 +242,7 @@ private User getCurrentUser() {
         .orElseThrow(() -> new EntityNotFoundException("User not found: " + email));
 }
 
-// Wrong — do not inject Authentication directly into service layer
+// Wrong - do not inject Authentication directly into service layer
 ```
 
 ---
@@ -250,7 +250,7 @@ private User getCurrentUser() {
 ## Exception Handling
 
 All HTTP error responses are produced by `GlobalExceptionHandler`. Do not
-return error responses from controllers or services — throw exceptions instead.
+return error responses from controllers or services - throw exceptions instead.
 
 ```java
 // Add custom exceptions to exception/ package, then register here:
@@ -260,10 +260,10 @@ public ResponseEntity<Map<String, String>> handleResourceNotFound(ResourceNotFou
 }
 ```
 
-### Production Safety — hide stack trace
+### Production Safety - hide stack trace
 
 ```java
-// Current code exposes stack trace — fix before production deploy
+// Current code exposes stack trace - fix before production deploy
 // ❌
 return ResponseEntity.status(500).body(Map.of(
     "error", ex.getMessage(),
@@ -309,7 +309,7 @@ if (!tasks.isEmpty()) {
 ### Transaction Guidelines
 
 ```java
-@Transactional(readOnly = true)  // SELECT queries — better performance
+@Transactional(readOnly = true)  // SELECT queries - better performance
 @Transactional                   // INSERT / UPDATE / DELETE
 // Never put @Transactional on Controller methods
 // Never swallow exceptions inside @Transactional (prevents rollback)
@@ -350,7 +350,7 @@ curl -X POST http://localhost:8081/api/v1/sync/users/bulk \
   -d '[{"user_id":1,"email":"a@b.com","full_name":"Name","roles":["TEACHER","STUDENT"]}]'
 ```
 
-**Role mapping** — applied in `UserSyncService` and `AuthService` (keep in sync):
+**Role mapping** - applied in `UserSyncService` and `AuthService` (keep in sync):
 ```java
 private List<String> determineRoles(UserRole userRole) {
     List<String> roles = new ArrayList<>(List.of("TEACHER", "STUDENT")); // default for all
@@ -368,7 +368,7 @@ private List<String> determineRoles(UserRole userRole) {
 | HIGH | `JwtAuthFilter.java` | Remove `System.out.println` debug statements |
 | HIGH | `GlobalExceptionHandler.java` | Hide stack trace in production response |
 | HIGH | `CorsConfig.java` + `SecurityConfig.java` | Read `allowedOrigins` from env var, not hardcoded `bdc.hpcc.vn` |
-| HIGH | `DataInitializer.java` | Read admin email/password from env var — already done, verify it works |
+| HIGH | `DataInitializer.java` | Read admin email/password from env var - already done, verify it works |
 | MED | `AuthServiceTest.java` | `testBulkRegister_AssignsDefaultPassword` asserts wrong expected password |
 | MED | `EventControllerTest.java` | `testUpdateEvent_Success` asserts `"ONGOING"` but enum is `"IN_PROGRESS"` |
 
@@ -380,7 +380,7 @@ private List<String> determineRoles(UserRole userRole) {
 [ ] New endpoint has @PreAuthorize or is explicitly public
 [ ] All business logic in Service layer, not Controller
 [ ] @Transactional(readOnly = true) on read-only Service methods
-[ ] No System.out.println — use @Slf4j
+[ ] No System.out.println - use @Slf4j
 [ ] New env var added to .env.example + application.yaml + docker-compose.yml
 [ ] ResourceNotFoundException used for 404 cases (registered in GlobalExceptionHandler)
 [ ] N+1 queries avoided (EntityGraph or two-step fetch)

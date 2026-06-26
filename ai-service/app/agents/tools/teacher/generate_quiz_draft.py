@@ -21,11 +21,11 @@ class GenerateQuizDraftTool(BaseTool):
     description = (
         "Generate a QUIZ draft (multiple-choice questions, title, time "
         "limit, suggested section). Use this tool for ANY request that "
-        "involves creating quizzes, tests, questions, or assessments — "
+        "involves creating quizzes, tests, questions, or assessments - "
         "e.g. 'tạo quiz', 'tạo thêm quiz', 'tạo bài kiểm tra', "
         "'ra đề trắc nghiệm', 'làm câu hỏi cho chương này'.\n"
         "Requires a valid course_id AND node_id. If you don't have them, "
-        "call `list_my_courses` and `list_knowledge_nodes` FIRST — never "
+        "call `list_my_courses` and `list_knowledge_nodes` FIRST - never "
         "fabricate these IDs. The teacher reviews and publishes the draft "
         "via the HITL widget."
     )
@@ -85,7 +85,7 @@ class GenerateQuizDraftTool(BaseTool):
         preferred_title = kwargs.get("preferred_title")
 
         try:
-            # 0. Pre-validate node_id exists — catch hallucinated IDs early
+            # 0. Pre-validate node_id exists - catch hallucinated IDs early
             from app.core.database import get_ai_conn
 
             async with get_ai_conn() as conn:

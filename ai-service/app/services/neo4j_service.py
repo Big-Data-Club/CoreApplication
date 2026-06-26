@@ -5,9 +5,9 @@ Knowledge Graph backend using Neo4j.
 
 Design:
   - Every KnowledgeNode in PostgreSQL gets a mirror node in Neo4j.
-  - Relationships are stored ONLY in Neo4j — richer traversal, no N² PG joins.
+  - Relationships are stored ONLY in Neo4j - richer traversal, no N² PG joins.
   - Cross-course edges are first-class: tagged with cross_course=true.
-  - Node identity = PostgreSQL id (BIGINT) — no extra mapping table.
+  - Node identity = PostgreSQL id (BIGINT) - no extra mapping table.
 
 Relationship types (directional where it matters):
   PREREQUISITE  source must be understood before target
@@ -45,8 +45,8 @@ RELATIONSHIP_TYPES = {
 }
 
 # Similarity thresholds
-INTRA_COURSE_THRESHOLD  = 0.62   # Same course — more lenient
-CROSS_COURSE_THRESHOLD  = 0.82   # Different courses — tighter to avoid noise, but lowered for better recall
+INTRA_COURSE_THRESHOLD  = 0.62   # Same course - more lenient
+CROSS_COURSE_THRESHOLD  = 0.82   # Different courses - tighter to avoid noise, but lowered for better recall
 EQUIVALENT_THRESHOLD    = 0.95   # Very high -> likely same concept
 
 
@@ -79,7 +79,7 @@ class Neo4jService:
 
     def _get_driver(self) -> AsyncDriver:
         if self._driver is None:
-            raise RuntimeError("Neo4j driver not initialised — call init()")
+            raise RuntimeError("Neo4j driver not initialised - call init()")
         return self._driver
 
     # ── Schema ─────────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ class Neo4jService:
     async def _ensure_constraints(self) -> None:
         """Idempotent: create uniqueness constraint + indexes."""
         async with self._get_driver().session() as s:
-            # Unique constraint on (id) — maps 1:1 to PostgreSQL
+            # Unique constraint on (id) - maps 1:1 to PostgreSQL
             await s.run(
                 "CREATE CONSTRAINT kn_id IF NOT EXISTS "
                 "FOR (n:KnowledgeNode) REQUIRE n.id IS UNIQUE"
@@ -124,7 +124,7 @@ class Neo4jService:
             )
 
     async def upsert_nodes_batch(self, nodes: list[dict[str, Any]]) -> None:
-        """Batch upsert — single round-trip via UNWIND."""
+        """Batch upsert - single round-trip via UNWIND."""
         async with self._get_driver().session() as s:
             await s.run(
                 """
@@ -399,7 +399,7 @@ class Neo4jService:
     async def get_nodes_for_course_with_embeddings(
         self, course_id: int
     ) -> list[dict]:
-        """Used internally by deduplication — returns id + name only."""
+        """Used internally by deduplication - returns id + name only."""
         async with self._get_driver().session() as s:
             result = await s.run(
                 """

@@ -6,7 +6,7 @@
 | Status    | Approved                  |
 | Date      | 2026-04-19                |
 | Authors   | BDC Team                  |
-| Reviewers | —                         |
+| Reviewers | -                         |
 
 ## Revision History
 
@@ -72,8 +72,8 @@ lms-service (Go)                    ai-worker (Python)
 | `course_id`    | integer | Yes      | Course the content belongs to                             |
 | `file_url`     | string  | Yes*     | MinIO object key (not a full URL). Required unless TEXT   |
 | `content_type` | string  | Yes      | MIME type or `"TEXT"` for Markdown content                |
-| `title`        | string  | No       | Display title — used for TEXT content only                |
-| `text_content` | string  | No       | Full Markdown body — used when `content_type = "TEXT"`    |
+| `title`        | string  | No       | Display title - used for TEXT content only                |
+| `text_content` | string  | No       | Full Markdown body - used when `content_type = "TEXT"`    |
 | `force`        | boolean | No       | If true, delete existing chunks before re-indexing        |
 
 **content_type values:**
@@ -115,7 +115,7 @@ lms-service (Go)                    ai-worker (Python)
 | `status`         | string  | One of: `pending`, `processing`, `indexed`, `failed` |
 | `chunks_created` | integer | Number of chunks inserted into document_chunks   |
 | `error`          | string  | Error message if status is `failed`, else `""`   |
-| `job_id`         | integer | Legacy field — always 0, kept for compatibility  |
+| `job_id`         | integer | Legacy field - always 0, kept for compatibility  |
 
 ---
 
@@ -139,10 +139,10 @@ lms-service (Go)                    ai-worker (Python)
 
 | Field          | Type   | Required | Description                                    |
 |----------------|--------|----------|------------------------------------------------|
-| `job_id`       | string | Yes      | UUID v4 — used to correlate status updates     |
+| `job_id`       | string | Yes      | UUID v4 - used to correlate status updates     |
 | `command_type` | string | Yes      | See command types below                        |
 | `payload`      | object | Yes      | Command-specific data (see per-command schemas)|
-| `timestamp`    | string | No       | ISO 8601 — for debugging/audit only            |
+| `timestamp`    | string | No       | ISO 8601 - for debugging/audit only            |
 
 #### Command types and payloads
 
@@ -159,9 +159,9 @@ lms-service (Go)                    ai-worker (Python)
 ```
 | Field                 | Type         | Required | Default      |
 |-----------------------|--------------|----------|--------------|
-| `node_id`             | integer      | Yes      | —            |
-| `course_id`           | integer      | Yes      | —            |
-| `created_by`          | integer      | Yes      | —            |
+| `node_id`             | integer      | Yes      | -            |
+| `course_id`           | integer      | Yes      | -            |
+| `created_by`          | integer      | Yes      | -            |
 | `bloom_levels`        | string array | No       | all 6 levels |
 | `language`            | string       | No       | `"vi"`       |
 | `questions_per_level` | integer      | No       | `1`          |
@@ -321,7 +321,7 @@ Supported commands: `REINDEX_CONTENT`.
    Every handler is wrapped in `try/except` and publishes a `failed` status.
 
 2. If a command's `job_id` is missing or malformed, the message is logged
-   and discarded — no status is published (there is no job to update).
+   and discarded - no status is published (there is no job to update).
 
 3. LLM rate limit errors (`groq.RateLimitError`) trigger automatic exponential
    backoff (0.5s, 1s, 2s, 4s) before the status is marked `failed`.

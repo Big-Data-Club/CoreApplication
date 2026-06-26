@@ -1,6 +1,6 @@
 """Google Gemini (AI Studio) adapter.
  
-Uses the REST generateContent endpoint directly via httpx — no extra SDK.
+Uses the REST generateContent endpoint directly via httpx - no extra SDK.
 The OpenAI-style messages array is translated into Gemini's `contents`
 schema, and system messages become `systemInstruction`.
 """

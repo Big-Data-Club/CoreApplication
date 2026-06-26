@@ -11,7 +11,7 @@ $$ LANGUAGE plpgsql;
 -- =============================================================
 -- KNOWLEDGE NODES
 -- Embeddings stored in Qdrant (USE_QDRANT=true).
--- description_embedding column nullable — pgvector fallback only.
+-- description_embedding column nullable - pgvector fallback only.
 -- =============================================================
 
 CREATE TABLE IF NOT EXISTS knowledge_nodes (

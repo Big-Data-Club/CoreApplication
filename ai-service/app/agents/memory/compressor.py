@@ -39,9 +39,9 @@ RULES:
    - Key preferences (language, difficulty level, learning style)
 2. DISCARD: greetings, confirmations, repeated information, filler chitchat,
    raw tool JSON, debugging output.
-3. Output MUST be valid JSON matching the schema below — no extra fields,
+3. Output MUST be valid JSON matching the schema below - no extra fields,
    no prose before or after.
-4. Keep the output compact — target under 300 tokens.
+4. Keep the output compact - target under 300 tokens.
 5. Preserve the user's language. If conversation is in Vietnamese, write
    the JSON values in Vietnamese.
 6. When merging with EXISTING CONTEXT, preserve still-relevant facts and
@@ -50,7 +50,7 @@ RULES:
 Output JSON schema:
 {
     "decisions_made": ["string"],
-    "content_created": ["string — include IDs if available"],
+    "content_created": ["string - include IDs if available"],
     "identified_gaps": ["concept names the student is weak at"],
     "student_progress": {
         "avg_mastery": 0.0,
@@ -81,7 +81,7 @@ async def compress_conversation(
 
     Args:
         messages: List of messages in OpenAI format from STM.
-        agent_type: "teacher" or "mentor" — affects what to prioritise.
+        agent_type: "teacher" or "mentor" - affects what to prioritise.
         existing_ctx: Previous compressed context to merge with.
 
     Returns:

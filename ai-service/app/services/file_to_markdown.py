@@ -18,7 +18,7 @@ This is the foundation of both:
     best-quality semantic chunks in the codebase).
 
 Returned object includes both the Markdown body and the list of
-ExtractedImage records — the caller can decide whether to call the
+ExtractedImage records - the caller can decide whether to call the
 VLM on the URLs (auto-index does it during chunking) or pass them to
 the lesson splitter (micro-lesson generator).
 """
@@ -122,7 +122,7 @@ async def convert_to_markdown(
         return await _xlsx_to_markdown(file_bytes)
     if file_type == "image":
         return await _image_to_markdown(file_bytes, storage_prefix, language)
-    # Plain text / markdown — pass through (caller may already have markdown)
+    # Plain text / markdown - pass through (caller may already have markdown)
     text = file_bytes.decode("utf-8", errors="replace")
     return ConvertedDocument(markdown=text)
 
@@ -137,7 +137,7 @@ async def _pdf_to_markdown(
     try:
         import pymupdf
     except ImportError:
-        logger.error("PyMuPDF missing — falling back to plain pypdf extract")
+        logger.error("PyMuPDF missing - falling back to plain pypdf extract")
         return await _pdf_to_markdown_pypdf(pdf_bytes)
 
     images = await extract_pdf_images(pdf_bytes, storage_prefix)
@@ -202,7 +202,7 @@ async def _pdf_to_markdown(
                 pr.markdown = ocr_md
                 ocr_pages += 1
 
-    # ── Phase 3: assemble output — skip/merge thin pages ─────────────────
+    # ── Phase 3: assemble output - skip/merge thin pages ─────────────────
     # Thin pages (only copyright / page numbers) are merged into the next
     # substantive page to prevent micro-fragment chunks.
     out_parts: list[str] = []
@@ -224,7 +224,7 @@ async def _pdf_to_markdown(
             pending_images.extend(page_imgs)
             continue
 
-        # This is a substantive page — emit it
+        # This is a substantive page - emit it
         out_parts.append(f"\n\n## Trang {pr.page_no}\n\n")
 
         # Prepend any accumulated thin-page text
@@ -240,7 +240,7 @@ async def _pdf_to_markdown(
             out_parts.append(f"\n\n![{alt}]({img.url})\n")
         pending_images.clear()
 
-    # Flush any trailing thin pages (rare — last pages are usually thin)
+    # Flush any trailing thin pages (rare - last pages are usually thin)
     if pending_thin:
         out_parts.append("\n\n" + "\n".join(pending_thin))
 
@@ -317,7 +317,7 @@ async def _vlm_ocr_pdf_page(
 ) -> Optional[str]:
     """
     Render the page to PNG and ask the VLM to transcribe it as Markdown.
-    Image bytes are NOT uploaded — they're sent inline to the VLM.
+    Image bytes are NOT uploaded - they're sent inline to the VLM.
     """
     try:
         import pymupdf
@@ -513,10 +513,10 @@ async def _docx_to_markdown(docx_bytes: bytes, storage_prefix: str) -> Converted
         )
         md = result.value or ""
     except ImportError:
-        logger.warning("mammoth not installed — using python-docx fallback")
+        logger.warning("mammoth not installed - using python-docx fallback")
         md = _docx_to_markdown_fallback(docx_bytes)
     except Exception as exc:
-        logger.error("mammoth conversion failed: %s — falling back", exc, exc_info=True)
+        logger.error("mammoth conversion failed: %s - falling back", exc, exc_info=True)
         md = _docx_to_markdown_fallback(docx_bytes)
 
     return ConvertedDocument(markdown=md.strip(), images=images)
@@ -597,7 +597,7 @@ async def _pptx_to_markdown(pptx_bytes: bytes, storage_prefix: str, language: st
 
     md = "\n".join(parts).strip()
     if images and "![" not in md:
-        # Append image gallery at the end so they're not lost — the splitter
+        # Append image gallery at the end so they're not lost - the splitter
         # LLM can attach them to the right lesson based on caption_hint.
         md += "\n\n## Hình ảnh đính kèm\n"
         for img in images:

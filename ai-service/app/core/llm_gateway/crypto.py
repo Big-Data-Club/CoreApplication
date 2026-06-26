@@ -68,7 +68,7 @@ def decrypt(ciphertext: str) -> str:
         return _cipher().decrypt(ciphertext.encode()).decode()
     except InvalidToken as exc:
         raise KeyCryptoError(
-            "Cannot decrypt API key — encryption secret changed or ciphertext corrupted."
+            "Cannot decrypt API key - encryption secret changed or ciphertext corrupted."
         ) from exc
  
  

@@ -148,7 +148,7 @@ async def process_ai_command(payload: dict):
     job_payload  = payload.get("payload", {})
 
     if not job_id or not command_type:
-        logger.error("Invalid ai.command payload — missing job_id or command_type",
+        logger.error("Invalid ai.command payload - missing job_id or command_type",
                      extra={"payload_keys": list(payload.keys())})
         return
 
@@ -304,7 +304,7 @@ async def main():
                 logger.warning("Neo4j init attempt failed",
                                extra={"attempt": attempt, "error": str(exc)})
                 if attempt == 10:
-                    logger.error("Neo4j init failed after 10 attempts — continuing without it")
+                    logger.error("Neo4j init failed after 10 attempts - continuing without it")
                 else:
                     await asyncio.sleep(min(attempt * 3, 30))
 

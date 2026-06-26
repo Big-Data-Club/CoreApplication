@@ -1,13 +1,13 @@
 """
 ai-service/app/api/endpoints/quiz_gen.py
 Phase 2 endpoints:
-POST /ai/quiz/generate   — generate Bloom's Taxonomy quiz for a node
-GET  /ai/quiz/drafts/{course_id}   — list DRAFT questions for review
-POST /ai/quiz/{gen_id}/approve     — approve + publish to quiz
+POST /ai/quiz/generate   - generate Bloom's Taxonomy quiz for a node
+GET  /ai/quiz/drafts/{course_id}   - list DRAFT questions for review
+POST /ai/quiz/{gen_id}/approve     - approve + publish to quiz
 POST /ai/quiz/{gen_id}/reject
-POST /ai/spaced-repetition/record  — record review response (SM-2)
-GET  /ai/spaced-repetition/due     — get due reviews for student
-GET  /ai/spaced-repetition/stats   — review stats
+POST /ai/spaced-repetition/record  - record review response (SM-2)
+GET  /ai/spaced-repetition/due     - get due reviews for student
+GET  /ai/spaced-repetition/stats   - review stats
 """
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ from app.services.quiz_service import quiz_gen_service, sr_service, BLOOM_LEVELS
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-router = APIRouter(prefix="/quiz", tags=["Phase 2 — Quiz Generation"])
-sr_router = APIRouter(prefix="/spaced-repetition", tags=["Phase 2 — Spaced Repetition"])
+router = APIRouter(prefix="/quiz", tags=["Phase 2 - Quiz Generation"])
+sr_router = APIRouter(prefix="/spaced-repetition", tags=["Phase 2 - Spaced Repetition"])
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ class RecordResponseRequest(BaseModel):
 async def generate_quiz(body: GenerateQuizRequest, request: Request):
     """
     Phase 2: Auto Quiz Generator using Bloom's Taxonomy.
-    Generates DRAFT questions — require instructor review before publishing.
+    Generates DRAFT questions - require instructor review before publishing.
     """
     _verify_internal(request)
 

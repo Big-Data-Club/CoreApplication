@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/memory/ltm.py
 
-Long-Term Memory (LTM) — Qdrant + PostgreSQL episodic memory.
+Long-Term Memory (LTM) - Qdrant + PostgreSQL episodic memory.
 
 When a session is compressed (or explicitly ended), an "episode" summary
 is created and stored:
@@ -89,7 +89,7 @@ class LTMemory:
                 await client.create_payload_index(
                     EPISODE_COLLECTION, "course_id", PayloadSchemaType.INTEGER,
                 )
-            except Exception:  # noqa: BLE001 — index may already exist
+            except Exception:  # noqa: BLE001 - index may already exist
                 pass
             logger.debug("Qdrant collection already exists: %s", EPISODE_COLLECTION)
 
@@ -149,7 +149,7 @@ class LTMemory:
         3. Save metadata to PostgreSQL
 
         `course_id` is the dominant course of the session (e.g. the most
-        recent CURRENT ANCHOR at compression time). It is OPTIONAL — pass
+        recent CURRENT ANCHOR at compression time). It is OPTIONAL - pass
         None for cross-course episodes. Stored both in the Qdrant payload
         and the PG row so recall can filter or union by course.
 

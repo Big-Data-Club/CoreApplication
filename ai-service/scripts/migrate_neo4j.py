@@ -47,7 +47,7 @@ async def migrate(
     settings = get_settings()
 
     if not settings.neo4j_enabled:
-        log.error("NEO4J_ENABLED=false — set it to true before migrating")
+        log.error("NEO4J_ENABLED=false - set it to true before migrating")
         return
 
     # ── 1. Init connections ────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ async def migrate(
         log.info("  Found %d knowledge nodes", len(nodes_pg))
 
         if not nodes_pg:
-            log.warning("No nodes found — nothing to migrate")
+            log.warning("No nodes found - nothing to migrate")
             return
 
         if dry_run:
@@ -204,7 +204,7 @@ async def migrate(
         elapsed = time.perf_counter() - t0
         log.info("\n✓ Migration completed in %.1fs", elapsed)
         if dry_run:
-            log.info("(DRY RUN — no data written)")
+            log.info("(DRY RUN - no data written)")
 
     finally:
         await neo4j_service.close()
@@ -257,7 +257,7 @@ async def _run_cross_course_linking(nodes_pg: list[dict]) -> None:
         return
 
     if not id_to_embedding:
-        log.warning("  No embeddings in Qdrant — skipping cross-course linking")
+        log.warning("  No embeddings in Qdrant - skipping cross-course linking")
         log.info("  Tip: Run auto-index with force=True to re-generate embeddings")
         return
 
@@ -282,7 +282,7 @@ async def _run_cross_course_linking(nodes_pg: list[dict]) -> None:
     total_embedded = sum(len(v) for v in course_node_infos.values())
     log.info("  %d nodes have embeddings (out of %d total)", total_embedded, len(nodes_pg))
 
-    # Process one course at a time — pass its nodes to cross-course linker
+    # Process one course at a time - pass its nodes to cross-course linker
     total_edges = 0
     for i, (course_id, node_infos) in enumerate(course_node_infos.items(), 1):
         log.info(

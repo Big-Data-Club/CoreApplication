@@ -1,8 +1,8 @@
 """
 ai-service/app/api/endpoints/micro_quizzes.py
 
-POST /ai/micro-quizzes/generate        — kick off micro-quiz generation (file)
-POST /ai/micro-quizzes/generate-youtube — same, but from a YouTube URL
+POST /ai/micro-quizzes/generate        - kick off micro-quiz generation (file)
+POST /ai/micro-quizzes/generate-youtube - same, but from a YouTube URL
 
 The LMS owns the canonical job + quiz rows; this service just spawns
 a background task that downloads the source, generates questions, and

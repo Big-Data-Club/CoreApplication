@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/memory/context_builder.py
 
-ContextBuilder — the central orchestrator for the simplified 3-tier memory system:
+ContextBuilder - the central orchestrator for the simplified 3-tier memory system:
   1. STM (Short-term dialogue memory): Recent chat history
   2. LTM Episodic: Past session summaries retrieved from Qdrant
   3. LTM Facts: Student concept mastery / struggles / strengths retrieved from Postgres

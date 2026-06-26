@@ -1,2 +1,2 @@
 # ai-service/app/agents/tools/teacher/__init__.py
-# Teacher-agent tools (Virtual TA — write/draft permissions)
+# Teacher-agent tools (Virtual TA - write/draft permissions)

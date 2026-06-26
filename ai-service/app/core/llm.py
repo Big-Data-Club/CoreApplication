@@ -10,7 +10,7 @@ gateway (app.core.llm_gateway), picking up:
   * a shared pool of API keys with cooldowns,
   * usage logging and cost tracking.
 
-Prompt builders and system prompts are unchanged — they live in
+Prompt builders and system prompts are unchanged - they live in
 `app.core.prompts` now to keep this module focused on call mechanics.
 """
 from __future__ import annotations
@@ -116,7 +116,7 @@ async def chat_complete(
     Multi-provider chat completion.
 
     `task` selects the fallback chain (see app.core.llm_gateway.types for
-    canonical task codes). `model` is honoured as a soft preference — if the
+    canonical task codes). `model` is honoured as a soft preference - if the
     name matches a bound model for the task it's tried first, otherwise the
     chain's priority order wins.
     """

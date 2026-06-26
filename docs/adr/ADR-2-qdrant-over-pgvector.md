@@ -54,7 +54,7 @@ Setting `USE_QDRANT=false` reverts to the pgvector path without code changes.
 - Native payload filtering runs before ANN (pre-filtering), eliminating the
   sequential scan problem with pgvector
 - `on_disk=true` for vector storage keeps HNSW graph in RAM while cold
-  vector data lives on SSD — good balance for our access pattern
+  vector data lives on SSD - good balance for our access pattern
 - Python async client (`qdrant-client[async]`) with full type annotations
 
 ## Implementation
@@ -101,7 +101,7 @@ This re-populates the `embedding` column from the Qdrant backup copy.
   `auto_index` with `force=true` re-ingests documents from scratch.
 
 ## References
-- `ai-service/app/services/qdrant_service.py` — client wrapper
-- `ai-service/app/services/rag_service.py` — routing logic (use_qdrant flag)
-- `ai-service/scripts/migrate_to_qdrant.py` — migration script
-- `docker-compose.yml` — Qdrant service configuration
+- `ai-service/app/services/qdrant_service.py` - client wrapper
+- `ai-service/app/services/rag_service.py` - routing logic (use_qdrant flag)
+- `ai-service/scripts/migrate_to_qdrant.py` - migration script
+- `docker-compose.yml` - Qdrant service configuration

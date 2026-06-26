@@ -1,7 +1,7 @@
 """Usage logging for the LLM gateway.
  
 Writes one row to llm_usage_log per call attempt (including failed ones). The
-function is fire-and-forget from the gateway's perspective — logging errors
+function is fire-and-forget from the gateway's perspective - logging errors
 are swallowed so they never break a user-visible LLM call.
 """
 from __future__ import annotations

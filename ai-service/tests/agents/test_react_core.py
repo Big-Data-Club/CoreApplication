@@ -61,7 +61,7 @@ class TestResult:
         if self.skipped:
             return f"  [SKIP] {self.name}"
         s = "PASS" if self.passed else "FAIL"
-        e = f" — {self.error}" if self.error else ""
+        e = f" - {self.error}" if self.error else ""
         return f"  [{s}] {self.name}{e}"
 
 
@@ -69,7 +69,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
     results: list[TestResult] = []
 
     print("=" * 70)
-    print("  BDC ReAct Orchestrator Core — Phase 3 Tests")
+    print("  BDC ReAct Orchestrator Core - Phase 3 Tests")
     print(f"  Mode: {'unit-only' if unit_only else 'full integration'}")
     print("=" * 70)
 
@@ -104,7 +104,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
             r.passed = True
         except Exception as e:
             r.error = str(e)
-            print(f"  [FAIL] {r.name} — {e}")
+            print(f"  [FAIL] {r.name} - {e}")
         results.append(r)
 
     # ── Test 2: Tool schema injection format ─────────────────────────────────
@@ -135,7 +135,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
             r.passed = True
         except Exception as e:
             r.error = str(e)
-            print(f"  [FAIL] {r.name} — {e}")
+            print(f"  [FAIL] {r.name} - {e}")
         results.append(r)
 
     # ── Test 3: Intent Router (requires Groq API) ───────────────────────────
@@ -161,7 +161,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                         f"'{msg}' -> got '{result.intent}', expected '{expected}'"
                     )
 
-                # These require LLM — just check they return valid intents
+                # These require LLM - just check they return valid intents
                 from app.agents.core.router import VALID_INTENTS
 
                 complex_cases = [
@@ -180,7 +180,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                 r.passed = True
             except Exception as e:
                 r.error = str(e)
-                print(f"  [FAIL] {r.name} — {e}")
+                print(f"  [FAIL] {r.name} - {e}")
         results.append(r)
 
     # ── Test 4: Clarification Gate (requires Groq API) ──────────────────────
@@ -197,7 +197,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
 
                 tool_schemas = get_tool_schemas("teacher")
 
-                # Clear request — should NOT need clarification
+                # Clear request - should NOT need clarification
                 result = await should_clarify(
                     "Tạo 5 câu hỏi về OOP cho khóa học 1",
                     tool_schemas, {},
@@ -207,7 +207,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                 )
                 print(f"         Clear request: no clarification ✓")
 
-                # Short message — should skip
+                # Short message - should skip
                 result = await should_clarify("ok", tool_schemas, {})
                 assert not result["needs_clarification"]
                 print(f"         Short message: skipped ✓")
@@ -216,7 +216,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                 r.passed = True
             except Exception as e:
                 r.error = str(e)
-                print(f"  [FAIL] {r.name} — {e}")
+                print(f"  [FAIL] {r.name} - {e}")
         results.append(r)
 
     # ── Test 5: Full ReAct loop (requires Docker + Groq) ────────────────────
@@ -272,11 +272,11 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                     if e.type == AgentEventType.SESSION:
                         await stm.clear(e.data.get("session_id", ""))
 
-                print(f"  [PASS] {r.name} — {len(events)} events, {elapsed:.0f}ms")
+                print(f"  [PASS] {r.name} - {len(events)} events, {elapsed:.0f}ms")
                 r.passed = True
             except Exception as e:
                 r.error = str(e)
-                print(f"  [FAIL] {r.name} — {e}")
+                print(f"  [FAIL] {r.name} - {e}")
         results.append(r)
 
     # ── Test 6: API endpoint format ──────────────────────────────────────────
@@ -313,7 +313,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
             r.passed = True
         except Exception as e:
             r.error = str(e)
-            print(f"  [FAIL] {r.name} — {e}")
+            print(f"  [FAIL] {r.name} - {e}")
         results.append(r)
 
     # ── Test 7: Multi-agent Spawning score calculation ───────────────────────
@@ -349,7 +349,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
             r.passed = True
         except Exception as e:
             r.error = str(e)
-            print(f"  [FAIL] {r.name} — {e}")
+            print(f"  [FAIL] {r.name} - {e}")
         results.append(r)
 
     # ── Summary ──────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-"""Adapter registry — maps `adapter_type` strings to concrete classes."""
+"""Adapter registry - maps `adapter_type` strings to concrete classes."""
 from __future__ import annotations
  
 from app.core.llm_gateway.adapters.anthropic_adapter import AnthropicAdapter

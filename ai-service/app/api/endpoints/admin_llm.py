@@ -2,7 +2,7 @@
 Admin endpoints for the multi-model LLM registry.
 Authentication: the existing X-AI-Secret internal header (same as
 app/api/endpoints/admin.py). The auth-and-management service will expose a
-role-gated proxy (`/api/admin/llm/*`) that injects this header — end users
+role-gated proxy (`/api/admin/llm/*`) that injects this header - end users
 never call this FastAPI service directly.
 Conventions:
   * POST returns the full new/updated row.
@@ -27,7 +27,7 @@ from app.core.llm_gateway.adapters import supported_adapter_types
 from app.core.llm_gateway.usage import aggregate_usage
 logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(prefix="/admin/llm", tags=["Admin — LLM Registry"])
+router = APIRouter(prefix="/admin/llm", tags=["Admin - LLM Registry"])
 def _verify(request: Request) -> None:
     if request.headers.get("X-AI-Secret", "") != settings.ai_service_secret:
         raise HTTPException(status_code=403, detail="Unauthorized")
@@ -256,7 +256,7 @@ async def list_bindings(
 async def upsert_binding(body: BindingIn, request: Request):
     _verify(request)
     if body.task_code not in ALL_TASK_CODES:
-        # We still allow it — admins may add custom codes — but warn.
+        # We still allow it - admins may add custom codes - but warn.
         logger.warning("Binding for unknown task_code=%s", body.task_code)
     b = await get_registry().upsert_binding(**body.model_dump())
     return _binding_dto(b)

@@ -1,6 +1,6 @@
-# Developer Guide — BDC Application
+# Developer Guide - BDC Application
 
-> This guide is for **developers**, **contributors**, and anyone who wants to run the project locally, understand the codebase structure, or add new features. Read it once from top to bottom — it will save you a lot of debugging time later.
+> This guide is for **developers**, **contributors**, and anyone who wants to run the project locally, understand the codebase structure, or add new features. Read it once from top to bottom - it will save you a lot of debugging time later.
 
 ---
 
@@ -32,7 +32,7 @@ BDC Application is a **microservices-based Learning Management System (LMS)** co
                            │ Port 3000
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│              Frontend — Next.js 14                           │
+│              Frontend - Next.js 14                           │
 │   /apiv1/*  ────────► Spring Boot Backend  (proxy rewrite)   │
 │   /lmsapiv1/* ──────► Go LMS Backend       (proxy rewrite)   │
 │   /files/*  ────────► LMS file serving                       │
@@ -132,7 +132,7 @@ CoreApplication/
 
 ## 3. Prerequisites
 
-### Running with Docker — Recommended for new developers
+### Running with Docker - Recommended for new developers
 
 The simplest approach. You only need:
 
@@ -144,7 +144,7 @@ The simplest approach. You only need:
 
 > Make sure Docker Desktop is running and has at least **4GB RAM** allocated under Settings -> Resources.
 
-### Running services individually — For advanced development
+### Running services individually - For advanced development
 
 If you want hot-reload and direct debugging on your machine:
 
@@ -160,14 +160,14 @@ If you want hot-reload and direct debugging on your machine:
 
 This is the **fastest** way to get a complete working environment on your machine.
 
-### Step 1 — Clone the repository
+### Step 1 - Clone the repository
 
 ```bash
 git clone https://github.com/Big-Data-Club/CoreApplication.git
 cd CoreApplication
 ```
 
-### Step 2 — Create your environment file
+### Step 2 - Create your environment file
 
 ```bash
 cp .env.example .env
@@ -175,17 +175,17 @@ cp .env.example .env
 
 Open `.env` and fill in the required values. See [Section 6](#6-environment-variable-configuration) for an explanation of each variable, and [TECHNICAL_NOTES.md](./TECHNICAL_NOTES.md) to learn which ones cause silent failures when set incorrectly.
 
-### Step 3 — Build and launch
+### Step 3 - Build and launch
 
 ```bash
-# First time — pulls images and builds, takes 3–5 minutes
+# First time - pulls images and builds, takes 3–5 minutes
 docker compose up -d --build
 
 # Subsequent launches with no code changes
 docker compose up -d
 ```
 
-### Step 4 — Check service status
+### Step 4 - Check service status
 
 ```bash
 # All STATUS values should be "healthy", not "starting"
@@ -197,7 +197,7 @@ docker compose logs -f backend
 docker compose logs -f lms-backend
 ```
 
-### Step 5 — Access the application
+### Step 5 - Access the application
 
 | Service | URL |
 |---|---|
@@ -226,7 +226,7 @@ This approach is best when you are **focused on developing one service** and wan
 **Strategy:** Keep infrastructure services (database, Redis, MinIO) running in Docker, and run your target service directly on your machine.
 
 ```bash
-# Start only infrastructure — no code rebuild needed
+# Start only infrastructure - no code rebuild needed
 docker compose up -d postgres postgres-lms redis-lms minio
 ```
 
@@ -335,11 +335,11 @@ export APP_PORT=8081
 
 Copy `.env.example` to `.env` and fill in the values. Here's an explanation by group.
 
-### Security — Must be changed
+### Security - Must be changed
 
 ```env
 # JWT: Secret key used to sign and verify tokens
-# MUST be identical between Backend and LMS — MUST be >= 32 characters!
+# MUST be identical between Backend and LMS - MUST be >= 32 characters!
 JWT_SECRET=replace-with-a-random-string-longer-than-32-chars
 
 # NextAuth: Session encryption key for Next.js
@@ -352,7 +352,7 @@ LMS_SYNC_SECRET=your-sync-secret  # must equal LMS_API_SECRET
 
 > Generate a secure random string: `openssl rand -base64 32`
 
-### URLs — Environment-dependent
+### URLs - Environment-dependent
 
 ```env
 # Local development
@@ -399,7 +399,7 @@ EMAIL_PASSWORD=google-app-password-16-chars  # See TECHNICAL_NOTES.md Section 2
 APP_PUBLIC_URL=http://localhost:3000  # Must be reachable by the email recipient's browser
 ```
 
-> Incorrect email config will cause `bulkRegister` to create users silently without sending passwords — they cannot log in. See [TECHNICAL_NOTES.md — Section 2](./TECHNICAL_NOTES.md#2-email--gmail-smtp-configuration).
+> Incorrect email config will cause `bulkRegister` to create users silently without sending passwords - they cannot log in. See [TECHNICAL_NOTES.md - Section 2](./TECHNICAL_NOTES.md#2-email--gmail-smtp-configuration).
 
 ---
 
@@ -434,7 +434,7 @@ Auth Backend (Spring) ─── POST /api/v1/sync/user ───► LMS Backend 
                           (runs async, does not block response)
 ```
 
-> Because sync runs **asynchronously**, sync failures only appear in logs — no exception is thrown to the client. See [TECHNICAL_NOTES.md — Section 4](./TECHNICAL_NOTES.md#4-user-sync--asynchronous-sync-easy-to-miss).
+> Because sync runs **asynchronously**, sync failures only appear in logs - no exception is thrown to the client. See [TECHNICAL_NOTES.md - Section 4](./TECHNICAL_NOTES.md#4-user-sync--asynchronous-sync-easy-to-miss).
 
 ### File Upload Flow
 
@@ -554,33 +554,33 @@ test(lms): add unit tests for enrollment service
 ### Coding Conventions
 
 **Frontend (TypeScript/Next.js):**
-- TypeScript strict mode — avoid using `any`
+- TypeScript strict mode - avoid using `any`
 - Components use arrow functions and named exports
 - File names: `PascalCase.tsx` for components, `camelCase.ts` for hooks/utilities
-- Styling exclusively with Tailwind CSS — avoid inline styles
+- Styling exclusively with Tailwind CSS - avoid inline styles
 
 **Backend (Java/Spring Boot):**
-- Follow Spring Boot conventions — Controllers handle HTTP, business logic lives in Services
-- Use `@Slf4j` (Lombok) for logging — never use `System.out.println`
+- Follow Spring Boot conventions - Controllers handle HTTP, business logic lives in Services
+- Use `@Slf4j` (Lombok) for logging - never use `System.out.println`
 - Write Javadoc for all public methods
 
 **LMS (Go):**
 - Follow [Effective Go](https://go.dev/doc/effective_go)
-- Explicit error handling — never discard errors with `_`
+- Explicit error handling - never discard errors with `_`
 - Run `go vet ./...` before committing
 
 ---
 
 ## 10. CI/CD Pipeline
 
-### CI — Triggered on Pull Requests and Pushes
+### CI - Triggered on Pull Requests and Pushes
 
 ```
 Code push / PR opened
     │
     ▼
  Detect Changes
-    │ (Only build services with changed files — saves time)
+    │ (Only build services with changed files - saves time)
     ▼
  Build & Test (run in parallel)
  ├── Backend : ./mvnw test
@@ -588,14 +588,14 @@ Code push / PR opened
  └── LMS   : go test ./...
     │
     ▼
- Security Scan (Trivy — scans Docker images for vulnerabilities)
+ Security Scan (Trivy - scans Docker images for vulnerabilities)
     │
     ▼
  Push Docker Image
     └── Only when merging into main or develop
 ```
 
-### CD — Production Deploy (on merge to main)
+### CD - Production Deploy (on merge to main)
 
 `cd-production.yml` automatically:
 1. Pulls the new Docker image from Docker Hub
@@ -644,14 +644,14 @@ docker compose exec postgres psql -U postgres -d club_db
 docker compose down -v && docker compose up -d
 ```
 
-### Frontend cannot reach the API — CORS error or 502
+### Frontend cannot reach the API - CORS error or 502
 
 1. Check `BACKEND_URL` in `.env` (should be `http://backend:8080` when using Docker)
 2. Confirm the backend is healthy: `docker compose ps backend`
 3. Test directly: `curl http://localhost:8080/actuator/health`
 4. Check that `CORS_ALLOWED_ORIGINS` includes your frontend URL
 
-See [TECHNICAL_NOTES.md — Section 3](./TECHNICAL_NOTES.md#3-cors--configured-in-three-places) for CORS details.
+See [TECHNICAL_NOTES.md - Section 3](./TECHNICAL_NOTES.md#3-cors--configured-in-three-places) for CORS details.
 
 ### "Port already in use" error
 
@@ -681,7 +681,7 @@ docker compose exec redis-lms redis-cli -a redis_password ping
 
 ### Files disappear after container restart
 
-Check that `docker-compose.yml` mounts a volume for `/app/uploads`, and verify `STORAGE_TYPE` in `.env` (`local` or `minio`). See [TECHNICAL_NOTES.md — Section 5](./TECHNICAL_NOTES.md#5-storage--local-vs-minio).
+Check that `docker-compose.yml` mounts a volume for `/app/uploads`, and verify `STORAGE_TYPE` in `.env` (`local` or `minio`). See [TECHNICAL_NOTES.md - Section 5](./TECHNICAL_NOTES.md#5-storage--local-vs-minio).
 
 ### Docker build fails due to memory
 
@@ -699,17 +699,17 @@ docker compose build lms-backend
 
 ## 12. FAQ
 
-**Q: I am only working on the Frontend — do I need the LMS Backend?**
+**Q: I am only working on the Frontend - do I need the LMS Backend?**
 
 It depends on what you are building. If you are working on UI unrelated to LMS features, `docker compose up -d postgres backend` is sufficient. For API mocking, consider using MSW (Mock Service Worker).
 
 **Q: Does JWT_SECRET really need to be the same in both backends?**
 
-Yes, **it is mandatory**. Both services verify JWTs with the same secret. If they differ, the LMS will reject all requests carrying Auth-issued tokens with `401 Unauthorized`. See [TECHNICAL_NOTES.md — Section 1](./TECHNICAL_NOTES.md#1-jwt--sharing-the-secret-between-two-backends).
+Yes, **it is mandatory**. Both services verify JWTs with the same secret. If they differ, the LMS will reject all requests carrying Auth-issued tokens with `401 Unauthorized`. See [TECHNICAL_NOTES.md - Section 1](./TECHNICAL_NOTES.md#1-jwt--sharing-the-secret-between-two-backends).
 
 **Q: Why are there two separate PostgreSQL databases?**
 
-This is a microservices design principle — each service owns its data to remain independent and scalable. The Auth service manages `users`, `events`, `announcements`. The LMS manages `courses`, `quizzes`, `enrollments`. User data flows between the two systems via an internal sync API.
+This is a microservices design principle - each service owns its data to remain independent and scalable. The Auth service manages `users`, `events`, `announcements`. The LMS manages `courses`, `quizzes`, `enrollments`. User data flows between the two systems via an internal sync API.
 
 **Q: How do I view the database directly?**
 

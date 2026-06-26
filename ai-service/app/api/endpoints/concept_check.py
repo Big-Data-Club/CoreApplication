@@ -67,7 +67,7 @@ class ConceptCheckResponse(BaseModel):
 async def generate_concept_check(body: ConceptCheckRequest, request: Request):
     """
     Generate 1–2 SINGLE_CHOICE 'Concept Check' questions for the Quick
-    Action Panel. Always uses real source text — either the chunk passed
+    Action Panel. Always uses real source text - either the chunk passed
     in by the FE or the top RAG passages for ``node_id``.
     """
     _verify_internal(request)
@@ -82,7 +82,7 @@ async def generate_concept_check(body: ConceptCheckRequest, request: Request):
     node_name: Optional[str] = None
 
     # If the FE only gave us a node id, pull the top-3 retrieval chunks
-    # and stitch them together — same pattern used by the quiz generator.
+    # and stitch them together - same pattern used by the quiz generator.
     if not text_chunk and body.node_id is not None:
         async with get_ai_conn() as conn:
             node = await conn.fetchrow(

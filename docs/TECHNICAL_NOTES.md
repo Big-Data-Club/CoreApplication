@@ -6,7 +6,7 @@
 | Status    | Approved                  |
 | Date      | 2026-04-19                |
 | Authors   | BDC Team                  |
-| Reviewers | —                         |
+| Reviewers | -                         |
 
 ## Revision History
 
@@ -33,7 +33,7 @@ auth-service with `401 Unauthorized`. No log message explains the mismatch.
 **Impact:** All authenticated LMS requests fail silently.
 
 **Fix:** Single `JWT_SECRET` value in `.env`, minimum 32 characters.
-Verify: `grep JWT_SECRET .env | wc -c` — output should be the same for both
+Verify: `grep JWT_SECRET .env | wc -c` - output should be the same for both
 service containers.
 
 ---
@@ -52,7 +52,7 @@ a `@Value` injection error.
 
 ## Section 2: User Sync
 
-### TN-003: User sync is async — silent failure on LMS downtime
+### TN-003: User sync is async - silent failure on LMS downtime
 
 **Context:** `UserSyncService.syncUsersToLms()` is `@Async`. It fires after
 `bulkRegister()` completes and does not block the HTTP response.
@@ -95,8 +95,8 @@ sync request returns `401` and user access to LMS breaks (see TN-003 impact).
 ### TN-005: STORAGE_TYPE must be `minio` for AI document processing
 
 **Detail:** lms-service reads `STORAGE_TYPE` from environment.
-- `local` — stores files in the container filesystem at `/app/uploads`.
-- `minio` — stores files in the MinIO bucket `lms-files`.
+- `local` - stores files in the container filesystem at `/app/uploads`.
+- `minio` - stores files in the MinIO bucket `lms-files`.
 
 The AI worker (`ai-worker`) fetches files directly from MinIO via SDK.
 It does not read from the local filesystem.
@@ -114,7 +114,7 @@ documents. `local` is only suitable for frontend-only development.
 ### TN-006: Two conflicting 002_*.sql files (fixed in 002_schema_extensions.sql)
 
 **Context:** The original repo contained `002_add_diagnosis_cache_fields.sql`
-and `002_decouple_lms.sql` — two files with the same numeric prefix. The
+and `002_decouple_lms.sql` - two files with the same numeric prefix. The
 `docker-compose.yml` only mounted `001_ai_core.sql` and
 `003_performance_indexes.sql`, so both `002_*` files were never applied on
 fresh installs.
@@ -206,8 +206,8 @@ docker exec bdc-kafka kafka-consumer-groups.sh \
 
 LAG column thresholds:
 - `0` or near-zero: healthy.
-- `> 100`: worker falling behind — check worker logs.
-- `> 500`: critical — scale the worker or investigate errors.
+- `> 100`: worker falling behind - check worker logs.
+- `> 500`: critical - scale the worker or investigate errors.
 
 HTTP alternative (Phase 3 feature):
 ```bash
@@ -270,7 +270,7 @@ caption availability is insufficient.
 
 ### TN-015: AuthServiceTest.testBulkRegister_AssignsDefaultPassword is incorrect
 
-**Status:** Not fixed — known issue.
+**Status:** Not fixed - known issue.
 
 **Fix:** Update the test assertion to match the actual generated password
 logic in `PasswordGenerator.java`.
@@ -296,11 +296,11 @@ initdb scripts only run when the PostgreSQL data volume is empty. For existing
 deployments, apply manually:
 
 ```bash
-# AI DB — apply 002 extension migration (if not yet applied)
+# AI DB - apply 002 extension migration (if not yet applied)
 docker exec -i postgres-ai psql -U "$AI_POSTGRES_USER" -d "$AI_POSTGRES_DB" \
   < ai-service/migrations/002_schema_extensions.sql
 
-# AI DB — apply performance indexes (idempotent, safe to re-run)
+# AI DB - apply performance indexes (idempotent, safe to re-run)
 docker exec -i postgres-ai psql -U "$AI_POSTGRES_USER" -d "$AI_POSTGRES_DB" \
   < ai-service/migrations/003_performance_indexes.sql
 

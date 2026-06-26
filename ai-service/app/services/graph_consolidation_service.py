@@ -1,7 +1,7 @@
 """
 ai-service/app/services/graph_consolidation_service.py
 
-"Compact Graph" — intelligent knowledge node consolidation.
+"Compact Graph" - intelligent knowledge node consolidation.
 
 Three phases:
 
@@ -50,7 +50,7 @@ settings = get_settings()
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
 
-HARD_THRESHOLD            = 0.92   # auto-merge — same concept, no LLM needed
+HARD_THRESHOLD            = 0.92   # auto-merge - same concept, no LLM needed
 SOFT_THRESHOLD            = 0.78   # LLM confirms whether to merge
 MICRO_FRAGMENT_THRESHOLD  = 0.70   # absorb micro-fragments into a neighbour
 MICRO_FRAGMENT_MAX_CHUNKS = 2      # "micro" = <= 2 chunks
@@ -163,7 +163,7 @@ class GraphConsolidationService:
     # ── Public API ────────────────────────────────────────────────────────────
 
     async def analyze_graph(self, course_id: int) -> ConsolidationPlan:
-        """Phase 1 + 2 — returns a dry-run plan; nothing is mutated."""
+        """Phase 1 + 2 - returns a dry-run plan; nothing is mutated."""
         nodes = await self._load_nodes(course_id)
         if len(nodes) < 2:
             return ConsolidationPlan(course_id=course_id, groups=[], total_nodes_before=len(nodes))
@@ -183,7 +183,7 @@ class GraphConsolidationService:
         plan: ConsolidationPlan,
         triggered_by: Optional[int] = None,
     ) -> dict[str, Any]:
-        """Phase 3 — execute every approved group atomically (per group)."""
+        """Phase 3 - execute every approved group atomically (per group)."""
         if not plan.groups:
             return {"course_id": course_id, "merged_groups": 0, "absorbed_nodes": 0}
 
@@ -202,7 +202,7 @@ class GraphConsolidationService:
                     "Consolidation group failed (survivor=%d): %s",
                     group.survivor_id, exc, exc_info=True,
                 )
-                # Continue with the other groups — each is independent.
+                # Continue with the other groups - each is independent.
 
         return {
             "course_id":      course_id,
@@ -251,8 +251,8 @@ class GraphConsolidationService:
                     embedding=list(r.vector),
                 ))
         else:
-            # PG fallback path — no vectors available, so consolidation is a no-op.
-            logger.warning("Qdrant disabled — graph consolidation requires Qdrant vectors.")
+            # PG fallback path - no vectors available, so consolidation is a no-op.
+            logger.warning("Qdrant disabled - graph consolidation requires Qdrant vectors.")
 
         return out
 
@@ -304,11 +304,11 @@ class GraphConsolidationService:
             groups.append(self._make_group(
                 nodes, survivor_idx, absorbed_idx, avg_sim,
                 kind="hard",
-                reason="Cosine similarity >= 0.92 — auto-merged",
+                reason="Cosine similarity >= 0.92 - auto-merged",
             ))
             used.update(members)
 
-        # 2. Soft-duplicate pairs — only consider nodes not already merged.
+        # 2. Soft-duplicate pairs - only consider nodes not already merged.
         soft_pairs: list[tuple[int, int, float]] = []
         for i in range(n):
             if i in used:
@@ -330,7 +330,7 @@ class GraphConsolidationService:
             groups.append(self._make_group(
                 nodes, survivor_idx, absorbed_idx, s,
                 kind="soft",
-                reason=f"Soft duplicate (sim={s:.2f}) — pending LLM confirmation",
+                reason=f"Soft duplicate (sim={s:.2f}) - pending LLM confirmation",
             ))
             used.add(i)
             used.add(j)
@@ -783,7 +783,7 @@ class GraphConsolidationService:
                     survivor=survivor, absorbed=absorbed,
                 )
         except Exception:
-            # APOC may not be installed — fall back to a property-less rewire that
+            # APOC may not be installed - fall back to a property-less rewire that
             # keeps relationship type via a parameterised Cypher per type.
             await self._neo4j_fallback_rewire(group)
 
@@ -797,7 +797,7 @@ class GraphConsolidationService:
             logger.error("Neo4j absorbed-node delete failed: %s", exc)
 
     async def _neo4j_fallback_rewire(self, group: MergeGroup) -> None:
-        """APOC-free rewire — re-create each edge under the survivor."""
+        """APOC-free rewire - re-create each edge under the survivor."""
         from app.services.neo4j_service import neo4j_service, RELATIONSHIP_TYPES
 
         driver = neo4j_service._get_driver()

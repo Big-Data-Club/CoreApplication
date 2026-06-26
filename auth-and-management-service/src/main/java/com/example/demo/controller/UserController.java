@@ -17,11 +17,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * UserController — REST API cho user management.
+ * UserController - REST API cho user management.
  *
  * Fixes:
  *   - public class (không còn package-private).
- *   - Trả UserResponse thay vì User entity — không lộ internal model.
+ *   - Trả UserResponse thay vì User entity - không lộ internal model.
  *   - updateUser nhận UpdateUserRequest thay vì User entity.
  *     Tránh mass assignment: client không thể tự set role, totalScore qua endpoint này.
  */

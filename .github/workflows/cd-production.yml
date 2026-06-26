@@ -1,4 +1,4 @@
-name: CD — Deploy Production
+name: CD - Deploy Production
 
 on:
   workflow_run:
@@ -48,7 +48,7 @@ jobs:
           else
             echo "ok=false" >> $GITHUB_OUTPUT
             echo "tag=latest" >> $GITHUB_OUTPUT
-            echo "⏭️ CI không pass (${{ github.event.workflow_run.conclusion }}) — skip"
+            echo "⏭️ CI không pass (${{ github.event.workflow_run.conclusion }}) - skip"
           fi
 
   deploy:
@@ -83,7 +83,7 @@ jobs:
         if: ${{ github.event.inputs.force_restart == 'true' }}
         run: |
           cd ${{ env.APP_DIR }}
-          echo "🔴 Force restart — dừng toàn bộ stack..."
+          echo "🔴 Force restart - dừng toàn bộ stack..."
           docker compose -f docker-compose.serverless.yml down --remove-orphans --timeout 30
           echo "✅ Đã dừng"
 

@@ -107,7 +107,7 @@ class ChatRequest:
     max_tokens: Optional[int] = None
     json_mode: Optional[bool] = None
     request_id: Optional[str] = None
-    # Model hint — if set, gateway will try to honour it before consulting bindings.
+    # Model hint - if set, gateway will try to honour it before consulting bindings.
     # Accepts either a `model_name` string (legacy) or an explicit Model id.
     model_hint: Optional[str] = None
     # Extra provider-specific kwargs (e.g. tools, tool_choice). Passed through

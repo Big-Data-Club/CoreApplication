@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/core/react_loop.py
 
-ReAct Loop — the central reasoning engine for both agents.
+ReAct Loop - the central reasoning engine for both agents.
 
 This is the CORE of the entire multi-agent system. It orchestrates:
   1. Intent classification (Router)
@@ -228,7 +228,7 @@ async def run_react_loop(
     )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 1: Classify intent (fast — structured)
+    # Step 1: Classify intent (fast - structured)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     router_output = await classify_intent(
         user_message=user_message,
@@ -276,7 +276,7 @@ async def run_react_loop(
 
     # If the scope resolver locked onto a single course, pin it into MTM
     # so the next turn benefits from the anchor too. We update the recent
-    # courses MRU list as well — useful when the user bounces between
+    # courses MRU list as well - useful when the user bounces between
     # courses without re-naming them.
     if scope.mode == "single" and scope.focus_course_id is not None:
         focus_title = next(
@@ -333,14 +333,14 @@ async def run_react_loop(
     # Step 3: Clarification Gate (scope first, then parameter)
     #
     # Two distinct flows:
-    #   (a) SCOPE — the scope resolver flagged genuine ambiguity about
+    #   (a) SCOPE - the scope resolver flagged genuine ambiguity about
     #       which course this applies to. Cheap, deterministic.
-    #   (b) PARAMETER — an action-tool needs user-only input
+    #   (b) PARAMETER - an action-tool needs user-only input
     #       (difficulty, count, …). LLM-assisted, low-confidence only.
     #
     # We dropped the old intent-based skip-list (content_creation,
     # interactive_exercise, progress_advice). Those intents are exactly
-    # where the wrong-course problem hurts most — silent guessing led to
+    # where the wrong-course problem hurts most - silent guessing led to
     # quizzes for the wrong course / wrong topic. Now we trust the scope
     # resolver to keep the parameter clarifier from firing on already-
     # answered questions, and we cap total clarifications per session.
@@ -351,10 +351,10 @@ async def run_react_loop(
     )
 
     if clarify_count < MAX_CLARIFICATIONS_PER_SESSION:
-        # (a) Scope clarification — runs first, no LLM call.
+        # (a) Scope clarification - runs first, no LLM call.
         scope_clarify = build_scope_clarification(scope)
 
-        # (b) Router clarification — runs if router flagged ambiguity (e.g., vague request, missing params)
+        # (b) Router clarification - runs if router flagged ambiguity (e.g., vague request, missing params)
         router_clarify: dict | None = None
         if scope_clarify is None and router_output.is_ambiguous:
             router_clarify = {
@@ -366,7 +366,7 @@ async def run_react_loop(
                 "missing_fields": [router_output.ambiguity_reason] if router_output.ambiguity_reason else [],
             }
 
-        # (c) Parameter clarification — fallback if both scope and router are clean.
+        # (c) Parameter clarification - fallback if both scope and router are clean.
         param_clarify: dict | None = None
         if scope_clarify is None and router_clarify is None and scope.mode != "ambiguous":
             tool_schemas = get_tool_schemas(agent_type)
@@ -564,7 +564,7 @@ async def run_react_loop(
     # Start with system prompt
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
-    # Add STM history (filtered — only user/assistant/tool/clarification roles)
+    # Add STM history (filtered - only user/assistant/tool/clarification roles)
     for m in stm_history:
         role = m.get("role", "")
         content = m.get("content", "")
@@ -962,7 +962,7 @@ async def run_react_loop(
             )
 
             # ── Pin working-memory anchor from this tool result ──────
-            # Both agents benefit from anchor pinning — mentor uses it to
+            # Both agents benefit from anchor pinning - mentor uses it to
             # remember which course the student last asked about, teacher
             # uses it for "this quiz / this node" deictic resolution.
             await _update_anchor_from_tool(
@@ -976,7 +976,7 @@ async def run_react_loop(
 
             # ── HITL early exit: stop the loop and let the widget
             #    be the primary response. No further LLM iteration
-            #    needed — the teacher reviews via the widget. ─────────
+            #    needed - the teacher reviews via the widget. ─────────
             if tool_result.status == "pending_human_approval":
                 logger.info(
                     "HITL break: tool=%s, stopping ReAct loop",
@@ -1049,7 +1049,7 @@ async def run_react_loop(
             )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Max iterations reached — should rarely happen
+    # Max iterations reached - should rarely happen
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     logger.warning("ReAct max iterations reached: session=%s", session_id[:8])
 
@@ -1106,7 +1106,7 @@ async def _update_anchor_from_tool(
     agent_type: str,
     tool_name: str,
     args: dict,
-    tool_result: "ToolResult",  # noqa: F821 — runtime type
+    tool_result: "ToolResult",  # noqa: F821 - runtime type
 ) -> None:
     """
     Pin concrete (course_id, node_id, topic) values surfaced by a tool
@@ -1166,7 +1166,7 @@ async def _update_anchor_from_tool(
  
     try:
         await mtm.update_key_facts(session_id, updates)
-    except Exception as exc:  # noqa: BLE001 — anchor update must never break the turn
+    except Exception as exc:  # noqa: BLE001 - anchor update must never break the turn
         logger.warning(
             "anchor update failed: session=%s, tool=%s, err=%s",
             session_id[:8], tool_name, exc,
@@ -1181,7 +1181,7 @@ async def _maybe_emit_title_update(
 ) -> AsyncIterator[AgentEvent]:
     """
     If the session has no title yet, generate one and yield a TITLE_UPDATE
-    event so the sidebar can refresh in realtime. Silent on failure — the
+    event so the sidebar can refresh in realtime. Silent on failure - the
     session just stays untitled.
     """
     try:

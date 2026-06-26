@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/memory/stm.py
 
-Short-Term Memory (STM) — Redis-backed conversation history.
+Short-Term Memory (STM) - Redis-backed conversation history.
 
 Stores the most recent messages in OpenAI chat format as a Redis List.
 Each session has its own key with a 24-hour TTL.

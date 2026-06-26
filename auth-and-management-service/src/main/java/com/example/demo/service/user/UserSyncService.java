@@ -150,7 +150,7 @@ public class UserSyncService {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /** Payload for LMS service — uses "user_id" key */
+    /** Payload for LMS service - uses "user_id" key */
     private Map<String, Object> buildLmsPayload(User user) {
         return Map.of(
             "user_id",   user.getId(),
@@ -161,7 +161,7 @@ public class UserSyncService {
         );
     }
 
-    /** Payload for Chat service — uses "id" key, profile_picture field */
+    /** Payload for Chat service - uses "id" key, profile_picture field */
     private Map<String, Object> buildChatPayload(User user) {
         return Map.of(
             "id",              user.getId(),
@@ -217,4 +217,4 @@ public class UserSyncService {
         try { Thread.sleep(ms); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
-}
+}

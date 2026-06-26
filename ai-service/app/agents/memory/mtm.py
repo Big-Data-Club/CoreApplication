@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/memory/mtm.py
 
-Medium-Term Memory (MTM) — PostgreSQL-backed session context.
+Medium-Term Memory (MTM) - PostgreSQL-backed session context.
 
 Stores compressed conversation summaries in the `agent_sessions` table.
 When STM exceeds the token threshold, the compressor produces a JSONB
@@ -372,7 +372,7 @@ class MTMemory:
  
         Used by the ReAct loop to pin anchors (current_course_id,
         current_node_id, current_topic, ...) immediately after a tool
-        surfaces a concrete value — without waiting for the full
+        surfaces a concrete value - without waiting for the full
         compressor to run. Missing key_facts object is created on demand.
         """
         if not updates:

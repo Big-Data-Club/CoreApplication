@@ -26,7 +26,7 @@ class SearchMaterialsTool(BaseTool):
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Search query — the concept or question to look up.",
+                "description": "Search query - the concept or question to look up.",
             },
             "course_id": {
                 "type": "integer",
@@ -38,14 +38,14 @@ class SearchMaterialsTool(BaseTool):
                 "default": 3,
             },
         },
-        "required": ["query"],  # course_id is OPTIONAL — Mentor agent is cross-course
+        "required": ["query"],  # course_id is OPTIONAL - Mentor agent is cross-course
     }
 
     async def execute(self, **kwargs) -> ToolResult:
         from app.services.rag_service import rag_service
 
         query = kwargs["query"]
-        # course_id is optional — use injected context or LLM-provided value
+        # course_id is optional - use injected context or LLM-provided value
         course_id: int | None = kwargs.get("_course_id") or kwargs.get("course_id")
         # content_id and node_id are injected from active page/lesson context
         content_id: int | None = kwargs.get("_content_id") or kwargs.get("content_id")

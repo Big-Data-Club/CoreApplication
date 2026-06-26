@@ -2,7 +2,7 @@
 Mentor Tool: explain_concept
 
 Uses RAG + LLM to explain a concept, adapting the explanation depth
-based on the student's mastery level. Does NOT just return raw chunks —
+based on the student's mastery level. Does NOT just return raw chunks -
 it synthesizes an explanation tailored to the student.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ class ExplainConceptTool(BaseTool):
     name = "explain_concept"
     description = (
         "Explain a concept to the student using course materials as context. "
-        "The explanation adapts to the student's mastery level — simpler for "
+        "The explanation adapts to the student's mastery level - simpler for "
         "beginners, deeper for advanced students. Use when the student asks "
         "to explain something, or when you need to teach a concept."
     )
@@ -75,7 +75,7 @@ class ExplainConceptTool(BaseTool):
                 else:
                     depth = "intermediate"  # default
 
-            # 2. RAG context — depth-adaptive retrieval
+            # 2. RAG context - depth-adaptive retrieval
             depth_top_k = {"beginner": 3, "intermediate": 5, "advanced": 8}
             top_k = depth_top_k.get(depth, 5)
             chunks = await rag_service.search_multilingual(

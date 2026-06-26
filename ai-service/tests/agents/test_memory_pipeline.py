@@ -47,7 +47,7 @@ class TestResult:
 
     def __repr__(self):
         status = "PASS" if self.passed else "FAIL"
-        err = f" — {self.error}" if self.error else ""
+        err = f" - {self.error}" if self.error else ""
         return f"  [{status}] {self.name}{err}"
 
 
@@ -174,7 +174,7 @@ async def test_router_matched_course_extraction() -> TestResult:
 
 async def run_all_tests():
     print("=" * 70)
-    print("  BDC Agent Memory Pipeline — Unit Tests")
+    print("  BDC Agent Memory Pipeline - Unit Tests")
     print("=" * 70)
 
     tests = [

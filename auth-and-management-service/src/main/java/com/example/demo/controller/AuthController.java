@@ -109,7 +109,7 @@ public class AuthController {
     @PostMapping("/forgot-password")
     public ResponseEntity<MessageResponse> forgotPassword(
             @Valid @RequestBody ForgotPasswordRequest req) {
-        // Always return 200 — never reveal whether the email exists
+        // Always return 200 - never reveal whether the email exists
         userService.forgotPassword(req.getEmail());
         return ResponseEntity.ok(new MessageResponse(
             "Nếu email tồn tại trong hệ thống, bạn sẽ nhận được link đặt lại mật khẩu trong vài phút."));
@@ -129,7 +129,7 @@ public class AuthController {
         var optUser = googleAuthService.findExistingUser(payload);
 
         if (optUser.isEmpty()) {
-            // User does not exist — return Google profile for registration form
+            // User does not exist - return Google profile for registration form
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(googleAuthService.buildProfileResponse(payload));
         }

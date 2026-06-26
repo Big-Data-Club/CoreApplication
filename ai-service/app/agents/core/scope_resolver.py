@@ -1,33 +1,44 @@
 """
 ai-service/app/agents/core/scope_resolver.py
 
-Course Scope Resolver — answers "which course is the user talking about?"
+Course Scope Resolver - answers "which course is the user talking about?" and resolves "context-lock" issues.
 
-The agent is GLOBAL: a teacher manages many courses, a student is enrolled
+The agent is a teacher manages many courses, and a student is enrolled
 in many. Most user messages do NOT name a course explicitly, so we must
 infer scope from a combination of:
 
     1. The list of active courses for this user (single source of truth).
     2. The MTM session anchor (current_course_id from a prior turn).
-    3. The course_id explicitly attached to this turn (e.g. the frontend
+    3. The course_id explicitly attached to this turn (e.g., the frontend
        opened a course-scoped chat panel).
     4. Substring matches between the user's message and course titles.
-    5. Deictic / global keywords ("cái này", "this course", "tất cả khoá").
+    5. Intent signals from the IntentWeightModel (multilingual-safe, replacing 
+       legacy regex for global, deictic, or outside keywords).
     6. (Last resort) a fast LLM extraction call.
 
-Output is a `CourseScope` object the ReAct loop uses to:
-    - bias retrieval (context_builder) toward one or many courses
-    - inject the focused course_id into tool calls
-    - trigger a SCOPE clarification when the answer is genuinely ambiguous
+Key Features & Updates:
+    - IntentWeightModel Integration: Evaluates pivot signals during `resolve_course_scope`. 
+      If `pivot_strength >= 0.6`, it overrides the scope to "all" or "none" instead of 
+      locking into the MTM anchor.
+    - Context Scope Resolution: Introduces `resolve_context_scope()` to determine if 
+      `page_context` should be utilized. It returns a `ContextScopeDecision` for the 
+      react_loop to inject appropriately into `build_system_prompt`.
+    - Backward Compatibility: Maintains the original `CourseScope` dataclass and 
+      `apply_scope_to_course_id()` without introducing breaking changes to `react_loop.py`.
 
-Cheap path first (zero LLM), LLM only as a fallback. Resolver MUST be
-deterministic and never raise — fall back to "ambiguous" on any error.
+Output is a `CourseScope` object that the ReAct loop uses to:
+    - Bias retrieval (context_builder) toward one or many courses.
+    - Inject the focused course_id into tool calls.
+    - Trigger a SCOPE clarification when the answer is genuinely ambiguous.
+
+Design Principles: 
+Cheap path first (zero LLM), utilizing LLM only as a fallback or for intent weighting. 
+The resolver MUST be deterministic and never raise exceptions - falling back to 
+"ambiguous" on any error.
 """
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
@@ -36,8 +47,7 @@ from app.agents.memory.active_courses import (
     list_course_titles,
 )
 from app.core.config import get_settings
-from app.core.llm import chat_complete_json
-from app.core.llm_gateway import TASK_AGENT_ROUTER
+from app.agents.core.intent_weight_model import analyze_intent_weight, IntentWeightOutput
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -45,6 +55,13 @@ settings = get_settings()
 
 ScopeMode = Literal["single", "multi", "all", "none", "ambiguous"]
 
+# Pivot threshold - if pivot_strength >= this value, override context-lock
+_PIVOT_THRESHOLD = 0.6
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CourseScope
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass(slots=True)
 class CourseScope:
@@ -70,43 +87,183 @@ class CourseScope:
         }
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Lightweight cue lexicons (kept small + obvious; the LLM handles edge cases)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ─────────────────────────────────────────────────────────────────────────────
+# ContextScopeDecision
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Words that imply the user is referring to a previously-anchored course.
-_DEICTIC_PATTERNS = (
-    r"\bcái này\b", r"\bvấn đề này\b", r"\bchủ đề này\b",
-    r"\bbài này\b", r"\bchương này\b", r"\bkhoá này\b", r"\bkhóa này\b",
-    r"\bmôn này\b", r"\bthis (course|topic|lesson|chapter|quiz|one)\b",
-    r"\bthat (course|topic|lesson|chapter|quiz|one)\b",
-    r"\bở đây\b",
-)
-_DEICTIC_RE = re.compile("|".join(_DEICTIC_PATTERNS), re.IGNORECASE)
+@dataclass(slots=True)
+class ContextScopeDecision:
+    """
+    The scope resolver's decision on whether to inject page_context
+    into the system prompt, and which version to inject.
 
-# Words that signal the user wants action ACROSS all their courses.
-_GLOBAL_PATTERNS = (
-    r"\btất cả (các )?khoá học\b", r"\btất cả (các )?khóa học\b",
-    r"\bmọi (khoá|khóa) học\b",
-    r"\bcross[- ]course\b", r"\ball (my )?courses\b", r"\bevery course\b",
-    r"\boverall\b", r"\btoàn bộ\b",
-)
-_GLOBAL_RE = re.compile("|".join(_GLOBAL_PATTERNS), re.IGNORECASE)
+    react_loop uses this object instead of passing raw page_context to
+    build_system_prompt to avoid context-lock.
+    """
 
-# Words that signal the user is asking about a general topic or denying selecting a course.
-_OUTSIDE_PATTERNS = (
-    r"\bchưa có môn\b", r"\bkhông có môn\b", r"\bkhông thuộc môn\b",
-    r"\bhỏi chung\b", r"\bngoài lề\b", r"\bngoài giáo trình\b",
-    r"\bkhông nằm trong\b", r"\bno course\b", r"\bgeneral topic\b",
-    r"\bnot in course\b", r"\bchưa học môn này\b", r"\bchưa có môn học này\b",
-    r"\bkhông có môn học nào\b", r"\bchưa có môn này\b"
-)
-_OUTSIDE_RE = re.compile("|".join(_OUTSIDE_PATTERNS), re.IGNORECASE)
+    # Whether to inject page_context into the system prompt
+    use_page_context: bool
+
+    # Whether to inject system_context (micro-lesson)
+    use_system_context: bool
+
+    # Sanitized page_context (None if not used)
+    effective_page_context: Optional[dict]
+
+    # Sanitized system_context (None if not used)
+    effective_system_context: Optional[dict]
+
+    # Reason for the decision (for logging/debugging)
+    reason: str
+
+    # Pivot info from IntentWeightModel
+    intent_weight: Optional[IntentWeightOutput] = None
+
+    # Suggested topic to search for (when pivoting to a new topic)
+    suggested_search_topic: Optional[str] = None
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Public API
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ─────────────────────────────────────────────────────────────────────────────
+# resolve_context_scope()
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def resolve_context_scope(
+    user_message: str,
+    page_context: Optional[dict],
+    system_context: Optional[dict],
+    mtm_ctx: Optional[dict],
+) -> ContextScopeDecision:
+    """
+    Determine whether page_context / system_context should be injected into
+    the system prompt, based on the IntentWeightModel.
+
+    Logic:
+        1. If there is no page_context and no system_context -> there is nothing to decide.
+            Return use_page_context=False, use_system_context=False.
+
+        2. If there is a page_context or system_context -> call IntentWeightModel to determine
+            if the user is pivoting or staying.
+
+        3. If pivot_strength >= _PIVOT_THRESHOLD:
+            - Remove page_context from the system prompt (use effective_page_context=None)
+            - If the user pivots to a specific topic, record the suggested_search_topic
+              so the ReAct loop can search for that exact topic instead of the currently open lesson's topic
+
+        4. If pivot_strength < _PIVOT_THRESHOLD:
+            - Inject page_context normally (the user wants to study the currently open lesson)
+
+    Args:
+        user_message: Raw user message.
+        page_context: Dict from the frontend (currently viewed lesson). None if unavailable.
+        system_context: Dict from the Quick Action Panel. None if unavailable.
+        mtm_ctx: Raw MTM context dict from mtm.get_context().
+
+    Returns:
+        ContextScopeDecision
+    """
+    # No context available -> no analysis needed
+    has_page_ctx = bool(
+        page_context and (
+            page_context.get("contentBody")
+            or page_context.get("content_body")
+            or page_context.get("body")
+            or page_context.get("contentTitle")
+            or page_context.get("title")
+        )
+    )
+    has_sys_ctx = bool(
+        system_context and (
+            system_context.get("lesson_text")
+            or system_context.get("lesson_title")
+        )
+    )
+
+    if not has_page_ctx and not has_sys_ctx:
+        return ContextScopeDecision(
+            use_page_context=False,
+            use_system_context=False,
+            effective_page_context=None,
+            effective_system_context=None,
+            reason="no_active_lesson_context",
+        )
+
+    # Extract lesson title / topic for IntentWeightModel
+    lesson_title: Optional[str] = None
+    lesson_topic: Optional[str] = None
+
+    if page_context:
+        lesson_title = (
+            page_context.get("contentTitle")
+            or page_context.get("title")
+            or page_context.get("name")
+        )
+
+    if system_context:
+        lesson_title = lesson_title or system_context.get("lesson_title")
+        # Try to infer topic from lesson title (just pass the title as topic too)
+        lesson_topic = system_context.get("topic") or lesson_title
+
+    # Extract MTM anchor topic
+    mtm_anchor_topic: Optional[str] = None
+    if mtm_ctx and isinstance(mtm_ctx, dict):
+        facts = mtm_ctx.get("key_facts") or {}
+        if isinstance(facts, dict):
+            mtm_anchor_topic = facts.get("current_topic") or facts.get("current_lesson_title")
+
+    # Call IntentWeightModel - LLM analyzes semantics, no regex used
+    weight = await analyze_intent_weight(
+        user_message=user_message,
+        active_lesson_title=lesson_title,
+        active_lesson_topic=lesson_topic,
+        mtm_anchor_topic=mtm_anchor_topic,
+    )
+
+    logger.info(
+        "ContextScope: pivot_strength=%.2f intent=%s | lesson='%s' | msg='%s'",
+        weight.pivot_strength,
+        weight.explicit_intent,
+        lesson_title or "?",
+        user_message[:60],
+    )
+
+    # Make a decision based on pivot_strength
+    if weight.pivot_strength >= _PIVOT_THRESHOLD:
+        # The user is pivoting away from the currently viewed lesson
+        reason = (
+            f"pivot_detected: strength={weight.pivot_strength:.2f} "
+            f"intent={weight.explicit_intent} - suppressing page_context to avoid context-lock"
+        )
+        logger.info("ContextScope: %s", reason)
+
+        return ContextScopeDecision(
+            use_page_context=False,
+            use_system_context=False,
+            effective_page_context=None,
+            effective_system_context=None,
+            reason=reason,
+            intent_weight=weight,
+            suggested_search_topic=weight.new_topic_hint,
+        )
+
+    # The user wants to stay in the currently viewed lesson
+    reason = (
+        f"no_pivot: strength={weight.pivot_strength:.2f} "
+        f"intent={weight.explicit_intent} - using page_context"
+    )
+    return ContextScopeDecision(
+        use_page_context=has_page_ctx,
+        use_system_context=has_sys_ctx,
+        effective_page_context=page_context if has_page_ctx else None,
+        effective_system_context=system_context if has_sys_ctx else None,
+        reason=reason,
+        intent_weight=weight,
+        suggested_search_topic=None,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Existing resolve_course_scope() - enhanced with IntentWeightModel fallback
+# ─────────────────────────────────────────────────────────────────────────────
 
 async def resolve_course_scope(
     user_message: str,
@@ -114,26 +271,29 @@ async def resolve_course_scope(
     mtm_ctx: Optional[dict] = None,
     explicit_course_id: Optional[int] = None,
     router_matched_course_id: Optional[int] = None,
+    intent_weight: Optional[IntentWeightOutput] = None,
 ) -> CourseScope:
     """
     Decide which course(s) the current message applies to.
 
-    Order of decisions (most cheap -> least cheap):
+    Decision hierarchy (cheap -> expensive):
         0. No active courses -> mode="none".
         1. Only one active course -> mode="single" auto-resolve.
-        2. Explicit "across all courses" cue -> mode="all".
-        3. Explicit course_id from the FE that matches an active course -> "single".
-        4. Deictic reference + MTM anchor present -> "single" (reuse anchor).
-        5. Exactly one course title substring-matches the message -> "single".
-        6. Router-extracted course_id from LLM classification -> "single".
-        7. Otherwise -> "ambiguous" with a grounded clarification question.
+        2. pivot_strength >= threshold -> mode="all" (cross-course support).
+        3. Explicit "across all courses" -> mode="all".
+        4. Explicit course_id from FE -> "single".
+        5. Deictic reference + MTM anchor (via intent_weight, without using regex).
+        6. Exactly one course title match -> "single".
+        7. Router-extracted course_id -> "single".
+        8. Otherwise -> "ambiguous".
 
-    The resolver NEVER raises — failures degrade to "ambiguous".
+    Does not use _DEICTIC_RE / _GLOBAL_RE / _OUTSIDE_RE regex.
+    Replaced by intent_weight.explicit_intent and pivot_strength.
     """
     courses = (active_courses or {}).get("courses") or []
     msg = (user_message or "").strip()
 
-    # Step 0 — user has no active courses.
+    # Step 0
     if not courses:
         return CourseScope(
             mode="none",
@@ -141,7 +301,7 @@ async def resolve_course_scope(
             reason="user has no active courses",
         )
 
-    # Step 1 — only one course -> easy.
+    # Step 1
     if len(courses) == 1:
         c = courses[0]
         return CourseScope(
@@ -151,27 +311,31 @@ async def resolve_course_scope(
             reason="user has exactly one active course",
         )
 
-    msg_lower = msg.lower()
+    # Step 2 - pivot detected -> cross-course support
+    if intent_weight and intent_weight.pivot_strength >= _PIVOT_THRESHOLD:
+        if intent_weight.explicit_intent == "pivot_new_topic" and intent_weight.new_topic_hint:
+            # Try to match new topic hint against course titles
+            matched = find_course_by_title(
+                active_courses, intent_weight.new_topic_hint, min_len=3
+            )
+            if matched is not None:
+                return CourseScope(
+                    mode="single",
+                    focus_course_id=matched.get("id"),
+                    confidence=0.8,
+                    reason=f"pivot to new topic matched course: {matched.get('title')!r}",
+                )
 
-    # Step 1.5 — user explicitly says the topic is general or not in their courses.
-    if _OUTSIDE_RE.search(msg_lower):
-        return CourseScope(
-            mode="none",
-            confidence=1.0,
-            reason="user explicitly indicated the topic is general or outside existing courses",
-        )
-
-    # Step 2 — global keyword wins.
-    if _GLOBAL_RE.search(msg_lower):
+        # General pivot -> all courses (let the LLM decide in context)
         ids = [c.get("id") for c in courses if c.get("id") is not None]
         return CourseScope(
             mode="all",
             candidate_course_ids=ids,
-            confidence=0.9,
-            reason="message references all/multiple courses explicitly",
+            confidence=0.85,
+            reason=f"user pivoted away from active lesson (pivot_strength={intent_weight.pivot_strength:.2f})",
         )
 
-    # Step 3 — FE-provided course_id is the strongest anchor IF it matches.
+    # Step 3 - explicit course_id from FE
     if explicit_course_id is not None:
         if any(c.get("id") == explicit_course_id for c in courses):
             return CourseScope(
@@ -181,18 +345,25 @@ async def resolve_course_scope(
                 reason="explicit course_id from frontend",
             )
 
-    # Step 4 — deictic reference + MTM anchor -> reuse last-focused course.
+    # Step 4 - deictic via intent_weight (no regex)
+    # IntentWeightModel has determined explicit_intent="review_current_lesson" or "ask_concept"
+    # -> the user is referring to the current lesson -> reuse MTM anchor
     anchor_id = _read_anchor_course_id(mtm_ctx)
-    if _DEICTIC_RE.search(msg) and anchor_id is not None:
-        if any(c.get("id") == anchor_id for c in courses):
-            return CourseScope(
-                mode="single",
-                focus_course_id=anchor_id,
-                confidence=0.85,
-                reason="deictic reference resolved against MTM anchor",
-            )
+    if (
+        intent_weight
+        and intent_weight.explicit_intent in ("review_current_lesson", "ask_concept")
+        and intent_weight.pivot_strength < 0.3
+        and anchor_id is not None
+        and any(c.get("id") == anchor_id for c in courses)
+    ):
+        return CourseScope(
+            mode="single",
+            focus_course_id=anchor_id,
+            confidence=0.85,
+            reason="deictic reference resolved via IntentWeightModel + MTM anchor",
+        )
 
-    # Step 5 — exact substring match against course titles.
+    # Step 5 - title substring match
     matched = find_course_by_title(active_courses, msg, min_len=3)
     if matched is not None:
         return CourseScope(
@@ -202,7 +373,7 @@ async def resolve_course_scope(
             reason=f"course title substring match: {matched.get('title')!r}",
         )
 
-    # Step 6 — router-extracted course_id
+    # Step 6 - router-extracted
     if router_matched_course_id is not None:
         if any(c.get("id") == router_matched_course_id for c in courses):
             return CourseScope(
@@ -212,7 +383,7 @@ async def resolve_course_scope(
                 reason="resolved via router LLM extraction",
             )
 
-    # Step 7 — genuinely ambiguous -> ask the user, with grounded options.
+    # Step 7 - ambiguous
     titles = list_course_titles(active_courses)
     options = [
         {"label": titles[i], "value": str(c.get("id"))}
@@ -234,22 +405,15 @@ def apply_scope_to_course_id(
     scope: CourseScope,
     fallback_course_id: Optional[int] = None,
 ) -> Optional[int]:
-    """
-    Translate a `CourseScope` into the concrete `course_id` we pass into
-    tools and into the system_memory retrieval slot.
-
-    "single" -> the focused course.
-    "all" / "multi" / "none" / "ambiguous" -> None (cross-course / unscoped).
-    Falls back to the caller's hint only if the scope didn't pin anything.
-    """
+    """Unchanged from original."""
     if scope.mode == "single" and scope.focus_course_id is not None:
         return scope.focus_course_id
     return fallback_course_id
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ─────────────────────────────────────────────────────────────────────────────
 # Internals
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _read_anchor_course_id(mtm_ctx: Optional[dict]) -> Optional[int]:
     if not mtm_ctx:

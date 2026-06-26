@@ -1,5 +1,5 @@
 """
-Registry — DB repository + in-process cache for providers, models, API keys
+Registry - DB repository + in-process cache for providers, models, API keys
 and task bindings.
  
 The gateway consults the registry on every call; to avoid a round trip we

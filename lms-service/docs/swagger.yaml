@@ -1923,7 +1923,7 @@ paths:
       responses: {}
       security:
       - BearerAuth: []
-      summary: Quick Action Panel — Concept Check
+      summary: Quick Action Panel - Concept Check
       tags:
       - AI - Quick Action Panel
   /ai/jobs/{jobId}/status:

@@ -1,5 +1,5 @@
 -- ============================================================
--- Chat Service — V001 Database Schema
+-- Chat Service - V001 Database Schema
 -- Designed for Neon PostgreSQL (serverless / pgx stdlib)
 -- ============================================================
 

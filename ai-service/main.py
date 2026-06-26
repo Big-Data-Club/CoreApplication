@@ -36,9 +36,9 @@ logger   = logging.getLogger(__name__)
 app = FastAPI(
     title="BDC AI Service",
     description=(
-        "AI engine for LMS — Phase 1 (Error Diagnosis & Deep Linking) "
+        "AI engine for LMS - Phase 1 (Error Diagnosis & Deep Linking) "
         "and Phase 2 (Smart Quiz & Spaced Repetition). "
-        "Internal microservice — not exposed to public internet."
+        "Internal microservice - not exposed to public internet."
     ),
     version="2.2.0",
     docs_url="/docs",

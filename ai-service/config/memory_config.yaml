@@ -9,8 +9,8 @@
 # system prompt. The context_builder respects these limits per-source.
 token_budgets:
   stm: 3000          # Short-Term Memory (recent conversation turns)
-  ltm_episodic: 800  # Long-Term Memory — episodic summaries from Qdrant
-  ltm_facts: 400     # Long-Term Memory — student facts from knowledge_nodes
+  ltm_episodic: 800  # Long-Term Memory - episodic summaries from Qdrant
+  ltm_facts: 400     # Long-Term Memory - student facts from knowledge_nodes
   user_profile: 300  # User concept mastery profile (struggles/strengths)
   max_context_tokens: 6000
 

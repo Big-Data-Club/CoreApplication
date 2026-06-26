@@ -1,7 +1,7 @@
 ---
 name: bdc-lms-service
 description: >
-  Use when working in lms-service/ — Go 1.24 + Gin + PostgreSQL + Redis + Kafka.
+  Use when working in lms-service/ - Go 1.24 + Gin + PostgreSQL + Redis + Kafka.
   Covers: courses, sections, content, quizzes, forum, enrollments, file upload,
   progress tracking, Kafka AI command publishing, Redis job cache, user sync.
 triggers:
@@ -17,11 +17,11 @@ requires:
   - bdc-core-orchestrator
 ---
 
-# BDC LMS Service — Developer Skill
+# BDC LMS Service - Developer Skill
 
 ## Role & Scope
 
-You are working on `lms-service/` — the Learning Management System backend.
+You are working on `lms-service/` - the Learning Management System backend.
 Built with Go 1.24 + Gin + PostgreSQL + Redis + Kafka.
 
 **Entry point:** `cmd/api/main.go`
@@ -58,7 +58,7 @@ lms-service/
 
 ---
 
-## Architecture — Event-Driven AI Integration
+## Architecture - Event-Driven AI Integration
 
 **Rule:** Never use synchronous HTTP to ai-service for tasks that involve LLM calls,
 embedding generation, or document processing. These operations take 5 s – 5 min.
@@ -94,7 +94,7 @@ row := db.QueryRowContext(ctx,
     "SELECT id, title FROM courses WHERE id = $1 AND created_by = $2",
     courseID, userID)
 
-// ❌ Wrong — never use fmt.Sprintf to build SQL
+// ❌ Wrong - never use fmt.Sprintf to build SQL
 query := fmt.Sprintf("SELECT * FROM courses WHERE id = %d", courseID)
 ```
 
@@ -102,7 +102,7 @@ query := fmt.Sprintf("SELECT * FROM courses WHERE id = %d", courseID)
 
 ## Standard CRUD Workflow
 
-### Step 1 — Define DTOs in `internal/dto/`
+### Step 1 - Define DTOs in `internal/dto/`
 
 ```go
 // internal/dto/course_dto.go
@@ -122,7 +122,7 @@ type CourseResponse struct {
 }
 ```
 
-### Step 2 — Repository in `internal/repository/`
+### Step 2 - Repository in `internal/repository/`
 
 ```go
 // internal/repository/course_repository.go
@@ -140,7 +140,7 @@ func (r *CourseRepository) Create(ctx context.Context, req *dto.CreateCourseRequ
 }
 ```
 
-### Step 3 — Service in `internal/service/`
+### Step 3 - Service in `internal/service/`
 
 ```go
 // internal/service/course_service.go
@@ -154,7 +154,7 @@ func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseR
 }
 ```
 
-### Step 4 — Handler in `internal/handler/`
+### Step 4 - Handler in `internal/handler/`
 
 ```go
 // internal/handler/course_handler.go
@@ -176,7 +176,7 @@ func (h *CourseHandler) Create(c *gin.Context) {
 }
 ```
 
-### Step 5 — Register in `cmd/api/main.go`
+### Step 5 - Register in `cmd/api/main.go`
 
 ```go
 courseHandler := handler.NewCourseHandler(courseService)
@@ -188,7 +188,7 @@ v1.Use(middleware.JWTAuth(cfg.JWTSecret))
 }
 ```
 
-### Step 6 — Generate Swagger docs
+### Step 6 - Generate Swagger docs
 
 ```bash
 swag init -g cmd/api/main.go
@@ -244,9 +244,9 @@ func (h *AIHandler) GenerateQuiz(c *gin.Context) {
 Consumed by auth-service `UserSyncService`. Validates `X-Sync-Secret` header.
 
 ```
-POST /api/v1/sync/users       — single user upsert
-POST /api/v1/sync/users/bulk  — bulk upsert array
-DELETE /api/v1/sync/user/{id} — soft-delete / block
+POST /api/v1/sync/users       - single user upsert
+POST /api/v1/sync/users/bulk  - bulk upsert array
+DELETE /api/v1/sync/user/{id} - soft-delete / block
 ```
 
 ---
@@ -254,8 +254,8 @@ DELETE /api/v1/sync/user/{id} — soft-delete / block
 ## File Upload & Storage
 
 `STORAGE_TYPE` controls the backend:
-- `local` — filesystem at `/app/uploads` (dev only)
-- `minio` — MinIO bucket `lms-files` (required for AI service to access files)
+- `local` - filesystem at `/app/uploads` (dev only)
+- `minio` - MinIO bucket `lms-files` (required for AI service to access files)
 
 **Important:** Set `STORAGE_TYPE=minio` in any environment where ai-worker
 processes documents. The AI worker reads files directly from MinIO via SDK.
@@ -281,13 +281,13 @@ _, err = db.ExecContext(ctx,
 ## Code Quality Checklist
 
 ```
-[ ] All SQL uses explicit $N parameters — no fmt.Sprintf in queries
-[ ] All errors returned explicitly — never discard with _
+[ ] All SQL uses explicit $N parameters - no fmt.Sprintf in queries
+[ ] All errors returned explicitly - never discard with _
 [ ] go vet ./... passes before commit
 [ ] swag init run after adding or modifying any endpoint
-[ ] AI tasks use Kafka publish + 202 pattern — not synchronous HTTP to ai-service
+[ ] AI tasks use Kafka publish + 202 pattern - not synchronous HTTP to ai-service
 [ ] Kafka publish failure returns 503, not 500
 [ ] Redis job status seeded before returning 202
 [ ] New env var added to docker-compose.yml + .env.example
-[ ] Handler only calls Service — never Repository directly
+[ ] Handler only calls Service - never Repository directly
 ```

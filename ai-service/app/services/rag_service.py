@@ -586,7 +586,7 @@ class RAGService:
         Insert parent + child rows for a hierarchical chunking run.
 
         Storage rules:
-          * Parent rows (`chunk_level='parent'`) live in PG only — no
+          * Parent rows (`chunk_level='parent'`) live in PG only - no
             embedding, never indexed in Qdrant. They exist purely so the
             search path can hydrate matched children with their full
             surrounding section.

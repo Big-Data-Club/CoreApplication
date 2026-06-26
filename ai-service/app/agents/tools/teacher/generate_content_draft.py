@@ -24,7 +24,7 @@ class GenerateContentDraftTool(BaseTool):
         "topic, based on existing course materials (RAG). Outputs markdown "
         "for the teacher to review.\n"
         "DO NOT use this tool to create quizzes, questions, flashcards, or "
-        "exercises — use `generate_quiz_draft` for quizzes. "
+        "exercises - use `generate_quiz_draft` for quizzes. "
         "The `content_type` parameter MUST be one of: outline, summary, "
         "slide_structure, lesson_plan, explanation. No other value is "
         "accepted. "

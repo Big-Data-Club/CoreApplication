@@ -75,7 +75,7 @@ class TestResult:
 
     def __repr__(self):
         status = "PASS" if self.passed else "FAIL"
-        err = f" — {self.error}" if self.error else ""
+        err = f" - {self.error}" if self.error else ""
         return f"  [{status}] {self.name}{err}"
 
 
@@ -84,7 +84,7 @@ async def run_all_tests():
     results: list[TestResult] = []
 
     print("=" * 70)
-    print("  BDC Agent Memory System — Integration Tests")
+    print("  BDC Agent Memory System - Integration Tests")
     print("=" * 70)
 
     # ── Test 1: STM (Redis) ──────────────────────────────────────────────────
@@ -127,7 +127,7 @@ async def run_all_tests():
         print(f"  [PASS] {r.name}")
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 2: STM summarize and replace ─────────────────────────────────
@@ -159,7 +159,7 @@ async def run_all_tests():
         print(f"  [PASS] {r.name}")
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 3: MTM (PostgreSQL) ─────────────────────────────────────────────
@@ -228,7 +228,7 @@ async def run_all_tests():
         print(f"  [PASS] {r.name}")
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 4: LTM Qdrant collection ────────────────────────────────────────
@@ -241,10 +241,10 @@ async def run_all_tests():
         print(f"  [PASS] {r.name}")
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
-    # ── Test 5: (Removed — System Memory deleted) ────────────────────────
+    # ── Test 5: (Removed - System Memory deleted) ────────────────────────
 
     # ── Test 6: Mastery Service ───────────────────────────────────────────
     r = TestResult("Mastery Service: get user struggles and strengths")
@@ -256,10 +256,10 @@ async def run_all_tests():
         assert isinstance(struggles, list)
         assert isinstance(strengths, list)
         r.passed = True
-        print(f"  [PASS] {r.name} — struggles: {len(struggles)}, strengths: {len(strengths)}")
+        print(f"  [PASS] {r.name} - struggles: {len(struggles)}, strengths: {len(strengths)}")
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 7: ContextBuilder ───────────────────────────────────────────────
@@ -299,13 +299,13 @@ async def run_all_tests():
         await stm.clear(session_id)
         r.passed = True
         print(
-            f"  [PASS] {r.name} — "
+            f"  [PASS] {r.name} - "
             f"tokens~{context['token_estimate']}, "
             f"prompt_len={len(context['prompt_section'])}"
         )
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 8: ContextBuilder with general_chat intent ──────────────────────
@@ -337,7 +337,7 @@ async def run_all_tests():
         print(f"  [PASS] {r.name}")
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Test 9: Events schema ────────────────────────────────────────────────
@@ -365,7 +365,7 @@ async def run_all_tests():
         print(f"  [PASS] {r.name}")
     except Exception as e:
         r.error = str(e)
-        print(f"  [FAIL] {r.name} — {e}")
+        print(f"  [FAIL] {r.name} - {e}")
     results.append(r)
 
     # ── Summary ──────────────────────────────────────────────────────────────

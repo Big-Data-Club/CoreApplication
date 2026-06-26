@@ -24,7 +24,7 @@ requires:
   - bdc-core-orchestrator
 ---
 
-# BDC Test Writer — Skill
+# BDC Test Writer - Skill
 
 ## Universal Rules
 
@@ -464,12 +464,12 @@ pytest --cov=app --cov-fail-under=70
 
 ```
 [ ] Name follows [method]_[scenario]_[expectedOutcome]
-[ ] AAA structure clear — sections labeled if body > 5 lines
+[ ] AAA structure clear - sections labeled if body > 5 lines
 [ ] No real DB, network, or filesystem calls in unit tests
 [ ] All mocks verified (verify(), AssertExpectations(), assert_called_once())
 [ ] At least one negative/error path per happy path
 [ ] No shared mutable state between tests
-[ ] Deterministic — no unseeded random or time.Now()
+[ ] Deterministic - no unseeded random or time.Now()
 [ ] Table-driven / parametrized for multiple input variants
 [ ] conftest fixtures used instead of copy-pasted Arrange blocks
 [ ] Bug fix includes regression test

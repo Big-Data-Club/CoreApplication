@@ -56,8 +56,8 @@ relational consistency (foreign keys to `knowledge_nodes`).
 ### Chosen: Neo4j (Community Edition)
 - Native graph database: variable-depth traversal via Cypher is O(hops),
   not O(edges)
-- MERGE semantics allow idempotent upserts — safe to re-run indexing
-- Node identity uses PostgreSQL `id` (BIGINT) — no additional mapping table
+- MERGE semantics allow idempotent upserts - safe to re-run indexing
+- Node identity uses PostgreSQL `id` (BIGINT) - no additional mapping table
 - `neo4j=5.x` Python async client available
 - Community Edition is sufficient for current scale
 
@@ -103,7 +103,7 @@ Cross-course links are discovered by `graph_linker.py`:
   The `migrate_neo4j.py` script can re-sync from scratch if needed.
 
 ## References
-- `ai-service/app/services/neo4j_service.py` — driver wrapper and queries
-- `ai-service/app/services/graph_linker.py` — cross-course link discovery
-- `ai-service/scripts/migrate_neo4j.py` — migration from PG to Neo4j
-- `docker-compose.yml` — Neo4j service (port 7687)
+- `ai-service/app/services/neo4j_service.py` - driver wrapper and queries
+- `ai-service/app/services/graph_linker.py` - cross-course link discovery
+- `ai-service/scripts/migrate_neo4j.py` - migration from PG to Neo4j
+- `docker-compose.yml` - Neo4j service (port 7687)

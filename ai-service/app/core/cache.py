@@ -4,15 +4,15 @@ ai-service/app/core/cache.py
 Centralised Redis cache for the AI service.
 Three named caches, each with its own TTL and key prefix:
 
-  EmbeddingCache   — stores computed embedding vectors
+  EmbeddingCache   - stores computed embedding vectors
                      key: emb:{model_prefix}:{sha256(text)[:16]}
                      TTL: 7 days (embeddings are deterministic)
 
-  DiagnosisCache   — stores LLM diagnosis results per (question, wrong_answer)
+  DiagnosisCache   - stores LLM diagnosis results per (question, wrong_answer)
                      key: diag:{question_id}:{md5(wrong_answer)[:8]}
                      TTL: 24 hours
 
-  GraphCache       — stores full knowledge graph per course
+  GraphCache       - stores full knowledge graph per course
                      key: graph:course:{course_id}
                      TTL: 5 minutes (invalidated on new node insert)
 

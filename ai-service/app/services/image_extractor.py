@@ -53,7 +53,7 @@ async def extract_pdf_images(
     `<storage_prefix>/p<page>-<n>.<ext>` in MinIO.
 
     Tiny icons / decorative slivers (smaller than `min_dimension` on either
-    side) are skipped — they create noise in the lesson Markdown without
+    side) are skipped - they create noise in the lesson Markdown without
     adding pedagogical value.
 
     The CPU-heavy PyMuPDF work (page iteration, pixmap extraction, colour
@@ -229,7 +229,7 @@ async def render_pptx_slides(
     just pull embedded media from the archive.
 
     Falls back to media extraction when LibreOffice is missing (typical
-    in slim Docker images) — the markdown converter still gets the inline
+    in slim Docker images) - the markdown converter still gets the inline
     images, just no whole-slide thumbnails.
     """
     images = await extract_docx_images(pptx_bytes, storage_prefix)  # PPTX shares the zip layout

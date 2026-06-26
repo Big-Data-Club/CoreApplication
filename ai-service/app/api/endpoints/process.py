@@ -1,8 +1,8 @@
 """
 ai-service/app/api/endpoints/process.py
 
-POST /ai/process-document — trigger document processing via Kafka.
-GET  /ai/process-document/{job_id} — poll job status from AI DB.
+POST /ai/process-document - trigger document processing via Kafka.
+GET  /ai/process-document/{job_id} - poll job status from AI DB.
 
 The job is queued by publishing to the lms.document.uploaded Kafka topic.
 The ai-worker consumer picks it up and calls auto_index_service.
@@ -57,7 +57,7 @@ async def trigger_processing(body: ProcessDocumentRequest, request: Request):
             body.content_id, body.course_id,
         )
 
-    # Publish to Kafka — ai-worker will pick this up
+    # Publish to Kafka - ai-worker will pick this up
     from app.worker.kafka_producer import get_kafka_producer
     producer = await get_kafka_producer()
     payload = {

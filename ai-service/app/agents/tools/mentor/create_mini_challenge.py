@@ -2,7 +2,7 @@
 Mentor Tool: create_mini_challenge
 
 Creates a short interactive quiz question directly from LLM.
-NOT saved to the main quiz database — this is ephemeral,
+NOT saved to the main quiz database - this is ephemeral,
 used for real-time learning interaction within the chat.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ class CreateMiniChallengeTool(BaseTool):
     name = "create_mini_challenge"
     description = (
         "Create a short interactive quiz question for the student to "
-        "practice a concept. The question is NOT saved to the database — "
+        "practice a concept. The question is NOT saved to the database - "
         "it's ephemeral and used for in-chat learning. Use when guiding "
         "students through a topic and you want to test their understanding "
         "with a quick exercise."
@@ -130,7 +130,7 @@ class CreateMiniChallengeTool(BaseTool):
             explanation = result.get("explanation", "")
 
             logger.debug(
-                "create_mini_challenge raw LLM output — options=%r, correct_answer=%r",
+                "create_mini_challenge raw LLM output - options=%r, correct_answer=%r",
                 raw_options, correct_ans,
             )
 

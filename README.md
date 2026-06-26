@@ -37,12 +37,12 @@ BDC Application is a microservices-based Learning Management System (LMS) design
 Moving beyond traditional LMS capabilities, the system operates an **Event-Driven AI Pipeline**. It features adaptive learning paths, automated AI quiz generation, semantic search for documents/videos, and spaced repetition engines driven by a deep Knowledge Graph.
 
 ### Core Features
-* **Course & Content Management** — Organize courses, upload multimedia (Local/MinIO), and manage learners.
-* **User & Auth Management** — Secure Spring Boot JWT authentication, role-based access, and real-time User Sync to LMS via API.
-* **Event-Driven AI Pipeline** — Kafka-based asynchronous processing for document indexing, video transcription (Whisper), and AI diagnostics.
-* **Semantic Search & RAG** — Powered by Qdrant (Vector Store) and BGE-M3 models for highly accurate content retrieval.
-* **Knowledge Graph Linking** — Neo4j integration for tracking prerequisite concepts and cross-course learning paths.
-* **Automated Diagnostics** — LLM-driven error pattern analysis and deep-linking to video timestamps/PDF pages.
+* **Course & Content Management** - Organize courses, upload multimedia (Local/MinIO), and manage learners.
+* **User & Auth Management** - Secure Spring Boot JWT authentication, role-based access, and real-time User Sync to LMS via API.
+* **Event-Driven AI Pipeline** - Kafka-based asynchronous processing for document indexing, video transcription (Whisper), and AI diagnostics.
+* **Semantic Search & RAG** - Powered by Qdrant (Vector Store) and BGE-M3 models for highly accurate content retrieval.
+* **Knowledge Graph Linking** - Neo4j integration for tracking prerequisite concepts and cross-course learning paths.
+* **Automated Diagnostics** - LLM-driven error pattern analysis and deep-linking to video timestamps/PDF pages.
 
 ---
 
@@ -55,7 +55,7 @@ Moving beyond traditional LMS capabilities, the system operates an **Event-Drive
                                    | Port 3000
                                    v
 +-----------------------------------------------------------------------+
-|                    Frontend — Next.js 14                              |
+|                    Frontend - Next.js 14                              |
 |  /apiv1/* -> Auth Backend | /lmsapiv1/* -> LMS | /ai/* -> AI       |
 +---------+------------------------+------------------------+-----------+
           | :8080                  | :8081                  | :8000

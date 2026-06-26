@@ -1,9 +1,9 @@
 """
 ai-service/app/api/endpoints/micro_lessons.py
 
-POST /ai/micro-lessons/generate        — kick off micro-lesson generation
-POST /ai/micro-lessons/generate-youtube — same, but from a YouTube URL
-GET  /ai/micro-lessons/jobs/{id}/status — convenience polling endpoint
+POST /ai/micro-lessons/generate        - kick off micro-lesson generation
+POST /ai/micro-lessons/generate-youtube - same, but from a YouTube URL
+GET  /ai/micro-lessons/jobs/{id}/status - convenience polling endpoint
 
 The LMS owns the canonical job + lesson rows; this service just spawns
 a background task that downloads the source, splits it, and POSTs the

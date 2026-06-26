@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/core/clarification.py
 
-Clarification Gate — prevents hallucination on ambiguous requests.
+Clarification Gate - prevents hallucination on ambiguous requests.
 
 Two distinct clarification flows live here:
 
@@ -12,9 +12,9 @@ Two distinct clarification flows live here:
      from the user's active courses. No LLM call.
 
   2. PARAMETER clarification (LLM-assisted)
-     For everything else — when an action tool needs a parameter only
+     For everything else - when an action tool needs a parameter only
      the user can supply (difficulty, count, preference) and the agent
-     can't discover it via tools — we ask the fast model to propose a
+     can't discover it via tools - we ask the fast model to propose a
      question. Options are verified against MTM context and dropped if
      the model fabricated them.
 
@@ -84,14 +84,14 @@ RULES:
    can call `list_knowledge_nodes`, `list_my_courses`, \
    `search_course_materials` to discover the list of topics / courses / \
    concepts) -> respond with {{"needs_clarification": false, \
-   "confidence": 0.9}}. Do NOT clarify in this case — let the agent fetch \
+   "confidence": 0.9}}. Do NOT clarify in this case - let the agent fetch \
    the real data via tools, then ask the user using that real data.
 3. Only ask for clarification when the missing info is something ONLY THE \
    USER can provide (e.g. desired difficulty, number of questions, their \
    preference) AND you cannot infer it from context.
 4. Do NOT ask for clarification on optional parameters.
 5. Do NOT ask for clarification on greetings, thank-yous, or general chat.
-6. Do NOT ask "which course?" — a separate scope resolver handles that.
+6. Do NOT ask "which course?" - a separate scope resolver handles that.
 7. Respond in the SAME LANGUAGE as the user's message.
  
 HARD RULES FOR `clarification_options`:
@@ -101,7 +101,7 @@ HARD RULES FOR `clarification_options`:
 - ONLY include options that are DIRECTLY and LITERALLY present in the \
    "Current session context" block above.
 - If you cannot produce options from the context, return \
-   `"clarification_options": []` — the agent will fetch the real list via \
+   `"clarification_options": []` - the agent will fetch the real list via \
    a tool and ask the user with accurate choices.
 - Do not repeat the user's own words back as options.
 
@@ -162,7 +162,7 @@ async def should_clarify(
             ctx_parts.append(f"Known gaps: {session_context['identified_gaps']}")
         context_str = "; ".join(ctx_parts) if ctx_parts else "No session context"
     else:
-        context_str = "New session — no prior context"
+        context_str = "New session - no prior context"
 
     prompt = CLARIFICATION_PROMPT.format(
         tool_summary=tool_summary,
@@ -227,7 +227,7 @@ async def should_clarify(
 
     except Exception as exc:
         logger.error("Clarification gate failed: %s", exc)
-        # On error, don't block — let the ReAct loop handle it
+        # On error, don't block - let the ReAct loop handle it
         return {"needs_clarification": False, "confidence": 0.5}
 
 def _verify_options(
@@ -239,7 +239,7 @@ def _verify_options(
  
     The fast clarification model tends to fabricate generic option lists
     (e.g. "Toán / Văn / Anh") when it doesn't know the real topics. We
-    only keep options whose text actually appears in the MTM context — so
+    only keep options whose text actually appears in the MTM context - so
     when there are no grounded options, the frontend shows the question
     without fake choices and the agent is free to fetch real ones via a
     tool call on the next turn.

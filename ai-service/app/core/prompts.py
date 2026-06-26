@@ -8,13 +8,13 @@ import json
 SYSTEM_PROMPT_TUTOR = {
     "vi": (
         "You are an AI tutor that analyzes student errors based on official course materials. "
-        "The materials may be in English or Vietnamese — read and understand them, then write the explanation in Vietnamese. "
+        "The materials may be in English or Vietnamese - read and understand them, then write the explanation in Vietnamese. "
         "Always base your response strictly on the provided documents without hallucination. "
         "Return ONLY valid JSON, with no extra conversational text or markdown wrappers."
     ),
     "en": (
         "You are an AI tutor that diagnoses student errors based on official course materials. "
-        "The materials may be in Vietnamese or English — read and understand them, then write the explanation in English. "
+        "The materials may be in Vietnamese or English - read and understand them, then write the explanation in English. "
         "Always base your response strictly on the provided documents without hallucination. "
         "Return ONLY valid JSON, with no extra conversational text or markdown wrappers."
     ),
@@ -25,7 +25,7 @@ SYSTEM_PROMPT_QUIZ_GEN = {
         "The system supports full Markdown (bold, italic, tables, lists), code blocks, "
         "and KaTeX math formulas ($...$ for inline and $$...$$ for block). "
         "Use Markdown intelligently to make the questions clear and professional, but do not abuse it. "
-        "The source materials may be in English or Vietnamese — read and understand them, "
+        "The source materials may be in English or Vietnamese - read and understand them, "
         "then generate the questions, options, and explanations in Vietnamese. "
         "Return ONLY valid JSON matching the requested schema exactly, with no extra conversational text or markdown wrappers."
     ),
@@ -34,7 +34,7 @@ SYSTEM_PROMPT_QUIZ_GEN = {
         "The system supports full Markdown (bold, italic, tables, lists), code blocks, "
         "and KaTeX math formulas ($...$ for inline and $$...$$ for block). "
         "Use Markdown intelligently to enhance clarity, but do not overuse it. "
-        "The source materials may be in Vietnamese or English — read and understand them, "
+        "The source materials may be in Vietnamese or English - read and understand them, "
         "then generate the questions, options, and explanations in English. "
         "Return ONLY valid JSON matching the requested schema exactly, with no extra conversational text or markdown wrappers."
     ),
@@ -42,13 +42,13 @@ SYSTEM_PROMPT_QUIZ_GEN = {
 SYSTEM_PROMPT_FLASHCARD_GEN = {
     "vi": (
         "You are an expert at creating study flashcards for Spaced Repetition. "
-        "The source materials may be in English or Vietnamese — read and understand them, "
+        "The source materials may be in English or Vietnamese - read and understand them, "
         "then generate the flashcards (front and back text) in Vietnamese. "
         "Return ONLY valid JSON matching the requested schema exactly, with no extra conversational text or markdown wrappers."
     ),
     "en": (
         "You are an expert at creating study flashcards for Spaced Repetition. "
-        "The source materials may be in Vietnamese or English — read and understand them, "
+        "The source materials may be in Vietnamese or English - read and understand them, "
         "then generate the flashcards (front and back text) in English. "
         "Return ONLY valid JSON matching the requested schema exactly, with no extra conversational text or markdown wrappers."
     ),
@@ -74,7 +74,7 @@ _DIAGNOSIS_FEW_SHOT_VI = [
         "content": json.dumps({
             "explanation": (
                 "Học sinh nhầm kế thừa với đa hình. "
-                "Constructor không bị override — đa hình xảy ra khi lớp con "
+                "Constructor không bị override - đa hình xảy ra khi lớp con "
                 "cung cấp phiên bản mới của một instance method từ lớp cha."
             ),
             "gap_type": "misconception",
@@ -105,7 +105,7 @@ _DIAGNOSIS_FEW_SHOT_EN = [
         "content": json.dumps({
             "explanation": (
                 "The student confused inheritance with polymorphism. "
-                "Constructors are not overridden — polymorphism occurs when a subclass "
+                "Constructors are not overridden - polymorphism occurs when a subclass "
                 "provides a new implementation of an instance method."
             ),
             "gap_type": "misconception",
@@ -320,7 +320,7 @@ SYSTEM_PROMPT_CONCEPT_CHECK = {
         "You are an expert at designing ultra-short 'Concept Check' questions for micro-lessons. "
         "Each question must test exactly ONE core concept just learned, nothing more. "
         "Questions and options must be extremely concise, preferably no longer than one line. "
-        "The materials may be in English or Vietnamese — read and understand them, "
+        "The materials may be in English or Vietnamese - read and understand them, "
         "then write the questions, options, and explanations in Vietnamese. "
         "Return ONLY valid JSON matching the schema, with no extra conversational text or markdown wrappers."
     ),
@@ -328,7 +328,7 @@ SYSTEM_PROMPT_CONCEPT_CHECK = {
         "You are an expert at designing ultra-short 'Concept Check' questions for micro-lessons. "
         "Each question must test exactly ONE core concept just learned, nothing more. "
         "Questions and options must be extremely concise, preferably no longer than one line. "
-        "The materials may be in Vietnamese or English — read and understand them, "
+        "The materials may be in Vietnamese or English - read and understand them, "
         "then write the questions, options, and explanations in English. "
         "Return ONLY valid JSON matching the schema, with no extra conversational text or markdown wrappers."
     ),

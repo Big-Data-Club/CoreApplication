@@ -1,4 +1,4 @@
-"""OpenAI-compatible adapter — works for Ollama, vLLM, LMStudio, TGI, OpenAI itself.
+"""OpenAI-compatible adapter - works for Ollama, vLLM, LMStudio, TGI, OpenAI itself.
  
 We don't pull a heavy SDK in; we call the REST endpoint with httpx. This keeps
 the adapter's dependency surface minimal and lets operators point at arbitrary

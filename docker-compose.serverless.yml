@@ -539,7 +539,7 @@ services:
       - "traefik.http.middlewares.lab-compress.compress=true"
       - "traefik.http.routers.lab.middlewares=rewrite-lab,lab-compress"
 
-    # Chat Service: Go — Standalone realtime chat microservice
+    # Chat Service: Go - Standalone realtime chat microservice
   chat-backend:
     build:
       context: ./chat-service

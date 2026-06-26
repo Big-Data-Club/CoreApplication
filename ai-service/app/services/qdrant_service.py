@@ -194,7 +194,7 @@ class QdrantService:
         ANN search over document_chunks with optional payload filtering.
 
         Returns ScoredPoints whose `.payload` contains all metadata needed
-        to build a `RetrievedChunk` — no secondary DB query required.
+        to build a `RetrievedChunk` - no secondary DB query required.
         """
         client = self._get_client()
         query_filter = self._build_chunk_filter(course_id, node_id, content_id)

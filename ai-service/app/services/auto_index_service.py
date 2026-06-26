@@ -52,8 +52,8 @@ MAX_EXCERPT_CHARS = 9000
 MAX_EXISTING_NODES_FOR_GRAPH = 200
 
 # Cross-document dedup: aggressively merge to prevent node explosion
-DEDUP_HARD_THRESHOLD = 0.88   # was 0.92 — reuse nodes more aggressively
-DEDUP_SOFT_THRESHOLD = 0.72   # was 0.80 — wider merge window
+DEDUP_HARD_THRESHOLD = 0.88   # was 0.92 - reuse nodes more aggressively
+DEDUP_SOFT_THRESHOLD = 0.72   # was 0.80 - wider merge window
 
 # Within the same indexing run, collapse near-duplicate nodes from different
 # batches before comparing against the DB. This is the #1 fix for node
@@ -653,7 +653,7 @@ class AutoIndexService:
 
         # ── Unified Markdown pipeline ──────────────────────────────────
         # Office documents (PDF/DOCX/PPTX/XLSX) are now normalised to
-        # Markdown first, then run through MarkdownChunker — the same
+        # Markdown first, then run through MarkdownChunker - the same
         # chunker used for native Markdown input. Benefits:
         #   * heading-aware breadcrumbs in chunks
         #   * VLM descriptions for embedded images (via image_describer)
@@ -672,7 +672,7 @@ class AutoIndexService:
                     language=language_guess,
                 )
             except Exception as exc:
-                logger.error("Unified Markdown convert failed (%s): %s — falling back",
+                logger.error("Unified Markdown convert failed (%s): %s - falling back",
                              file_type, exc, exc_info=True)
                 converted = None
 
@@ -757,7 +757,7 @@ class AutoIndexService:
                 skipped, len(structured_chunks),
             )
         if not quality_chunks:
-            logger.warning("All chunks are boilerplate — no nodes to extract")
+            logger.warning("All chunks are boilerplate - no nodes to extract")
             return [], []
 
         BATCH_SIZE = 15
@@ -877,9 +877,9 @@ class AutoIndexService:
         With USE_QDRANT=false, reads from AI PostgreSQL description_embedding column.
 
         Returns:
-          truly_new_nodes   — nodes to insert
-          truly_new_embs    — their embeddings
-          idx_to_existing   — original index -> existing DB node ID
+          truly_new_nodes   - nodes to insert
+          truly_new_embs    - their embeddings
+          idx_to_existing   - original index -> existing DB node ID
         """
         if settings.use_qdrant:
             return await self._dedup_qdrant(nodes, embeddings, course_id)
@@ -1309,7 +1309,7 @@ class AutoIndexService:
         logger.info("Stored %d chunks for content_id=%d", stored, content_id)
 
         # ── Build parent chunks for retrieval-time hydration ──────────
-        # Parent rows live in PG only — they're never embedded or indexed
+        # Parent rows live in PG only - they're never embedded or indexed
         # in Qdrant. After ANN search returns child hits, RAGService
         # `hydrate_parents` swaps the child text for the wider parent
         # passage so the LLM gets coherent context.

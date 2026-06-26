@@ -21,7 +21,7 @@ _MAX_CACHE = 2000
 VLM_MODEL = settings.vlm_model
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB safety limit
 
-# Global concurrency limiter for VLM calls — prevents rate-limit storms
+# Global concurrency limiter for VLM calls - prevents rate-limit storms
 # when processing PDFs with many embedded images (95+ images -> 95 parallel
 # VLM requests -> instant 429 from Groq's 30k TPM quota).
 _VLM_SEMAPHORE = asyncio.Semaphore(3)
@@ -35,20 +35,20 @@ _VLM_BASE_BACKOFF = 2.0  # seconds
 _SYSTEM_VI = (
     "Bạn là chuyên gia mô tả hình ảnh học thuật. "
     "Nhiệm vụ: mô tả hình ảnh một cách chi tiết, súc tích để phục vụ tìm kiếm ngữ nghĩa. "
-    "Không bắt đầu bằng 'Hình ảnh này...' — đi thẳng vào nội dung."
+    "Không bắt đầu bằng 'Hình ảnh này...' - đi thẳng vào nội dung."
 )
 
 _SYSTEM_EN = (
     "You are an expert at describing academic images. "
     "Task: describe the image concisely yet completely for semantic search indexing. "
-    "Do not begin with 'This image...' — go straight to content."
+    "Do not begin with 'This image...' - go straight to content."
 )
 
 _PROMPT_VI = """\
 Mô tả hình ảnh này cho mục đích lập chỉ mục tìm kiếm. Bao gồm:
 
 1. Loại hình ảnh (biểu đồ, sơ đồ, ảnh chụp màn hình, ảnh chụp thực tế, công thức, v.v.)
-2. Nội dung chính — mọi văn bản, nhãn, số liệu, trục, chú thích có trong ảnh
+2. Nội dung chính - mọi văn bản, nhãn, số liệu, trục, chú thích có trong ảnh
 3. Xu hướng / mối quan hệ nếu là biểu đồ hoặc bảng số liệu
 4. Ý nghĩa kỹ thuật / học thuật ngắn gọn
 
@@ -59,7 +59,7 @@ _PROMPT_EN = """\
 Describe this image for search indexing purposes. Include:
 
 1. Image type (chart, diagram, screenshot, photo, formula, etc.)
-2. Main content — all visible text, labels, numbers, axes, captions
+2. Main content - all visible text, labels, numbers, axes, captions
 3. Trends / relationships if it is a chart or data table
 4. Brief technical / academic significance
 

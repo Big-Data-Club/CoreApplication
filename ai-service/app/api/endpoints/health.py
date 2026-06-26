@@ -2,10 +2,10 @@
 ai-service/app/api/endpoints/health.py
 
 Extended health endpoint for observability.
-GET /health         — basic liveness check (used by Docker HEALTHCHECK)
-GET /health/ready   — readiness check (all dependencies reachable)
-GET /health/kafka   — Kafka consumer lag per topic
-GET /health/cache   — Redis cache stats (hit rate, key counts)
+GET /health         - basic liveness check (used by Docker HEALTHCHECK)
+GET /health/ready   - readiness check (all dependencies reachable)
+GET /health/kafka   - Kafka consumer lag per topic
+GET /health/cache   - Redis cache stats (hit rate, key counts)
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ async def liveness():
 @router.get("/health/ready")
 async def readiness():
     """
-    Readiness probe — checks all dependencies.
+    Readiness probe - checks all dependencies.
     Returns 200 only if the service can handle requests.
     Returns 503 if any critical dependency is unavailable.
     """
@@ -85,7 +85,7 @@ async def readiness():
             checks["qdrant"] = f"error: {exc}"
             is_ready = False
 
-    # Neo4j (non-critical — service works without it)
+    # Neo4j (non-critical - service works without it)
     if settings.neo4j_enabled:
         try:
             from app.services.neo4j_service import neo4j_service
@@ -180,7 +180,7 @@ async def kafka_lag():
             "group_id": group_id,
             "status":   "error",
             "error":    str(exc),
-            "note":     "Lag monitoring unavailable — check Kafka connectivity",
+            "note":     "Lag monitoring unavailable - check Kafka connectivity",
         }
 
 

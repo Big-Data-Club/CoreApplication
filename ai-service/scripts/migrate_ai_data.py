@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 class TableSpec:
     name: str
     pk: str = "id"
-    # Columns that reference LMS entities become plain BIGINTs in AI DB —
+    # Columns that reference LMS entities become plain BIGINTs in AI DB -
     # no FK constraint, just data copy. List them here for documentation.
     soft_refs: list[str] = field(default_factory=list)
 
@@ -126,7 +126,7 @@ def migrate_table(
     # Count source rows
     src_cur.execute(f"SELECT COUNT(*) AS n FROM {spec.name}")
     total = src_cur.fetchone()["n"]
-    log.info("  %s — %d rows to migrate", spec.name, total)
+    log.info("  %s - %d rows to migrate", spec.name, total)
 
     if dry_run or total == 0:
         return {"table": spec.name, "rows_read": total,
@@ -180,7 +180,7 @@ def migrate_table(
         rows_skipped  += len(rows) - max(0, dst_cur.rowcount)
         offset        += len(rows)
         pct = min(100, round(offset / total * 100))
-        log.info("    %s — %d%% (%d/%d)", spec.name, pct, offset, total)
+        log.info("    %s - %d%% (%d/%d)", spec.name, pct, offset, total)
 
     elapsed = time.perf_counter() - t0
     return {
@@ -193,7 +193,7 @@ def migrate_table(
 
 
 def _row_was_inserted(cur, spec: TableSpec, pk_value: Any) -> bool:
-    """Quick existence check — used only for accurate counting, not hot path."""
+    """Quick existence check - used only for accurate counting, not hot path."""
     try:
         cur.execute(
             f"SELECT 1 FROM {spec.name} WHERE {spec.pk} = %s", (pk_value,)
@@ -322,7 +322,7 @@ def main() -> int:
             log.error("  %s", e)
         return 1
 
-    log.info("Done.%s", " (dry run — no data written)" if args.dry_run else "")
+    log.info("Done.%s", " (dry run - no data written)" if args.dry_run else "")
     return 0
 
 

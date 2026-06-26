@@ -25,7 +25,7 @@ import java.util.Map;
  *
  * Design notes
  *   - Responses are passed through as typed Maps/Lists. The AI service is the
- *     source of truth for schema — duplicating DTOs on both sides creates a
+ *     source of truth for schema - duplicating DTOs on both sides creates a
  *     drift risk that isn't worth the type-safety given this is an admin tool.
  *   - Upstream non-2xx responses become {@link ExternalServiceException} so
  *     the GlobalExceptionHandler converts them into 502 for the caller.

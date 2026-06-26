@@ -1,7 +1,7 @@
 ---
 name: bdc-ai-service
 description: >
-  Use when working in ai-service/ — FastAPI HTTP server + aiokafka Worker.
+  Use when working in ai-service/ - FastAPI HTTP server + aiokafka Worker.
   Covers: async document ingestion, error diagnosis, quiz generation,
   spaced repetition, knowledge graph, Qdrant, Neo4j, MinIO, pgvector fallback.
 triggers:
@@ -26,11 +26,11 @@ requires:
   - bdc-core-orchestrator
 ---
 
-# BDC AI Service — Developer Skill
+# BDC AI Service - Developer Skill
 
 ## Role & Scope
 
-You are working on `ai-service/` — the AI/ML backend for the BDC LMS.
+You are working on `ai-service/` - the AI/ML backend for the BDC LMS.
 Built with Python 3.12 + FastAPI (HTTP) + aiokafka (async event worker).
 Handles RAG document ingestion, error diagnosis, quiz generation, spaced
 repetition scheduling, and knowledge graph management.
@@ -129,12 +129,12 @@ Variable-depth traversal is limited to depth 3 via recursive CTE.
 
 ---
 
-## Singleton Pattern — LLM and Embeddings
+## Singleton Pattern - LLM and Embeddings
 
 Models load exactly once per process via `app.core.llm`:
 
 ```python
-# Always use these — never instantiate models directly in a service
+# Always use these - never instantiate models directly in a service
 from app.core.llm import get_llm, get_embedding_model
 
 llm   = get_llm()             # ChatGroq (CHAT_MODEL or QUIZ_MODEL)
@@ -149,7 +149,7 @@ singletons.
 
 ## Adding a New Kafka-Driven Feature
 
-### Step 1 — Define the payload schema in `app/schemas/`
+### Step 1 - Define the payload schema in `app/schemas/`
 
 ```python
 # app/schemas/my_feature.py
@@ -161,7 +161,7 @@ class MyFeaturePayload(BaseModel):
     created_by: int
 ```
 
-### Step 2 — Implement the service in `app/services/`
+### Step 2 - Implement the service in `app/services/`
 
 ```python
 # app/services/my_feature_service.py
@@ -176,7 +176,7 @@ async def run_my_feature(node_id: int, course_id: int, created_by: int) -> dict:
     return {"result": "..."}
 ```
 
-### Step 3 — Register the command in `kafka_worker.py`
+### Step 3 - Register the command in `kafka_worker.py`
 
 ```python
 # app/worker/kafka_worker.py  (inside process_ai_command)
@@ -198,7 +198,7 @@ async def process_ai_command(payload: dict):
         await publish_ai_job_status(job_id, "failed", error=str(e))
 ```
 
-### Step 4 — Add the trigger endpoint in `app/api/endpoints/`
+### Step 4 - Add the trigger endpoint in `app/api/endpoints/`
 
 ```python
 # app/api/endpoints/my_feature.py
@@ -215,14 +215,14 @@ async def trigger_my_feature(req: MyFeatureRequest, _=Depends(verify_ai_secret))
     return {"job_id": job_id, "status": "pending"}
 ```
 
-### Step 5 — Register the router in `main.py`
+### Step 5 - Register the router in `main.py`
 
 ```python
 from app.api.endpoints.my_feature import router as my_feature_router
 app.include_router(my_feature_router)
 ```
 
-### Step 6 — Document the new command in `docs/kafka-events.md`
+### Step 6 - Document the new command in `docs/kafka-events.md`
 
 Add the payload schema under `lms.ai.command` -> command types and the result
 shape under `ai.job.status` -> result shapes.
@@ -284,7 +284,7 @@ async def bulk_fetch():
 | `USE_RERANKER` | `true` (ai-service) / `false` (ai-worker) | Reranker costs ~500 MB RAM |
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | Change triggers cache invalidation (see TN-009) |
 | `EMBEDDING_DIMENSIONS` | `1024` | Must match Qdrant collection dimensions |
-| `GROQ_API_KEY` | — | Required. Get from console.groq.com |
+| `GROQ_API_KEY` | - | Required. Get from console.groq.com |
 | `CHAT_MODEL` | `llama-3.1-8b-instant` | Fast model for diagnosis |
 | `QUIZ_MODEL` | `llama-3.3-70b-versatile` | Accurate model for quiz generation |
 | `YOUTUBE_WHISPER_FALLBACK` | `false` | Enable only if captions are insufficient. Costs ~500 MB RAM. |
@@ -334,6 +334,6 @@ Before submitting any change to this service:
 [ ] New endpoint has X-AI-Secret verification dependency
 [ ] New command documented in docs/kafka-events.md
 [ ] No model instantiation outside app/core/llm.py
-[ ] No raw os.environ[] — use app/core/config.py settings object
+[ ] No raw os.environ[] - use app/core/config.py settings object
 [ ] Tests added: at least endpoint auth test + worker command test
 ```

@@ -4,7 +4,7 @@ ai-service/app/agents/tools/mentor/get_study_plan.py
 Mentor Tool: get_study_plan
 
 Builds a personalized study plan based on the student's spaced repetition
-schedule, knowledge gaps, and course structure — across ALL enrolled courses,
+schedule, knowledge gaps, and course structure - across ALL enrolled courses,
 since the Mentor agent operates at the global level, not per-course.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ class GetStudyPlanTool(BaseTool):
         "Combines spaced repetition due items, knowledge gaps, and strengths to "
         "recommend what to study next. Use when the student asks 'what should I "
         "study?', 'what do I need to review?', 'giúp tôi ôn tập', or wants a "
-        "learning roadmap. Do NOT require a course_id — this tool fetches data "
+        "learning roadmap. Do NOT require a course_id - this tool fetches data "
         "globally across all the student's enrolled courses."
     )
     parameters = {
@@ -37,14 +37,14 @@ class GetStudyPlanTool(BaseTool):
                 ),
             },
         },
-        "required": [],  # course_id is OPTIONAL — Mentor is cross-course
+        "required": [],  # course_id is OPTIONAL - Mentor is cross-course
     }
 
     async def execute(self, **kwargs) -> ToolResult:
 
 
         student_id = kwargs.get("_user_id", 0)
-        # course_id is optional — if not supplied by the LLM or context, use None
+        # course_id is optional - if not supplied by the LLM or context, use None
         course_id: int | None = (
             kwargs.get("_course_id")
             or kwargs.get("course_id")

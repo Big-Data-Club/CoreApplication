@@ -12,7 +12,7 @@ from app.core.database import get_ai_conn
 logger   = logging.getLogger(__name__)
 settings = get_settings()
 
-router = APIRouter(prefix="/admin", tags=["Admin — Migration"])
+router = APIRouter(prefix="/admin", tags=["Admin - Migration"])
 
 
 class ReindexRequest(BaseModel):

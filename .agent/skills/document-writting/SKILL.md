@@ -24,20 +24,20 @@ requires:
   - bdc-core-orchestrator
 ---
 
-# BDC Documentation Writer — Skill
+# BDC Documentation Writer - Skill
 
 ## Non-Negotiable Rules
 
 ```
 1.  No emoji or decorative icons anywhere in the document.
-2.  All diagrams must be ASCII art — no Mermaid, no PlantUML, no image embeds.
+2.  All diagrams must be ASCII art - no Mermaid, no PlantUML, no image embeds.
 3.  Every public API endpoint must document request, response, and error cases.
 4.  Every document must have a header block: title, version, date, status, authors.
 5.  Technical claims must reference the source file, config key, or migration.
 6.  Formal technical English. No contractions. No casual language.
 7.  Passive voice is acceptable for process descriptions. Active voice for instructions.
 8.  All code blocks must specify the language identifier.
-9.  Documents must be self-contained — no undefined terms or unexplained acronyms.
+9.  Documents must be self-contained - no undefined terms or unexplained acronyms.
 10. Write in the present tense for current state, future tense for planned work.
 ```
 
@@ -54,7 +54,7 @@ requires:
 | Status    | Draft / Review / Approved |
 | Date      | YYYY-MM-DD                |
 | Authors   | BDC Team                  |
-| Reviewers | —                         |
+| Reviewers | -                         |
 
 ## Revision History
 
@@ -71,13 +71,13 @@ requires:
 
 Required sections:
 ```
-1. Overview — purpose, problem solved, scope
+1. Overview - purpose, problem solved, scope
 2. Architecture Diagram (ASCII)
-3. Component Responsibilities — one paragraph per component
-4. Data Flow — numbered step-by-step for the primary request path
-5. Data Model — key tables with columns and relationships
-6. Configuration — all environment variables with type, required flag, default
-7. Known Constraints — explicit statements about limitations
+3. Component Responsibilities - one paragraph per component
+4. Data Flow - numbered step-by-step for the primary request path
+5. Data Model - key tables with columns and relationships
+6. Configuration - all environment variables with type, required flag, default
+7. Known Constraints - explicit statements about limitations
 8. Open Questions / Future Work
 ```
 
@@ -137,7 +137,7 @@ Required structure per endpoint:
 { "example": "body" }
 ```
 
-#### Response — 200 OK
+#### Response - 200 OK
 
 | Field  | Type    | Always Present | Description |
 |--------|---------|----------------|-------------|
@@ -180,7 +180,7 @@ File location: `docs/adr/ADR-NNN-short-title.md`
 Situation requiring a decision. Forces at play.
 
 ## Decision
-"We will use X because Y." — one or two sentences.
+"We will use X because Y." - one or two sentences.
 
 ## Rationale
 Why this decision over alternatives. Reference benchmarks or prototypes if consulted.
@@ -201,7 +201,7 @@ Why this decision over alternatives. Reference benchmarks or prototypes if consu
 - ...
 
 ### Risks
-- Risk: description — Mitigation: mitigation
+- Risk: description - Mitigation: mitigation
 
 ## References
 - Source file or link
@@ -294,7 +294,7 @@ docs/
 [ ] All endpoint paths match the router registration in source code
 [ ] All code blocks have a language identifier
 [ ] Every error scenario documented
-[ ] Formal English — no contractions
+[ ] Formal English - no contractions
 [ ] Claims reference a source file or config key
 [ ] Document is self-contained
 [ ] Spell-checked

@@ -2,7 +2,7 @@
 Teacher Tool: trigger_auto_index
 
 Publishes a Kafka event to trigger document indexing for newly
-uploaded content. This is the async path — the actual indexing
+uploaded content. This is the async path - the actual indexing
 is handled by the ai-worker Kafka consumer.
 
 NOTE: This tool does NOT call the LMS to create content.
@@ -68,7 +68,7 @@ class TriggerAutoIndexTool(BaseTool):
                 )
 
             if existing and existing["status"] == "ready":
-                # Content already indexed — offer re-index
+                # Content already indexed - offer re-index
                 return ToolResult(
                     status="success",
                     data={

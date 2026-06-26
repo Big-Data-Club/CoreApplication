@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/memory/active_courses.py
 
-Active-courses anchor — the single source of truth about which courses
+Active-courses anchor - the single source of truth about which courses
 the current user can actually work with.
 
 The agent is GLOBAL: a teacher manages many courses, a student is enrolled
@@ -14,7 +14,7 @@ Roles:
                   quiz/content generation)
   - mentor   ->  courses the student is ACCEPTED-enrolled in
                 (LMS /enrollments/my?status=ACCEPTED).
-                Nodes are NOT pre-loaded — the mentor pulls them on
+                Nodes are NOT pre-loaded - the mentor pulls them on
                 demand via tools.
 
 Both shapes share the same envelope so downstream code (scope resolver,
@@ -101,7 +101,7 @@ async def load_active_courses(
             courses = await _fetch_teacher_courses(user_id)
         else:
             courses = await _fetch_student_courses(user_id)
-    except Exception as exc:  # noqa: BLE001 — anchor must never break the turn
+    except Exception as exc:  # noqa: BLE001 - anchor must never break the turn
         logger.warning(
             "active_courses load failed user=%s agent=%s err=%s",
             user_id, agent_type, exc,
@@ -189,12 +189,12 @@ def format_active_courses_for_prompt(anchor: dict) -> str:
     """
     Render the anchor as a ground-truth block for the system prompt.
 
-    Returns an empty string when the user has no courses — the prompt
+    Returns an empty string when the user has no courses - the prompt
     template falls back to a default instructional sentence.
 
     The block ALWAYS surfaces all course IDs/titles. For teachers, each
     course also lists its indexed knowledge_nodes (the only valid
-    `node_id` values). For mentors, nodes are intentionally omitted —
+    `node_id` values). For mentors, nodes are intentionally omitted -
     the agent calls `list_knowledge_nodes` / `search_course_materials`
     on demand once the user picks a course.
     """
@@ -222,7 +222,7 @@ def format_active_courses_for_prompt(anchor: dict) -> str:
             continue
         if not nodes:
             lines.append(
-                "    (no indexed knowledge nodes — index documents "
+                "    (no indexed knowledge nodes - index documents "
                 "before generating quizzes/content)"
             )
             continue
@@ -237,7 +237,7 @@ def format_active_courses_for_prompt(anchor: dict) -> str:
 
 
 def list_course_titles(anchor: dict) -> list[str]:
-    """Return just the course titles — useful for clarification options."""
+    """Return just the course titles - useful for clarification options."""
     return [
         c.get("title") or f"Khoá học #{c.get('id')}"
         for c in (anchor.get("courses") or [])

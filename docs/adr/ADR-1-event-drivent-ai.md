@@ -91,6 +91,6 @@ Kafka was selected over the following alternatives:
   Mitigation: `lms-service` returns a user-facing error message when the Kafka publish fails; the document processing endpoint (`POST /auto-index`) can degrade gracefully.
 
 ## References
-- `ai-service/app/worker/kafka_worker.py` — consumer loop implementation
-- `ai-service/app/worker/kafka_producer.py` — producer functions
-- `docs/kafka-events.md` — full event schema reference
+- `ai-service/app/worker/kafka_worker.py` - consumer loop implementation
+- `ai-service/app/worker/kafka_producer.py` - producer functions
+- `docs/kafka-events.md` - full event schema reference

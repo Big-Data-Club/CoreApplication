@@ -323,7 +323,7 @@ Next.js distinguishes between client-side and server-side variables:
 *   **Client-Side Variables** (prefixed with `NEXT_PUBLIC_`, e.g. `NEXT_PUBLIC_GOOGLE_CLIENT_ID`): These are inlined at compile time. They must be supplied as Docker `--build-arg` variables during the build process. In GitHub Actions, add these values as Repository Secrets (e.g., `NEXT_PUBLIC_GOOGLE_CLIENT_ID`) to automatically embed them.
 
 ### 5.2. Continuous Delivery (CD)
-Upon successful completion of the CI workflow, the `CD — Deploy Production` pipeline:
+Upon successful completion of the CI workflow, the `CD - Deploy Production` pipeline:
 1.  Triggers the runner environment on the production server.
 2.  Performs a **sparse checkout** to only download the `server` directory configuration files into a temporary workspace.
 3.  Synchronizes only the `server` files into `/home/bdc_web/codespace/bdc_deploy/` using `rsync` (preventing any overwrite of the persistent `.env` file).

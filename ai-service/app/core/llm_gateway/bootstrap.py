@@ -1,11 +1,11 @@
 """
-Bootstrap — called once on application startup to guarantee that:
+Bootstrap - called once on application startup to guarantee that:
  
   1. The default Groq provider exists (idempotent).
   2. The two legacy models (chat + quiz) are registered with their current
      env-var values so callers that upgrade mid-flight still work.
   3. If GROQ_API_KEY is set, it's migrated into llm_api_keys as alias
-     'groq-env' — but only if no key for that provider exists yet.
+     'groq-env' - but only if no key for that provider exists yet.
   4. Default task bindings are created so every known task_code resolves to
      at least one model.
  
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
  
  
 # Model catalog based on GroqCloud production models (April 2026).
-# All entries are upserted on every startup — safe to add/update freely.
+# All entries are upserted on every startup - safe to add/update freely.
 # Admins assign task bindings via the Admin UI; bootstrap only seeds the catalog.
 _DEFAULT_GROQ_MODELS = [
     # ── Llama family ─────────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ _DEFAULT_GROQ_MODELS = [
         "supports_json": True,
         "default_temperature": 0.3,
         "default_max_tokens": 8192,
-        "input_cost_per_1k": 0.0,   # billed differently — no per-token price
+        "input_cost_per_1k": 0.0,   # billed differently - no per-token price
         "output_cost_per_1k": 0.0,
     },
     {
@@ -203,7 +203,7 @@ _DEFAULT_GEMINI_MODELS = [
         "input_cost_per_1k": 0.0001,
         "output_cost_per_1k": 0.0004,
     },
-    # ── Gemini 2.0 (deprecated June 2026 — kept for existing bindings) ────────
+    # ── Gemini 2.0 (deprecated June 2026 - kept for existing bindings) ────────
     {
         "model_name": "gemini-2.0-flash",
         "display_name": "Gemini 2.0 Flash (deprecated)",
@@ -275,7 +275,7 @@ async def bootstrap_llm_registry() -> None:
         enabled=True,
     )
  
-    # 2. Models — upsert with current env-var names so the task map still works
+    # 2. Models - upsert with current env-var names so the task map still works
     chat_env = settings.chat_model
     quiz_env = settings.quiz_model
     vlm_env = settings.vlm_model
@@ -386,7 +386,7 @@ async def bootstrap_llm_registry() -> None:
             logger.warning("Could not seed Anthropic env key: %s", exc)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Default task bindings (Groq only — admins bind Gemini via the Admin UI)
+    # Default task bindings (Groq only - admins bind Gemini via the Admin UI)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     default_bindings: list[tuple[str, int, int]] = [
         (TASK_CHAT,             chat_model_id, 10),

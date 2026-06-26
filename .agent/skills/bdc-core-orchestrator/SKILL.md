@@ -18,10 +18,10 @@ authors:
   - BDC Team
 ---
 
-# BDC Core Orchestrator — Global Architecture
+# BDC Core Orchestrator - Global Architecture
 
 **Read this file completely before working on any individual service.**
-You are modifying the **Big Data Club (BDC) Core Application** — a production
+You are modifying the **Big Data Club (BDC) Core Application** - a production
 microservices LMS deployed via Docker Compose on a single server.
 
 ---
@@ -85,15 +85,15 @@ microservices LMS deployed via Docker Compose on a single server.
 | Auth | `auth-and-management-service/` | Java 21, Spring Boot 3.x | `backend` | 8080 |
 | LMS | `lms-service/` | Go 1.24, Gin | `lms-backend` | 8081 |
 | AI HTTP | `ai-service/` | Python 3.12, FastAPI | `ai-service` | 8000 |
-| AI Worker | `ai-service/` | Python 3.12, aiokafka | `ai-worker` | — |
-| Kafka | — | KRaft mode | `kafka` | 9092 |
-| Auth DB | — | PostgreSQL 15 | `postgres` | 5433->5432 |
-| LMS DB | — | PostgreSQL 15 | `postgres-lms` | 5434->5432 |
-| AI DB | — | PostgreSQL 15 | `postgres-ai` | 5435->5432 |
-| Redis | — | Redis 7 | `redis-lms` | 6379 |
-| MinIO | — | MinIO latest | `minio` | 9000/9001 |
-| Qdrant | — | Qdrant v1.13.6 | `qdrant` | 6333/6334 |
-| Neo4j | — | Neo4j 5.x | `neo4j` | 7687 |
+| AI Worker | `ai-service/` | Python 3.12, aiokafka | `ai-worker` | - |
+| Kafka | - | KRaft mode | `kafka` | 9092 |
+| Auth DB | - | PostgreSQL 15 | `postgres` | 5433->5432 |
+| LMS DB | - | PostgreSQL 15 | `postgres-lms` | 5434->5432 |
+| AI DB | - | PostgreSQL 15 | `postgres-ai` | 5435->5432 |
+| Redis | - | Redis 7 | `redis-lms` | 6379 |
+| MinIO | - | MinIO latest | `minio` | 9000/9001 |
+| Qdrant | - | Qdrant v1.13.6 | `qdrant` | 6333/6334 |
+| Neo4j | - | Neo4j 5.x | `neo4j` | 7687 |
 
 ---
 
@@ -133,7 +133,7 @@ docker exec -i postgres-ai psql -U "$AI_POSTGRES_USER" -d "$AI_POSTGRES_DB" \
 
 ## Cross-Service Communication Patterns
 
-### Pattern 1 — User Sync (Auth -> LMS)
+### Pattern 1 - User Sync (Auth -> LMS)
 
 Triggered when users are created, updated, or blocked in the Auth service.
 
@@ -154,7 +154,7 @@ fail the HTTP response. Monitor with:
 docker compose logs backend | grep -i "sync\|error"
 ```
 
-### Pattern 2 — Event-Driven AI (LMS -> Kafka -> AI Worker -> Redis -> LMS)
+### Pattern 2 - Event-Driven AI (LMS -> Kafka -> AI Worker -> Redis -> LMS)
 
 Used for all AI tasks: document ingestion, quiz generation, flashcards, diagnosis.
 
@@ -171,7 +171,7 @@ Used for all AI tasks: document ingestion, quiz generation, flashcards, diagnosi
 10. Client  -> GET /lmsapiv1/ai/jobs/{job_id}/status -> reads Redis
 ```
 
-### Pattern 3 — Synchronous AI (LMS -> AI HTTP)
+### Pattern 3 - Synchronous AI (LMS -> AI HTTP)
 
 Used only for fast, non-LLM queries (health, status reads, graph GET).
 
@@ -180,7 +180,7 @@ lms-service  ->  GET http://ai-service:8000/ai/process-document/{id}
                Header: X-AI-Secret: ${AI_SERVICE_SECRET}
 ```
 
-### Pattern 4 — File Access (LMS ↔ MinIO, AI ← MinIO)
+### Pattern 4 - File Access (LMS ↔ MinIO, AI ← MinIO)
 
 ```
 Client  ->  POST /lmsapiv1/files/upload
@@ -209,7 +209,7 @@ Variables marked `[MUST MATCH]` must be identical in both services.
 ## Docker Compose Operations
 
 ```bash
-# Start full stack (first time — builds images)
+# Start full stack (first time - builds images)
 docker compose up -d --build
 
 # Start without rebuilding
@@ -225,10 +225,10 @@ docker compose ps
 docker compose logs -f ai-worker
 docker compose logs -f lms-backend
 
-# Stop — preserve data volumes
+# Stop - preserve data volumes
 docker compose down
 
-# Stop — destroy data volumes (⚠ deletes all data)
+# Stop - destroy data volumes (⚠ deletes all data)
 docker compose down -v
 ```
 
@@ -247,7 +247,7 @@ docker compose down -v
 | `ai.graph.status` | ai-worker | lms-service | 1 day |
 
 Consumer group IDs: `ai-worker-group` (ai-worker), `lms-ai-status-group` (lms-service).
-These must never overlap — see TN-008.
+These must never overlap - see TN-008.
 
 ---
 

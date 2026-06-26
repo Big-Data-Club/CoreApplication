@@ -1,5 +1,5 @@
 """
-LLMGateway — single entry point for every LLM call in the service.
+LLMGateway - single entry point for every LLM call in the service.
  
 Responsibilities:
   * Resolve the fallback chain for a task (ordered by binding priority).
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
  
 # How many keys to try on the SAME model before moving to the next model.
 # A failure from key[0] (rate-limit / auth) shouldn't abandon an otherwise
-# healthy model — there may be 9 more keys to try.
+# healthy model - there may be 9 more keys to try.
 MAX_KEYS_PER_MODEL = 3
  
  
@@ -95,7 +95,7 @@ class LLMGateway:
                 )
                 continue
             except ContextLengthError:
-                # A bigger model might have more context — try the next one.
+                # A bigger model might have more context - try the next one.
                 last_error = ContextLengthError("Context window exceeded")
                 continue
             except ProviderError as exc:
@@ -254,7 +254,7 @@ class LLMGateway:
                     last_key_error = exc
                     continue
                 raise
-            except Exception as exc:  # pragma: no cover — defensive
+            except Exception as exc:  # pragma: no cover - defensive
                 elapsed = int((time.monotonic() - start) * 1000)
                 await self.key_pool.record_generic_failure(lease.id, str(exc))
                 await self._log(
@@ -286,7 +286,7 @@ class LLMGateway:
                 raw=raw,
             )
  
-        # Exhausted MAX_KEYS_PER_MODEL without success — bubble up so the outer
+        # Exhausted MAX_KEYS_PER_MODEL without success - bubble up so the outer
         # loop can try the next model in the chain.
         if last_key_error is None:
             raise NoKeyAvailableError(

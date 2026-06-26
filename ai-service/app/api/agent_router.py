@@ -4,9 +4,9 @@ ai-service/app/api/agent_router.py
 FastAPI router for the Agent chat system.
 
 Endpoints:
-  POST /agents/chat       — SSE streaming chat response
-  GET  /agents/sessions    — List user sessions
-  GET  /agents/health      — Agent system health check
+  POST /agents/chat       - SSE streaming chat response
+  GET  /agents/sessions    - List user sessions
+  GET  /agents/health      - Agent system health check
 
 The /agents/chat endpoint uses Server-Sent Events (SSE) to stream
 AgentEvents in real-time to the frontend. Each event is a JSON line
@@ -47,7 +47,7 @@ class ActiveCourseHint(BaseModel):
     """
     Hint from the frontend about a course the user has access to.
 
-    Optional — the agent loads its own authoritative list, but supplying
+    Optional - the agent loads its own authoritative list, but supplying
     this seeds the cache and avoids a cold LMS round-trip on the first
     turn. Pass the full list of courses currently visible in the sidebar
     (teacher: created courses; student: ACCEPTED enrolments).
@@ -65,7 +65,7 @@ class SystemContext(BaseModel):
     agent's system prompt so the model knows exactly which lesson the
     student is reading, without bloating the visible chat history.
 
-    Fields are optional — the FE typically provides ``lesson_text``
+    Fields are optional - the FE typically provides ``lesson_text``
     plus ``lesson_id`` / ``node_id``. The model never sees this dict
     raw; it is rendered through ``_format_system_context`` in
     ``agents/core/prompts.py``.

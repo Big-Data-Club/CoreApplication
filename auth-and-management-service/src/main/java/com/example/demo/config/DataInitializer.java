@@ -67,7 +67,7 @@ public class DataInitializer implements CommandLineRunner {
 
     /**
      * Seed the dynamic roles table and default LMS mappings.
-     * Idempotent — skips if roles already exist.
+     * Idempotent - skips if roles already exist.
      */
     private void seedRoles() {
         seedRole(UserRole.ROLE_ADMIN, "Administrator", "ADMIN");

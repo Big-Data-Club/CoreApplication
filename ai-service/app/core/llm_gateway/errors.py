@@ -32,7 +32,7 @@ class RateLimitedError(ProviderError):
  
  
 class AuthError(ProviderError):
-    """Provider returned 401/403 — the API key is bad."""
+    """Provider returned 401/403 - the API key is bad."""
  
     def __init__(self, message: str, *, status_code: int = 401):
         super().__init__(message, status_code=status_code, retryable=False)

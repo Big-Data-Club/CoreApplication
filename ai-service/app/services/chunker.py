@@ -383,7 +383,7 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
       5. Sub-chunk oversized sections at paragraph / sentence boundaries
       6. Restore code blocks
  
-    Sync path (chunk_bytes): images replaced with alt text only — suitable
+    Sync path (chunk_bytes): images replaced with alt text only - suitable
     for Celery workers that don't have an async event loop.
     """
  
@@ -408,7 +408,7 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
         image_describer: Optional[Callable[[str, str], Awaitable[str]]] = None,
     ) -> list:  # list[DocumentChunk]
         """
-        Full async pipeline — use this from FastAPI / auto_index_service.
+        Full async pipeline - use this from FastAPI / auto_index_service.
         image_describer(url, alt_text) -> description string.
         """
         text = markdown_text
@@ -432,7 +432,7 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
  
     def chunk_bytes(self, text_bytes: bytes) -> list:  # list[DocumentChunk]
         """
-        Sync fallback — images get alt text, no VLM.
+        Sync fallback - images get alt text, no VLM.
         Used by Celery process_document_task.
         """
         text = text_bytes.decode("utf-8", errors="replace")
@@ -534,7 +534,7 @@ class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
             # Parse column names from | col1 | col2 | col3 |
             cols = [c.strip() for c in header_row.strip().strip("|").split("|") if c.strip()]
             if cols:
-                summary = f"[Bảng dữ liệu — Các cột: {', '.join(cols)}]\n"
+                summary = f"[Bảng dữ liệu - Các cột: {', '.join(cols)}]\n"
             else:
                 summary = "[Bảng dữ liệu]\n"
             return summary + m.group(0)
@@ -682,10 +682,10 @@ class ImageChunker:
         ]
  
     def chunk_bytes(self, image_bytes: bytes) -> list:  # list[DocumentChunk]
-        """Sync fallback — used by Celery. Returns placeholder."""
+        """Sync fallback - used by Celery. Returns placeholder."""
         return [
             DocumentChunk(  # type: ignore[name-defined]
-                text="[Hình ảnh chưa được mô tả — cần chạy lại pipeline với VLM]",
+                text="[Hình ảnh chưa được mô tả - cần chạy lại pipeline với VLM]",
                 index=0,
                 source_type="document",
                 page_number=1,
