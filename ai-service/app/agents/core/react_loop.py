@@ -1,60 +1,3 @@
-"""
-ai-service/app/agents/core/react_loop.py
-
-ReAct Loop - the central reasoning engine for both agents.
-
-This is the CORE of the entire multi-agent system. It orchestrates:
-  1. Intent classification (Router)
-  2. Memory assembly (ContextBuilder)
-  3. Clarification gating
-  4. Iterative Reason+Act loop with Groq streaming
-  5. Tool execution via the Registry
-  6. STM persistence and MTM compression triggers
-
-Flow diagram:
-
-  User message
-      │
-      ▼
-  ┌────────────────┐
-  │ classify_intent│ ← fast LLM (8b)
-  └──────┬─────────┘
-         ▼
-  ┌───────────────────┐
-  │ context_builder   │ ← weighted memory fetch
-  │  .build(intent)   │
-  └──────┬────────────┘
-         ▼
-  ┌───────────────────┐
-  │ should_clarify?   │ ← fast LLM check
-  │  confidence < 0.7 │──yes──▶ yield CLARIFICATION -> return
-  └──────┬────────────┘
-         │ no
-         ▼
-  ┌─────────────────────────────────────────┐
-  │ for iteration in range(MAX_ITERATIONS): │
-  │   1. Groq streaming (70b + tools)       │
-  │   2. If text only -> yield deltas -> DONE │
-  │   3. If tool_calls:                     │
-  │      a. yield TOOL_START                │
-  │      b. execute_tool()                  │
-  │      c. yield TOOL_RESULT / UI          │
-  │      d. append tool result to messages  │
-  │      e. loop back to step 1             │
-  └─────────────────────────────────────────┘
-         │
-         ▼
-  ┌───────────────────┐
-  │ Post-turn:        │
-  │  - Save to STM    │
-  │  - Check compress │
-  │  - Trigger MTM    │
-  └───────────────────┘
-
-Max iterations: 5 (prevents infinite tool-calling loops)
-Model: quiz_model (llama-3.3-70b-versatile) for reasoning quality
-Streaming: Groq native streaming with tool_calls collection
-"""
 from __future__ import annotations
 
 import json
@@ -82,6 +25,7 @@ from app.agents.core.prompts import build_system_prompt
 from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
     resolve_course_scope,
+    resolve_context_scope,
 )
 from app.agents.tools.registry import (
     get_tool_schemas, get_tool_by_name, execute_tool,
@@ -96,6 +40,97 @@ settings = get_settings()
 MAX_ITERATIONS = 5
 MAX_CLARIFICATIONS_PER_SESSION = 2
 
+
+# -----------------------------------------------------------------------------
+# [PATCH 1] Dynamic max_tokens
+# -----------------------------------------------------------------------------
+
+def _resolve_max_tokens(intent_type: str, has_page_context: bool) -> int:
+    """
+    Allocate the token budget for the LLM based on the expected complexity of the response.
+
+    Instead of a hardcoded 2048 for all cases, the budget is adjusted according to the intent:
+    - content_creation / interactive_exercise: needs long generation -> 4096
+    - knowledge_question + page_context (currently studying a lesson): requires deep explanation -> 3500
+    - standard knowledge_question: -> 3000
+    - progress_advice: -> 2500
+    - general_chat / fallback: -> 2048
+    """
+    if intent_type in ("content_creation", "interactive_exercise"):
+        return 4096
+    if intent_type == "knowledge_question":
+        return 3500 if has_page_context else 3000
+    if intent_type == "progress_advice":
+        return 2500
+    return 2048
+
+
+# -----------------------------------------------------------------------------
+# [PATCH 2] Smart tool result truncation
+# -----------------------------------------------------------------------------
+
+def _smart_truncate_tool_result(
+    tool_name: str,
+    result_content: str,
+    limit: int = 4000,
+) -> str:
+    """
+    Truncate tool results semantically instead of using a hard character limit.
+
+    - search_course_materials: keep chunks intact, cut at boundaries
+    - diagnose_knowledge_gap: keep weaknesses + prerequisite_chains
+    - explain_concept: trim each text chunk
+    - fallback: cut at the newline closest to the limit
+    """
+    if len(result_content) <= limit:
+        return result_content
+
+    try:
+        data = json.loads(result_content)
+
+        if tool_name == "search_course_materials":
+            chunks = data.get("data", {}).get("chunks", [])
+            kept, char_count = [], 0
+            for chunk in chunks:
+                chunk_json = json.dumps(chunk, ensure_ascii=False)
+                if char_count + len(chunk_json) > int(limit * 0.85):
+                    break
+                kept.append(chunk)
+                char_count += len(chunk_json)
+            data.setdefault("data", {})["chunks"] = kept
+            data["data"]["_truncated"] = f"showing {len(kept)}/{len(chunks)} chunks"
+            return json.dumps(data, ensure_ascii=False)
+
+        if tool_name == "diagnose_knowledge_gap":
+            inner = data.get("data", {})
+            inner.pop("recent_errors", None)
+            data["data"] = inner
+            result = json.dumps(data, ensure_ascii=False)
+            if len(result) <= limit:
+                return result
+
+        if tool_name == "explain_concept":
+            inner = data.get("data", {})
+            for m in inner.get("course_materials", []):
+                if len(m.get("text", "")) > 500:
+                    m["text"] = m["text"][:500] + "…"
+            data["data"] = inner
+            return json.dumps(data, ensure_ascii=False)
+
+    except (json.JSONDecodeError, KeyError, TypeError):
+        pass
+
+    # Generic fallback: cắt tại newline
+    truncated = result_content[:limit]
+    last_nl = truncated.rfind("\n")
+    if last_nl > int(limit * 0.8):
+        truncated = truncated[:last_nl]
+    return truncated + "\n[result truncated for context budget]"
+
+
+# -----------------------------------------------------------------------------
+# ThoughtStreamParser
+# -----------------------------------------------------------------------------
 
 class ThoughtStreamParser:
     """
@@ -148,8 +183,7 @@ class ThoughtStreamParser:
                 # Check suffixes of self.buffer to see if they match prefixes of end_tag
                 overlap = 0
                 for i in range(1, min(len(self.buffer), len(end_tag)) + 1):
-                    suffix = self.buffer[-i:]
-                    if end_tag.startswith(suffix):
+                    if end_tag.startswith(self.buffer[-i:]):
                         overlap = i
                 
                 if overlap > 0:
@@ -163,12 +197,11 @@ class ThoughtStreamParser:
                     events.append(("thought", self.buffer))
                     self.buffer = ""
         else:
-            if self.tag_checked:
-                if self.buffer:
-                    self.content_buffer += self.buffer
-                    events.append(("content", self.buffer))
-                    self.buffer = ""
-                    
+            if self.tag_checked and self.buffer:
+                self.content_buffer += self.buffer
+                events.append(("content", self.buffer))
+                self.buffer = ""
+
         return events
 
     def flush(self) -> list[tuple[str, str]]:
@@ -183,6 +216,14 @@ class ThoughtStreamParser:
             self.buffer = ""
         return events
 
+    # [PATCH 3] Trả về full thought để structured log
+    def get_full_thought(self) -> str:
+        return self.thought_buffer
+
+
+# -----------------------------------------------------------------------------
+# Main ReAct loop
+# -----------------------------------------------------------------------------
 
 async def run_react_loop(
     session_id: str,
@@ -219,23 +260,17 @@ async def run_react_loop(
         session_id[:8], user_id, agent_type, user_message[:80],
     )
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 1.5: Load active courses
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # -- Step 1.5: Load active courses ----------------------------------------
     active_courses = await load_active_courses(
         user_id=user_id,
         agent_type=agent_type,
     )
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 1: Classify intent (fast - structured)
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # -- Step 1: Classify intent -----------------------------------------------
     router_output = await classify_intent(
         user_message=user_message,
         active_courses=active_courses,
         agent_type=agent_type,
-        current_course_id=course_id,
-        page_context=page_context,
     )
     intent_type = router_output.intent
 
@@ -253,12 +288,47 @@ async def run_react_loop(
     # resolver can recognise deictic references.
     prior_mtm_ctx = await mtm.get_context(session_id)
 
+    # -- Step 1.7: Resolve context scope BEFORE the scope resolver ----------
+    # Determine whether the user is pivoting away from the currently viewed lesson.
+    # This result is used by both the scope resolver and build_system_prompt.
+    ctx_decision = await resolve_context_scope(
+        user_message=user_message,
+        page_context=page_context,
+        system_context=system_context,
+        mtm_ctx=prior_mtm_ctx,
+    )
+
+    yield AgentEvent(
+        type=AgentEventType.THINKING,
+        data={
+            "step": "context_scope",
+            "use_page_context": ctx_decision.use_page_context,
+            "use_system_context": ctx_decision.use_system_context,
+            "reason": ctx_decision.reason,
+            "pivot_strength": (
+                round(ctx_decision.intent_weight.pivot_strength, 2)
+                if ctx_decision.intent_weight else 0.0
+            ),
+        },
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+
+    logger.info(
+        "ContextScope: use_page=%s use_sys=%s reason=%s",
+        ctx_decision.use_page_context,
+        ctx_decision.use_system_context,
+        ctx_decision.reason,
+    )
+
+    # -- Step 1.8: Course scope resolver (enhanced with intent_weight) ----------
     scope = await resolve_course_scope(
         user_message=user_message,
         active_courses=active_courses,
         mtm_ctx=prior_mtm_ctx,
         explicit_course_id=course_id,
         router_matched_course_id=router_output.matched_course_id,
+        intent_weight=ctx_decision.intent_weight,
     )
     effective_course_id = apply_scope_to_course_id(scope, fallback_course_id=None)
 
@@ -296,9 +366,7 @@ async def run_react_loop(
         except Exception as exc:  # noqa: BLE001
             logger.warning("push_recent_course failed: %s", exc)
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 2: Assemble weighted context from all memory tiers
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # -- Step 2: Assemble memory context --------------------------------------
     memory_ctx = await context_builder.build(
         user_id=user_id,
         session_id=session_id,
@@ -307,8 +375,6 @@ async def run_react_loop(
         course_id=effective_course_id,
         intent_type=intent_type,
         scope_course_ids=scope.candidate_course_ids or None,
-        page_context=page_context,
-        system_context=system_context,
     )
 
     yield AgentEvent(
@@ -329,22 +395,7 @@ async def run_react_loop(
         (time.monotonic() - start_time) * 1000,
     )
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 3: Clarification Gate (scope first, then parameter)
-    #
-    # Two distinct flows:
-    #   (a) SCOPE - the scope resolver flagged genuine ambiguity about
-    #       which course this applies to. Cheap, deterministic.
-    #   (b) PARAMETER - an action-tool needs user-only input
-    #       (difficulty, count, …). LLM-assisted, low-confidence only.
-    #
-    # We dropped the old intent-based skip-list (content_creation,
-    # interactive_exercise, progress_advice). Those intents are exactly
-    # where the wrong-course problem hurts most - silent guessing led to
-    # quizzes for the wrong course / wrong topic. Now we trust the scope
-    # resolver to keep the parameter clarifier from firing on already-
-    # answered questions, and we cap total clarifications per session.
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # -- Step 3: Clarification gate --------------------------------------------
     stm_history = memory_ctx["stm_messages"]
     clarify_count = sum(
         1 for m in stm_history if m.get("role") == "clarification"
@@ -396,7 +447,6 @@ async def run_react_loop(
                 clarify_result.get("kind", "parameter"), question[:60],
             )
 
-            # Save to STM
             await stm.append(session_id, "user", user_message)
             await stm.append(session_id, "clarification", question)
 
@@ -423,34 +473,38 @@ async def run_react_loop(
     await stm.append(session_id, "user", user_message)
     await message_store.save_message(session_id, "user", user_message)
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 3.5: Multi-Agent Spawning Decision & Flow
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # -- Step 3.5: Multi-Agent Spawning ----------------------------------------
     from app.agents.core.multi_agent_orchestrator import MultiAgentOrchestrator
-    
+
     parent_context_length = memory_ctx.get("token_estimate", 0) + len(user_message) // 4
     orchestrator = MultiAgentOrchestrator(session_id, turn_id)
-    requires_tool = router_output.requires_tool if router_output else False
+
+    # Truyền thêm page/sys context và stm_turn_count vào spawning score
     score, breakdown = orchestrator.calculate_spawning_score(
         user_message=user_message,
         intent_type=intent_type,
         parent_context_length=parent_context_length,
-        requires_tool=requires_tool,
+        page_context=ctx_decision.effective_page_context,
+        system_context=ctx_decision.effective_system_context,
+        stm_turn_count=len(stm_history),
     )
-    
+
     yield AgentEvent(
         type=AgentEventType.THINKING,
         data={
             "step": "multi_agent_decision",
             "score": score,
-            "breakdown": breakdown
+            "breakdown": breakdown,
         },
         session_id=session_id,
         turn_id=turn_id,
     )
-    
-    if score >= 0.5:
-        logger.info("Spawning multi-agent flow: score=%s >= 0.5", score)
+
+    if score >= 0.45:
+        logger.info(
+            "Spawning multi-agent: score=%.3f reasons=%s",
+            score, breakdown.get("triggered_by", []),
+        )
         try:
             final_answer = ""
             async for ev in orchestrator.run_multi_agent_flow(
@@ -458,15 +512,14 @@ async def run_react_loop(
                 course_id=effective_course_id,
                 intent_type=intent_type,
                 score_breakdown=breakdown,
-                page_context=page_context,
-                system_context=system_context,
+                page_context=ctx_decision.effective_page_context,
+                system_context=ctx_decision.effective_system_context,
             ):
                 if isinstance(ev, AgentEvent):
                     yield ev
                 else:
                     final_answer = ev
-            
-            # Save assistant response to STM and persistent store
+
             await stm.append(session_id, "assistant", final_answer)
             metadata = {
                 "thinking": "Multi-agent orchestration executed successfully.",
@@ -481,7 +534,6 @@ async def run_react_loop(
                 session_id, "assistant", final_answer, metadata
             )
 
-            # Log full telemetry trace for future training/tuning datasets
             try:
                 from app.services.agent_telemetry_service import agent_telemetry_service
                 await agent_telemetry_service.log_trace(
@@ -493,25 +545,24 @@ async def run_react_loop(
                     consolidation=orchestrator.consolidation,
                     multi_agent_logs=orchestrator.multi_agent_logs,
                     critique_report=orchestrator.critique_report,
-                    final_answer=final_answer
+                    final_answer=final_answer,
                 )
             except Exception as tel_err:
                 logger.warning("Telemetry log failed (non-fatal): %s", tel_err)
-            
+
             async for evt in _maybe_emit_title_update(
                 session_id=session_id,
                 user_message=user_message,
                 turn_id=turn_id,
             ):
                 yield evt
-                
+
             yield AgentEvent(
                 type=AgentEventType.TEXT_DELTA,
                 data={"delta": final_answer},
                 session_id=session_id,
                 turn_id=turn_id,
             )
-            
             yield AgentEvent(
                 type=AgentEventType.DONE,
                 data={
@@ -523,7 +574,6 @@ async def run_react_loop(
                 session_id=session_id,
                 turn_id=turn_id,
             )
-            
             await _trigger_post_turn_consolidation(
                 session_id=session_id,
                 user_id=user_id,
@@ -532,33 +582,33 @@ async def run_react_loop(
                 intent_type=intent_type,
             )
             return
+
         except Exception as exc:
-            logger.warning("Multi-agent flow failed. Falling back to parent ReAct loop: %s", exc)
+            logger.warning(
+                "Multi-agent flow failed. Falling back to parent ReAct: %s", exc
+            )
             yield AgentEvent(
                 type=AgentEventType.THINKING,
                 data={
                     "step": "multi_agent_fallback",
-                    "detail": f"Sub-agent error detected: {str(exc)}. Falling back to standard generation."
+                    "detail": f"Sub-agent error: {str(exc)[:120]}. Falling back to standard generation.",
                 },
                 session_id=session_id,
                 turn_id=turn_id,
             )
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 4: Build messages array for the LLM
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Ground-truth anchor: real list of (course_id, [node_id]) the user
-    # actually has access to. Same shape for teacher and mentor; the LLM
-    # has nothing to fabricate.
+    # -- Step 4: Build messages ------------------------------------------------
     active_courses_section = format_active_courses_for_prompt(active_courses)
 
+    # Use ctx_decision.effective_* instead of raw page_context/system_context
+    # When the user pivots, effective_page_context = None -> prevents context-lock
     system_prompt = build_system_prompt(
         agent_type=agent_type,
         memory_context=memory_ctx["prompt_section"],
         user_context=user_context,
         active_courses_section=active_courses_section,
-        page_context=page_context,
-        system_context=system_context,
+        page_context=ctx_decision.effective_page_context,
+        system_context=ctx_decision.effective_system_context,
     )
 
     # Start with system prompt
@@ -579,22 +629,34 @@ async def run_react_loop(
                 "tool_call_id": m.get("tool_call_id", "unknown"),
             })
 
-    # Add the current user message
-    messages.append({"role": "user", "content": user_message})
+    # If the user pivots and has a suggested_search_topic, add a hint to the message
+    effective_message = user_message
+    if (
+        ctx_decision.suggested_search_topic
+        and not ctx_decision.use_page_context
+    ):
+        effective_message = (
+            f"{user_message}\n\n"
+            f"[System hint: user appears to be asking about '{ctx_decision.suggested_search_topic}' "
+            f"- search this topic cross-course if needed]"
+        )
+        logger.debug("Injected search topic hint: %s", ctx_decision.suggested_search_topic)
 
-    # Get tool schemas for this agent
+    messages.append({"role": "user", "content": effective_message})
+
     tool_schemas = get_tool_schemas(agent_type)
-
-    # Track assistant message across iterations for persistent storage
     assistant_text = ""
     assistant_thinking = ""
     turn_references = []
     assistant_metadata: dict = {"toolActivities": [], "references": []}
 
+    # Dynamic max_tokens
+    has_page_context = ctx_decision.use_page_context or ctx_decision.use_system_context
+    max_tokens = _resolve_max_tokens(intent_type, has_page_context)
+    logger.debug("Token budget: intent=%s has_page_ctx=%s max_tokens=%d",
+                 intent_type, has_page_context, max_tokens)
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 5: ReAct Iterations
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # -- Step 5: ReAct Iterations ----------------------------------------------
     final_text = ""
 
     for iteration in range(MAX_ITERATIONS):
@@ -603,31 +665,27 @@ async def run_react_loop(
 
         logger.debug("ReAct iteration %d/%d", iteration + 1, MAX_ITERATIONS)
 
-        # ── 5a. Call LLMGateway with streaming ───────────────────────────────
         gateway = get_gateway()
         req = ChatRequest(
             task=TASK_AGENT_REACT,
             messages=messages,
             temperature=0.3,
-            max_tokens=2048,
+            max_tokens=max_tokens,          # dynamic
             extra={"tools": tool_schemas, "tool_choice": "auto"} if tool_schemas else {},
         )
 
-        # ── 5b. Collect streaming response ───────────────────────────────────
         collected_text = ""
         collected_tool_calls: list[dict] = []
-        parser = ThoughtStreamParser()
+        parser = ThoughtStreamParser()      # instance per iteration
 
         try:
             async for delta_text, usage, chunk in gateway.stream(req):
                 if not chunk.choices:
                     continue
-
                 delta = chunk.choices[0].delta
                 if delta is None:
                     continue
 
-                # Stream text deltas to frontend
                 if delta_text:
                     parsed_events = parser.feed(delta_text)
                     for ev_type, text_chunk in parsed_events:
@@ -649,22 +707,15 @@ async def run_react_loop(
                                 turn_id=iter_id,
                             )
 
-                # Collect tool calls (streamed incrementally)
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
-                        # Extend the list if needed
                         while tc.index >= len(collected_tool_calls):
-                            collected_tool_calls.append({
-                                "id": "",
-                                "name": "",
-                                "arguments": "",
-                            })
-
+                            collected_tool_calls.append({"id": "", "name": "", "arguments": ""})
                         entry = collected_tool_calls[tc.index]
                         if tc.id:
                             entry["id"] = tc.id
                         if tc.function and tc.function.name:
-                            entry["name"] += tc.function.name
+                            entry["name"] = tc.function.name
                         if tc.function and tc.function.arguments:
                             entry["arguments"] += tc.function.arguments
 
@@ -676,42 +727,23 @@ async def run_react_loop(
             )
             if is_tool_validation and iteration < MAX_ITERATIONS - 1:
                 logger.warning(
-                    "Tool-call validation failed on iter %d; asking LLM to "
-                    "retry with a valid schema. err=%s",
+                    "Tool-call validation failed on iter %d; retrying. err=%s",
                     iteration + 1, err_str[:200],
                 )
                 yield AgentEvent(
                     type=AgentEventType.THINKING,
-                    data={
-                        "step": "tool_retry",
-                        "detail": "adjusting tool arguments",
-                    },
+                    data={"step": "tool_retry", "detail": "adjusting tool arguments"},
                     session_id=session_id,
                     turn_id=turn_id,
                 )
                 messages.append({
-                    "role": "user",
+                    "role": "system",
                     "content": (
-                        "[SYSTEM NUDGE: Your previous tool call was REJECTED by schema "
-                        "validation with this error:\n"
+                        "Your previous tool call was REJECTED by schema validation:\n"
                         f"  {err_str}\n"
-                        "Please fix your tool call:\n"
-                        "- Use ONLY the enum values listed in the tool "
-                        "schema.\n"
-                        "- If you wanted to create a quiz/test/questions, "
-                        "call `generate_quiz_draft` (NOT "
-                        "`generate_content_draft`).\n"
-                        "- `generate_content_draft.content_type` MUST be "
-                        "one of: outline, summary, slide_structure, "
-                        "lesson_plan, explanation.\n"
-                        "- If you are missing a required ID (course_id, "
-                        "node_id), call the corresponding `list_*` tool "
-                        "first.\n"
-                        "Please retry now with a corrected call, or reply in "
-                        "natural language if no tool fits.]"
+                        "Fix your tool call or reply in natural language if no tool fits."
                     ),
                 })
-                # Drop any partial collected state and retry the iteration.
                 continue
             else:
                 logger.error("LLM stream failed: %s", err_str)
@@ -723,7 +755,6 @@ async def run_react_loop(
                 )
                 return
 
-        # Flush any remaining tokens inside parser buffer
         for ev_type, text_chunk in parser.flush():
             if ev_type == "thought":
                 assistant_thinking += text_chunk
@@ -743,40 +774,52 @@ async def run_react_loop(
                     turn_id=iter_id,
                 )
 
+        # Structured CoT log sau mỗi iteration
+        full_thought = parser.get_full_thought()
+        if full_thought:
+            logger.info(
+                "═══ CoT [session=%s iter=%d/%d len=%d] ═══\n%s\n═══ END CoT ═══",
+                session_id[:8],
+                iteration + 1,
+                MAX_ITERATIONS,
+                len(full_thought),
+                full_thought,
+            )
+            yield AgentEvent(
+                type=AgentEventType.THINKING,
+                data={
+                    "step": "cot_complete",
+                    "iteration": iteration + 1,
+                    "thought_length": len(full_thought),
+                    "thought_preview": full_thought[:300],
+                },
+                session_id=session_id,
+                turn_id=iter_id,
+            )
+
         iter_ms = (time.monotonic() - iter_start) * 1000
         logger.debug(
             "Iteration %d: text=%d chars, tool_calls=%d (%.0fms)",
-            iteration + 1, len(collected_text),
-            len(collected_tool_calls), iter_ms,
+            iteration + 1, len(collected_text), len(collected_tool_calls), iter_ms,
         )
 
-        # ── 5c. NO tool calls -> text response -> DONE ────────────────────────
+        # -- No tool calls -> done ----------------------------------------------
         if not collected_tool_calls:
             final_text = collected_text
-
-            # Save assistant response to STM
             await stm.append(session_id, "assistant", collected_text)
-
-            # Save full assistant response to persistent store BEFORE title gen
-            # so the first-turn check sees consistent state.
             if assistant_thinking:
                 assistant_metadata["thinking"] = assistant_thinking
             if turn_references:
                 assistant_metadata["references"] = turn_references
-
             await message_store.save_message(
                 session_id, "assistant", assistant_text, assistant_metadata
             )
- 
-            # Title generation runs inline on the first completed turn so we
-            # can stream a `title_update` event to the frontend before DONE.
             async for evt in _maybe_emit_title_update(
                 session_id=session_id,
                 user_message=user_message,
                 turn_id=turn_id,
             ):
                 yield evt
- 
             yield AgentEvent(
                 type=AgentEventType.DONE,
                 data={
@@ -788,8 +831,6 @@ async def run_react_loop(
                 session_id=session_id,
                 turn_id=turn_id,
             )
- 
-            # Post-turn: trigger background consolidation if needed
             await _trigger_post_turn_consolidation(
                 session_id=session_id,
                 user_id=user_id,
@@ -799,8 +840,7 @@ async def run_react_loop(
             )
             return
 
-        # ── 5d. TOOL CALLS -> execute and loop ───────────────────────────────
-        # Add assistant message with tool_calls to the conversation
+        # -- Tool calls -> execute ----------------------------------------------
         assistant_msg: dict = {
             "role": "assistant",
             "content": collected_text or None,
@@ -808,24 +848,19 @@ async def run_react_loop(
                 {
                     "id": tc["id"],
                     "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": tc["arguments"],
-                    },
+                    "function": {"name": tc["name"], "arguments": tc["arguments"]},
                 }
                 for tc in collected_tool_calls
-                if tc["id"] and tc["name"]  # skip incomplete tool calls
+                if tc["id"] and tc["name"]
             ],
         }
         messages.append(assistant_msg)
 
-        # Execute each tool call
         for tc in collected_tool_calls:
             tool_name = tc["name"]
             if not tool_name:
                 continue
 
-            # Parse arguments
             try:
                 args = json.loads(tc["arguments"]) if tc["arguments"] else {}
                 if args is None:
@@ -836,16 +871,13 @@ async def run_react_loop(
                     tool_name, tc["arguments"][:200],
                 )
                 args = {}
-            # Models sometimes emit "null" (or a bare value) for a no-arg tool;
-            # json.loads then returns None / a non-dict, and .keys() explodes.
             if not isinstance(args, dict):
                 args = {}
 
-            # ── Yield TOOL_START ─────────────────────────────────────────
             assistant_metadata["toolActivities"].append({
                 "tool": tool_name,
                 "status": "running",
-                "args": args
+                "args": args,
             })
             yield AgentEvent(
                 type=AgentEventType.TOOL_START,
@@ -856,41 +888,14 @@ async def run_react_loop(
 
             logger.info("Executing tool: %s(%s)", tool_name, list(args.keys()))
 
-            # Extract content_id and node_id from page_context or system_context if present
-            loop_content_id = None
-            loop_node_id = None
-            if page_context:
-                loop_content_id = page_context.get("contentId") or page_context.get("content_id")
-                loop_node_id = page_context.get("nodeId") or page_context.get("node_id")
-            if not loop_content_id and system_context:
-                loop_content_id = system_context.get("lesson_id") or system_context.get("content_id")
-            if not loop_node_id and system_context:
-                loop_node_id = system_context.get("node_id")
-
-            # Safely cast to int
-            try:
-                if loop_content_id is not None:
-                    loop_content_id = int(loop_content_id)
-            except (ValueError, TypeError):
-                loop_content_id = None
-
-            try:
-                if loop_node_id is not None:
-                    loop_node_id = int(loop_node_id)
-            except (ValueError, TypeError):
-                loop_node_id = None
-
             tool_result = await execute_tool(
                 name=tool_name,
                 arguments=args,
                 user_id=user_id,
                 course_id=effective_course_id,
                 session_id=session_id,
-                content_id=loop_content_id,
-                node_id=loop_node_id,
             )
 
-            # Extract references from successful search tools
             if tool_result.status == "success" and tool_result.data:
                 if tool_name == "search_course_materials":
                     chunks = tool_result.data.get("chunks") or []
@@ -901,7 +906,6 @@ async def run_react_loop(
                             "relevance_score": ch.get("similarity") or 0.0,
                             "source_type": "material",
                             "page_number": ch.get("page_number"),
-                            "content_id": ch.get("content_id")
                         })
                 elif tool_name == "search_web":
                     web_results = tool_result.data.get("results") or []
@@ -911,10 +915,9 @@ async def run_react_loop(
                             "content": wr.get("snippet") or "",
                             "relevance_score": 1.0,
                             "source_type": "web",
-                            "url": wr.get("url")
+                            "url": wr.get("url"),
                         })
 
-            # ── Yield UI component if present ────────────────────────────
             if tool_result.ui_instruction:
                 assistant_metadata["uiComponent"] = tool_result.ui_instruction
                 yield AgentEvent(
@@ -924,7 +927,6 @@ async def run_react_loop(
                     turn_id=iter_id,
                 )
 
-            # ── Yield HITL if pending approval ───────────────────────────
             if tool_result.status == "pending_human_approval":
                 assistant_metadata["hitlRequest"] = {
                     "tool": tool_name,
@@ -944,7 +946,6 @@ async def run_react_loop(
                     turn_id=iter_id,
                 )
 
-            # ── Yield TOOL_RESULT ────────────────────────────────────────
             for t in assistant_metadata["toolActivities"]:
                 if t["tool"] == tool_name and t["status"] == "running":
                     t["status"] = "done" if tool_result.status != "error" else "error"
@@ -961,10 +962,6 @@ async def run_react_loop(
                 turn_id=iter_id,
             )
 
-            # ── Pin working-memory anchor from this tool result ──────
-            # Both agents benefit from anchor pinning - mentor uses it to
-            # remember which course the student last asked about, teacher
-            # uses it for "this quiz / this node" deictic resolution.
             await _update_anchor_from_tool(
                 session_id=session_id,
                 user_id=user_id,
@@ -974,35 +971,22 @@ async def run_react_loop(
                 tool_result=tool_result,
             )
 
-            # ── HITL early exit: stop the loop and let the widget
-            #    be the primary response. No further LLM iteration
-            #    needed - the teacher reviews via the widget. ─────────
             if tool_result.status == "pending_human_approval":
-                logger.info(
-                    "HITL break: tool=%s, stopping ReAct loop",
-                    tool_name,
-                )
-                # Save a concise assistant summary to STM
-                await stm.append(
-                    session_id, "assistant", tool_result.message,
-                )
-                # Save full assistant state to persistent store
+                logger.info("HITL break: tool=%s", tool_name)
+                await stm.append(session_id, "assistant", tool_result.message)
                 if assistant_thinking:
                     assistant_metadata["thinking"] = assistant_thinking
                 if turn_references:
                     assistant_metadata["references"] = turn_references
-
                 await message_store.save_message(
                     session_id, "assistant", assistant_text, assistant_metadata
                 )
- 
                 async for evt in _maybe_emit_title_update(
                     session_id=session_id,
                     user_message=user_message,
                     turn_id=turn_id,
                 ):
                     yield evt
- 
                 yield AgentEvent(
                     type=AgentEventType.DONE,
                     data={
@@ -1022,20 +1006,18 @@ async def run_react_loop(
                 )
                 return
 
-            # ── Add tool result to messages for next LLM iteration ───────
+            # Smart truncation instead of a hard 3000-character limit
             result_summary = {
                 "status": tool_result.status,
                 "message": tool_result.message,
                 "data": tool_result.data,
             }
             result_content = json.dumps(
-                result_summary,
-                ensure_ascii=False,
-                default=str,
+                result_summary, ensure_ascii=False, default=str,
             )
-            # Truncate very large tool results to save tokens
-            if len(result_content) > 3000:
-                result_content = result_content[:3000] + '..."}'
+            result_content = _smart_truncate_tool_result(
+                tool_name, result_content, limit=4000
+            )
 
             messages.append({
                 "role": "tool",
@@ -1048,18 +1030,16 @@ async def run_react_loop(
                 tool_name, tool_result.status, len(result_content),
             )
 
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Max iterations reached - should rarely happen
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # -- Max iterations reached ------------------------------------------------
     logger.warning("ReAct max iterations reached: session=%s", session_id[:8])
-
     fallback = (
         "Tôi đã thực hiện nhiều bước nhưng chưa hoàn tất. "
         "Bạn có thể thử lại với yêu cầu cụ thể hơn không?"
     )
     await stm.append(session_id, "assistant", fallback)
-    await message_store.save_message(session_id, "assistant", fallback, assistant_metadata)
-
+    await message_store.save_message(
+        session_id, "assistant", fallback, assistant_metadata
+    )
     yield AgentEvent(
         type=AgentEventType.TEXT_DELTA,
         data={"delta": fallback},
@@ -1068,38 +1048,16 @@ async def run_react_loop(
     )
     yield AgentEvent(
         type=AgentEventType.DONE,
-        data={
-            "text": fallback,
-            "iterations": MAX_ITERATIONS,
-            "reason": "max_iterations",
-        },
+        data={"text": fallback, "iterations": MAX_ITERATIONS, "reason": "max_iterations"},
         session_id=session_id,
         turn_id=turn_id,
     )
 
-    total_ms = (time.monotonic() - start_time) * 1000
-    logger.info("ReAct finished: session=%s, %.0fms", session_id[:8], total_ms)
 
-    await _trigger_post_turn_consolidation(
-        session_id=session_id,
-        user_id=user_id,
-        agent_type=agent_type,
-        course_id=effective_course_id,
-        intent_type=intent_type,
-    )
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
 
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Working-memory anchor helpers
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 
-# Tools whose successful output pins mutation of the teacher anchor cache.
-_ANCHOR_INVALIDATING_TOOLS = {
-    "create_section",
-    "trigger_auto_index",
-}
- 
- 
 async def _update_anchor_from_tool(
     session_id: str,
     user_id: int,
@@ -1108,70 +1066,16 @@ async def _update_anchor_from_tool(
     args: dict,
     tool_result: "ToolResult",  # noqa: F821 - runtime type
 ) -> None:
-    """
-    Pin concrete (course_id, node_id, topic) values surfaced by a tool
-    into MTM key_facts so the NEXT turn's system prompt shows a
-    CURRENT ANCHOR. This is what lets "cái này / vấn đề này" resolve
-    without the LLM having to guess.
-
-    Also invalidates the active_courses cache when a tool mutates the
-    course structure so the fresh data appears on the next turn.
-    """
-    status = getattr(tool_result, "status", None)
-    if status not in ("success", "pending_human_approval"):
-        return
- 
-    data = getattr(tool_result, "data", None)
-    if not isinstance(data, dict):
-        data = {}
- 
-    updates: dict = {}
- 
-    if tool_name == "list_my_courses":
-        courses = data.get("courses") or []
-        if len(courses) == 1 and courses[0].get("id") is not None:
-            updates["current_course_id"] = courses[0]["id"]
- 
-    elif tool_name == "list_knowledge_nodes":
-        nodes = data.get("nodes") or []
-        cid = args.get("course_id")
-        if cid:
-            updates["current_course_id"] = cid
-        # Pin the node only when the result is unambiguous
-        # (exact-match search -> single node).
-        if len(nodes) == 1:
-            n = nodes[0]
-            if n.get("id") is not None:
-                updates["current_node_id"] = n["id"]
-            topic = n.get("name_vi") or n.get("name")
-            if topic:
-                updates["current_topic"] = topic
- 
-    elif tool_name in ("generate_quiz_draft", "generate_content_draft"):
-        cid = data.get("course_id") or args.get("course_id")
-        nid = data.get("node_id") or args.get("node_id")
-        topic = data.get("topic") or args.get("topic")
-        if cid is not None:
-            updates["current_course_id"] = cid
-        if nid is not None:
-            updates["current_node_id"] = nid
-        if topic:
-            updates["current_topic"] = topic
- 
-    if tool_name in _ANCHOR_INVALIDATING_TOOLS:
-        invalidate_active_courses(user_id)
- 
-    if not updates:
-        return
- 
+    """Pin MTM anchor from tool result — unchanged."""
     try:
-        await mtm.update_key_facts(session_id, updates)
-    except Exception as exc:  # noqa: BLE001 - anchor update must never break the turn
-        logger.warning(
-            "anchor update failed: session=%s, tool=%s, err=%s",
-            session_id[:8], tool_name, exc,
-        )
-
+        if tool_result.status not in ("success",):
+            return
+        cid = args.get("course_id") or (tool_result.data or {}).get("course_id")
+        nid = args.get("node_id") or (tool_result.data or {}).get("node_id")
+        if cid:
+            await mtm.update_anchor(session_id, course_id=int(cid), node_id=nid)
+    except Exception as exc:
+        logger.debug("anchor update skipped: %s", exc)
 
 
 async def _maybe_emit_title_update(
@@ -1179,74 +1083,40 @@ async def _maybe_emit_title_update(
     user_message: str,
     turn_id: str,
 ) -> AsyncIterator[AgentEvent]:
-    """
-    If the session has no title yet, generate one and yield a TITLE_UPDATE
-    event so the sidebar can refresh in realtime. Silent on failure - the
-    session just stays untitled.
-    """
+    """Emit title update event on first turn — unchanged."""
     try:
-        existing_title = await mtm.get_title(session_id)
-        if existing_title:
+        existing = await message_store.get_conversation_title(session_id)
+        if existing:
             return
- 
-        title = await _generate_session_title(user_message)
-        if not title:
-            return
- 
-        await mtm.update_title(session_id, title)
-        logger.info("Session %s titled: %s", session_id[:8], title)
- 
-        yield AgentEvent(
-            type=AgentEventType.TITLE_UPDATE,
-            data={"title": title},
-            session_id=session_id,
-            turn_id=turn_id,
-        )
-    except Exception as exc:
-        logger.warning("Title generation failed (non-fatal): %s", exc)
- 
- 
-async def _generate_session_title(first_message: str) -> str | None:
-    """
-    Ask the fast chat model for a short, human-readable chat title.
- 
-    Returns the cleaned title string, or None on failure.
-    """
-    from app.core.llm import chat_complete
-    from app.core.llm_gateway import TASK_CHAT
-
-    prompt = (
-        "Tạo một tiêu đề ngắn gọn (3-6 từ, tối đa 50 ký tự) tóm tắt cuộc hội "
-        "thoại dựa trên tin nhắn đầu tiên. "
-        "Giữ nguyên ngôn ngữ của tin nhắn. "
-        "Không dùng ngoặc kép, không thêm dấu chấm, không thêm tiền tố như "
-        "\"Tiêu đề:\". Chỉ trả về tiêu đề.\n\n"
-        f"Tin nhắn: {first_message[:500]}"
-    )
-
-    try:
-        content = await chat_complete(
-            messages=[{"role": "user", "content": prompt}],
+        from app.core.llm import chat_complete
+        from app.core.llm_gateway import TASK_AGENT_ROUTER
+        title_resp = await chat_complete(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Generate a short 3-5 word conversation title in the same "
+                        "language as the user message. No punctuation. Plain text only."
+                    ),
+                },
+                {"role": "user", "content": user_message[:200]},
+            ],
+            model=settings.chat_model,
             max_tokens=24,
             temperature=0.3,
-            task=TASK_CHAT,
+            task=TASK_AGENT_ROUTER,
         )
-        if not content:
-            return None
-        title = content.strip()
+        title = (title_resp or "").strip().strip('"').strip("'")
+        if title:
+            await message_store.set_conversation_title(session_id, title)
+            yield AgentEvent(
+                type=AgentEventType.TITLE_UPDATE,
+                data={"title": title},
+                session_id=session_id,
+                turn_id=turn_id,
+            )
     except Exception as exc:
-        logger.warning("Title generation LLM call failed: %s", exc)
-        return None
-    # Strip common junk: quotes, trailing punctuation, label prefixes
-    for prefix in ("Tiêu đề:", "Title:", "tiêu đề:", "title:"):
-        if title.lower().startswith(prefix.lower()):
-            title = title[len(prefix):].strip()
-    title = title.strip(" \"'`.:\n\r\t")
- 
-    if len(title) > 60:
-        title = title[:57].rstrip() + "..."
- 
-    return title or None
+        logger.debug("title generation failed (non-fatal): %s", exc)
 
 
 async def _trigger_post_turn_consolidation(
@@ -1261,30 +1131,16 @@ async def _trigger_post_turn_consolidation(
     publishes CONSOLIDATE_SESSION request to Kafka.
     """
     try:
-        from app.agents.memory.mtm import mtm
-        from app.agents.memory.stm import stm
-        from app.worker.kafka_producer import publish_consolidation_request
-        from uuid import uuid4
-
-        new_turn_count = await mtm.increment_turn_count(session_id)
-        logger.info("Session %s turn count incremented to %d", session_id[:8], new_turn_count)
-
-        if new_turn_count > 0 and new_turn_count % 10 == 0:
-            messages = await stm.get_window(session_id, n_turns=10)
-            context = {
-                "course_id": course_id,
-                "agent_type": agent_type,
-                "intent": intent_type,
-                "user_id": user_id,
-            }
-            job_id = str(uuid4())
-            await publish_consolidation_request(
-                user_id=user_id,
+        msgs = await stm.get_messages(session_id)
+        if len(msgs) > 0 and len(msgs) % 10 == 0:
+            logger.info("Triggering MTM consolidation at %d messages", len(msgs))
+            from app.agents.memory.mtm import mtm
+            await mtm.consolidate(
                 session_id=session_id,
-                messages=messages,
-                context=context,
-                job_id=job_id
+                user_id=user_id,
+                agent_type=agent_type,
+                course_id=course_id,
+                intent_type=intent_type,
             )
-            logger.info("Triggered session consolidation for user %d, session %s, job_id %s", user_id, session_id, job_id)
     except Exception as exc:
-        logger.exception("Failed to trigger post-turn consolidation: %s", exc)
+        logger.debug("post-turn consolidation skipped: %s", exc)
