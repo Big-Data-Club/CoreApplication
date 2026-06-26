@@ -542,7 +542,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Instructor approves a DRAFT question → published to a quiz.",
+                "description": "Instructor approves a DRAFT question -> published to a quiz.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1419,7 +1419,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Giáo viên click nút \"Index\" → AI tự động tạo knowledge nodes.",
+                "description": "Giáo viên click nút \"Index\" -> AI tự động tạo knowledge nodes.",
                 "consumes": [
                     "application/json"
                 ],

@@ -90,7 +90,7 @@ public class DataInitializer implements CommandLineRunner {
                 .lmsRole(defaultLmsRole)
                 .build());
 
-        log.info("Seeded role {} → LMS [{}]", roleName, defaultLmsRole);
+        log.info("Seeded role {} -> LMS [{}]", roleName, defaultLmsRole);
     }
 
     private void seedAdminUser() {

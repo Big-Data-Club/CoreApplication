@@ -2,12 +2,12 @@
 // HTTP handlers for the Micro-Learning feature.
 //
 // Public flow (UI):
-//   POST   /api/v1/courses/:courseId/micro-lessons/generate    → trigger
-//   GET    /api/v1/courses/:courseId/micro-lessons/jobs        → list jobs
-//   GET    /api/v1/micro-lessons/jobs/:jobId                   → job + lessons
-//   PUT    /api/v1/micro-lessons/:lessonId                     → save edits
-//   POST   /api/v1/micro-lessons/:lessonId/publish             → make a SectionContent
-//   DELETE /api/v1/micro-lessons/:lessonId                     → drop draft
+//   POST   /api/v1/courses/:courseId/micro-lessons/generate    -> trigger
+//   GET    /api/v1/courses/:courseId/micro-lessons/jobs        -> list jobs
+//   GET    /api/v1/micro-lessons/jobs/:jobId                   -> job + lessons
+//   PUT    /api/v1/micro-lessons/:lessonId                     -> save edits
+//   POST   /api/v1/micro-lessons/:lessonId/publish             -> make a SectionContent
+//   DELETE /api/v1/micro-lessons/:lessonId                     -> drop draft
 //
 // Internal flow (AI service callback):
 //   POST /api/v1/internal/micro-lessons/status   ← progress / status updates
@@ -412,7 +412,7 @@ func (h *MicroLessonHandler) DeleteLesson(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Lesson deleted"))
 }
 
-// ── Internal callback endpoints (AI service → LMS) ─────────────────────────────
+// ── Internal callback endpoints (AI service -> LMS) ─────────────────────────────
 
 // CallbackStatus is invoked by the AI service to report progress / failure.
 func (h *MicroLessonHandler) CallbackStatus(c *gin.Context) {

@@ -142,7 +142,7 @@ The simplest approach. You only need:
 | Docker Compose | 2.0+ | Bundled with Docker Desktop |
 | Git | Any | https://git-scm.com/ |
 
-> Make sure Docker Desktop is running and has at least **4GB RAM** allocated under Settings → Resources.
+> Make sure Docker Desktop is running and has at least **4GB RAM** allocated under Settings -> Resources.
 
 ### Running services individually — For advanced development
 
@@ -255,7 +255,7 @@ Frontend runs at **http://localhost:3000**
 | `npm run lint` | ESLint check |
 | `npm run test:ci` | Run unit tests |
 
-> **About proxy:** `next.config.ts` configures rewrites so `/apiv1/*` → Spring Boot and `/lmsapiv1/*` → Go. When running locally, make sure the backend services are listening on the expected ports.
+> **About proxy:** `next.config.ts` configures rewrites so `/apiv1/*` -> Spring Boot and `/lmsapiv1/*` -> Go. When running locally, make sure the backend services are listening on the expected ports.
 
 ### 5.2 Auth Backend (Spring Boot)
 
@@ -604,7 +604,7 @@ Code push / PR opened
 
 ### Required GitHub Secrets
 
-Go to **Settings → Secrets and variables → Actions** and add:
+Go to **Settings -> Secrets and variables -> Actions** and add:
 
 | Secret | Description |
 |---|---|
@@ -686,7 +686,7 @@ Check that `docker-compose.yml` mounts a volume for `/app/uploads`, and verify `
 ### Docker build fails due to memory
 
 ```bash
-# Check allocation: Docker Desktop → Settings → Resources
+# Check allocation: Docker Desktop -> Settings -> Resources
 # Recommended: RAM >= 4GB, Swap >= 2GB
 
 # Build services one at a time instead of all at once
@@ -728,7 +728,7 @@ For **Backend (Spring Boot):** Currently `JPA_DDL_AUTO=update` so Hibernate auto
  -Dspring-boot.run.jvmArguments="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005"
 ```
 
-Then in IntelliJ: Run → Attach to Process, select port 5005.
+Then in IntelliJ: Run -> Attach to Process, select port 5005.
 
 ---
 

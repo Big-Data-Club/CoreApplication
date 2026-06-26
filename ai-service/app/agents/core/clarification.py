@@ -79,11 +79,11 @@ Current session context:
 
 RULES:
 1. If the user's intent is CLEAR and all required parameters can be \
-   inferred → respond with {{"needs_clarification": false, "confidence": 0.9}}
+   inferred -> respond with {{"needs_clarification": false, "confidence": 0.9}}
 2. If the missing info can be OBTAINED BY CALLING A TOOL (e.g. the agent \
    can call `list_knowledge_nodes`, `list_my_courses`, \
    `search_course_materials` to discover the list of topics / courses / \
-   concepts) → respond with {{"needs_clarification": false, \
+   concepts) -> respond with {{"needs_clarification": false, \
    "confidence": 0.9}}. Do NOT clarify in this case — let the agent fetch \
    the real data via tools, then ask the user using that real data.
 3. Only ask for clarification when the missing info is something ONLY THE \

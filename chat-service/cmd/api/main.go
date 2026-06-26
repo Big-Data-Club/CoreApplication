@@ -99,7 +99,7 @@ func main() {
 	r.GET("/health", healthHandler)
 	r.HEAD("/health", healthHandler)
 
-	// ── Sync routes (auth-service → chat-service, secret-protected) ──────────
+	// ── Sync routes (auth-service -> chat-service, secret-protected) ──────────
 	sync := r.Group("/api/v1/sync", middleware.SyncSecret(cfg.Sync.Secret))
 	{
 		sync.POST("/user", syncHandler.SyncUser)

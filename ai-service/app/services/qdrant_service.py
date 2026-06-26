@@ -5,10 +5,10 @@ Purpose-built vector store replacing pgvector for semantic search.
 
 Design decisions:
   - Two collections: document_chunks (RAG) and knowledge_nodes (dedup/graph)
-  - Point ID = PostgreSQL row ID → no additional mapping table needed
-  - Full payload stored in Qdrant → search returns complete result without
+  - Point ID = PostgreSQL row ID -> no additional mapping table needed
+  - Full payload stored in Qdrant -> search returns complete result without
     secondary PG round-trip (critical for sub-100ms p99 latency)
-  - Payload indexes on course_id, content_id, node_id → O(log n) filtering
+  - Payload indexes on course_id, content_id, node_id -> O(log n) filtering
   - HNSW m=16, ef_construct=128 matches current pgvector tuning
   - gRPC preferred when qdrant_prefer_grpc=True (significantly faster batches)
   - Feature flag USE_QDRANT=true enables safe cutover; false keeps pgvector path

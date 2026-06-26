@@ -118,15 +118,15 @@ async def resolve_course_scope(
     """
     Decide which course(s) the current message applies to.
 
-    Order of decisions (most cheap → least cheap):
-        0. No active courses → mode="none".
-        1. Only one active course → mode="single" auto-resolve.
-        2. Explicit "across all courses" cue → mode="all".
-        3. Explicit course_id from the FE that matches an active course → "single".
-        4. Deictic reference + MTM anchor present → "single" (reuse anchor).
-        5. Exactly one course title substring-matches the message → "single".
-        6. Router-extracted course_id from LLM classification → "single".
-        7. Otherwise → "ambiguous" with a grounded clarification question.
+    Order of decisions (most cheap -> least cheap):
+        0. No active courses -> mode="none".
+        1. Only one active course -> mode="single" auto-resolve.
+        2. Explicit "across all courses" cue -> mode="all".
+        3. Explicit course_id from the FE that matches an active course -> "single".
+        4. Deictic reference + MTM anchor present -> "single" (reuse anchor).
+        5. Exactly one course title substring-matches the message -> "single".
+        6. Router-extracted course_id from LLM classification -> "single".
+        7. Otherwise -> "ambiguous" with a grounded clarification question.
 
     The resolver NEVER raises — failures degrade to "ambiguous".
     """
@@ -141,7 +141,7 @@ async def resolve_course_scope(
             reason="user has no active courses",
         )
 
-    # Step 1 — only one course → easy.
+    # Step 1 — only one course -> easy.
     if len(courses) == 1:
         c = courses[0]
         return CourseScope(
@@ -181,7 +181,7 @@ async def resolve_course_scope(
                 reason="explicit course_id from frontend",
             )
 
-    # Step 4 — deictic reference + MTM anchor → reuse last-focused course.
+    # Step 4 — deictic reference + MTM anchor -> reuse last-focused course.
     anchor_id = _read_anchor_course_id(mtm_ctx)
     if _DEICTIC_RE.search(msg) and anchor_id is not None:
         if any(c.get("id") == anchor_id for c in courses):
@@ -212,7 +212,7 @@ async def resolve_course_scope(
                 reason="resolved via router LLM extraction",
             )
 
-    # Step 7 — genuinely ambiguous → ask the user, with grounded options.
+    # Step 7 — genuinely ambiguous -> ask the user, with grounded options.
     titles = list_course_titles(active_courses)
     options = [
         {"label": titles[i], "value": str(c.get("id"))}
@@ -238,8 +238,8 @@ def apply_scope_to_course_id(
     Translate a `CourseScope` into the concrete `course_id` we pass into
     tools and into the system_memory retrieval slot.
 
-    "single" → the focused course.
-    "all" / "multi" / "none" / "ambiguous" → None (cross-course / unscoped).
+    "single" -> the focused course.
+    "all" / "multi" / "none" / "ambiguous" -> None (cross-course / unscoped).
     Falls back to the caller's hint only if the scope didn't pin anything.
     """
     if scope.mode == "single" and scope.focus_course_id is not None:
@@ -274,4 +274,4 @@ def _default_scope_question(active_courses: dict) -> str:
     return (
         f"Bạn muốn tôi tập trung vào khoá học nào trong {n} khoá bạn đang "
         "học?"
-    )
+    )

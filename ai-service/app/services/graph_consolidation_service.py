@@ -9,10 +9,10 @@ Three phases:
      - Pull all nodes for a course from Qdrant (with vectors).
      - Pull chunk_count per node from PostgreSQL.
      - Compute pairwise cosine similarity, then build groups:
-         * Hard duplicates (sim >= HARD_THRESHOLD)              → auto-merge
-         * Soft duplicates (SOFT_THRESHOLD <= sim < HARD_THRESHOLD) → LLM confirm
+         * Hard duplicates (sim >= HARD_THRESHOLD)              -> auto-merge
+         * Soft duplicates (SOFT_THRESHOLD <= sim < HARD_THRESHOLD) -> LLM confirm
          * Micro-fragments (chunk_count <= MICRO_FRAGMENT_MAX_CHUNKS)
-           with sim >= MICRO_FRAGMENT_THRESHOLD → absorb into a larger neighbour
+           with sim >= MICRO_FRAGMENT_THRESHOLD -> absorb into a larger neighbour
 
   2. LLM VALIDATION
      - For non-hard groups, ask the LLM whether merge makes sense and pick
@@ -280,7 +280,7 @@ class GraphConsolidationService:
             if ra != rb:
                 parent[ra] = rb
 
-        # 1. Hard duplicates → merge greedily.
+        # 1. Hard duplicates -> merge greedily.
         for i in range(n):
             for j in range(i + 1, n):
                 if sims[i, j] >= HARD_THRESHOLD:
@@ -335,7 +335,7 @@ class GraphConsolidationService:
             used.add(i)
             used.add(j)
 
-        # 3. Micro-fragments → absorb into nearest non-micro neighbour.
+        # 3. Micro-fragments -> absorb into nearest non-micro neighbour.
         for k in range(n):
             if k in used:
                 continue

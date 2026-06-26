@@ -86,7 +86,7 @@ async def classify_intent(
     Falls back to a default RouterOutput on error.
     """
     try:
-        # Short messages and greetings → skip LLM call
+        # Short messages and greetings -> skip LLM call
         stripped = user_message.strip().lower()
         if len(stripped) < 5 or stripped in (
             "hi", "hello", "hey", "xin chào", "chào",

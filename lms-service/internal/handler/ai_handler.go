@@ -392,7 +392,7 @@ func (h *AIHandler) ListDraftQuestions(c *gin.Context) {
 
 // ApproveQuestion godoc
 // @Summary      Approve AI-Generated Question
-// @Description  Instructor approves a DRAFT question → published to a quiz.
+// @Description  Instructor approves a DRAFT question -> published to a quiz.
 // @Tags         AI - Phase 2
 // @Accept       json
 // @Produce      json
@@ -680,7 +680,7 @@ func (h *AIHandler) TriggerDocumentProcess(c *gin.Context) {
 
 // TriggerContentAutoIndex godoc
 // @Summary      Trigger auto-index for a content document
-// @Description  Giáo viên click nút "Index" → AI tự động tạo knowledge nodes.
+// @Description  Giáo viên click nút "Index" -> AI tự động tạo knowledge nodes.
 //
 //	Trả về ngay; frontend poll /content/:id/ai-index-status.
 //
@@ -727,7 +727,7 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 
 	// Chỉ TEACHER hoặc ADMIN mới được index
 	if userRole != "ADMIN" {
-		// Verify ownership qua section → course
+		// Verify ownership qua section -> course
 		section, sErr := h.courseRepo.GetSectionByID(c.Request.Context(), content.SectionID)
 		if sErr != nil {
 			logger.Error(fmt.Sprintf("Auto-index: Section %d fetch failed", content.SectionID), sErr)

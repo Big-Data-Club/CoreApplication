@@ -133,7 +133,7 @@ async def multilingual_search(
       ~2x faster, no LLM translation cost.
 
     Translation mode (nomic-ai):
-      Translate → dual search → RRF merge.
+      Translate -> dual search -> RRF merge.
     """
     if settings.use_native_multilingual:
         # Native bge-m3 path 
@@ -164,7 +164,7 @@ async def multilingual_search(
     )
 
     logger.debug(
-        "Multilingual RRF: orig=%d translated=%d | '%s' → '%s'",
+        "Multilingual RRF: orig=%d translated=%d | '%s' -> '%s'",
         len(original_results), len(translated_results),
         original_query[:50], translated_query[:50],
     )

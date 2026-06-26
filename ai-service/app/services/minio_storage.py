@@ -2,7 +2,7 @@
 ai-service/app/services/minio_storage.py
 
 Minimal MinIO upload/download helpers used by the micro-lesson generator
-and the smarter document → Markdown pipeline (Phase A).
+and the smarter document -> Markdown pipeline (Phase A).
 
 The Go lms-service is the canonical owner of the bucket layout — files
 uploaded by users live under prefixes like "image/", "document/", "video/".

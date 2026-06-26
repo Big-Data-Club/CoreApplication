@@ -23,7 +23,7 @@ type PublishMicroQuizRequest struct {
 	OrderIndex int   `json:"order_index"`
 }
 
-// ── Internal callback payloads (AI service → LMS) ────────────────────
+// ── Internal callback payloads (AI service -> LMS) ────────────────────
 
 type MicroQuizStatusCallback struct {
 	JobID        int64  `json:"job_id" binding:"required"`

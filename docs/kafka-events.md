@@ -47,7 +47,7 @@ lms-service (Go)                    ai-worker (Python)
 
 ### `lms.document.uploaded`
 
-**Direction:** lms-service → ai-worker
+**Direction:** lms-service -> ai-worker
 **Purpose:** Trigger document ingestion into the RAG pipeline.
 **Consumer group:** `ai-worker-group`
 **Retention:** 7 days
@@ -92,7 +92,7 @@ lms-service (Go)                    ai-worker (Python)
 
 ### `ai.document.processed.status`
 
-**Direction:** ai-worker → lms-service
+**Direction:** ai-worker -> lms-service
 **Purpose:** Notify LMS of document indexing progress.
 **Consumer group:** Set by lms-service (e.g. `lms-ai-status-group`)
 **Retention:** 1 day (status is ephemeral)
@@ -121,7 +121,7 @@ lms-service (Go)                    ai-worker (Python)
 
 ### `lms.ai.command`
 
-**Direction:** lms-service → ai-worker
+**Direction:** lms-service -> ai-worker
 **Purpose:** Request an async AI computation (quiz, flashcard, diagnosis).
 **Consumer group:** `ai-worker-group`
 **Retention:** 7 days
@@ -201,7 +201,7 @@ lms-service (Go)                    ai-worker (Python)
 
 ### `ai.job.status`
 
-**Direction:** ai-worker → lms-service
+**Direction:** ai-worker -> lms-service
 **Purpose:** Report progress of `lms.ai.command` jobs.
 **Consumer group:** Set by lms-service (e.g. `lms-ai-status-group`)
 **Retention:** 1 day
@@ -220,7 +220,7 @@ lms-service (Go)                    ai-worker (Python)
 | Field    | Type   | Description                                               |
 |----------|--------|-----------------------------------------------------------|
 | `job_id` | string | Matches the `job_id` from the command                     |
-| `status` | string | Lifecycle: `pending` → `processing` → `completed`/`failed` |
+| `status` | string | Lifecycle: `pending` -> `processing` -> `completed`/`failed` |
 | `result` | object | Command output (see below). Present only when `completed`  |
 | `error`  | string | Error message. Present only when `failed`                  |
 
@@ -258,7 +258,7 @@ DIAGNOSE_ERROR result:
 
 ### `lms.graph.command`
 
-**Direction:** lms-service → ai-worker
+**Direction:** lms-service -> ai-worker
 **Purpose:** Trigger knowledge graph maintenance tasks.
 **Consumer group:** `ai-worker-group`
 
@@ -274,7 +274,7 @@ Supported commands: `GLOBAL_LINK` (cross-course relationship discovery).
 
 ### `ai.graph.status`
 
-**Direction:** ai-worker → lms-service
+**Direction:** ai-worker -> lms-service
 **Purpose:** Report result of graph maintenance tasks.
 
 ```json
@@ -290,7 +290,7 @@ Supported commands: `GLOBAL_LINK` (cross-course relationship discovery).
 
 ### `lms.maintenance.command`
 
-**Direction:** lms-service or admin → ai-worker
+**Direction:** lms-service or admin -> ai-worker
 **Purpose:** Trigger background maintenance (reindex, cleanup).
 **Consumer group:** `ai-worker-group`
 
@@ -333,7 +333,7 @@ Supported commands: `REINDEX_CONTENT`.
 
 ## Adding a New Command
 
-1. Define the payload shape in this file under `lms.ai.command` → command types.
+1. Define the payload shape in this file under `lms.ai.command` -> command types.
 2. Add the handler in `ai-service/app/worker/kafka_worker.py` inside `process_ai_command()`.
 3. Update `lms-service` Go handler to publish the command and poll `ai.job.status`.
-4. Update the result shape documentation under `ai.job.status` → result shapes.
+4. Update the result shape documentation under `ai.job.status` -> result shapes.

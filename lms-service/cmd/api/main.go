@@ -735,7 +735,7 @@ func main() {
 			}
 		}
 
-		// ── Internal callbacks (AI service → LMS) ─────────────────────────
+		// ── Internal callbacks (AI service -> LMS) ─────────────────────────
 		// Authenticated via shared service secret only — never reachable
 		// with user JWTs because the path lives outside the auth group.
 		internal := v1.Group("/internal/micro-lessons")
@@ -752,7 +752,7 @@ func main() {
 			internalQuiz.POST("/quizzes", microQuizHandler.CallbackQuizzes)
 		}
 
-		// ── Section Overview internal callbacks (AI service → LMS) ─────
+		// ── Section Overview internal callbacks (AI service -> LMS) ─────
 		internalOverview := v1.Group("/internal/section-overview")
 		internalOverview.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 		{

@@ -1979,7 +1979,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Instructor approves a DRAFT question → published to a quiz.
+      description: Instructor approves a DRAFT question -> published to a quiz.
       parameters:
       - description: Generation ID
         in: path
@@ -2503,7 +2503,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Giáo viên click nút "Index" → AI tự động tạo knowledge nodes.
+      description: Giáo viên click nút "Index" -> AI tự động tạo knowledge nodes.
       parameters:
       - description: Content ID
         in: path

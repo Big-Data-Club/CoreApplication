@@ -2,16 +2,16 @@
 // HTTP handlers for the Section Overview feature.
 //
 // Public flow (teacher):
-//   POST   /api/v1/courses/:courseId/sections/:sectionId/overview/generate  → GenerateOverview
-//   GET    /api/v1/courses/:courseId/sections/:sectionId/overview/jobs       → ListJobs
-//   GET    /api/v1/section-overview/jobs/:jobId                              → GetJob
-//   PUT    /api/v1/section-overview/lessons/:lessonId                        → UpdateLesson
-//   POST   /api/v1/section-overview/lessons/:lessonId/publish                → PublishLesson
-//   PUT    /api/v1/section-overview/quizzes/:quizId                          → UpdateQuiz
-//   POST   /api/v1/section-overview/quizzes/:quizId/publish                  → PublishQuiz
-//   DELETE /api/v1/section-overview/jobs/:jobId                              → DeleteJob
+//   POST   /api/v1/courses/:courseId/sections/:sectionId/overview/generate  -> GenerateOverview
+//   GET    /api/v1/courses/:courseId/sections/:sectionId/overview/jobs       -> ListJobs
+//   GET    /api/v1/section-overview/jobs/:jobId                              -> GetJob
+//   PUT    /api/v1/section-overview/lessons/:lessonId                        -> UpdateLesson
+//   POST   /api/v1/section-overview/lessons/:lessonId/publish                -> PublishLesson
+//   PUT    /api/v1/section-overview/quizzes/:quizId                          -> UpdateQuiz
+//   POST   /api/v1/section-overview/quizzes/:quizId/publish                  -> PublishQuiz
+//   DELETE /api/v1/section-overview/jobs/:jobId                              -> DeleteJob
 //
-// Internal callbacks (AI service → LMS):
+// Internal callbacks (AI service -> LMS):
 //   POST /api/v1/internal/section-overview/status   ← progress / status updates
 //   POST /api/v1/internal/section-overview/results  ← completed lesson + quiz data
 package handler
@@ -568,7 +568,7 @@ func (h *SectionOverviewHandler) DeleteJob(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Job deleted"))
 }
 
-// ── Internal callback endpoints (AI service → LMS) ────────────────────────────
+// ── Internal callback endpoints (AI service -> LMS) ────────────────────────────
 
 // CallbackStatus receives progress / status updates from the AI service.
 func (h *SectionOverviewHandler) CallbackStatus(c *gin.Context) {

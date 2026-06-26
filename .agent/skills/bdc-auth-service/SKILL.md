@@ -78,7 +78,7 @@ Service      business logic, @Transactional, calls Repository / EmailService / U
     ↓
 Repository   Spring Data JPA + custom @Query, returns Entity (not DTO)
     ↓
-Mapper       Entity → DTO conversion (lives in mapper/ package)
+Mapper       Entity -> DTO conversion (lives in mapper/ package)
     ↓
 Database
 ```

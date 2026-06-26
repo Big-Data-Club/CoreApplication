@@ -120,10 +120,10 @@ and `002_decouple_lms.sql` — two files with the same numeric prefix. The
 fresh installs.
 
 **Detail:** Missing migrations caused:
-- `content_index_status` table absent → auto-index status tracking broken.
+- `content_index_status` table absent -> auto-index status tracking broken.
 - `ai_diagnoses.knowledge_gap`, `.study_suggestion`, `.suggested_docs_json`
-  columns absent → diagnosis cache queries failed with column-not-found errors.
-- `knowledge_nodes.source_content_title` absent → knowledge graph title map
+  columns absent -> diagnosis cache queries failed with column-not-found errors.
+- `knowledge_nodes.source_content_title` absent -> knowledge graph title map
   queries failed.
 
 **Fix:** Both files are consolidated into `002_schema_extensions.sql`. The

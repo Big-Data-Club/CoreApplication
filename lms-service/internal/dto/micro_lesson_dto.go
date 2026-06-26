@@ -24,7 +24,7 @@ type PublishMicroLessonRequest struct {
 	OrderIndex int   `json:"order_index"`
 }
 
-// ── Internal callback payloads (AI service → LMS) ────────────────────
+// ── Internal callback payloads (AI service -> LMS) ────────────────────
 
 type MicroLessonStatusCallback struct {
 	JobID        int64  `json:"job_id" binding:"required"`

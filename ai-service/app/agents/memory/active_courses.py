@@ -9,10 +9,10 @@ in many courses. This module returns the real list (with IDs) so the LLM
 never has to invent or guess a course_id.
 
 Roles:
-  - teacher  →  courses owned/created by the user (LMS /courses/my)
+  - teacher  ->  courses owned/created by the user (LMS /courses/my)
                 + indexed knowledge_nodes per course (for ground-truth
                   quiz/content generation)
-  - mentor   →  courses the student is ACCEPTED-enrolled in
+  - mentor   ->  courses the student is ACCEPTED-enrolled in
                 (LMS /enrollments/my?status=ACCEPTED).
                 Nodes are NOT pre-loaded — the mentor pulls them on
                 demand via tools.

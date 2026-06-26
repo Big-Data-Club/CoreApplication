@@ -197,7 +197,7 @@ async def get_auto_index_status(content_id: int, request: Request):
             "SELECT COUNT(*) AS n FROM document_chunks WHERE content_id=$1 AND status='ready'", content_id,
         )
 
-    # Map status → rough progress percentage (no Celery task to query)
+    # Map status -> rough progress percentage (no Celery task to query)
     progress_map = {"pending": 5, "processing": 50, "indexed": 100, "failed": 0}
     progress = progress_map.get(ai_status, 0)
 

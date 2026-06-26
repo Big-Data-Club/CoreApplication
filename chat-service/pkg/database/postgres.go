@@ -14,10 +14,10 @@ import (
 
 // NewPostgresDB opens a *sql.DB backed by pgx and configures the connection pool.
 // Neon-safe tuning:
-//   - prefer_simple_protocol=true   → avoids prepared-statement conflicts through PgBouncer
-//   - statement_cache_mode=describe → safe for pooled connections
-//   - connect_timeout=15            → handle Neon cold-start (~2-3s)
-//   - keepalives + tcp_keepalives   → detect stale connections quickly
+//   - prefer_simple_protocol=true   -> avoids prepared-statement conflicts through PgBouncer
+//   - statement_cache_mode=describe -> safe for pooled connections
+//   - connect_timeout=15            -> handle Neon cold-start (~2-3s)
+//   - keepalives + tcp_keepalives   -> detect stale connections quickly
 func NewPostgresDB(cfg config.DatabaseConfig) (*sql.DB, error) {
 	// Build DSN with Neon-safe parameters
 	dsn := fmt.Sprintf(

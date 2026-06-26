@@ -51,11 +51,11 @@ class TableSpec:
 
 
 # Ordered so that FK-dependency is respected within the AI domain:
-#   knowledge_nodes → knowledge_node_relations
-#   knowledge_nodes → document_chunks
-#   document_chunks → ai_quiz_generations
-#   knowledge_nodes → student_knowledge_progress / spaced_repetitions / flashcards
-#   ai_diagnoses    → flashcards
+#   knowledge_nodes -> knowledge_node_relations
+#   knowledge_nodes -> document_chunks
+#   document_chunks -> ai_quiz_generations
+#   knowledge_nodes -> student_knowledge_progress / spaced_repetitions / flashcards
+#   ai_diagnoses    -> flashcards
 TABLES: list[TableSpec] = [
     TableSpec("knowledge_nodes",           soft_refs=["course_id", "source_content_id"]),
     TableSpec("knowledge_node_relations",  soft_refs=["course_id"]),
@@ -242,7 +242,7 @@ def verify_connectivity(src_conn, dst_conn) -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Migrate AI tables LMS PG → AI PG")
+    parser = argparse.ArgumentParser(description="Migrate AI tables LMS PG -> AI PG")
     parser.add_argument("--dry-run",    action="store_true",
                         help="Count rows only, do not copy data")
     parser.add_argument("--tables",     nargs="*", metavar="TABLE",

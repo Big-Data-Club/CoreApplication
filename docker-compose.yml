@@ -877,7 +877,7 @@ services:
     command: python -m app.worker.kafka_worker
     environment:
       <<: *ai-env
-      # Worker doesn't serve user traffic → reranker disabled to save RAM
+      # Worker doesn't serve user traffic -> reranker disabled to save RAM
       USE_RERANKER: "false"
       REINDEX_BATCH_SIZE: ${REINDEX_BATCH_SIZE:-5}
     depends_on:

@@ -66,20 +66,20 @@ embedding generation, or document processing. These operations take 5 s – 5 mi
 ### Async AI Workflow
 
 ```
-Client  →  POST /api/v1/ai/quiz          (LMS handler)
-LMS     →  Kafka lms.ai.command          {job_id, "GENERATE_QUIZ", payload}
-LMS     →  Redis SET ai_job:{job_id}     {status: "pending"}
-LMS     →  HTTP 202                      {job_id}
+Client  ->  POST /api/v1/ai/quiz          (LMS handler)
+LMS     ->  Kafka lms.ai.command          {job_id, "GENERATE_QUIZ", payload}
+LMS     ->  Redis SET ai_job:{job_id}     {status: "pending"}
+LMS     ->  HTTP 202                      {job_id}
 
 ai-worker  polls Kafka lms.ai.command
-ai-worker  →  Kafka ai.job.status        {job_id, "processing"}
-ai-worker  →  executes work
-ai-worker  →  Kafka ai.job.status        {job_id, "completed", result}
+ai-worker  ->  Kafka ai.job.status        {job_id, "processing"}
+ai-worker  ->  executes work
+ai-worker  ->  Kafka ai.job.status        {job_id, "completed", result}
 
 lms-service polls Kafka ai.job.status
-lms-service →  Redis SET ai_job:{job_id} {status, result}
+lms-service ->  Redis SET ai_job:{job_id} {status, result}
 
-Client  →  GET /api/v1/ai/jobs/{job_id}/status   → reads Redis
+Client  ->  GET /api/v1/ai/jobs/{job_id}/status   -> reads Redis
 ```
 
 ---

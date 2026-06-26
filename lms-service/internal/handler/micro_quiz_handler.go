@@ -2,12 +2,12 @@
 // HTTP handlers for the Micro-Quiz feature.
 //
 // Public flow (UI):
-//   POST   /api/v1/courses/:courseId/micro-quizzes/generate   → trigger
-//   GET    /api/v1/courses/:courseId/micro-quizzes/jobs        → list jobs
-//   GET    /api/v1/micro-quizzes/jobs/:jobId                  → job + quizzes
-//   PUT    /api/v1/micro-quizzes/:quizId                      → save edits
-//   POST   /api/v1/micro-quizzes/:quizId/publish              → create QUIZ SectionContent
-//   DELETE /api/v1/micro-quizzes/:quizId                      → drop draft
+//   POST   /api/v1/courses/:courseId/micro-quizzes/generate   -> trigger
+//   GET    /api/v1/courses/:courseId/micro-quizzes/jobs        -> list jobs
+//   GET    /api/v1/micro-quizzes/jobs/:jobId                  -> job + quizzes
+//   PUT    /api/v1/micro-quizzes/:quizId                      -> save edits
+//   POST   /api/v1/micro-quizzes/:quizId/publish              -> create QUIZ SectionContent
+//   DELETE /api/v1/micro-quizzes/:quizId                      -> drop draft
 //
 // Internal flow (AI service callback):
 //   POST /api/v1/internal/micro-quizzes/status   ← progress / status updates
@@ -246,7 +246,7 @@ func (h *MicroQuizHandler) UpdateQuiz(c *gin.Context) {
 }
 
 // PublishQuiz promotes a draft micro quiz into a published QUIZ SectionContent.
-// It creates: SectionContent(type=QUIZ) → quizzes record → quiz_questions + quiz_answer_options.
+// It creates: SectionContent(type=QUIZ) -> quizzes record -> quiz_questions + quiz_answer_options.
 func (h *MicroQuizHandler) PublishQuiz(c *gin.Context) {
 	quizID, _ := strconv.ParseInt(c.Param("quizId"), 10, 64)
 	userID := c.MustGet("user_id").(int64)
@@ -421,7 +421,7 @@ func (h *MicroQuizHandler) DeleteQuiz(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Draft quiz deleted"))
 }
 
-// ── Internal callbacks (AI service → LMS) ────────────────────────────────────
+// ── Internal callbacks (AI service -> LMS) ────────────────────────────────────
 
 // CallbackStatus receives job progress updates from the AI service.
 func (h *MicroQuizHandler) CallbackStatus(c *gin.Context) {

@@ -39,13 +39,13 @@ INSERT INTO organizations (name, slug, description, is_active)
     VALUES ('Big Data Club', 'bdc', 'Default organization', true)
     ON CONFLICT (slug) DO NOTHING;
 
--- Migrate existing courses → default org, all PUBLIC
+-- Migrate existing courses -> default org, all PUBLIC
 UPDATE courses
 SET org_id = (SELECT id FROM organizations WHERE slug = 'bdc'),
     visibility = 'PUBLIC'
 WHERE org_id IS NULL;
 
--- Migrate existing users → default org as MEMBER
+-- Migrate existing users -> default org as MEMBER
 INSERT INTO organization_members (org_id, user_id, org_role)
 SELECT (SELECT id FROM organizations WHERE slug = 'bdc'), id, 'MEMBER'
 FROM   users

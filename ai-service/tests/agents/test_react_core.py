@@ -158,7 +158,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                 for msg, expected in test_cases:
                     result = await classify_intent(msg)
                     assert result.intent == expected, (
-                        f"'{msg}' → got '{result.intent}', expected '{expected}'"
+                        f"'{msg}' -> got '{result.intent}', expected '{expected}'"
                     )
 
                 # These require LLM — just check they return valid intents
@@ -172,9 +172,9 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                 for msg in complex_cases:
                     result = await classify_intent(msg)
                     assert result.intent in VALID_INTENTS, (
-                        f"'{msg}' → got '{result.intent}', not in VALID_INTENTS"
+                        f"'{msg}' -> got '{result.intent}', not in VALID_INTENTS"
                     )
-                    print(f"         '{msg[:30]}...' → {result.intent}")
+                    print(f"         '{msg[:30]}...' -> {result.intent}")
 
                 print(f"  [PASS] {r.name}")
                 r.passed = True
@@ -246,7 +246,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                     events.append(event)
                     print(f"         Event: {event.type.value}", end="")
                     if event.type == AgentEventType.TEXT_DELTA:
-                        print(f" → '{event.data.get('delta', '')[:30]}'", end="")
+                        print(f" -> '{event.data.get('delta', '')[:30]}'", end="")
                     print()
 
                 elapsed = (time.monotonic() - start) * 1000

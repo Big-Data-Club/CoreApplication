@@ -121,7 +121,7 @@ type SectionOverviewJobDetailResponse struct {
 	Quiz   *SectionOverviewQuizResponse   `json:"quiz"`
 }
 
-// ── Internal callback DTOs (AI service → LMS) ─────────────────────────────────
+// ── Internal callback DTOs (AI service -> LMS) ─────────────────────────────────
 
 // SectionOverviewCallbackStatus carries progress updates from the AI service.
 type SectionOverviewCallbackStatus struct {

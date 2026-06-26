@@ -158,7 +158,7 @@ async def _pdf_to_markdown(
     class _PageResult:
         page_no: int
         markdown: str
-        needs_ocr: bool           # page text too short → send to VLM
+        needs_ocr: bool           # page text too short -> send to VLM
 
     def _sync_parse_pages() -> tuple[list[_PageResult], int]:
         try:
@@ -484,7 +484,7 @@ async def _pdf_to_markdown_pypdf(pdf_bytes: bytes) -> ConvertedDocument:
 
 async def _docx_to_markdown(docx_bytes: bytes, storage_prefix: str) -> ConvertedDocument:
     """
-    Use mammoth to convert .docx → Markdown. Mammoth preserves heading
+    Use mammoth to convert .docx -> Markdown. Mammoth preserves heading
     levels, bold/italic, lists and tables better than python-docx.
     Images embedded in the document are also extracted to MinIO.
     """
@@ -593,7 +593,7 @@ async def _pptx_to_markdown(pptx_bytes: bytes, storage_prefix: str, language: st
                 if notes:
                     parts.append(f"\n\n> **Ghi chú giảng viên:** {notes}\n")
     except Exception as exc:
-        logger.error("PPTX → Markdown failed: %s", exc, exc_info=True)
+        logger.error("PPTX -> Markdown failed: %s", exc, exc_info=True)
 
     md = "\n".join(parts).strip()
     if images and "![" not in md:
@@ -617,7 +617,7 @@ def _pptx_slide_title(slide) -> str:
 # ── XLSX ──────────────────────────────────────────────────────────────────────
 
 async def _xlsx_to_markdown(xlsx_bytes: bytes) -> ConvertedDocument:
-    """Each sheet → its own `## Sheet: <name>` section with a real Markdown table."""
+    """Each sheet -> its own `## Sheet: <name>` section with a real Markdown table."""
     parts: list[str] = []
     try:
         import openpyxl
@@ -642,7 +642,7 @@ async def _xlsx_to_markdown(xlsx_bytes: bytes) -> ConvertedDocument:
             if len(rows) > 1001:
                 parts.append(f"\n_…đã rút gọn còn 1000/{len(rows) - 1} dòng dữ liệu_\n")
     except Exception as exc:
-        logger.error("XLSX → Markdown failed: %s", exc, exc_info=True)
+        logger.error("XLSX -> Markdown failed: %s", exc, exc_info=True)
 
     return ConvertedDocument(markdown="\n".join(parts).strip())
 

@@ -91,7 +91,7 @@ class YouTubeTranscriptFetcher:
             logger.warning("list_transcripts failed for %s: %s", video_id, exc)
             return None
 
-        # Thứ tự ưu tiên: manual vi/en → auto vi/en → bất kỳ
+        # Thứ tự ưu tiên: manual vi/en -> auto vi/en -> bất kỳ
         other_lang = "en" if preferred_lang == "vi" else "vi"
         attempts = [
             (preferred_lang, False),
@@ -135,7 +135,7 @@ class YouTubeTranscriptFetcher:
             return None
 
     def _normalize(self, raw: list) -> list[dict]:
-        """youtube-transcript-api → Whisper format"""
+        """youtube-transcript-api -> Whisper format"""
         segments = []
         for item in raw:
             text = item.get("text", "").strip()

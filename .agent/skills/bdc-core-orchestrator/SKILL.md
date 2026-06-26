@@ -87,9 +87,9 @@ microservices LMS deployed via Docker Compose on a single server.
 | AI HTTP | `ai-service/` | Python 3.12, FastAPI | `ai-service` | 8000 |
 | AI Worker | `ai-service/` | Python 3.12, aiokafka | `ai-worker` | — |
 | Kafka | — | KRaft mode | `kafka` | 9092 |
-| Auth DB | — | PostgreSQL 15 | `postgres` | 5433→5432 |
-| LMS DB | — | PostgreSQL 15 | `postgres-lms` | 5434→5432 |
-| AI DB | — | PostgreSQL 15 | `postgres-ai` | 5435→5432 |
+| Auth DB | — | PostgreSQL 15 | `postgres` | 5433->5432 |
+| LMS DB | — | PostgreSQL 15 | `postgres-lms` | 5434->5432 |
+| AI DB | — | PostgreSQL 15 | `postgres-ai` | 5435->5432 |
 | Redis | — | Redis 7 | `redis-lms` | 6379 |
 | MinIO | — | MinIO latest | `minio` | 9000/9001 |
 | Qdrant | — | Qdrant v1.13.6 | `qdrant` | 6333/6334 |
@@ -133,7 +133,7 @@ docker exec -i postgres-ai psql -U "$AI_POSTGRES_USER" -d "$AI_POSTGRES_DB" \
 
 ## Cross-Service Communication Patterns
 
-### Pattern 1 — User Sync (Auth → LMS)
+### Pattern 1 — User Sync (Auth -> LMS)
 
 Triggered when users are created, updated, or blocked in the Auth service.
 
@@ -145,7 +145,7 @@ auth-service
     | Body:   [{user_id, email, full_name, roles}]
     |
     v
-lms-service  →  INSERT/UPDATE users table
+lms-service  ->  INSERT/UPDATE users table
 ```
 
 `UserSyncService.syncUsersToLms()` is `@Async`. Failures are logged but do not
@@ -154,39 +154,39 @@ fail the HTTP response. Monitor with:
 docker compose logs backend | grep -i "sync\|error"
 ```
 
-### Pattern 2 — Event-Driven AI (LMS → Kafka → AI Worker → Redis → LMS)
+### Pattern 2 — Event-Driven AI (LMS -> Kafka -> AI Worker -> Redis -> LMS)
 
 Used for all AI tasks: document ingestion, quiz generation, flashcards, diagnosis.
 
 ```
-1. Client   → POST /lmsapiv1/ai/quiz   (LMS endpoint)
-2. LMS      → Kafka topic: lms.ai.command   {job_id, command_type, payload}
-3. LMS      → Redis SET ai_job:{job_id} = {status: "pending"}
-4. LMS      → HTTP 202 {job_id}
-5. ai-worker → Kafka POLL lms.ai.command
-6. ai-worker → Kafka PUB ai.job.status  {job_id, status: "processing"}
-7. ai-worker → executes LLM / embedding / DB writes
-8. ai-worker → Kafka PUB ai.job.status  {job_id, status: "completed", result: {...}}
-9. lms-service → Kafka POLL ai.job.status → Redis SET ai_job:{job_id}
-10. Client  → GET /lmsapiv1/ai/jobs/{job_id}/status → reads Redis
+1. Client   -> POST /lmsapiv1/ai/quiz   (LMS endpoint)
+2. LMS      -> Kafka topic: lms.ai.command   {job_id, command_type, payload}
+3. LMS      -> Redis SET ai_job:{job_id} = {status: "pending"}
+4. LMS      -> HTTP 202 {job_id}
+5. ai-worker -> Kafka POLL lms.ai.command
+6. ai-worker -> Kafka PUB ai.job.status  {job_id, status: "processing"}
+7. ai-worker -> executes LLM / embedding / DB writes
+8. ai-worker -> Kafka PUB ai.job.status  {job_id, status: "completed", result: {...}}
+9. lms-service -> Kafka POLL ai.job.status -> Redis SET ai_job:{job_id}
+10. Client  -> GET /lmsapiv1/ai/jobs/{job_id}/status -> reads Redis
 ```
 
-### Pattern 3 — Synchronous AI (LMS → AI HTTP)
+### Pattern 3 — Synchronous AI (LMS -> AI HTTP)
 
 Used only for fast, non-LLM queries (health, status reads, graph GET).
 
 ```
-lms-service  →  GET http://ai-service:8000/ai/process-document/{id}
+lms-service  ->  GET http://ai-service:8000/ai/process-document/{id}
                Header: X-AI-Secret: ${AI_SERVICE_SECRET}
 ```
 
 ### Pattern 4 — File Access (LMS ↔ MinIO, AI ← MinIO)
 
 ```
-Client  →  POST /lmsapiv1/files/upload
-lms-service  →  MinIO PUT s3://lms-files/{key}
-ai-worker    →  MinIO GET s3://lms-files/{key}   (direct SDK, not HTTP)
-Client  →  GET /files/{key}  (proxied to lms-service file serve endpoint)
+Client  ->  POST /lmsapiv1/files/upload
+lms-service  ->  MinIO PUT s3://lms-files/{key}
+ai-worker    ->  MinIO GET s3://lms-files/{key}   (direct SDK, not HTTP)
+Client  ->  GET /files/{key}  (proxied to lms-service file serve endpoint)
 ```
 
 ---

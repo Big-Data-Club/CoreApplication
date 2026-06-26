@@ -12,7 +12,7 @@ Data flow
   2. For each node, iterate its chunks.  Assign Bloom levels round-robin
      with LLM fallback (if the chunk can't support the requested level,
      the LLM may downgrade and report the actual level used).
-  3. Per-chunk LLM call → structured JSON question (no Markdown wrapper).
+  3. Per-chunk LLM call -> structured JSON question (no Markdown wrapper).
   4. POST the quiz array back to the LMS via HTTP callback.
 
 All question/option/explanation text may contain Markdown (images, LaTeX,
@@ -552,7 +552,7 @@ class MicroQuizService:
                     headers={"X-API-Secret": settings.ai_service_secret},
                 )
                 if resp.status_code >= 400:
-                    logger.warning("LMS callback %s → %d: %s",
+                    logger.warning("LMS callback %s -> %d: %s",
                                    path, resp.status_code, resp.text[:200])
         except Exception as exc:
             logger.error("LMS callback %s failed: %s", path, exc)

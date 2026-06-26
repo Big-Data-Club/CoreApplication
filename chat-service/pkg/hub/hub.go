@@ -8,7 +8,7 @@
 //   Client C (replica 2) ◄──recv──────────────────────────────────────┘
 //
 // Memory layout per replica:
-//   Hub.rooms: map[channelID int64] → set[*Client]
+//   Hub.rooms: map[channelID int64] -> set[*Client]
 //   Each Client owns one goroutine for reading from WS and one for writing.
 //   The writePump drains a buffered channel — slow clients are dropped after
 //   ClientSendBuffer fills up, preventing any single slow client from blocking
@@ -96,7 +96,7 @@ type TypingPayload struct {
 // bridges local broadcasts with Redis Pub/Sub for multi-replica support.
 type Hub struct {
 	mu    sync.RWMutex
-	rooms map[int64]map[*Client]struct{} // channelID → set of local clients
+	rooms map[int64]map[*Client]struct{} // channelID -> set of local clients
 
 	register   chan *Client
 	unregister chan *Client

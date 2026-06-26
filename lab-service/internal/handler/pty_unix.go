@@ -72,7 +72,7 @@ func startShellPTY(cmd *exec.Cmd, ws *websocket.Conn) error {
 	}
 	defer killProcess()
 
-	// PTY → WebSocket: read output from the shell and forward to the browser
+	// PTY -> WebSocket: read output from the shell and forward to the browser
 	go func() {
 		buf := make([]byte, 4096)
 		for {
@@ -89,7 +89,7 @@ func startShellPTY(cmd *exec.Cmd, ws *websocket.Conn) error {
 		_ = ws.Close()
 	}()
 
-	// WebSocket → PTY: read input from the browser and write to the shell
+	// WebSocket -> PTY: read input from the browser and write to the shell
 	for {
 		mt, message, err := ws.ReadMessage()
 		if err != nil {

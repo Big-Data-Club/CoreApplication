@@ -27,14 +27,14 @@ Flow diagram:
          ▼
   ┌───────────────────┐
   │ should_clarify?   │ ← fast LLM check
-  │  confidence < 0.7 │──yes──▶ yield CLARIFICATION → return
+  │  confidence < 0.7 │──yes──▶ yield CLARIFICATION -> return
   └──────┬────────────┘
          │ no
          ▼
   ┌─────────────────────────────────────────┐
   │ for iteration in range(MAX_ITERATIONS): │
   │   1. Groq streaming (70b + tools)       │
-  │   2. If text only → yield deltas → DONE │
+  │   2. If text only -> yield deltas -> DONE │
   │   3. If tool_calls:                     │
   │      a. yield TOOL_START                │
   │      b. execute_tool()                  │
@@ -750,7 +750,7 @@ async def run_react_loop(
             len(collected_tool_calls), iter_ms,
         )
 
-        # ── 5c. NO tool calls → text response → DONE ────────────────────────
+        # ── 5c. NO tool calls -> text response -> DONE ────────────────────────
         if not collected_tool_calls:
             final_text = collected_text
 
@@ -799,7 +799,7 @@ async def run_react_loop(
             )
             return
 
-        # ── 5d. TOOL CALLS → execute and loop ───────────────────────────────
+        # ── 5d. TOOL CALLS -> execute and loop ───────────────────────────────
         # Add assistant message with tool_calls to the conversation
         assistant_msg: dict = {
             "role": "assistant",
@@ -1044,7 +1044,7 @@ async def run_react_loop(
             })
 
             logger.info(
-                "Tool result: %s → %s (%d chars)",
+                "Tool result: %s -> %s (%d chars)",
                 tool_name, tool_result.status, len(result_content),
             )
 
@@ -1138,7 +1138,7 @@ async def _update_anchor_from_tool(
         if cid:
             updates["current_course_id"] = cid
         # Pin the node only when the result is unambiguous
-        # (exact-match search → single node).
+        # (exact-match search -> single node).
         if len(nodes) == 1:
             n = nodes[0]
             if n.get("id") is not None:
@@ -1287,4 +1287,4 @@ async def _trigger_post_turn_consolidation(
             )
             logger.info("Triggered session consolidation for user %d, session %s, job_id %s", user_id, session_id, job_id)
     except Exception as exc:
-        logger.exception("Failed to trigger post-turn consolidation: %s", exc)
+        logger.exception("Failed to trigger post-turn consolidation: %s", exc)

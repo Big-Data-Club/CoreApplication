@@ -47,7 +47,7 @@ class PDFChunker:
         self.overlap = overlap
 
     def chunk_bytes(self, pdf_bytes: bytes) -> list[DocumentChunk]:
-        """Process raw PDF bytes → list of chunks with page metadata."""
+        """Process raw PDF bytes -> list of chunks with page metadata."""
         try:
             import pymupdf  # PyMuPDF (faster, better table support)
             return self._chunk_with_pymupdf(pdf_bytes)
@@ -720,9 +720,9 @@ def build_hierarchical_chunks(
     pipeline can hydrate after ANN search.
 
     Grouping rules (in order):
-      1. Same `page_number` + total <= parent_max_chars → keep merging.
+      1. Same `page_number` + total <= parent_max_chars -> keep merging.
       2. Same heading breadcrumb (the `[A > B > C]` prefix MarkdownChunker
-         injects) + total <= parent_max_chars → keep merging.
+         injects) + total <= parent_max_chars -> keep merging.
       3. For video transcripts, group by `parent_max_chars / 5 ≈ 1200 chars`
          (~5–7 minutes of speech) regardless of page number.
       4. Soft cap at parent_max_chars to avoid blowing the LLM context.

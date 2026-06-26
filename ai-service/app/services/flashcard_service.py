@@ -141,7 +141,7 @@ class FlashcardService:
         existing_fronts: Optional[list[str]] = None,
     ) -> list[dict]:
         """
-        Full pipeline: RAG retrieval → LLM generation → DB persist.
+        Full pipeline: RAG retrieval -> LLM generation -> DB persist.
         Called by both the HTTP endpoint and the Kafka worker (GENERATE_FLASHCARD command).
         Returns the persisted flashcard dicts.
         """

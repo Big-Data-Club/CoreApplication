@@ -528,7 +528,7 @@ class MicroLessonService:
                     headers={"X-API-Secret": settings.ai_service_secret},
                 )
                 if resp.status_code >= 400:
-                    logger.warning("LMS callback %s → %d: %s", path, resp.status_code, resp.text[:200])
+                    logger.warning("LMS callback %s -> %d: %s", path, resp.status_code, resp.text[:200])
         except Exception as exc:
             logger.error("LMS callback %s failed: %s", path, exc)
 

@@ -929,7 +929,7 @@ func (c *Client) decodeResponse(resp *http.Response, path string, result interfa
 	}
 
 	if resp.StatusCode >= 400 {
-		logger.Error(fmt.Sprintf("ai-service %s → %d: %s", path, resp.StatusCode, string(body)), nil)
+		logger.Error(fmt.Sprintf("ai-service %s -> %d: %s", path, resp.StatusCode, string(body)), nil)
 		return fmt.Errorf("ai-service error %d: %s", resp.StatusCode, string(body))
 	}
 

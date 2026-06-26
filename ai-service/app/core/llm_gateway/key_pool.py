@@ -201,7 +201,7 @@ class KeyPool:
                 """,
                 key_id, new_status, fails, cooldown, message[:500],
             )
-        logger.error("API key %d auth failure (%d total) → %s", key_id, fails, new_status)
+        logger.error("API key %d auth failure (%d total) -> %s", key_id, fails, new_status)
  
     async def record_generic_failure(self, key_id: int, message: str) -> None:
         async with get_ai_conn() as conn:

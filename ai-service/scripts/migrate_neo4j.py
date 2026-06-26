@@ -7,7 +7,7 @@ Steps:
   1. Đọc tất cả knowledge_nodes từ PostgreSQL (AI DB)
   2. Đọc embeddings từ Qdrant (knowledge_nodes collection)
   3. Upsert nodes vào Neo4j
-  4. Đọc knowledge_node_relations từ PostgreSQL → upsert edges vào Neo4j
+  4. Đọc knowledge_node_relations từ PostgreSQL -> upsert edges vào Neo4j
   5. Chạy cross-course smart linking cho tất cả nodes
 
 Usage:
@@ -151,7 +151,7 @@ async def migrate(
 
             from app.services.neo4j_service import RELATIONSHIP_TYPES
 
-            # Map PostgreSQL relation_type → Neo4j relationship type constant
+            # Map PostgreSQL relation_type -> Neo4j relationship type constant
             def _map_rel_type(pg_type: str) -> str:
                 mapping = {
                     "prerequisite":   "PREREQUISITE",
@@ -295,7 +295,7 @@ async def _run_cross_course_linking(nodes_pg: list[dict]) -> None:
                 new_course_id=course_id,
             )
             total_edges += count
-            log.info("    → %d new cross-course edges", count)
+            log.info("    -> %d new cross-course edges", count)
         except Exception as exc:
             log.warning("    Failed for course %d: %s", course_id, exc)
 

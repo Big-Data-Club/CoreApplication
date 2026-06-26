@@ -111,7 +111,7 @@ async def list_drafts(
 @router.post("/{gen_id}/approve")
 async def approve_question(gen_id: int, body: ApproveRequest, request: Request):
     """
-    Instructor approves a DRAFT question → publishes to actual quiz.
+    Instructor approves a DRAFT question -> publishes to actual quiz.
     The question becomes visible to students.
     """
     _verify_internal(request)

@@ -140,7 +140,7 @@ class SectionOverviewService:
         content_ids = [c["content_id"] for c in contents_info]
         add_log(f"Danh sách {len(content_ids)} tài liệu liên quan: {content_ids}")
 
-        # Build a lookup map: content_id → {title, content_type}
+        # Build a lookup map: content_id -> {title, content_type}
         content_map: dict[int, dict] = {
             c["content_id"]: {"title": c.get("title", ""), "content_type": c.get("content_type", "")}
             for c in contents_info
@@ -1288,7 +1288,7 @@ class SectionOverviewService:
                 )
                 if resp.status_code >= 400:
                     logger.warning(
-                        "LMS callback %s → %d: %s",
+                        "LMS callback %s -> %d: %s",
                         path, resp.status_code, resp.text[:200],
                     )
         except Exception as exc:

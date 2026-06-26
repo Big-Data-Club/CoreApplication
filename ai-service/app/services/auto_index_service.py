@@ -4,7 +4,7 @@ ai-service/app/services/auto_index_service.py
 Changes vs. previous version (pgvector):
   - Node deduplication reads vectors from Qdrant (scroll_nodes_for_course)
     instead of querying the description_embedding column in PostgreSQL.
-    This eliminates ~50 MB per course of PG→Python data transfer.
+    This eliminates ~50 MB per course of PG->Python data transfer.
   - _create_knowledge_nodes_batch upserts node vectors to Qdrant
     in addition to inserting metadata into PG.
   - _batch_insert_chunks delegates to rag_service (which handles the
@@ -594,7 +594,7 @@ class AutoIndexService:
 
     # ─ Step 2: Extract text + chunks ─────────────────────────────────────────
     async def _extract_youtube(self, file_url: str) -> tuple[str, list[DocumentChunk]]:
-        """Fetch YouTube transcript → VideoTranscriptChunker → DocumentChunks."""
+        """Fetch YouTube transcript -> VideoTranscriptChunker -> DocumentChunks."""
         from app.services.youtube_service import youtube_fetcher
         from app.services.chunker import VideoTranscriptChunker, detect_language
 
@@ -879,7 +879,7 @@ class AutoIndexService:
         Returns:
           truly_new_nodes   — nodes to insert
           truly_new_embs    — their embeddings
-          idx_to_existing   — original index → existing DB node ID
+          idx_to_existing   — original index -> existing DB node ID
         """
         if settings.use_qdrant:
             return await self._dedup_qdrant(nodes, embeddings, course_id)
@@ -984,14 +984,14 @@ class AutoIndexService:
 
             if best_sim >= DEDUP_HARD_THRESHOLD:
                 idx_to_existing[i] = exist_id
-                logger.info("[dedup:hard] '%s' → reuse node %d (sim=%.3f)", node.name, exist_id, best_sim)
+                logger.info("[dedup:hard] '%s' -> reuse node %d (sim=%.3f)", node.name, exist_id, best_sim)
 
             elif best_sim >= DEDUP_SOFT_THRESHOLD:
                 asyncio.ensure_future(
                     self._merge_node_description(exist_id, node.description, node.keywords)
                 )
                 idx_to_existing[i] = exist_id
-                logger.info("[dedup:soft] '%s' → merge into node %d (sim=%.3f)", node.name, exist_id, best_sim)
+                logger.info("[dedup:soft] '%s' -> merge into node %d (sim=%.3f)", node.name, exist_id, best_sim)
 
             else:
                 truly_new_nodes.append(node)
@@ -1057,7 +1057,7 @@ class AutoIndexService:
                 if float(sims[i, j]) >= INTRA_RUN_DEDUP_THRESHOLD:
                     union(i, j)
 
-        # 4. Collect surviving nodes and build old→new index mapping
+        # 4. Collect surviving nodes and build old->new index mapping
         root_to_new_idx: dict[int, int] = {}
         surviving_nodes: list[ExtractedNode] = []
 
@@ -1083,12 +1083,12 @@ class AutoIndexService:
                         root_node.description + " | " + merged_node.description
                     ).strip(" |")[:800]
                 logger.info(
-                    "[intra-dedup] merge '%s' → '%s' (sim=%.3f)",
+                    "[intra-dedup] merge '%s' -> '%s' (sim=%.3f)",
                     merged_node.name, root_node.name,
                     float(sims[i, root]),
                 )
 
-        # Build old→new index mapping for ALL original indices
+        # Build old->new index mapping for ALL original indices
         old_to_new: dict[int, int] = {}
         for i in range(len(nodes)):
             old_to_new[i] = root_to_new_idx[find(i)]
@@ -1116,7 +1116,7 @@ class AutoIndexService:
         merged_count = len(nodes) - len(surviving_nodes)
         if merged_count > 0:
             logger.info(
-                "[intra-dedup] collapsed %d → %d nodes (%d merged)",
+                "[intra-dedup] collapsed %d -> %d nodes (%d merged)",
                 len(nodes), len(surviving_nodes), merged_count,
             )
 
@@ -1292,7 +1292,7 @@ class AutoIndexService:
         chunk_texts       = [c.text for c in structured_chunks]
         chunk_embeddings  = await _batch_embed(chunk_texts)
 
-        # Vectorized chunk→node assignment
+        # Vectorized chunk->node assignment
         node_emb_matrix  = np.array(node_embeddings)
         chunk_emb_matrix = np.array(chunk_embeddings)
         node_norms  = np.linalg.norm(node_emb_matrix,  axis=1, keepdims=True) + 1e-8
@@ -1991,7 +1991,7 @@ class AutoIndexService:
             from app.worker.kafka_producer import publish_status_event
             await publish_status_event(content_id, status, error=error_msg or "")
             if error_msg:
-                logger.warning("content_id=%d → %s: %s", content_id, status, error_msg)
+                logger.warning("content_id=%d -> %s: %s", content_id, status, error_msg)
         except Exception as e:
             logger.error(f"Failed to publish to kafka: {e}")
 

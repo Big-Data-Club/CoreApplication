@@ -269,7 +269,7 @@ def verify(qdrant, pg_conn, course_id: Optional[int]) -> bool:
         q_count  = q_result.count
 
         match = "✓" if q_count >= pg_count else "✗"
-        log.info("%s %s → PG=%d Qdrant=%d", match, collection, pg_count, q_count)
+        log.info("%s %s -> PG=%d Qdrant=%d", match, collection, pg_count, q_count)
 
         if q_count < pg_count:
             log.warning("  Missing %d vectors in Qdrant!", pg_count - q_count)

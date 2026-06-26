@@ -174,15 +174,15 @@ public class AdminLlmService {
             var response = restTemplate.exchange(uri, method, entity, type);
             if (!response.getStatusCode().is2xxSuccessful()) {
                 throw new ExternalServiceException(SERVICE_NAME,
-                        method + " " + uri.getPath() + " → HTTP " + response.getStatusCode().value());
+                        method + " " + uri.getPath() + " -> HTTP " + response.getStatusCode().value());
             }
             return response.getBody();
         } catch (HttpStatusCodeException ex) {
-            log.warn("{} {} → {} body={}",
+            log.warn("{} {} -> {} body={}",
                     method, uri.getPath(), ex.getStatusCode(),
                     truncate(ex.getResponseBodyAsString(), 400));
             throw new ExternalServiceException(SERVICE_NAME,
-                    method + " " + uri.getPath() + " → HTTP " + ex.getStatusCode().value(), ex);
+                    method + " " + uri.getPath() + " -> HTTP " + ex.getStatusCode().value(), ex);
         } catch (RestClientException ex) {
             log.error("{} {} failed: {}", method, uri.getPath(), ex.getMessage());
             throw new ExternalServiceException(SERVICE_NAME,

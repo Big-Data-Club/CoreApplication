@@ -17,9 +17,9 @@ Relationship types (directional where it matters):
   CONTRASTS_WITH  opposing / comparative concepts
 
 Queries:
-  - get_course_graph(course_id)  → intra-course nodes + all their edges
-  - get_global_graph()           → all nodes, all edges
-  - find_cross_course_neighbors(node_id, depth) → used by AI agent
+  - get_course_graph(course_id)  -> intra-course nodes + all their edges
+  - get_global_graph()           -> all nodes, all edges
+  - find_cross_course_neighbors(node_id, depth) -> used by AI agent
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ RELATIONSHIP_TYPES = {
 # Similarity thresholds
 INTRA_COURSE_THRESHOLD  = 0.62   # Same course — more lenient
 CROSS_COURSE_THRESHOLD  = 0.82   # Different courses — tighter to avoid noise, but lowered for better recall
-EQUIVALENT_THRESHOLD    = 0.95   # Very high → likely same concept
+EQUIVALENT_THRESHOLD    = 0.95   # Very high -> likely same concept
 
 
 class Neo4jService:

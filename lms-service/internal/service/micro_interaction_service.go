@@ -163,7 +163,7 @@ func (s *MicroInteractionService) ApplyEvent(ctx context.Context, ev kafka.Micro
 		NodeID:   *ev.NodeID,
 	}
 
-	// Map action_type → component sample. Each sample is a 0.0–1.0
+	// Map action_type -> component sample. Each sample is a 0.0–1.0
 	// value that gets blended into the running average.
 	switch ev.ActionType {
 	case models.MicroActionQuickCheckAttempt:

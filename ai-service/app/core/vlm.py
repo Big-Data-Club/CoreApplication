@@ -22,8 +22,8 @@ VLM_MODEL = settings.vlm_model
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB safety limit
 
 # Global concurrency limiter for VLM calls — prevents rate-limit storms
-# when processing PDFs with many embedded images (95+ images → 95 parallel
-# VLM requests → instant 429 from Groq's 30k TPM quota).
+# when processing PDFs with many embedded images (95+ images -> 95 parallel
+# VLM requests -> instant 429 from Groq's 30k TPM quota).
 _VLM_SEMAPHORE = asyncio.Semaphore(3)
 
 # Rate-limit retry config

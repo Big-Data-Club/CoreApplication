@@ -6,9 +6,9 @@ Retrieval-Augmented Generation storage & search layer.
 Storage strategy (controlled by USE_QDRANT feature flag):
   Qdrant path  (USE_QDRANT=true, default):
     - Embeddings live in Qdrant; chunk_text + metadata in AI PostgreSQL.
-    - Search: Qdrant ANN → payload contains all fields needed for response
+    - Search: Qdrant ANN -> payload contains all fields needed for response
       (no secondary PG round-trip on the hot path).
-    - Write: INSERT into PG → get chunk_id → upsert vector+payload to Qdrant.
+    - Write: INSERT into PG -> get chunk_id -> upsert vector+payload to Qdrant.
 
   Legacy pgvector path  (USE_QDRANT=false):
     - Embeddings stored in document_chunks.embedding (VECTOR column).
@@ -182,7 +182,7 @@ class RAGService:
     ) -> list[int]:
         from app.services.qdrant_service import qdrant_service
 
-        # 1. Bulk insert metadata into PG → get chunk IDs back
+        # 1. Bulk insert metadata into PG -> get chunk IDs back
         chunk_ids = await self._bulk_insert_pg_no_embedding(
             content_id=content_id, course_id=course_id, node_id=node_id,
             chunks=chunks, hashes=hashes,

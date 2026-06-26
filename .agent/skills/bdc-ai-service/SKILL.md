@@ -35,8 +35,8 @@ Built with Python 3.12 + FastAPI (HTTP) + aiokafka (async event worker).
 Handles RAG document ingestion, error diagnosis, quiz generation, spaced
 repetition scheduling, and knowledge graph management.
 
-**Entry point (HTTP):** `main.py` → FastAPI app
-**Entry point (Worker):** `app/worker/kafka_worker.py` → Kafka consumer loop
+**Entry point (HTTP):** `main.py` -> FastAPI app
+**Entry point (Worker):** `app/worker/kafka_worker.py` -> Kafka consumer loop
 **Base URL:** `http://localhost:8000` | Docker: `http://ai-service:8000`
 **Auth:** `X-AI-Secret: ${AI_SERVICE_SECRET}` on all endpoints
 
@@ -224,8 +224,8 @@ app.include_router(my_feature_router)
 
 ### Step 6 — Document the new command in `docs/kafka-events.md`
 
-Add the payload schema under `lms.ai.command` → command types and the result
-shape under `ai.job.status` → result shapes.
+Add the payload schema under `lms.ai.command` -> command types and the result
+shape under `ai.job.status` -> result shapes.
 
 ---
 

@@ -1,6 +1,6 @@
 -- ── MICRO QUIZ JOBS ──────────────────────────────────────────────
 -- One job produces many micro quizzes (one per knowledge node).
--- Same lifecycle as micro_lesson_jobs: queued → processing → completed/failed.
+-- Same lifecycle as micro_lesson_jobs: queued -> processing -> completed/failed.
 
 CREATE TABLE IF NOT EXISTS micro_quiz_jobs (
     id                BIGSERIAL PRIMARY KEY,
