@@ -182,7 +182,7 @@ func Load() (*Config, error) {
 			ReadTimeout:  getEnvAsDuration("REDIS_READ_TIMEOUT", 500*time.Millisecond),
 			WriteTimeout: getEnvAsDuration("REDIS_WRITE_TIMEOUT", 500*time.Millisecond),
 			// PoolTimeout caps how long a goroutine waits for a free conn before
-			// giving up — short timeout fails fast and lets the caller fall back
+			// giving up - short timeout fails fast and lets the caller fall back
 			// to the database instead of stalling all handlers.
 			PoolTimeout:  getEnvAsDuration("REDIS_POOL_TIMEOUT", 1*time.Second),
 		},

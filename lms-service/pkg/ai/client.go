@@ -71,7 +71,7 @@ type DiagnoseRequest struct {
 	QuestionID  int64  `json:"question_id"`
 	WrongAnswer string `json:"wrong_answer"`
 	CourseID    int64  `json:"course_id"`
-	// Enrichment fields — LMS provides these so AI doesn't query LMS DB
+	// Enrichment fields - LMS provides these so AI doesn't query LMS DB
 	QuestionText  string                   `json:"question_text"`
 	QuestionType  string                   `json:"question_type"`
 	Explanation   string                   `json:"explanation"`
@@ -715,7 +715,7 @@ func (c *Client) delete(ctx context.Context, path string, result interface{}) er
 
 // GetStudentWeaknesses calls the AI service heatmap endpoint and transforms
 // the response into weakness nodes with status labels.
-// AI service owns student_knowledge_progress — LMS never queries it directly.
+// AI service owns student_knowledge_progress - LMS never queries it directly.
 func (c *Client) GetStudentWeaknesses(ctx context.Context, studentID, courseID int64) ([]WeaknessNode, error) {
 	raw, err := c.GetStudentHeatmap(ctx, studentID, courseID)
 	if err != nil {

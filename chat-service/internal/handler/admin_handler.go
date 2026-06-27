@@ -165,7 +165,7 @@ func (h *AdminHandler) SetChannelRoles(c *gin.Context) {
 }
 
 // ─── GetChannelUsers GET /api/v1/admin/channels/:id/users ────────────────────
-// Returns full user objects — no extra client round-trip needed.
+// Returns full user objects - no extra client round-trip needed.
 
 func (h *AdminHandler) GetChannelUsers(c *gin.Context) {
 	id, ok := parseID(c, "id")
@@ -194,7 +194,7 @@ func (h *AdminHandler) GetChannelUsers(c *gin.Context) {
 
 // ─── SetChannelUsers PUT /api/v1/admin/channels/:id/users ────────────────────
 // Atomically replaces the whitelist and returns the updated full user list.
-// Callers do NOT need to issue a subsequent GET — saving is one round-trip.
+// Callers do NOT need to issue a subsequent GET - saving is one round-trip.
 
 func (h *AdminHandler) SetChannelUsers(c *gin.Context) {
 	id, ok := parseID(c, "id")
@@ -214,7 +214,7 @@ func (h *AdminHandler) SetChannelUsers(c *gin.Context) {
 		return
 	}
 
-	// Return the final list so the client is immediately consistent — no extra GET.
+	// Return the final list so the client is immediately consistent - no extra GET.
 	users, err := h.chatRepo.GetChannelUsersWithDetails(c.Request.Context(), id)
 	if err != nil {
 		logger.Warnf("set whitelist OK but detail fetch failed for channel %d: %v", id, err)

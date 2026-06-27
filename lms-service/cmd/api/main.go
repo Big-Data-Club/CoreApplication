@@ -604,7 +604,7 @@ func main() {
 				aiGroup.GET("/jobs/:jobId/status",
 					aiHandler.GetJobStatus())
 
-				// Quick Action Panel — Concept Check
+				// Quick Action Panel - Concept Check
 				aiGroup.POST("/concept-check",
 					aiHandler.GenerateConceptCheck)
 
@@ -653,7 +653,7 @@ func main() {
 
 				aiCourses.GET("/knowledge-graph", aiHandler.GetCourseKnowledgeGraph)
 
-				// "Compact Graph" — teacher-triggered intelligent node consolidation.
+				// "Compact Graph" - teacher-triggered intelligent node consolidation.
 				aiCourses.GET("/consolidate-graph/preview",
 					middleware.RequirePermission(permService, "AI_INDEX"),
 					aiHandler.PreviewGraphConsolidation)
@@ -736,7 +736,7 @@ func main() {
 		}
 
 		// ── Internal callbacks (AI service -> LMS) ─────────────────────────
-		// Authenticated via shared service secret only — never reachable
+		// Authenticated via shared service secret only - never reachable
 		// with user JWTs because the path lives outside the auth group.
 		internal := v1.Group("/internal/micro-lessons")
 		internal.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))

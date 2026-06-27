@@ -1,7 +1,7 @@
 package repository
 
 // Mastery weight scheme. Sums to 1.0. Tweaking the weights here is the
-// single source of truth — the SQL `UPDATE ... SET mastery_level = ...`
+// single source of truth - the SQL `UPDATE ... SET mastery_level = ...`
 // recompute reads them from these constants.
 const (
 	WeightFormalQuiz = 0.60 // Bloom's-taxonomy formal quizzes

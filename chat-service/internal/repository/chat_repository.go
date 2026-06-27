@@ -415,7 +415,7 @@ func (r *ChatRepository) SetChannelUsers(ctx context.Context, channelID int64, u
 }
 
 // GetChannelUsersWithDetails returns the whitelisted users for a channel with full
-// profile details joined in a single query — no N+1 issue regardless of list size.
+// profile details joined in a single query - no N+1 issue regardless of list size.
 func (r *ChatRepository) GetChannelUsersWithDetails(ctx context.Context, channelID int64) ([]User, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT u.id, u.email, u.full_name, u.profile_picture
@@ -466,7 +466,7 @@ func (r *ChatRepository) CanUserAccess(
 		return true, true, nil
 	}
 
-	// Check role permissions — aggregate max permissions across all matching roles
+	// Check role permissions - aggregate max permissions across all matching roles
 	if len(userRoles) == 0 {
 		return false, false, nil
 	}

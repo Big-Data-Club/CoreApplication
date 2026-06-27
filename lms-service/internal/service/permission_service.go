@@ -39,7 +39,7 @@ func (s *PermissionService) ListAll(ctx context.Context) ([]dto.PermissionRespon
 
 // GetRolePermissions returns the permissions currently assigned to a role.
 func (s *PermissionService) GetRolePermissions(ctx context.Context, roleID int64) (*dto.RolePermissionsResponse, error) {
-	// Single JOIN query — gets role name + permissions without a second roundtrip
+	// Single JOIN query - gets role name + permissions without a second roundtrip
 	roleName, perms, err := s.repo.FindByRoleID(ctx, roleID)
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func (s *PermissionService) getCachedCodes(ctx context.Context, roleName string)
 		}
 	}
 
-	// Cache miss — query DB
+	// Cache miss - query DB
 	codes, err := s.repo.FindCodesByRoleName(ctx, roleName)
 	if err != nil {
 		return nil, err

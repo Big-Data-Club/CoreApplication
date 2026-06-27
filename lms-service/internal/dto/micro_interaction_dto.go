@@ -39,7 +39,7 @@ type HeatmapNodeMastery struct {
 }
 
 // HeatmapResponse wraps the heatmap rows with the weight scheme that
-// produced them — the FE renders the legend off this.
+// produced them - the FE renders the legend off this.
 type HeatmapResponse struct {
 	CourseID int64                `json:"course_id"`
 	Weights  HeatmapWeights       `json:"weights"`

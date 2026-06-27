@@ -145,7 +145,7 @@ func (r *MicroInteractionRepository) ApplyDelta(ctx context.Context, d MasteryCo
 
 // Heatmap aggregates per-node averages across all enrolled students for a
 // course. The query reads from the materialised mastery table so no
-// online recomputation happens — heatmap latency stays O(N nodes).
+// online recomputation happens - heatmap latency stays O(N nodes).
 func (r *MicroInteractionRepository) Heatmap(ctx context.Context, courseID int64) ([]dto.HeatmapNodeMastery, error) {
 	const q = `
 		SELECT

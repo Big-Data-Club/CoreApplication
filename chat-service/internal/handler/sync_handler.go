@@ -9,7 +9,7 @@ import (
 )
 
 // SyncHandler handles user sync requests from auth-and-management-service.
-// Protected by X-Sync-Secret header — never exposed to public JWT users.
+// Protected by X-Sync-Secret header - never exposed to public JWT users.
 type SyncHandler struct {
 	userRepo *repository.UserRepository
 	chatRepo *repository.ChatRepository

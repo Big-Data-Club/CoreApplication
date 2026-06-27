@@ -48,10 +48,10 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*sql.DB, error) {
 	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 
-	logger.Infof("DB: pool config — maxOpen=%d maxIdle=%d lifetime=%s idleTime=%s",
+	logger.Infof("DB: pool config - maxOpen=%d maxIdle=%d lifetime=%s idleTime=%s",
 		cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime, cfg.ConnMaxIdleTime)
 
-	// Verify connectivity — allow up to 15s for Neon cold-start
+	// Verify connectivity - allow up to 15s for Neon cold-start
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 

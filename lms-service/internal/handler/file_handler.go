@@ -173,7 +173,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 			logger.Error(fmt.Sprintf("MinIO upload failed for %s", filename), err)
 			errMsg := "Failed to upload file"
 			if strings.Contains(err.Error(), "context canceled") || strings.Contains(err.Error(), "context deadline exceeded") {
-				errMsg = "Upload timed out — the file may be too large or the connection was lost"
+				errMsg = "Upload timed out - the file may be too large or the connection was lost"
 			}
 			c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("upload_failed", errMsg))
 			return

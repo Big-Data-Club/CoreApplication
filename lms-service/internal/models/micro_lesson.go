@@ -20,7 +20,7 @@ const (
 	MicroLessonStatusArchived  = "archived"
 )
 
-// MicroLessonJob represents a generation job — one job produces many lessons.
+// MicroLessonJob represents a generation job - one job produces many lessons.
 type MicroLessonJob struct {
 	ID              int64          `json:"id" db:"id"`
 	CourseID        int64          `json:"course_id" db:"course_id"`

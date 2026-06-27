@@ -80,7 +80,7 @@ type SyncConfig struct {
 
 // Load reads configuration from environment (with .env fallback in dev).
 func Load() (*Config, error) {
-	// Best-effort .env load — no error in production where vars come from Docker/k8s
+	// Best-effort .env load - no error in production where vars come from Docker/k8s
 	_ = godotenv.Load("../../.env")
 	_ = godotenv.Load(".env")
 

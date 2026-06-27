@@ -16,7 +16,7 @@ import (
 
 // UserSyncService propagates user/role state from the auth service into LMS.
 // It holds a *cache.RedisCache so role changes invalidate the cached
-// /me/roles answer immediately — without this, freshly granted roles would
+// /me/roles answer immediately - without this, freshly granted roles would
 // take up to userRolesTTL to become effective.
 type UserSyncService struct {
 	userRepo *repository.UserRepository
@@ -85,7 +85,7 @@ func (s *UserSyncService) SyncUser(ctx context.Context, req *dto.UserSyncRequest
 
 	logger.Info(fmt.Sprintf("Synced user %s with roles: %v", req.Email, rolesAssigned))
 
-	// Roles changed — drop the cached /me/roles answer so the next request
+	// Roles changed - drop the cached /me/roles answer so the next request
 	// reflects the new state instead of waiting for the TTL.
 	if s.cache != nil {
 		cache.Invalidate(ctx, s.cache, cache.KeyUserRoles(req.UserID))

@@ -176,7 +176,7 @@ func (h *AnalyticsHandler) GetMyQuizScores(c *gin.Context) {
 }
 
 // GetStudentWeaknesses godoc
-// Gọi AI service để lấy dữ liệu weakness — không query trực tiếp AI DB.
+// Gọi AI service để lấy dữ liệu weakness - không query trực tiếp AI DB.
 // Đây là pattern loose coupling: LMS không biết schema AI DB.
 func (h *AnalyticsHandler) GetStudentWeaknesses(c *gin.Context) {
 	courseID, ok := getCourseIDParam(c)

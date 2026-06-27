@@ -292,7 +292,7 @@ func (h *AIHandler) ListKnowledgeNodes(c *gin.Context) {
 // @Summary      AI Auto Quiz Generator (Bloom's Taxonomy)
 // @Description  Generate quiz questions for a knowledge node using Bloom's Taxonomy.
 //
-//	Questions are saved as DRAFT — require instructor review before publish.
+//	Questions are saved as DRAFT - require instructor review before publish.
 //
 // @Tags         AI - Phase 2
 // @Accept       json
@@ -412,7 +412,7 @@ func (h *AIHandler) ApproveQuestion(c *gin.Context) {
 		return
 	}
 
-	// 1) Ask AI to approve — returns question data instead of writing to LMS DB
+	// 1) Ask AI to approve - returns question data instead of writing to LMS DB
 	approved, err := h.aiClient.ApproveQuestion(c.Request.Context(), genID, ai.ApproveQuestionRequest{
 		ReviewerID: reviewerID,
 		QuizID:     body.QuizID,
@@ -712,7 +712,7 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 	// Idempotency guard: reject if already processing to prevent double-indexing.
 	// GetContentByID uses COALESCE so AIIndexStatus.String is always populated.
 	if content.AIIndexStatus.String == "processing" {
-		logger.Warn(fmt.Sprintf("Auto-index: Content %d is already processing — rejecting duplicate request", contentID))
+		logger.Warn(fmt.Sprintf("Auto-index: Content %d is already processing - rejecting duplicate request", contentID))
 		c.JSON(http.StatusConflict, dto.NewDataResponse(map[string]interface{}{
 			"content_id": contentID,
 			"status":     "processing",
@@ -1144,7 +1144,7 @@ func (h *AIHandler) DeleteKnowledgeNode(c *gin.Context) {
 // ── Concept Check (Quick Action Panel) ──────────────────────────────────────
 
 // GenerateConceptCheck godoc
-// @Summary      Quick Action Panel — Concept Check
+// @Summary      Quick Action Panel - Concept Check
 // @Description  Generates 1–2 ultra-short MCQ questions for the Quick
 //               Action Panel. The FE either passes the verbatim micro-lesson
 //               text or just a node_id; the AI service handles RAG retrieval.

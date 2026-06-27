@@ -50,7 +50,7 @@ func NewMinIOStorage(cfg config.StorageConfig) (*MinIOStorage, error) {
 	return &MinIOStorage{client: client, bucket: cfg.MinIOBucket}, nil
 }
 
-// Upload streams a file directly to MinIO — KHÔNG ReadAll vào RAM.
+// Upload streams a file directly to MinIO - KHÔNG ReadAll vào RAM.
 // reader được pipe trực tiếp vào MinIO, không buffer toàn bộ file.
 func (s *MinIOStorage) Upload(ctx context.Context, filename string, reader io.Reader, size int64, contentType string) (string, error) {
 	if contentType == "" {

@@ -294,7 +294,7 @@ func (r *EnrollmentRepository) BulkCreate(
 	}
  
 	// Xây dựng VALUES clause: ($1,$2), ($1,$3), ($1,$4), ...
-	// $1 là courseID — dùng chung cho mọi row
+	// $1 là courseID - dùng chung cho mọi row
 	args := make([]interface{}, 0, 1+len(studentIDs))
 	args = append(args, courseID)
  

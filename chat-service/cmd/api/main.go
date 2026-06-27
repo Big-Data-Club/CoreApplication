@@ -88,7 +88,7 @@ func main() {
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS(cfg.CORS.AllowedOrigins))
 
-	// Health check — no auth
+	// Health check - no auth
 	healthHandler := func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
@@ -108,7 +108,7 @@ func main() {
 	}
 
 	// ── WebSocket (JWT via ?token= query param) ───────────────────────────────
-	// Note: no Auth() middleware here — auth is done inside ServeWS
+	// Note: no Auth() middleware here - auth is done inside ServeWS
 	r.GET("/api/v1/chat/ws", chatHandler.ServeWS)
 
 	// ── Chat REST (JWT auth required) ─────────────────────────────────────────
@@ -145,7 +145,7 @@ func main() {
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,
 		Handler: r,
-		// No WriteTimeout — WebSocket connections are long-lived
+		// No WriteTimeout - WebSocket connections are long-lived
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
@@ -165,7 +165,7 @@ func main() {
 
 	select {
 	case sig := <-quit:
-		logger.Infof("Received signal: %s — shutting down", sig)
+		logger.Infof("Received signal: %s - shutting down", sig)
 	case err := <-serverErr:
 		logger.Errorf("Server error: %v", err)
 	}

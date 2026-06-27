@@ -43,7 +43,7 @@ func NewEnrollmentService(
 	}
 }
 
-// CachedMembership is the small payload we cache for the membership check —
+// CachedMembership is the small payload we cache for the membership check -
 // it's intentionally narrower than the full enrollment row so that unrelated
 // changes (rejected_at, updated_at, …) do not invalidate it.
 //
@@ -62,7 +62,7 @@ type CachedMembership struct {
 //
 // Exported as a package-level function on the cache layer so any service that
 // holds a *cache.RedisCache + enrollment repo can answer the same question
-// with the same payload shape — keeping the Redis key contract uniform across
+// with the same payload shape - keeping the Redis key contract uniform across
 // callers.
 func LoadMembership(
 	ctx context.Context,

@@ -90,7 +90,7 @@ func (c *Client) WritePump() {
 		case msg, ok := <-c.send:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(WriteWait))
 			if !ok {
-				// Hub closed the channel — send close frame.
+				// Hub closed the channel - send close frame.
 				_ = c.conn.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				return
@@ -156,7 +156,7 @@ func (c *Client) ReadPump(onMessage func(client *Client, msg InboundMsg)) {
 
 		var msg InboundMsg
 		if err := json.Unmarshal(raw, &msg); err != nil {
-			// Malformed frame — skip, do not disconnect
+			// Malformed frame - skip, do not disconnect
 			continue
 		}
 

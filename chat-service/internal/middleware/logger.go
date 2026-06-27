@@ -9,7 +9,7 @@ import (
 )
 
 // Logger returns a Gin middleware that logs every request with method, path,
-// status, latency, and client IP — structured and consistent with the service logger.
+// status, latency, and client IP - structured and consistent with the service logger.
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

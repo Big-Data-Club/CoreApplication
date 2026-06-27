@@ -482,7 +482,7 @@ func (s *CourseService) GetSection(ctx context.Context, sectionID int64, userID 
 // ListSections returns sections for a course (lazy-loading entry point: the
 // caller fetches contents per-section only when needed).
 //
-// Caching strategy: we cache the FULL section list keyed by courseID — all
+// Caching strategy: we cache the FULL section list keyed by courseID - all
 // sections regardless of visibility. The visibility filter is applied per
 // caller because it depends on (userID, role, enrollment state). This keeps
 // the cache hit rate high and avoids storing per-user permutations.
@@ -872,11 +872,11 @@ func (s *CourseService) DeleteContent(ctx context.Context, contentID int64, user
 
 // invalidateCourseCache removes cache entries for a specific course and the
 // shared published-list key so the next read re-fetches from DB. The section
-// list is also dropped — when a course is updated/deleted/published, the UI
+// list is also dropped - when a course is updated/deleted/published, the UI
 // typically re-renders the course page and we don't want to serve sections
 // referencing a stale course state.
 func (s *CourseService) invalidateCourseCache(ctx context.Context, courseID int64) {
-	// Fire-and-forget: cache invalidation failure is non-fatal — TTL takes over.
+	// Fire-and-forget: cache invalidation failure is non-fatal - TTL takes over.
 	_ = s.cache.Delete(ctx,
 		cache.KeyCourse(courseID),
 		cache.KeyCourseSections(courseID),

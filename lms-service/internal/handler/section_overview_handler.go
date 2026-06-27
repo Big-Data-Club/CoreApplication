@@ -208,13 +208,13 @@ func (h *SectionOverviewHandler) GetJob(c *gin.Context) {
 
 	detail := dto.SectionOverviewJobDetailResponse{Job: *job}
 
-	// Lesson — may not exist yet if AI hasn't finished.
+	// Lesson - may not exist yet if AI hasn't finished.
 	lesson, err := h.repo.GetLesson(c.Request.Context(), jobID)
 	if err == nil {
 		detail.Lesson = lesson
 	}
 
-	// Quiz — may not exist yet.
+	// Quiz - may not exist yet.
 	quiz, err := h.repo.GetQuiz(c.Request.Context(), jobID)
 	if err == nil {
 		detail.Quiz = quiz

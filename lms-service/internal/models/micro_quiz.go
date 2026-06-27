@@ -21,7 +21,7 @@ const (
 	MicroQuizStatusArchived  = "archived"
 )
 
-// MicroQuizJob represents a quiz generation job — one job produces many quizzes (one per node).
+// MicroQuizJob represents a quiz generation job - one job produces many quizzes (one per node).
 type MicroQuizJob struct {
 	ID              int64          `json:"id" db:"id"`
 	CourseID        int64          `json:"course_id" db:"course_id"`

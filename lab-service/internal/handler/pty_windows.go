@@ -70,7 +70,7 @@ func startShellPTY(cmd *exec.Cmd, ws *websocket.Conn) error {
 		_ = ws.Close()
 	}()
 
-	// Read from WS and write to stdin — supports JSON protocol from xterm.js
+	// Read from WS and write to stdin - supports JSON protocol from xterm.js
 	for {
 		mt, message, err := ws.ReadMessage()
 		if err != nil {
@@ -86,7 +86,7 @@ func startShellPTY(cmd *exec.Cmd, ws *websocket.Conn) error {
 						goto done
 					}
 				case "resize":
-					// Windows pipes don't support PTY resize — ignore
+					// Windows pipes don't support PTY resize - ignore
 				}
 			} else {
 				if _, err := stdin.Write(message); err != nil {

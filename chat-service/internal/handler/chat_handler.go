@@ -394,7 +394,7 @@ func (h *ChatHandler) handleWSMessage(ctx context.Context, c *hub.Client, msg hu
 			return
 		}
 
-		// Access check (authoritative — re-check even though client is registered)
+		// Access check (authoritative - re-check even though client is registered)
 		_, canWrite, err := h.chatRepo.CanUserAccess(ctx, msg.ChannelID, c.UserID, c.Roles)
 		if err != nil || !canWrite {
 			return
@@ -441,7 +441,7 @@ func (h *ChatHandler) handleWSMessage(ctx context.Context, c *hub.Client, msg hu
 		_ = h.hub.Publish(ctx, msg.ChannelID, event)
 
 	case hub.EventPing:
-		// Client-initiated keepalive ping — no-op (pong is handled at WS layer)
+		// Client-initiated keepalive ping - no-op (pong is handled at WS layer)
 	}
 }
 

@@ -40,7 +40,7 @@ import (
 var ErrCacheMiss = errors.New("cache: miss")
 
 // Loader wraps RedisCache with a singleflight group. One Loader per service
-// instance is enough — singleflight keys are namespaced via the cache key.
+// instance is enough - singleflight keys are namespaced via the cache key.
 type Loader struct {
 	cache *RedisCache
 	group singleflight.Group
@@ -110,7 +110,7 @@ func GetOrLoad[T any](
 	if err := GetJSON(ctx, l.cache, key, &cached); err == nil {
 		return cached, nil
 	} else if !errors.Is(err, ErrCacheMiss) {
-		// Decode or transport error — fall through to the loader rather than
+		// Decode or transport error - fall through to the loader rather than
 		// poisoning the call site. Treat the cache as best-effort.
 	}
 
@@ -128,7 +128,7 @@ func GetOrLoad[T any](
 			return zero, err
 		}
 
-		// Best-effort write — cache failures should never break the request.
+		// Best-effort write - cache failures should never break the request.
 		_ = SetJSON(ctx, l.cache, key, loaded, ttl)
 		return loaded, nil
 	})
@@ -146,7 +146,7 @@ func GetOrLoad[T any](
 
 // Invalidate is a thin convenience wrapper for the common write-path call
 // pattern: after a mutating op succeeds, drop the related cache keys. Errors
-// are intentionally swallowed — a stale entry will be evicted by TTL anyway,
+// are intentionally swallowed - a stale entry will be evicted by TTL anyway,
 // and we never want a Redis hiccup to fail an otherwise-successful write.
 func Invalidate(ctx context.Context, c *RedisCache, keys ...string) {
 	if len(keys) == 0 {

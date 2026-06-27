@@ -6,7 +6,7 @@
 //   GET   /api/v1/analytics/heatmap?course_id=...
 //   GET   /api/v1/analytics/heatmap/me?course_id=...
 //
-// The POST endpoint is intentionally minimal — it persists a raw row
+// The POST endpoint is intentionally minimal - it persists a raw row
 // and publishes a Kafka event. The GET endpoints read from the
 // materialised mastery table maintained by the analytics worker.
 package handler

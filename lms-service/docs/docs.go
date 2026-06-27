@@ -454,7 +454,7 @@ const docTemplate = `{
                 "tags": [
                     "AI - Quick Action Panel"
                 ],
-                "summary": "Quick Action Panel — Concept Check",
+                "summary": "Quick Action Panel - Concept Check",
                 "responses": {}
             }
         },

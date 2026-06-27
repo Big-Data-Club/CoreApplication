@@ -10,7 +10,7 @@
 // Memory layout per replica:
 //   Hub.rooms: map[channelID int64] -> set[*Client]
 //   Each Client owns one goroutine for reading from WS and one for writing.
-//   The writePump drains a buffered channel — slow clients are dropped after
+//   The writePump drains a buffered channel - slow clients are dropped after
 //   ClientSendBuffer fills up, preventing any single slow client from blocking
 //   the broadcast loop.
 package hub
@@ -35,7 +35,7 @@ const (
 	ClientSendBuffer = 256
 
 	// MaxMessageSize is the maximum raw WebSocket frame size we accept (bytes).
-	MaxMessageSize = 8 * 1024 // 8 KB — well above our 4000-char body limit
+	MaxMessageSize = 8 * 1024 // 8 KB - well above our 4000-char body limit
 
 	// WriteWait is the deadline for a single write to the WebSocket.
 	WriteWait = 10 * time.Second
@@ -144,7 +144,7 @@ func (h *Hub) Run() {
 			select {
 			case h.incoming <- msg:
 			default:
-				// Drop if incoming is full — prevents Redis subscriber from blocking
+				// Drop if incoming is full - prevents Redis subscriber from blocking
 				logger.Warn("hub: incoming queue full, dropping Redis message")
 			}
 		}
@@ -305,7 +305,7 @@ func (h *Hub) fanOut(msg *redis.Message) {
 		case c.send <- data:
 			// delivered
 		default:
-			// Client is too slow — drop it. The writePump will detect the closed
+			// Client is too slow - drop it. The writePump will detect the closed
 			// channel and terminate the connection.
 			logger.Warnf("hub: slow client %d, dropping", c.UserID)
 			h.UnregisterClient(c)

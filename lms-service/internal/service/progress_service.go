@@ -61,7 +61,7 @@ func (s *ProgressService) MarkContentComplete(ctx context.Context, contentID, st
 		return fmt.Errorf("enrollment is not accepted")
 	}
 
-	// 3. Check mandatory flag — non-mandatory: no-op
+	// 3. Check mandatory flag - non-mandatory: no-op
 	mandatory, err := s.progressRepo.GetContentIsMandatory(ctx, contentID)
 	if err != nil {
 		return fmt.Errorf("failed to check content: %w", err)

@@ -21,7 +21,7 @@ type Claims struct {
 
 // Auth validates the JWT from Authorization header or authToken cookie.
 // Sets ctx keys: user_id (int64), user_email (string), user_roles ([]string),
-// user_role (string — primary role).
+// user_role (string - primary role).
 func Auth(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenStr := extractToken(c)

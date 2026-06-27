@@ -3,11 +3,11 @@
 // Owns the business logic for the Quick Action Panel analytics
 // pipeline:
 //
-//   * RecordInteraction  — synchronous: validate, persist raw row,
+//   * RecordInteraction  - synchronous: validate, persist raw row,
 //                           publish Kafka event for the worker.
-//   * ApplyEvent         — asynchronous worker: convert an event into
+//   * ApplyEvent         - asynchronous worker: convert an event into
 //                           a MasteryComponentDelta and upsert it.
-//   * Heatmap / StudentHeatmap — read-side helpers for the analytics
+//   * Heatmap / StudentHeatmap - read-side helpers for the analytics
 //                                 endpoint.
 package service
 
@@ -150,7 +150,7 @@ func (s *MicroInteractionService) RecordInteraction(
 // sample (formal quiz / mini quiz / completion / engagement) and
 // upserts the delta.
 //
-// Events without a node_id are dropped — heatmap is grouped by node,
+// Events without a node_id are dropped - heatmap is grouped by node,
 // and we don't want global noise polluting the table.
 func (s *MicroInteractionService) ApplyEvent(ctx context.Context, ev kafka.MicroInteractionEvent) error {
 	if ev.NodeID == nil {
@@ -188,7 +188,7 @@ func (s *MicroInteractionService) ApplyEvent(ctx context.Context, ev kafka.Micro
 		delta.CompletionSample = &v
 
 	case models.MicroActionLessonView:
-		// A lesson view is "half completion" credit — encourages the
+		// A lesson view is "half completion" credit - encourages the
 		// student even before they hit the explicit complete button.
 		v := 0.5
 		delta.CompletionSample = &v

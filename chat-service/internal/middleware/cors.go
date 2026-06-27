@@ -8,7 +8,7 @@ import (
 )
 
 // CORS sets permissive CORS headers for WebSocket-capable routes.
-// WebSocket upgrade requests send an Origin header — we must allow it.
+// WebSocket upgrade requests send an Origin header - we must allow it.
 func CORS(allowedOrigins []string) gin.HandlerFunc {
 	originSet := make(map[string]bool, len(allowedOrigins))
 	for _, o := range allowedOrigins {

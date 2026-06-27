@@ -28,7 +28,7 @@ func NewRedisClient(cfg config.RedisConfig) (*redis.Client, error) {
 		WriteTimeout: cfg.WriteTimeout,
 		PoolTimeout:  cfg.PoolTimeout,
 
-		// Retry on network blips — important for Neon-hosted Redis
+		// Retry on network blips - important for Neon-hosted Redis
 		MaxRetries:      3,
 		MinRetryBackoff: 8 * time.Millisecond,
 		MaxRetryBackoff: 512 * time.Millisecond,
