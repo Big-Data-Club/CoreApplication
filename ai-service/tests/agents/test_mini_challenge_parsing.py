@@ -29,6 +29,8 @@ os.environ.setdefault("USE_RERANKER", "false")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from app.agents.core.sub_agents import RetrievalSpecialist
+from app.agents.events import AgentEvent
 from app.agents.tools.mentor.create_mini_challenge import CreateMiniChallengeTool
 from app.agents.tools.mentor.explain_concept import ExplainConceptTool
 from app.agents.tools.base_tool import ToolResult
@@ -225,6 +227,29 @@ class TestMentorEnhancements(unittest.IsolatedAsyncioTestCase):
         finally:
             rag_service.search_multilingual = original_search
             llm.chat_complete = original_chat_complete
+
+    async def test_retrieval_specialist_stops_when_content_is_not_indexed(self):
+        """RetrievalSpecialist should surface a non-fabricated message when the lesson is not indexed."""
+        specialist = RetrievalSpecialist(session_id="session-1", turn_id="turn-1")
+        page_context = {"nodeId": 42, "courseId": 7, "contentTitle": "Giới thiệu về AI"}
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value={"status": "pending"})
+        conn_manager = MagicMock()
+        conn_manager.__aenter__.return_value = conn
+        conn_manager.__aexit__.return_value = None
+
+        import app.agents.core.sub_agents as sub_agents_module
+
+        with patch.object(sub_agents_module, "get_ai_conn", return_value=conn_manager), \
+             patch.object(sub_agents_module.rag_service, "search_multilingual", AsyncMock(return_value=[])), \
+             patch.object(sub_agents_module.SearchWebTool, "execute", AsyncMock(return_value=MagicMock(status="success", data={"results": []}))):
+            items = []
+            async for item in specialist.execute(query="Explain this lesson", page_context=page_context):
+                items.append(item)
+
+        self.assertTrue(any(isinstance(item, AgentEvent) and item.data.get("status") == "not_indexed" for item in items))
+        self.assertTrue(any(isinstance(item, str) and "has not been indexed yet" in item for item in items))
 
 if __name__ == "__main__":
     unittest.main()

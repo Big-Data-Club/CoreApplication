@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.events import AgentEvent, AgentEventType
 from app.core.config import get_settings
+from app.core.database import get_ai_conn
 from app.core.llm import chat_complete, chat_complete_structured
 from app.core.llm_gateway import get_gateway, ChatRequest, TASK_CHAT, TASK_QUIZ_GEN
 from app.services.rag_service import rag_service
@@ -94,6 +95,41 @@ class RetrievalSpecialist:
         if page_title and len(query.strip()) < 50:
             search_query = f"{query} {page_title}"
 
+        if page_context:
+            node_id = page_context.get("nodeId") or page_context.get("node_id")
+            course_id_from_ctx = page_context.get("courseId") or page_context.get("course_id")
+
+            if node_id and course_id_from_ctx:
+                try:
+                    async with get_ai_conn() as conn:
+                        row = await conn.fetchrow(
+                            "SELECT status FROM content_index_status WHERE content_id = $1",
+                            node_id,
+                        )
+                    status = row["status"] if row else "unindexed"
+                except Exception as exc:
+                    logger.warning("Index status lookup failed in RetrievalSpecialist: %s", exc)
+                    status = "unknown"
+
+                if status != "indexed":
+                    yield AgentEvent(
+                        type=AgentEventType.SUBAGENT_DONE,
+                        data={
+                            "subagent_id": self.subagent_id,
+                            "status": "not_indexed",
+                            "summary": f"Bài học chưa được index (status={status}).",
+                        },
+                        session_id=self.session_id,
+                        turn_id=self.turn_id,
+                    )
+                    yield (
+                        f"[SYSTEM: The lesson '{page_context.get('contentTitle', '')}' "
+                        f"has not been indexed yet (status={status}). "
+                        f"DO NOT fabricate content. Tell the student the lesson materials "
+                        f"are not yet available in the AI system and suggest they read the PDF directly.]"
+                    )
+                    return
+
         # 1. Course material search
         if course_id:
             try:
@@ -141,6 +177,31 @@ class RetrievalSpecialist:
             )
             return
 
+        # # Do not compress if the context is already small enough - compression would only result in information loss
+        CONSOLIDATION_THRESHOLD = 2400  # tokens
+        if raw_token_est <= CONSOLIDATION_THRESHOLD:
+            yield AgentEvent(
+                type=AgentEventType.SUBAGENT_THINK,
+                data={
+                    "subagent_id": self.subagent_id,
+                    "delta": "Context nhỏ - skipped consolidation.\n"
+                },
+                session_id=self.session_id,
+                turn_id=self.turn_id
+            )
+            yield AgentEvent(
+                type=AgentEventType.SUBAGENT_DONE,
+                data={
+                    "subagent_id": self.subagent_id,
+                    "status": "completed",
+                    "summary": f"Context small ({raw_token_est} tokens) - skipped consolidation."
+                },
+                session_id=self.session_id,
+                turn_id=self.turn_id
+            )
+            yield raw_text
+            return
+
         # 3. Context Consolidation via LLM (70B model to ensure quality synthesis)
         yield AgentEvent(
             type=AgentEventType.SUBAGENT_THINK,
@@ -153,12 +214,13 @@ class RetrievalSpecialist:
         )
 
         prompt = (
-            "You are a Context Consolidation Agent. Your task is to analyze the raw context below, "
-            "remove duplicate information, summarize irrelevant segments, and output a structured, "
-            "extremely dense context document containing ONLY facts relevant to the query.\n\n"
+            "You are a Context Consolidation Agent. Summarize the raw context below, "
+            "keeping ALL key facts, exercises, vocabulary items, and examples. "
+            "Remove only obvious duplicates and off-topic boilerplate. "
+            "Preserve the structure. Output at least 80% of the original content volume.\n\n"
             f"Query: {query}\n\n"
             f"Raw Context:\n{raw_text}\n\n"
-            "Dense Consolidated Context:"
+            "Consolidated Context:"
         )
 
         gateway = get_gateway()
@@ -166,8 +228,8 @@ class RetrievalSpecialist:
             task=TASK_CHAT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=1500,
-            model_hint=settings.quiz_model # 70B model
+            max_tokens=3600,
+            model_hint=settings.quiz_model
         )
 
         consolidated = ""
