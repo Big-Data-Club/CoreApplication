@@ -1,19 +1,31 @@
 """
 ai-service/app/agents/core/multi_agent_orchestrator.py
 
-Orchestrates multi-agent execution:
-  1. Computes spawning score mathematically.
-  2. Runs Retrieval -> Consolidation -> Drafting -> Critique -> Revision.
-  3. Records event streams automatically for database persistence.
-  4. Provides an error boundary to fall back to parent-only execution.
+Orchestrates multi-agent execution and manages the complete lifecycle of sub-agents.
+
+Key Features & Workflow:
+  1. Spawning Score Calculation (v2): Computes the spawning score mathematically by incorporating 
+     `p_ctx` (page_context) and `depth_signal`, while removing the `d_intent=0` penalty for short sentences.
+  2. Context Integration: Accepts `page_context`, `system_context`, and `stm_turn_count` as parameters 
+     to deeply contextualize agent execution.
+  3. Execution Pipeline: Runs the standard multi-agent flow: Retrieval -> Consolidation -> Drafting -> Critique -> Revision.
+  4. Observability & Logging: 
+     - Automatically records event streams for database persistence.
+     - Captures `triggered_by` in the breakdown to explicitly log the exact reason for spawning sub-agents.
+     - Includes granular timing logs for each phase within `run_multi_agent_flow`.
+  5. Error Boundary: Ensures system resilience by providing a safe fallback to parent-only execution 
+     if the multi-agent routing or execution fails.
 """
 from __future__ import annotations
 
 import logging
+import time
 from typing import AsyncIterator, Optional, Tuple, Dict, Any, List
 
 from app.agents.events import AgentEvent, AgentEventType
-from app.agents.core.sub_agents import RetrievalSpecialist, DraftingSpecialist, CritiqueSpecialist, CritiqueReport
+from app.agents.core.sub_agents import (
+    RetrievalSpecialist, DraftingSpecialist, CritiqueSpecialist, CritiqueReport,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,58 +45,136 @@ class MultiAgentOrchestrator:
         intent_type: str,
         parent_context_length: int,
         max_context_limit: int = 32768,
-        requires_tool: bool = False,
+        page_context: Optional[Dict[str, Any]] = None,
+        system_context: Optional[Dict[str, Any]] = None,
+        stm_turn_count: int = 0,
     ) -> Tuple[float, Dict[str, Any]]:
         """
-        Calculates the decision score for spawning sub-agents.
-        S = 0.3 * c_ratio + 0.4 * d_intent + 0.1 * r_docs + 0.2 * v_need
-        """
-        # 1. Context Pressure (c_ratio)
-        c_ratio = parent_context_length / max(1, max_context_limit)
-        c_ratio = min(1.0, c_ratio)
+        Spawning score v2.
 
-        # 2. Intent Complexity (d_intent)
+        S = w_c*c_ratio + w_d*d_intent + w_r*r_docs + w_v*v_need + w_p*p_ctx + w_depth*depth_signal
+
+        Additions compared to v1:
+          p_ctx         = signal that the learner is viewing a specific lesson
+          depth_signal  = signal that the question requires deep reasoning (keywords + history length)
+
+        Modifications:
+          d_intent for knowledge_question no longer depends on len(user_message)
+          d_intent fallback is no longer = 0.0
+        """
+        msg_lower = user_message.lower()
+        triggered_by: List[str] = []
+
+        # -- 1. Context Pressure (c_ratio) -------------------------------------
+        c_ratio = min(1.0, parent_context_length / max(1, max_context_limit))
+
+        # -- 2. Intent Complexity (d_intent) -----------------------------------
         if intent_type in ("content_creation", "interactive_exercise"):
             d_intent = 1.0
-        elif intent_type == "knowledge_question" and len(user_message) > 100:
-            d_intent = 0.6
+        elif intent_type == "knowledge_question":
+            # No longer checking len(user_message) > 100
+            # A short question like "what is a pointer?" still requires deep reasoning
+            d_intent = 0.7
+        elif intent_type == "progress_advice":
+            d_intent = 0.5
         else:
-            d_intent = 0.0
+            # general_chat still has some value, not 0.0
+            d_intent = 0.1
 
-        # 3. Retrieval Volume (r_docs)
-        r_docs = 1.0 if intent_type in ("knowledge_question", "content_creation", "interactive_exercise") else 0.0
+        # -- 3. Retrieval Volume (r_docs) --------------------------------------
+        r_docs = 1.0 if intent_type in (
+            "knowledge_question", "content_creation", "interactive_exercise"
+        ) else 0.0
 
-        # 4. Verification Need (v_need)
-        verification_keywords = ("trắc nghiệm", "tạo", "quiz", "code", "json", "bài tập", "dịch", "format", "lập trình")
-        msg_lower = user_message.lower()
+        # -- 4. Verification Need (v_need) -------------------------------------
+        verification_keywords = (
+            # Vietnamese
+            "trắc nghiệm", "tạo", "quiz", "bài tập", "dịch", "lập trình",
+            "code", "viết", "implement", "thiết kế", "phân tích", "so sánh",
+            "giải thích chi tiết", "ôn tập", "tóm tắt", "mô tả", "liệt kê",
+            # English
+            "json", "format", "generate", "create", "build", "design",
+            "compare", "analyze", "summarize", "explain", "implement",
+            "deep dive", "in depth", "step by step",
+        )
         v_need = 1.0 if any(kw in msg_lower for kw in verification_keywords) else 0.0
+        if v_need > 0:
+            triggered_by.append("verification_keyword")
 
-        # Formula weights
-        w_c, w_d, w_r, w_v = 0.3, 0.4, 0.1, 0.2
-        score = w_c * c_ratio + w_d * d_intent + w_r * r_docs + w_v * v_need
+        # -- 5. Page Context Signal (p_ctx) ----------------------------
+        # When the learner is reading a specific lesson, multi-agent grounding is more effective
+        has_page_ctx = bool(
+            page_context and (
+                page_context.get("contentBody")
+                or page_context.get("body")
+                or page_context.get("contentTitle")
+            )
+        )
+        has_sys_ctx = bool(
+            system_context and (
+                system_context.get("lesson_text")
+                or system_context.get("lesson_title")
+            )
+        )
+        p_ctx = 1.0 if (has_page_ctx or has_sys_ctx) else 0.0
+        if p_ctx > 0:
+            triggered_by.append("page_context_active")
 
-        # If the LLM Router detected that the user wants to execute a system tool/action,
-        # we bypass the Multi-Agent flow (which cannot execute tool calls) and run the ReAct loop instead.
-        if requires_tool:
-            logger.info("Bypassing multi-agent flow: LLM router flagged requires_tool = True.")
-            score = 0.0
+        # -- 6. Depth Signal -------------------------------------------
+        depth_keywords = (
+            "tại sao", "how does", "why", "vì sao", "như thế nào",
+            "explain", "giải thích", "phân tích", "so sánh", "khác nhau",
+            "ưu nhược điểm", "pros cons", "trade-off", "deep dive",
+            "cơ chế", "hoạt động như thế nào", "chi tiết", "in detail",
+        )
+        has_depth_kw = any(kw in msg_lower for kw in depth_keywords)
+        if has_depth_kw:
+            depth_signal = 0.8
+            triggered_by.append("depth_keyword")
+        elif stm_turn_count > 3:
+            # After a few turns, multi-agent helps synthesize better
+            depth_signal = 0.4
+            triggered_by.append("conversation_depth")
+        else:
+            depth_signal = 0.0
+
+        # -- Weights (sum = 1.0) ----------------------------------------------
+        w_c, w_d, w_r, w_v, w_p, w_depth = 0.15, 0.30, 0.10, 0.15, 0.20, 0.10
+
+        score = (
+            w_c * c_ratio
+            + w_d * d_intent
+            + w_r * r_docs
+            + w_v * v_need
+            + w_p * p_ctx
+            + w_depth * depth_signal
+        )
+        score = min(1.0, score)
 
         breakdown = {
-            "c_ratio": c_ratio,
-            "d_intent": d_intent,
-            "r_docs": r_docs,
-            "v_need": v_need,
+            "c_ratio": round(c_ratio, 3),
+            "d_intent": round(d_intent, 3),
+            "r_docs": round(r_docs, 3),
+            "v_need": round(v_need, 3),
+            "p_ctx": round(p_ctx, 3),
+            "depth_signal": round(depth_signal, 3),
             "score": round(score, 3),
-            "requires_tool": requires_tool,
+            "triggered_by": triggered_by,
         }
 
         self.spawning_score = round(score, 3)
         self.spawning_breakdown = breakdown
 
+        logger.debug(
+            "SpawningScore v2: %.3f | c=%.2f d=%.2f r=%.2f v=%.2f p=%.2f depth=%.2f | triggers=%s",
+            score, c_ratio, d_intent, r_docs, v_need, p_ctx, depth_signal,
+            triggered_by,
+        )
+
         return score, breakdown
 
     def _record_event(self, ev: AgentEvent):
-        """Builds multiAgentLogs list from SSE events stream to save to database metadata."""
+        """Unchanged."""
         if ev.type == AgentEventType.SUBAGENT_SPAWN:
             sub_id = ev.data.get("subagent_id")
             for log in self.multi_agent_logs:
@@ -129,14 +219,19 @@ class MultiAgentOrchestrator:
         system_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[AgentEvent | str]:
         """
-        Runs the multi-agent pipeline:
-        1. RetrievalSpecialist (RAG + web + consolidate)
-        2. DraftingSpecialist -> draft response
-        3. CritiqueSpecialist -> evaluate
-        4. If revision needed, Draft again -> final response
+        Multi-agent pipeline: Retrieval -> Draft -> Critique -> (Revision) -> Final.
+        Add timing logs for each phase.
         """
+        t_start = time.monotonic()
+
         try:
-            # Step 1: Retrieval & Consolidation
+            # -- Phase 1: Retrieval --------------------------------------------
+            logger.info(
+                "[MultiAgent] Starting Retrieval | session=%s score=%.3f triggers=%s",
+                self.session_id[:8],
+                score_breakdown.get("score", 0),
+                score_breakdown.get("triggered_by", []),
+            )
             retrieval_agent = RetrievalSpecialist(self.session_id, self.turn_id)
             consolidated_context = ""
             async for ev in retrieval_agent.execute(
@@ -154,7 +249,14 @@ class MultiAgentOrchestrator:
             if not consolidated_context:
                 consolidated_context = "No specific reference materials were found."
 
-            # Step 2: Initial Draft
+            t1 = time.monotonic()
+            logger.info(
+                "[MultiAgent] Retrieval done in %.0fms | ctx_len=%d",
+                (t1 - t_start) * 1000, len(consolidated_context),
+            )
+
+            # -- Phase 2: Initial Draft ----------------------------------------
+            logger.info("[MultiAgent] Starting Draft phase")
             draft_agent = DraftingSpecialist(self.session_id, self.turn_id)
             draft = ""
             async for ev in draft_agent.execute(query, consolidated_context):
@@ -164,7 +266,14 @@ class MultiAgentOrchestrator:
                 else:
                     draft = ev
 
-            # Step 3: Critique Check
+            t2 = time.monotonic()
+            logger.info(
+                "[MultiAgent] Draft done in %.0fms | draft_len=%d",
+                (t2 - t1) * 1000, len(draft),
+            )
+
+            # -- Phase 3: Critique ---------------------------------------------
+            logger.info("[MultiAgent] Starting Critique phase")
             critique_agent = CritiqueSpecialist(self.session_id, self.turn_id)
             critique_report: Optional[CritiqueReport] = None
             async for ev in critique_agent.execute(query, draft, consolidated_context):
@@ -174,12 +283,20 @@ class MultiAgentOrchestrator:
                 else:
                     critique_report = ev
 
-            # Step 4: Revision Loop (1 cycle max)
+            t3 = time.monotonic()
+            logger.info(
+                "[MultiAgent] Critique done in %.0fms | verdict=%s",
+                (t3 - t2) * 1000,
+                critique_report.verdict if critique_report else "N/A",
+            )
+
+            # -- Phase 4: Revision (max 1 cycle) -------------------------------
             if critique_report and critique_report.verdict == "needs_revision":
-                logger.info("Critique rejected the initial draft, starting revision cycle.")
+                logger.info("[MultiAgent] Critique rejected draft, starting revision")
                 revised_draft = ""
                 async for ev in draft_agent.execute(
-                    query, consolidated_context, critique_feedback=critique_report.critique_report
+                    query, consolidated_context,
+                    critique_feedback=critique_report.critique_report,
                 ):
                     if isinstance(ev, AgentEvent):
                         self._record_event(ev)
@@ -188,7 +305,6 @@ class MultiAgentOrchestrator:
                         revised_draft = ev
                 draft = revised_draft
 
-                # Verify again (will be final check)
                 async for ev in critique_agent.execute(query, draft, consolidated_context):
                     if isinstance(ev, AgentEvent):
                         self._record_event(ev)
@@ -196,16 +312,21 @@ class MultiAgentOrchestrator:
                     else:
                         critique_report = ev
 
-            # Return the final text content of the draft
+            t_end = time.monotonic()
+            logger.info(
+                "[MultiAgent] Pipeline complete in %.0fms total",
+                (t_end - t_start) * 1000,
+            )
+
             yield draft
 
         except Exception as exc:
-            logger.exception("Multi-agent workflow failed with exception: %s", exc)
+            logger.exception("Multi-agent workflow failed: %s", exc)
             err_ev = AgentEvent(
                 type=AgentEventType.SUBAGENT_ERROR,
                 data={"error": str(exc), "stage": "workflow"},
                 session_id=self.session_id,
-                turn_id=self.turn_id
+                turn_id=self.turn_id,
             )
             self._record_event(err_ev)
             yield err_ev
