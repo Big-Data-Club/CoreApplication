@@ -325,8 +325,8 @@ async def run_all_tests():
             intent_type="general_chat",
         )
 
-        # General chat should have low personalize weight
-        assert context["weights_used"]["personalize"] <= 0.3
+        # General chat should have low ltm_facts weight
+        assert context["weights_used"]["ltm_facts"] <= 0.3
         assert "system" not in context["weights_used"]
 
         # System tier was removed entirely

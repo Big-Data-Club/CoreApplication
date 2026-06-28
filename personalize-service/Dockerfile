@@ -1,9 +1,7 @@
 # ==========================================
-# Stage 1: Build dependencies & wheels
+# Stage 1: Build dependencies in virtual env using uv
 # ==========================================
 FROM python:3.12-slim AS builder
-
-WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
@@ -11,14 +9,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libc-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# Copy uv binaries
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Install dependencies into a virtual environment
-RUN python -m venv /opt/venv
+WORKDIR /app
+
+# Create virtual environment
+RUN uv venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt .
+
+# Install dependencies using cache mount
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --compile-bytecode -r requirements.txt
 
 # ==========================================
 # Stage 2: Final minimal runner image

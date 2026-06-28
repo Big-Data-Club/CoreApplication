@@ -1,35 +1,34 @@
-FROM python:3.12-slim AS ml-builder
+# ==========================================
+# Stage 1: Build virtual environment using uv
+# ==========================================
+FROM python:3.12-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc g++ \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
+# Copy uv binaries
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+WORKDIR /app
+
+# Create a virtual environment
+RUN uv venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install base dependencies (ML layers, etc.)
 COPY requirements.base.txt .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --compile-bytecode -r requirements.base.txt
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel \
-        --no-cache-dir \
-        --wheel-dir=/wheels/ml \
-        -r requirements.base.txt
-
-FROM python:3.12-slim AS app-builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /build
-
+# Install application dependencies
 COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --compile-bytecode -r requirements.txt
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel \
-        --no-cache-dir \
-        --wheel-dir=/wheels/app \
-        -r requirements.txt
-
+# ==========================================
+# Stage 2: Final minimal runner image
+# ==========================================
 FROM python:3.12-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -41,29 +40,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-
 RUN groupadd --gid 1001 appuser \
  && useradd  --uid 1001 --gid appuser --shell /bin/bash --create-home appuser
 
 WORKDIR /app
 
-COPY --from=ml-builder  /wheels/ml  /tmp/wheels/
-COPY                    requirements.base.txt /tmp/requirements.base.txt
-RUN pip install --no-cache-dir \
-        --no-index \
-        --find-links=/tmp/wheels \
-        -r /tmp/requirements.base.txt \
- && rm -rf /tmp/wheels /tmp/requirements.base.txt
+# Copy virtualenv from builder stage
+COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
 
-COPY --from=app-builder /wheels/app /tmp/wheels/
-COPY                    requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir \
-        --no-index \
-        --find-links=/tmp/wheels \
-        -r /tmp/requirements.txt \
- && rm -rf /tmp/wheels /tmp/requirements.txt
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
     # Model cache directory (backed by Docker volume in docker-compose.yml)

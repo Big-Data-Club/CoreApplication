@@ -169,6 +169,18 @@ class ContextBuilder:
             except Exception as exc:
                 logger.warning("Failed to fetch personalization profile in ContextBuilder: %s", exc)
 
+            # Dynamic multi-signal concept scoring
+            scored_concepts = []
+            try:
+                scored_concepts = await self._compute_multi_signal_scoring(
+                    user_id=user_id,
+                    course_id=course_id,
+                    query=query,
+                    current_node_id=current_node_id,
+                )
+            except Exception as exc:
+                logger.warning("Failed to compute multi-signal concept scoring: %s", exc)
+
             raw["personalize_profile"] = personalize_profile
             raw["personalize"] = {"scored_concepts": scored_concepts}
 
