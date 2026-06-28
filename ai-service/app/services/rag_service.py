@@ -380,6 +380,7 @@ class RAGService:
         content_id: int | None = None,
         top_k: int | None = None,
         min_similarity: float = 0.30,
+        content_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         from app.core.embeddings import create_embedding
         top_k        = top_k or settings.top_k_chunks
@@ -395,6 +396,7 @@ class RAGService:
                 content_id=content_id,
                 top_k=fetch_k,
                 score_threshold=min_similarity,
+                content_ids=content_ids,
             )
             return [self._scored_point_to_chunk(p) for p in scored]
 
@@ -403,6 +405,7 @@ class RAGService:
             query_vector=query_vector,
             course_id=course_id, node_id=node_id, content_id=content_id,
             top_k=fetch_k, min_similarity=min_similarity,
+            content_ids=content_ids,
         )
 
     @staticmethod
@@ -429,6 +432,7 @@ class RAGService:
         content_id: int | None,
         top_k: int,
         min_similarity: float,
+        content_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         emb_str    = "[" + ",".join(str(v) for v in query_vector) + "]"
         conditions = [f"status = 'ready'", f"{_SEARCH_COL} IS NOT NULL"]
@@ -441,6 +445,8 @@ class RAGService:
             conditions.append(f"node_id = ${idx}"); params.append(node_id); idx += 1
         if content_id is not None:
             conditions.append(f"content_id = ${idx}"); params.append(content_id); idx += 1
+        elif content_ids:
+            conditions.append(f"content_id = ANY(${idx})"); params.append(content_ids); idx += 1
 
         where = " AND ".join(conditions)
         sql = f"""
@@ -488,6 +494,7 @@ class RAGService:
         content_id: int | None = None,
         top_k: int | None = None,
         min_similarity: float = 0.25,
+        content_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         from app.core.multilingual import multilingual_search
         top_k = top_k or settings.top_k_chunks
@@ -498,6 +505,7 @@ class RAGService:
             id_fn=lambda c: c.chunk_id,
             min_similarity=min_similarity,
             course_id=course_id, node_id=node_id, content_id=content_id,
+            content_ids=content_ids,
         )
         # Determine final ranked chunks
         if not candidates or not settings.use_reranker:
@@ -865,6 +873,112 @@ class RAGService:
                 chunk_id,
             )
         return dict(row) if row else None
+
+    async def search_hierarchical(
+        self,
+        query: str,
+        course_id: int | None = None,
+        section_id: int | None = None,
+        content_id: int | None = None,
+        top_k: int | None = None,
+        min_similarity: float = 0.25,
+        expansion_enabled: bool = True,
+        max_expansion_level: str = "global",
+    ) -> tuple[list[RetrievedChunk], str]:
+        """
+        Hierarchical search: Lesson -> Section/Module -> Course -> Global KB.
+        Returns (chunks, resolved_scope).
+        """
+        import httpx
+        top_k = top_k or settings.top_k_chunks
+        
+        # 1. Lesson level
+        if content_id:
+            logger.info("Hierarchical RAG: Level 1 (Lesson content_id=%d)", content_id)
+            chunks = await self.search_multilingual(
+                query=query,
+                course_id=course_id,
+                content_id=content_id,
+                top_k=top_k,
+                min_similarity=min_similarity,
+            )
+            if chunks and any(c.similarity >= min_similarity for c in chunks):
+                return chunks, "content"
+
+        if not expansion_enabled:
+            return [], "none"
+
+        # Lookup content hierarchy details from LMS to enable section fallback
+        sibling_content_ids = []
+        lms_section_id = section_id
+        lms_course_id = course_id
+
+        if content_id:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"{settings.lms_service_url}/api/v1/internal/contents/{content_id}/hierarchy",
+                        headers={"X-AI-Secret": settings.ai_service_secret},
+                        timeout=5.0,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        lms_section_id = data.get("section_id") or lms_section_id
+                        lms_course_id = data.get("course_id") or lms_course_id
+                        sibling_content_ids = data.get("sibling_content_ids") or []
+            except Exception as exc:
+                logger.warning("Failed to fetch content hierarchy from LMS: %s", exc)
+
+        # 2. Section/Module level
+        if max_expansion_level in ("section", "course", "global"):
+            if lms_section_id and not sibling_content_ids:
+                try:
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.get(
+                            f"{settings.lms_service_url}/api/v1/internal/sections/{lms_section_id}/contents",
+                            headers={"X-AI-Secret": settings.ai_service_secret},
+                            timeout=5.0,
+                        )
+                        if resp.status_code == 200:
+                            sibling_content_ids = [c["id"] for c in resp.json()]
+                except Exception as exc:
+                    logger.warning("Failed to fetch section contents from LMS: %s", exc)
+
+            if sibling_content_ids:
+                logger.info("Hierarchical RAG: Level 2 (Section section_id=%s, sibling_count=%d)", lms_section_id, len(sibling_content_ids))
+                chunks = await self.search_multilingual(
+                    query=query,
+                    course_id=lms_course_id,
+                    content_ids=sibling_content_ids,
+                    top_k=top_k,
+                    min_similarity=min_similarity,
+                )
+                if chunks and any(c.similarity >= min_similarity for c in chunks):
+                    return chunks, "section"
+
+        # 3. Course level
+        if max_expansion_level in ("course", "global") and lms_course_id:
+            logger.info("Hierarchical RAG: Level 3 (Course course_id=%s)", lms_course_id)
+            chunks = await self.search_multilingual(
+                query=query,
+                course_id=lms_course_id,
+                top_k=top_k,
+                min_similarity=min_similarity,
+            )
+            if chunks and any(c.similarity >= min_similarity for c in chunks):
+                return chunks, "course"
+
+        # 4. Global KB level
+        if max_expansion_level == "global":
+            logger.info("Hierarchical RAG: Level 4 (Global KB)")
+            chunks = await self.search_multilingual(
+                query=query,
+                top_k=top_k,
+                min_similarity=min_similarity,
+            )
+            return chunks, "global"
+
+        return [], "none"
 
 
 rag_service = RAGService()

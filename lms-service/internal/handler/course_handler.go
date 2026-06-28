@@ -744,3 +744,36 @@ func (h *CourseHandler) DeleteContent(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Content deleted successfully"))
 }
+
+func (h *CourseHandler) InternalGetSectionContents(c *gin.Context) {
+	sectionID, err := strconv.ParseInt(c.Param("sectionId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid section ID"))
+		return
+	}
+
+	contents, err := h.courseService.InternalListContentBySection(c.Request.Context(), sectionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, contents)
+}
+
+func (h *CourseHandler) InternalGetContentHierarchy(c *gin.Context) {
+	contentID, err := strconv.ParseInt(c.Param("contentId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid content ID"))
+		return
+	}
+
+	hierarchy, err := h.courseService.GetContentHierarchy(c.Request.Context(), contentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, hierarchy)
+}
+

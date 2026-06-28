@@ -168,6 +168,12 @@ class CreateMiniChallengeTool(BaseTool):
                         opt.get("correct",
                         opt.get("isCorrect", False)))
                     )
+                    if not is_correct:
+                        # Fallback: check if the key of the dict corresponds to option_char
+                        for k in opt.keys():
+                            if str(k).upper().strip() == option_char:
+                                if correct_ans.upper().strip() == option_char:
+                                    is_correct = True
                     opt_explanation = opt.get(
                         "explanation", explanation if is_correct else ""
                     )
@@ -195,20 +201,41 @@ class CreateMiniChallengeTool(BaseTool):
                 # ── Strip option prefix (case-insensitive) ──
                 # Handles "A. text", "a) text", "A: text", "A text", etc.
                 raw_before_strip = opt_text
+                prefix_stripped = False
                 for ch in (option_char, option_char_lower):
                     for sep in (". ", ") ", ": ", " "):
                         prefix = f"{ch}{sep}"
                         if opt_text.startswith(prefix):
                             opt_text = opt_text[len(prefix):]
+                            prefix_stripped = True
                             break
-                    else:
-                        continue
-                    break  # already stripped
+                    if prefix_stripped:
+                        break
+                    
+                    # Also handle case where it is just the prefix without a trailing space/text, e.g. "B.", "B:", "B)", "B"
+                    for sep in (".", ")", ":", ""):
+                        prefix = f"{ch}{sep}"
+                        if opt_text.strip() == prefix:
+                            opt_text = ""
+                            prefix_stripped = True
+                            break
+                    if prefix_stripped:
+                        break
 
                 # ── Fallback: never produce empty or placeholder-only text ──
                 stripped = opt_text.strip()
                 if not stripped or stripped in ("...", "…", "___"):
-                    opt_text = raw_before_strip.strip() or f"Option {option_char}"
+                    # Check if raw_before_strip is just prefix or placeholder
+                    raw_clean = raw_before_strip.strip()
+                    is_only_prefix = False
+                    for ch in (option_char, option_char_lower):
+                        if raw_clean in (ch, f"{ch}.", f"{ch})", f"{ch}:"):
+                            is_only_prefix = True
+                            break
+                    if not raw_clean or raw_clean in ("...", "…", "___") or is_only_prefix:
+                        opt_text = f"Option {option_char}"
+                    else:
+                        opt_text = raw_clean
 
                 formatted_options.append({
                     "text": opt_text.strip(),

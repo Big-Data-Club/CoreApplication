@@ -16,16 +16,9 @@ from app.agents.memory.active_courses import (
     invalidate_active_courses,
     load_active_courses,
 )
-from app.agents.core.router import classify_intent
-from app.agents.core.clarification import (
-    build_scope_clarification,
-    should_clarify,
-)
 from app.agents.core.prompts import build_system_prompt
 from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
-    resolve_course_scope,
-    resolve_context_scope,
 )
 from app.agents.tools.registry import (
     get_tool_schemas, get_tool_by_name, execute_tool,
@@ -266,69 +259,103 @@ async def run_react_loop(
         agent_type=agent_type,
     )
 
-    # -- Step 1: Classify intent -----------------------------------------------
-    router_output = await classify_intent(
+    # -- Step 1: Unified Planning Layer ----------------------------------------
+    from app.agents.core.planner import generate_plan
+    from app.agents.core.scope_resolver import CourseScope, ContextScopeDecision
+
+    # Retrieve history for context
+    history_turns = []
+    try:
+        history_turns = await stm.get_window(session_id, n_turns=5)
+    except Exception:
+        pass
+
+    execution_plan = await generate_plan(
         user_message=user_message,
         active_courses=active_courses,
         agent_type=agent_type,
-    )
-    intent_type = router_output.intent
-
-    yield AgentEvent(
-        type=AgentEventType.THINKING,
-        data={"step": "intent", "intent": intent_type},
-        session_id=session_id,
-        turn_id=turn_id,
-    )
-
-    logger.debug("Intent classified: %s (%.0fms)",
-                 intent_type, (time.monotonic() - start_time) * 1000)
-
-    # Read the prior MTM anchor (current_course_id, etc.) so the scope
-    # resolver can recognise deictic references.
-    prior_mtm_ctx = await mtm.get_context(session_id)
-
-    # -- Step 1.7: Resolve context scope BEFORE the scope resolver ----------
-    # Determine whether the user is pivoting away from the currently viewed lesson.
-    # This result is used by both the scope resolver and build_system_prompt.
-    ctx_decision = await resolve_context_scope(
-        user_message=user_message,
+        current_course_id=course_id,
         page_context=page_context,
         system_context=system_context,
-        mtm_ctx=prior_mtm_ctx,
+        history=history_turns,
     )
+    
+    intent_type = execution_plan.user_intent
 
     yield AgentEvent(
         type=AgentEventType.THINKING,
         data={
-            "step": "context_scope",
-            "use_page_context": ctx_decision.use_page_context,
-            "use_system_context": ctx_decision.use_system_context,
-            "reason": ctx_decision.reason,
-            "pivot_strength": (
-                round(ctx_decision.intent_weight.pivot_strength, 2)
-                if ctx_decision.intent_weight else 0.0
-            ),
+            "step": "unified_plan",
+            "user_intent": execution_plan.user_intent,
+            "operational_intent": execution_plan.operational_intent,
+            "operation": execution_plan.operation,
+            "retrieval_scope": execution_plan.retrieval_strategy.scope,
+            "retrieval_depth": execution_plan.retrieval_strategy.depth,
+            "expansion_enabled": execution_plan.retrieval_strategy.expansion_enabled,
+            "selected_tools": execution_plan.selected_tools,
+            "personalization_enabled": execution_plan.personalization_enabled,
+            "lakehouse_required": execution_plan.lakehouse_required,
+            "reasoning": execution_plan.reasoning,
         },
         session_id=session_id,
         turn_id=turn_id,
     )
 
     logger.info(
-        "ContextScope: use_page=%s use_sys=%s reason=%s",
-        ctx_decision.use_page_context,
-        ctx_decision.use_system_context,
-        ctx_decision.reason,
+        "═══ Unified Execution Plan [session=%s] ═══\n"
+        "User Intent: %s\n"
+        "Operational Intent: %s\n"
+        "Operation: %s\n"
+        "Retrieval Scope: %s (Depth: %d, Expansion: %s)\n"
+        "Selected Tools: %s\n"
+        "Personalization: %s (Lakehouse: %s)\n"
+        "Reasoning: %s\n"
+        "═══ END Plan ═══",
+        session_id[:8],
+        execution_plan.user_intent,
+        execution_plan.operational_intent,
+        execution_plan.operation,
+        execution_plan.retrieval_strategy.scope,
+        execution_plan.retrieval_strategy.depth,
+        execution_plan.retrieval_strategy.expansion_enabled,
+        execution_plan.selected_tools,
+        execution_plan.personalization_enabled,
+        execution_plan.lakehouse_required,
+        execution_plan.reasoning,
     )
 
-    # -- Step 1.8: Course scope resolver (enhanced with intent_weight) ----------
-    scope = await resolve_course_scope(
-        user_message=user_message,
-        active_courses=active_courses,
-        mtm_ctx=prior_mtm_ctx,
-        explicit_course_id=course_id,
-        router_matched_course_id=router_output.matched_course_id,
-        intent_weight=ctx_decision.intent_weight,
+    # Build ContextScopeDecision and CourseScope adapters for backwards compatibility
+    is_pivot = execution_plan.operational_intent in ("pivot_new_topic", "global_search")
+    use_page = bool(page_context and not is_pivot)
+    use_sys = bool(system_context and not is_pivot)
+
+    ctx_decision = ContextScopeDecision(
+        use_page_context=use_page,
+        use_system_context=use_sys,
+        effective_page_context=page_context if use_page else None,
+        effective_system_context=system_context if use_sys else None,
+        reason=f"Unified plan operational_intent: {execution_plan.operational_intent}",
+        intent_weight=None,
+        suggested_search_topic=user_message if is_pivot else None,
+    )
+
+    focus_course_id = course_id
+    if not focus_course_id and page_context:
+        focus_course_id = page_context.get("courseId") or page_context.get("course_id")
+    if not focus_course_id and system_context:
+        focus_course_id = system_context.get("course_id") or system_context.get("courseId")
+
+    mode = "single" if focus_course_id else "global"
+    if execution_plan.retrieval_strategy.scope == "global":
+        mode = "all"
+
+    scope = CourseScope(
+        mode=mode,
+        focus_course_id=focus_course_id,
+        candidate_course_ids=[focus_course_id] if focus_course_id else [],
+        confidence=1.0,
+        reason=f"Unified plan scope: {execution_plan.retrieval_strategy.scope}",
+        needs_clarification=False,
     )
     effective_course_id = apply_scope_to_course_id(scope, fallback_course_id=None)
 
@@ -888,12 +915,29 @@ async def run_react_loop(
 
             logger.info("Executing tool: %s(%s)", tool_name, list(args.keys()))
 
+            effective_content_id = None
+            if ctx_decision.effective_page_context:
+                effective_content_id = (
+                    ctx_decision.effective_page_context.get("contentId")
+                    or ctx_decision.effective_page_context.get("content_id")
+                )
+
+            effective_node_id = None
+            if ctx_decision.effective_system_context:
+                effective_node_id = (
+                    ctx_decision.effective_system_context.get("nodeId")
+                    or ctx_decision.effective_system_context.get("node_id")
+                )
+
             tool_result = await execute_tool(
                 name=tool_name,
                 arguments=args,
                 user_id=user_id,
                 course_id=effective_course_id,
                 session_id=session_id,
+                content_id=effective_content_id,
+                node_id=effective_node_id,
+                execution_plan=execution_plan,
             )
 
             if tool_result.status == "success" and tool_result.data:

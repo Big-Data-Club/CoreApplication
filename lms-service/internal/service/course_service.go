@@ -1117,3 +1117,37 @@ func (s *CourseService) ListCoTeachers(ctx context.Context, courseID, actorID in
 	return resp, nil
 }
 
+func (s *CourseService) GetContentHierarchy(ctx context.Context, contentID int64) (*dto.ContentHierarchyResponse, error) {
+	content, err := s.getContentCached(ctx, contentID)
+	if err != nil {
+		return nil, err
+	}
+
+	section, err := s.getSectionCached(ctx, content.SectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	siblings, err := s.courseRepo.ListContentBySection(ctx, content.SectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	siblingIDs := make([]int64, len(siblings))
+	for i, c := range siblings {
+		siblingIDs[i] = c.ID
+	}
+
+	return &dto.ContentHierarchyResponse{
+		ContentID:         content.ID,
+		SectionID:         content.SectionID,
+		CourseID:          section.CourseID,
+		SiblingContentIDs: siblingIDs,
+	}, nil
+}
+
+func (s *CourseService) InternalListContentBySection(ctx context.Context, sectionID int64) ([]*models.SectionContent, error) {
+	return s.courseRepo.ListContentBySection(ctx, sectionID)
+}
+
+

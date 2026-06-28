@@ -52,19 +52,35 @@ class SearchMaterialsTool(BaseTool):
         node_id: int | None = kwargs.get("_node_id") or kwargs.get("node_id")
         top_k = kwargs.get("top_k", 3)
 
+        execution_plan = kwargs.get("execution_plan")
+        expansion_enabled = True
+        max_expansion_level = "global"
+        min_similarity = 0.25
+
+        if execution_plan:
+            strategy = execution_plan.retrieval_strategy
+            expansion_enabled = strategy.expansion_enabled
+            max_expansion_level = strategy.max_expansion_level
+            min_similarity = strategy.min_similarity
+            top_k = strategy.depth or top_k
+
         try:
-            chunks = await rag_service.search_multilingual(
+            chunks, resolved_scope = await rag_service.search_hierarchical(
                 query=query,
                 course_id=course_id,
                 content_id=content_id,
-                node_id=node_id,
                 top_k=top_k,
+                min_similarity=min_similarity,
+                expansion_enabled=expansion_enabled,
+                max_expansion_level=max_expansion_level,
             )
+
+            logger.info("search_course_materials query='%s' resolved to scope='%s'", query, resolved_scope)
 
             if not chunks:
                 return ToolResult(
                     status="success",
-                    data={"chunks": [], "query": query},
+                    data={"chunks": [], "query": query, "resolved_scope": resolved_scope},
                     message=(
                         f"Không tìm thấy tài liệu liên quan đến '{query}'. "
                         f"Nội dung khóa học có thể chưa được index."

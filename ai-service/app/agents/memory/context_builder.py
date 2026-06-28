@@ -154,17 +154,26 @@ class ContextBuilder:
                 key_facts = mtm_ctx.get("key_facts") or {}
                 current_node_id = working_state.get("current_node_id") or key_facts.get("current_node_id")
 
-            # Calculate multi-signal scores
-            scored_concepts = await self._compute_multi_signal_scoring(
-                user_id=user_id,
-                course_id=course_id,
-                query=query,
-                current_node_id=current_node_id,
-            )
+            # Fetch personalization profile from personalize-service
+            import httpx
+            personalize_profile = {}
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"http://personalize-service:8082/personalize/student/{user_id}/course/{course_id}",
+                        headers={"X-AI-Secret": settings.ai_service_secret},
+                        timeout=5.0,
+                    )
+                    if resp.status_code == 200:
+                        personalize_profile = resp.json()
+            except Exception as exc:
+                logger.warning("Failed to fetch personalization profile in ContextBuilder: %s", exc)
+
+            raw["personalize_profile"] = personalize_profile
             raw["personalize"] = {"scored_concepts": scored_concepts}
 
-            if scored_concepts:
-                facts_section = self._format_ltm_facts(scored_concepts, settings.ltm_facts_budget)
+            if scored_concepts or personalize_profile:
+                facts_section = self._format_ltm_facts(scored_concepts, settings.ltm_facts_budget, personalize_profile)
                 if facts_section:
                     sections.append(facts_section)
                     total_tokens += len(facts_section) // 4
@@ -333,14 +342,23 @@ class ContextBuilder:
         return "\n".join(parts)
 
     @staticmethod
-    def _format_ltm_facts(concepts: list[dict], budget_tokens: int) -> str:
+    def _format_ltm_facts(concepts: list[dict], budget_tokens: int, profile: dict | None = None) -> str:
         """Format scored user concept mastery facts, adhering to budget."""
-        if not concepts:
+        if not concepts and not profile:
             return ""
 
         parts = ["STUDENT COGNITIVE PROFILE (LTM FACTS):"]
         max_chars = budget_tokens * 4
         current_chars = len(parts[0])
+
+        if profile:
+            comp = profile.get("completed_lessons", 0)
+            att = profile.get("attempted_lessons", 0)
+            acc = profile.get("check_accuracy", 0.0)
+            line = f"  Lakehouse metrics: completed_lessons={comp}/{att}, quick_check_accuracy={acc:.1%}"
+            if current_chars + len(line) + 1 <= max_chars:
+                parts.append(line)
+                current_chars += len(line) + 1
 
         # Active concept is identified by structural_score == 2.0
         active_concept = next((c for c in concepts if c.get("structural_score") == 2.0), None)

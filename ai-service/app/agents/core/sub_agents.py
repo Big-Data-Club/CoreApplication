@@ -130,13 +130,24 @@ class RetrievalSpecialist:
                     )
                     return
 
-        # 1. Course material search
-        if course_id:
+        # 1. Course material search (hierarchical fallback enabled)
+        content_id = page_context.get("contentId") or page_context.get("content_id") if page_context else None
+        section_id = page_context.get("sectionId") or page_context.get("section_id") if page_context else None
+
+        if course_id or content_id:
             try:
-                chunks = await rag_service.search_multilingual(
-                    query=search_query, course_id=course_id, top_k=5
+                chunks, resolved_scope = await rag_service.search_hierarchical(
+                    query=search_query,
+                    course_id=course_id,
+                    section_id=section_id,
+                    content_id=content_id,
+                    top_k=5,
+                    min_similarity=0.25,
+                    expansion_enabled=True,
+                    max_expansion_level="global",
                 )
                 raw_chunks = [c.chunk_text for c in chunks]
+                logger.info("Multi-agent RetrievalSpecialist hierarchical search resolved to scope: %s", resolved_scope)
             except Exception as e:
                 logger.warning("RAG search failed in RetrievalSpecialist: %s", e)
 

@@ -92,6 +92,54 @@ class GetStudyPlanTool(BaseTool):
                 user_id=student_id,
                 course_id=course_id,
             )
+            weaknesses = [dict(w) if not isinstance(w, dict) else w for w in weaknesses]
+
+            # Fetch personalization profile from personalize-service if course_id is available
+            import httpx
+            from app.core.config import get_settings
+            settings = get_settings()
+            
+            personalize_profile = {}
+            if course_id:
+                try:
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.get(
+                            f"http://personalize-service:8082/personalize/student/{student_id}/course/{course_id}",
+                            headers={"X-AI-Secret": settings.ai_service_secret},
+                            timeout=5.0,
+                        )
+                        if resp.status_code == 200:
+                            personalize_profile = resp.json()
+                            logger.info("Loaded personalization profile from Lakehouse: %s", personalize_profile)
+                except Exception as exc:
+                    logger.warning("Failed to fetch personalize profile: %s", exc)
+
+            if personalize_profile and personalize_profile.get("struggle_nodes"):
+                try:
+                    async with get_ai_conn() as conn:
+                        rows = await conn.fetch(
+                            """
+                            SELECT id, name, name_vi
+                            FROM knowledge_nodes
+                            WHERE id = ANY($1) AND course_id = $2
+                            """,
+                            personalize_profile["struggle_nodes"],
+                            course_id,
+                        )
+                        for r in rows:
+                            # Avoid duplicates
+                            if not any(w.get("concept_id") == r["id"] or w.get("id") == r["id"] for w in weaknesses):
+                                weaknesses.append({
+                                    "concept_id": r["id"],
+                                    "name": r["name"],
+                                    "name_vi": r["name_vi"],
+                                    "mastery_level": 0.2, # default low mastery for struggle nodes
+                                    "struggles": True,
+                                    "source": "lakehouse_interaction"
+                                })
+                except Exception as exc:
+                    logger.warning("Failed to query struggle node details: %s", exc)
+
             weaknesses = weaknesses[:5]
 
             # 3. Strengths (for positive reinforcement)
@@ -257,6 +305,12 @@ class GetStudyPlanTool(BaseTool):
                     },
                 )
 
+            message_suffix = ""
+            if personalize_profile:
+                comp = personalize_profile.get("completed_lessons", 0)
+                acc = personalize_profile.get("check_accuracy", 0.0)
+                message_suffix = f" (Lakehouse: Đã học {comp} bài, độ chính xác Quick Check: {acc:.0%})"
+
             return ToolResult(
                 status="success",
                 data={
@@ -266,16 +320,18 @@ class GetStudyPlanTool(BaseTool):
                         "total_tracked": len(due_reviews) + len(weaknesses),
                     },
                     "scope": scope_label,
+                    "lakehouse_profile": personalize_profile,
                 },
                 message=(
                     f"Kế hoạch hôm nay ({scope_label}): {due_today} bài ôn tập, "
-                    f"{len(weaknesses)} chủ đề cần cải thiện."
+                    f"{len(weaknesses)} chủ đề cần cải thiện.{message_suffix}"
                 ),
                 ui_instruction={
                     "component": "StudyPlanWidget",
                     "props": {
                         "plan": plan_items,
                         "due_today": due_today,
+                        "lakehouse_profile": personalize_profile,
                     },
                 },
             )

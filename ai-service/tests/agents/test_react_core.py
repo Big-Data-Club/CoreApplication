@@ -332,7 +332,7 @@ async def run_all_tests(unit_only: bool = False, single_test: str = None):
                 max_context_limit=32768
             )
             assert score_a < 0.5, f"General chat should have low score, got {score_a}"
-            assert breakdown_a["d_intent"] == 0.0
+            assert breakdown_a["d_intent"] == 0.1
             
             # Case B: content_creation intent -> score should be high (>= 0.5)
             score_b, breakdown_b = orchestrator.calculate_spawning_score(

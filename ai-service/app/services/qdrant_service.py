@@ -189,6 +189,7 @@ class QdrantService:
         content_id: int | None = None,
         top_k: int = 10,
         score_threshold: float = 0.25,
+        content_ids: list[int] | None = None,
     ) -> list[ScoredPoint]:
         """
         ANN search over document_chunks with optional payload filtering.
@@ -197,7 +198,7 @@ class QdrantService:
         to build a `RetrievedChunk` - no secondary DB query required.
         """
         client = self._get_client()
-        query_filter = self._build_chunk_filter(course_id, node_id, content_id)
+        query_filter = self._build_chunk_filter(course_id, node_id, content_id, content_ids)
         return await client.search(
             collection_name=CHUNK_COLLECTION,
             query_vector=query_vector,
@@ -213,6 +214,7 @@ class QdrantService:
         course_id: int | None,
         node_id: int | None,
         content_id: int | None,
+        content_ids: list[int] | None = None,
     ) -> Filter | None:
         must: list[FieldCondition] = [
             FieldCondition(key="status", match=MatchValue(value="ready")),
@@ -223,6 +225,8 @@ class QdrantService:
             must.append(FieldCondition(key="node_id",    match=MatchValue(value=node_id)))
         if content_id is not None:
             must.append(FieldCondition(key="content_id", match=MatchValue(value=content_id)))
+        elif content_ids:
+            must.append(FieldCondition(key="content_id", match=MatchAny(any=content_ids)))
         return Filter(must=must)
 
     async def delete_chunks_by_content(self, content_id: int) -> None:

@@ -56,10 +56,23 @@ class ExplainConceptTool(BaseTool):
         from app.services.rag_service import rag_service
 
         concept = kwargs["concept"]
-        course_id = kwargs.get("_course_id") or kwargs["course_id"]
+        course_id = kwargs.get("_course_id") or kwargs.get("course_id")
+        content_id = kwargs.get("_content_id") or kwargs.get("content_id")
+        section_id = kwargs.get("_section_id") or kwargs.get("section_id")
         depth = kwargs.get("depth")
         language = kwargs.get("language", "vi")
         student_id = kwargs.get("_user_id", 0)
+
+        execution_plan = kwargs.get("execution_plan")
+        expansion_enabled = True
+        max_expansion_level = "global"
+        min_similarity = 0.25
+
+        if execution_plan:
+            strategy = execution_plan.retrieval_strategy
+            expansion_enabled = strategy.expansion_enabled
+            max_expansion_level = strategy.max_expansion_level
+            min_similarity = strategy.min_similarity
 
         try:
             # 1. Auto-detect depth from mastery if not provided
@@ -78,8 +91,15 @@ class ExplainConceptTool(BaseTool):
             # 2. RAG context - depth-adaptive retrieval
             depth_top_k = {"beginner": 3, "intermediate": 5, "advanced": 8}
             top_k = depth_top_k.get(depth, 5)
-            chunks = await rag_service.search_multilingual(
-                query=concept, course_id=course_id, top_k=top_k,
+            chunks, resolved_scope = await rag_service.search_hierarchical(
+                query=concept,
+                course_id=course_id,
+                section_id=section_id,
+                content_id=content_id,
+                top_k=top_k,
+                min_similarity=min_similarity,
+                expansion_enabled=expansion_enabled,
+                max_expansion_level=max_expansion_level,
             )
             context = "\n---\n".join(c.chunk_text for c in chunks) if chunks else ""
 

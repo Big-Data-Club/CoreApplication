@@ -738,6 +738,13 @@ func main() {
 		// ── Internal callbacks (AI service -> LMS) ─────────────────────────
 		// Authenticated via shared service secret only - never reachable
 		// with user JWTs because the path lives outside the auth group.
+		internalAI := v1.Group("/internal")
+		internalAI.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		{
+			internalAI.GET("/sections/:sectionId/contents", courseHandler.InternalGetSectionContents)
+			internalAI.GET("/contents/:contentId/hierarchy", courseHandler.InternalGetContentHierarchy)
+		}
+
 		internal := v1.Group("/internal/micro-lessons")
 		internal.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 		{

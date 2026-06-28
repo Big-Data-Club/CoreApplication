@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
 # Setup dummy env vars before importing anything
 os.environ.setdefault("AI_DB_HOST", "localhost")
@@ -36,6 +36,18 @@ from app.agents.tools.mentor.explain_concept import ExplainConceptTool
 from app.agents.tools.base_tool import ToolResult
 
 class TestMentorEnhancements(unittest.IsolatedAsyncioTestCase):
+
+    def setUp(self):
+        from app.services.rag_service import rag_service
+        self.original_search_multilingual = rag_service.search_multilingual
+        self.original_search_hierarchical = rag_service.search_hierarchical
+        rag_service.search_multilingual = AsyncMock(return_value=[])
+        rag_service.search_hierarchical = AsyncMock(return_value=([], "course"))
+
+    def tearDown(self):
+        from app.services.rag_service import rag_service
+        rag_service.search_multilingual = self.original_search_multilingual
+        rag_service.search_hierarchical = self.original_search_hierarchical
 
     async def test_mcq_robust_parsing_standard_strings_with_prefixes(self):
         """Test parsing standard list of strings with diverse prefix structures."""
@@ -200,32 +212,53 @@ class TestMentorEnhancements(unittest.IsolatedAsyncioTestCase):
 
         from app.services.rag_service import rag_service
         from app.core import llm
-        original_search = rag_service.search_multilingual
+        original_search = rag_service.search_hierarchical
         original_chat_complete = llm.chat_complete
         
-        rag_service.search_multilingual = AsyncMock(return_value=[])
+        rag_service.search_hierarchical = AsyncMock(return_value=([], "course"))
         llm.chat_complete = AsyncMock(return_value="Detailed Explanation")
 
         try:
             # 1. Advanced depth
             await tool.execute(concept="MapReduce", course_id=1, depth="advanced")
-            rag_service.search_multilingual.assert_called_with(
-                query="MapReduce", course_id=1, top_k=8
+            rag_service.search_hierarchical.assert_called_with(
+                query="MapReduce",
+                course_id=1,
+                section_id=None,
+                content_id=None,
+                top_k=8,
+                min_similarity=0.25,
+                expansion_enabled=True,
+                max_expansion_level="global",
             )
 
             # 2. Beginner depth
             await tool.execute(concept="MapReduce", course_id=1, depth="beginner")
-            rag_service.search_multilingual.assert_called_with(
-                query="MapReduce", course_id=1, top_k=3
+            rag_service.search_hierarchical.assert_called_with(
+                query="MapReduce",
+                course_id=1,
+                section_id=None,
+                content_id=None,
+                top_k=3,
+                min_similarity=0.25,
+                expansion_enabled=True,
+                max_expansion_level="global",
             )
 
             # 3. Intermediate depth
             await tool.execute(concept="MapReduce", course_id=1, depth="intermediate")
-            rag_service.search_multilingual.assert_called_with(
-                query="MapReduce", course_id=1, top_k=5
+            rag_service.search_hierarchical.assert_called_with(
+                query="MapReduce",
+                course_id=1,
+                section_id=None,
+                content_id=None,
+                top_k=5,
+                min_similarity=0.25,
+                expansion_enabled=True,
+                max_expansion_level="global",
             )
         finally:
-            rag_service.search_multilingual = original_search
+            rag_service.search_hierarchical = original_search
             llm.chat_complete = original_chat_complete
 
     async def test_retrieval_specialist_stops_when_content_is_not_indexed(self):

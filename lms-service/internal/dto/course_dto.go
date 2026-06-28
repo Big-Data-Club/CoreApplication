@@ -124,3 +124,10 @@ type CoTeacherResponse struct {
 	AddedBy   int64     `json:"added_by"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+type ContentHierarchyResponse struct {
+	ContentID         int64   `json:"content_id"`
+	SectionID         int64   `json:"section_id"`
+	CourseID          int64   `json:"course_id"`
+	SiblingContentIDs []int64 `json:"sibling_content_ids"`
+}
