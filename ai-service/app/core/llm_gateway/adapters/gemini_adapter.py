@@ -109,8 +109,10 @@ class GeminiAdapter(LLMAdapter):
  
 def _translate(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
     """Convert OpenAI-style messages into Gemini `contents` + systemInstruction text."""
+    import json
     system_parts: list[str] = []
     contents: list[dict[str, Any]] = []
+    tool_id_to_name: dict[str, str] = {}
  
     for m in messages:
         role = m.get("role")
@@ -119,33 +121,87 @@ def _translate(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]
             if isinstance(content, str):
                 system_parts.append(content)
             continue
+ 
+        if role == "tool" or role == "function":
+            t_id = m.get("tool_call_id")
+            t_name = tool_id_to_name.get(t_id) or "unknown_tool"
+            
+            response_data = {}
+            if isinstance(content, str):
+                try:
+                    response_data = json.loads(content)
+                except Exception:
+                    response_data = {"output": content}
+            elif isinstance(content, dict):
+                response_data = content
+            else:
+                response_data = {"output": str(content)}
+                
+            if not isinstance(response_data, dict):
+                response_data = {"output": response_data}
+                
+            part = {
+                "functionResponse": {
+                    "name": t_name,
+                    "response": response_data
+                }
+            }
+            contents.append({"role": "user", "parts": [part]})
+            continue
+ 
         gemini_role = "model" if role == "assistant" else "user"
-        
-        if isinstance(content, list):
-            parts = []
-            for item in content:
-                if item.get("type") == "text":
-                    parts.append({"text": item.get("text", "")})
-                elif item.get("type") == "image_url":
-                    url = item.get("image_url", {}).get("url", "")
-                    if url.startswith("data:"):
-                        try:
-                            header, b64 = url.split(",", 1)
-                            mime_type = header.split(";")[0].replace("data:", "")
-                            parts.append({
-                                "inlineData": {
-                                    "mimeType": mime_type,
-                                    "data": b64
-                                }
-                            })
-                        except Exception:
-                            parts.append({"text": f"[Image URL: {url}]"})
-                    else:
-                        parts.append({"text": f"[Image at {url}]"})
+        parts = []
+ 
+        # Handle tool calls in assistant message
+        tool_calls = m.get("tool_calls")
+        if tool_calls:
+            for tc in tool_calls:
+                tc_id = tc.get("id")
+                tc_fn = tc.get("function") or {}
+                tc_name = tc_fn.get("name")
+                tc_args_str = tc_fn.get("arguments") or "{}"
+                if tc_id and tc_name:
+                    tool_id_to_name[tc_id] = tc_name
+                    try:
+                        tc_args = json.loads(tc_args_str) if tc_args_str else {}
+                    except Exception:
+                        tc_args = {}
+                    if not isinstance(tc_args, dict):
+                        tc_args = {"args": tc_args}
+                    parts.append({
+                        "functionCall": {
+                            "name": tc_name,
+                            "args": tc_args
+                        }
+                    })
+ 
+        # Handle standard text content
+        if content:
+            if isinstance(content, list):
+                for item in content:
+                    if item.get("type") == "text":
+                        parts.insert(0, {"text": item.get("text", "")})
+                    elif item.get("type") == "image_url":
+                        url = item.get("image_url", {}).get("url", "")
+                        if url.startswith("data:"):
+                            try:
+                                header, b64 = url.split(",", 1)
+                                mime_type = header.split(";")[0].replace("data:", "")
+                                parts.append({
+                                    "inlineData": {
+                                        "mimeType": mime_type,
+                                        "data": b64
+                                    }
+                                })
+                            except Exception:
+                                parts.append({"text": f"[Image URL: {url}]"})
+                        else:
+                            parts.append({"text": f"[Image at {url}]"})
+            else:
+                parts.insert(0, {"text": str(content)})
+ 
+        if parts:
             contents.append({"role": gemini_role, "parts": parts})
-        else:
-            text = str(content)
-            contents.append({"role": gemini_role, "parts": [{"text": text}]})
  
     if not contents:
         contents.append({"role": "user", "parts": [{"text": "Continue."}]})

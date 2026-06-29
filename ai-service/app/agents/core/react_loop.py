@@ -711,6 +711,7 @@ async def run_react_loop(
             messages=messages,
             temperature=0.3,
             max_tokens=max_tokens,          # dynamic
+            json_mode=False,
             extra={"tools": tool_schemas, "tool_choice": "auto"} if tool_schemas else {},
         )
 
