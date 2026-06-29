@@ -70,7 +70,6 @@ class QdrantService:
                     url=settings.qdrant_url,
                     api_key=settings.qdrant_api_key or None,
                     timeout=30,
-                    check_version=False,
                 )
                 logger.info("Qdrant connected via URL (Serverless mode)")
             else:
@@ -82,7 +81,6 @@ class QdrantService:
                     prefer_grpc=settings.qdrant_prefer_grpc,
                     api_key=settings.qdrant_api_key or None,
                     timeout=30,
-                    check_version=False,
                 )
                 logger.info("Qdrant connected via host:port (Local mode)")
         return self._client

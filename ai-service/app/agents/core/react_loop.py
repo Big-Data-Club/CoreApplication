@@ -266,6 +266,7 @@ async def run_react_loop(
     # -- Step 1: Unified Planning Layer ----------------------------------------
     from app.agents.core.planner import generate_plan
     from app.agents.core.scope_resolver import CourseScope, ContextScopeDecision
+    from app.agents.core.router import classify_intent
 
     # Retrieve history for context
     history_turns = []
@@ -282,6 +283,14 @@ async def run_react_loop(
         page_context=page_context,
         system_context=system_context,
         history=history_turns,
+    )
+
+    router_output = await classify_intent(
+        user_message=user_message,
+        active_courses=active_courses,
+        agent_type=agent_type,
+        current_course_id=course_id,
+        page_context=page_context,
     )
     
     intent_type = execution_plan.user_intent
