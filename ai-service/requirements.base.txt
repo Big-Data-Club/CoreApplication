@@ -7,3 +7,4 @@ optimum[onnxruntime]==1.23.3
 onnxruntime==1.19.2
 
 numpy==1.26.4
+pyarrow<13.0.0

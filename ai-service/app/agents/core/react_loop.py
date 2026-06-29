@@ -20,6 +20,10 @@ from app.agents.core.prompts import build_system_prompt
 from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
 )
+from app.agents.core.clarification import (
+    build_scope_clarification,
+    should_clarify,
+)
 from app.agents.tools.registry import (
     get_tool_schemas, get_tool_by_name, execute_tool,
 )
