@@ -24,8 +24,16 @@ public class UserResponse {
     private Boolean      pendingApproval;
     private String     profilePicture;
     private String     organization;
+    private java.util.List<String> organizations;
 
     public static UserResponse fromEntity(User user) {
+        java.util.List<String> orgList = new java.util.ArrayList<>();
+        if (user.getOrganizationMembers() != null) {
+            orgList = user.getOrganizationMembers().stream()
+                    .map(om -> om.getOrganization().getName())
+                    .toList();
+        }
+
         return UserResponse.builder()
                 .id(user.getId())
                 .name(user.getName())
@@ -40,6 +48,7 @@ public class UserResponse {
                 .authProvider(user.getAuthProvider())
                 .pendingApproval(user.getPendingApproval())
                 .organization(user.getOrganization())
+                .organizations(orgList)
                 .build();
     }
 }

@@ -17,6 +17,10 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+func (r *UserRepository) GetDB() *sql.DB {
+	return r.db
+}
+
 // GetOrCreateUser gets user by ID or creates if not exists
 func (r *UserRepository) GetOrCreateUser(ctx context.Context, userID int64, email, fullName, organization string) (*models.User, error) {
 	// Try to get user first

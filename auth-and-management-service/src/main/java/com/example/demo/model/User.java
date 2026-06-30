@@ -75,4 +75,9 @@ public class User {
     @JsonIgnore
     @Builder.Default
     private List<UserTask> userTasks = new ArrayList<>();
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore
+    @Builder.Default
+    private List<OrganizationMember> organizationMembers = new ArrayList<>();
 }

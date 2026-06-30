@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
@@ -163,3 +164,91 @@ func (s *UserSyncService) DeleteUser(ctx context.Context, userID int64) error {
 func isValidRole(role string) bool {
 	return strings.TrimSpace(role) != ""
 }
+
+// SyncOrganization replicates organization edits from auth service.
+func (s *UserSyncService) SyncOrganization(ctx context.Context, req *dto.OrgSyncRequest) error {
+	query := `
+		INSERT INTO organizations (id, name, slug, description, logo_url, is_active, settings)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+		ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
+			slug = EXCLUDED.slug,
+			description = EXCLUDED.description,
+			logo_url = EXCLUDED.logo_url,
+			is_active = EXCLUDED.is_active,
+			settings = EXCLUDED.settings,
+			updated_at = CURRENT_TIMESTAMP
+	`
+	var desc, logo sql.NullString
+	if req.Description != "" {
+		desc = sql.NullString{String: req.Description, Valid: true}
+	}
+	if req.LogoURL != "" {
+		logo = sql.NullString{String: req.LogoURL, Valid: true}
+	}
+
+	_, err := s.userRepo.GetDB().ExecContext(ctx, query,
+		req.ID,
+		req.Name,
+		req.Slug,
+		desc,
+		logo,
+		req.IsActive,
+		req.Settings,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to sync organization: %w", err)
+	}
+
+	if s.cache != nil {
+		cache.Invalidate(ctx, s.cache, fmt.Sprintf("org:%d", req.ID))
+	}
+
+	logger.Info(fmt.Sprintf("Synced organization %s (ID: %d) from auth-service", req.Name, req.ID))
+	return nil
+}
+
+// DeleteOrganization removes organization.
+func (s *UserSyncService) DeleteOrganization(ctx context.Context, orgID int64) error {
+	query := `DELETE FROM organizations WHERE id = $1`
+	_, err := s.userRepo.GetDB().ExecContext(ctx, query, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to delete organization: %w", err)
+	}
+
+	if s.cache != nil {
+		cache.Invalidate(ctx, s.cache, fmt.Sprintf("org:%d", orgID))
+	}
+
+	logger.Info(fmt.Sprintf("Deleted organization ID %d from LMS", orgID))
+	return nil
+}
+
+// SyncOrganizationMember replicates membership.
+func (s *UserSyncService) SyncOrganizationMember(ctx context.Context, req *dto.OrgMemberSyncRequest) error {
+	query := `
+		INSERT INTO organization_members (org_id, user_id, org_role)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (org_id, user_id) DO UPDATE SET
+			org_role = EXCLUDED.org_role
+	`
+	_, err := s.userRepo.GetDB().ExecContext(ctx, query, req.OrgID, req.UserID, req.OrgRole)
+	if err != nil {
+		return fmt.Errorf("failed to sync organization membership: %w", err)
+	}
+
+	logger.Info(fmt.Sprintf("Synced membership of user %d in org %d with role %s", req.UserID, req.OrgID, req.OrgRole))
+	return nil
+}
+
+// RemoveOrganizationMember removes membership.
+func (s *UserSyncService) RemoveOrganizationMember(ctx context.Context, orgID, userID int64) error {
+	query := `DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2`
+	_, err := s.userRepo.GetDB().ExecContext(ctx, query, orgID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to remove organization membership: %w", err)
+	}
+
+	logger.Info(fmt.Sprintf("Removed user %d from organization %d", userID, orgID))
+	return nil
+}

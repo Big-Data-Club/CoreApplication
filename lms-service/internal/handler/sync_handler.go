@@ -124,3 +124,113 @@ func (h *UserSyncHandler) DeleteUser(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewMessageResponse("User deleted from LMS"))
 }
+
+// SyncOrganization godoc
+// @Summary Sync an organization
+// @Description Sync an organization from auth service to LMS
+// @Tags Sync
+// @Accept json
+// @Produce json
+// @Param X-Sync-Secret header string true "Sync secret for authentication"
+// @Param request body dto.OrgSyncRequest true "Organization sync data"
+// @Success 200 {object} dto.SuccessResponse{message=string} "Organization synced"
+// @Router /sync/organizations [post]
+func (h *UserSyncHandler) SyncOrganization(c *gin.Context) {
+	var req dto.OrgSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	if err := h.syncService.SyncOrganization(c.Request.Context(), &req); err != nil {
+		logger.Error("Failed to sync organization", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("sync_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Organization synced successfully"))
+}
+
+// DeleteOrganization godoc
+// @Summary Delete an organization
+// @Description Delete an organization from LMS
+// @Tags Sync
+// @Accept json
+// @Produce json
+// @Param X-Sync-Secret header string true "Sync secret for authentication"
+// @Param orgId path int true "Organization ID"
+// @Success 200 {object} dto.SuccessResponse{message=string} "Organization deleted"
+// @Router /sync/organizations/{orgId} [delete]
+func (h *UserSyncHandler) DeleteOrganization(c *gin.Context) {
+	orgID, err := strconv.ParseInt(c.Param("orgId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_org_id", "Invalid organization ID"))
+		return
+	}
+
+	if err := h.syncService.DeleteOrganization(c.Request.Context(), orgID); err != nil {
+		logger.Error("Failed to delete organization from LMS", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("delete_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Organization deleted from LMS"))
+}
+
+// SyncOrganizationMember godoc
+// @Summary Sync organization membership
+// @Description Sync organization membership from auth service to LMS
+// @Tags Sync
+// @Accept json
+// @Produce json
+// @Param X-Sync-Secret header string true "Sync secret for authentication"
+// @Param request body dto.OrgMemberSyncRequest true "Membership sync data"
+// @Success 200 {object} dto.SuccessResponse{message=string} "Membership synced"
+// @Router /sync/organization-members [post]
+func (h *UserSyncHandler) SyncOrganizationMember(c *gin.Context) {
+	var req dto.OrgMemberSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	if err := h.syncService.SyncOrganizationMember(c.Request.Context(), &req); err != nil {
+		logger.Error("Failed to sync membership", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("sync_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Membership synced successfully"))
+}
+
+// RemoveOrganizationMember godoc
+// @Summary Remove organization membership
+// @Description Remove organization membership from LMS
+// @Tags Sync
+// @Accept json
+// @Produce json
+// @Param X-Sync-Secret header string true "Sync secret for authentication"
+// @Param orgId path int true "Organization ID"
+// @Param userId path int true "User ID"
+// @Success 200 {object} dto.SuccessResponse{message=string} "Membership removed"
+// @Router /sync/organization-members/{orgId}/users/{userId} [delete]
+func (h *UserSyncHandler) RemoveOrganizationMember(c *gin.Context) {
+	orgID, err := strconv.ParseInt(c.Param("orgId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_org_id", "Invalid organization ID"))
+		return
+	}
+	userID, err := strconv.ParseInt(c.Param("userId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_user_id", "Invalid user ID"))
+		return
+	}
+
+	if err := h.syncService.RemoveOrganizationMember(c.Request.Context(), orgID, userID); err != nil {
+		logger.Error("Failed to remove membership from LMS", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("remove_failed", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Membership removed from LMS"))
+}

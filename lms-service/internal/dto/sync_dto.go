@@ -37,3 +37,21 @@ type SyncError struct {
 	Email  string `json:"email"`
 	Error  string `json:"error"`
 }
+
+// OrgSyncRequest represents an organization sync request from auth service
+type OrgSyncRequest struct {
+	ID          int64  `json:"id" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Slug        string `json:"slug" binding:"required"`
+	Description string `json:"description"`
+	LogoURL     string `json:"logo_url"`
+	IsActive    bool   `json:"is_active"`
+	Settings    string `json:"settings" binding:"required"`
+}
+
+// OrgMemberSyncRequest represents an organization member sync request from auth service
+type OrgMemberSyncRequest struct {
+	OrgID   int64  `json:"org_id" binding:"required"`
+	UserID  int64  `json:"user_id" binding:"required"`
+	OrgRole string `json:"org_role" binding:"required"`
+}

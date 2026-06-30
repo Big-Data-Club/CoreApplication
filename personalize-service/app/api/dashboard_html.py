@@ -848,17 +848,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const headers = Object.keys(tableData[0]);
             let csvContent = "data:text/csv;charset=utf-8,";
             
-            csvContent += headers.join(",") + "\n";
+            csvContent += headers.join(",") + "\\n";
             
             tableData.forEach(row => {
                 const rowValues = headers.map(header => {
                     const val = row[header];
                     if (val === null || val === undefined) return "";
                     const stringVal = String(val).replace(/"/g, '""');
-                    return stringVal.includes(",") || stringVal.includes("\n") ? `"${stringVal}"` : stringVal;
+                    return stringVal.includes(",") || stringVal.includes("\\n") ? `"${stringVal}"` : stringVal;
                 });
-                csvContent += rowValues.join(",") + "\n";
+                csvContent += rowValues.join(",") + "\\n";
             });
+
 
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");

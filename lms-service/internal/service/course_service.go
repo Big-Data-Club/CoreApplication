@@ -88,14 +88,30 @@ func (s *CourseService) getContentCached(ctx context.Context, contentID int64) (
 
 // CreateCourse creates a new course and invalidates the published-list cache.
 func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseRequest, creatorID int64) (*dto.CourseResponse, error) {
-	// Default to bdc org if org_id is not specified
+	// Default org resolution
 	orgID := req.OrgID
 	if orgID == 0 {
-		defaultOrg, err := s.orgRepo.GetBySlug(ctx, "bdc")
-		if err != nil {
-			return nil, fmt.Errorf("default organization not found: %w", err)
+		userOrgs, err := s.orgRepo.GetUserOrgs(ctx, creatorID)
+		if err == nil && len(userOrgs) > 0 {
+			hasPrivateOrg := false
+			for _, uo := range userOrgs {
+				var settings models.OrgSettings
+				if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
+					orgID = uo.ID
+					hasPrivateOrg = true
+					break
+				}
+			}
+			if !hasPrivateOrg {
+				orgID = userOrgs[0].ID
+			}
+		} else {
+			defaultOrg, err := s.orgRepo.GetBySlug(ctx, "bdc")
+			if err != nil {
+				return nil, fmt.Errorf("default organization not found: %w", err)
+			}
+			orgID = defaultOrg.ID
 		}
-		orgID = defaultOrg.ID
 	}
 
 	// Verify org exists
@@ -120,12 +136,39 @@ func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseR
 	}
 
 	if !isAdmin {
-		isMember, orgRole, err := s.orgRepo.IsMember(ctx, orgID, creatorID)
+		userOrgs, err := s.orgRepo.GetUserOrgs(ctx, creatorID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
+			return nil, fmt.Errorf("failed to get user organizations: %w", err)
 		}
-		if !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin && !isTeacher) {
-			return nil, fmt.Errorf("unauthorized: must be Owner or Admin in the organization, or have Teacher role, to create courses")
+
+		hasPrivateOrg := false
+		for _, uo := range userOrgs {
+			var settings models.OrgSettings
+			if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
+				hasPrivateOrg = true
+				break
+			}
+		}
+
+		if hasPrivateOrg {
+			isMemberOfSelectedOrg := false
+			for _, uo := range userOrgs {
+				if uo.ID == orgID {
+					isMemberOfSelectedOrg = true
+					break
+				}
+			}
+			if !isMemberOfSelectedOrg {
+				return nil, fmt.Errorf("unauthorized: members of private organizations must create courses under their own organization")
+			}
+		} else {
+			isMember, orgRole, err := s.orgRepo.IsMember(ctx, orgID, creatorID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to verify organization membership: %w", err)
+			}
+			if !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin && !isTeacher) {
+				return nil, fmt.Errorf("unauthorized: must be Owner or Admin in the organization, or have Teacher role, to create courses")
+			}
 		}
 	}
 
@@ -199,18 +242,15 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		}
 
 		if hasPrivateOrg {
-			// If they have a private org, they can only view courses of their private organizations!
-			isMemberOfCoursePrivateOrg := false
+			// If they have a private org, they can only view courses of organizations they belong to!
+			isMemberOfCourseOrg := false
 			for _, uo := range userOrgs {
-				var settings models.OrgSettings
-				if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
-					if uo.ID == course.OrgID {
-						isMemberOfCoursePrivateOrg = true
-						break
-					}
+				if uo.ID == course.OrgID {
+					isMemberOfCourseOrg = true
+					break
 				}
 			}
-			if !isMemberOfCoursePrivateOrg {
+			if !isMemberOfCourseOrg {
 				return nil, fmt.Errorf("unauthorized to view cross-organization courses")
 			}
 		} else {
@@ -425,17 +465,13 @@ func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, 
 	}
 
 	for _, org := range orgs {
+		orgIDs = append(orgIDs, org.ID)
 		var settings models.OrgSettings
 		err := json.Unmarshal(org.Settings, &settings)
 
 		if hasPrivateOrg {
-			// If they belong to a private org, they only see courses of private orgs they belong to.
-			if err == nil && !settings.AllowCrossOrgCourses {
-				orgIDs = append(orgIDs, org.ID)
-			}
 			includePublic = false
 		} else {
-			orgIDs = append(orgIDs, org.ID)
 			if err == nil && settings.AllowCrossOrgCourses {
 				includePublic = true
 			}

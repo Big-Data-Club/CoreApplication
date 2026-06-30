@@ -11,8 +11,10 @@ import com.example.demo.repository.RoleRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.TeamRepository;
 import com.example.demo.repository.UserTypeOptionRepository;
+import com.example.demo.repository.OrganizationRepository;
 import com.example.demo.model.Team;
 import com.example.demo.model.UserTypeOption;
+import com.example.demo.model.Organization;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -32,6 +34,7 @@ public class DataInitializer implements CommandLineRunner {
     private final PasswordEncoder passwordEncoder;
     private final TeamRepository teamRepository;
     private final UserTypeOptionRepository typeRepository;
+    private final OrganizationRepository organizationRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     private final com.example.demo.service.user.UserSyncService userSyncService;
 
@@ -52,6 +55,7 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception e) {
             log.error("Failed to drop check constraints: {}", e.getMessage());
         }
+        seedOrganizations();
         seedRoles();
         seedTeams();
         seedTypes();
@@ -63,6 +67,19 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception e) {
             log.error("Startup user sync to chat failed: {}", e.getMessage());
         }
+    }
+
+    private void seedOrganizations() {
+        if (organizationRepository.existsBySlug("bdc")) return;
+
+        organizationRepository.save(Organization.builder()
+                .name("Big Data Club")
+                .slug("bdc")
+                .description("Default organization")
+                .isActive(true)
+                .settings("{\"allow_cross_org_courses\": true, \"default_course_visibility\": \"PUBLIC\"}")
+                .build());
+        log.info("Seeded default organization (Big Data Club)");
     }
 
     /**

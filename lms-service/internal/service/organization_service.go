@@ -63,7 +63,7 @@ func (s *OrganizationService) CreateOrganization(ctx context.Context, req *dto.C
 	var settingsBytes []byte
 	if req.Settings != nil {
 		settingsBytes, _ = json.Marshal(models.OrgSettings{
-			AllowCrossOrgCourses:    true,
+			AllowCrossOrgCourses:    req.Settings.AllowCrossOrgCourses,
 			DefaultCourseVisibility: req.Settings.DefaultCourseVisibility,
 			AllowSelfEnrollment:     req.Settings.AllowSelfEnrollment,
 		})
@@ -180,7 +180,7 @@ func (s *OrganizationService) UpdateOrganization(ctx context.Context, id int64, 
 	}
 	if req.Settings != nil {
 		updatedSettings := models.OrgSettings{
-			AllowCrossOrgCourses:    true,
+			AllowCrossOrgCourses:    req.Settings.AllowCrossOrgCourses,
 			DefaultCourseVisibility: req.Settings.DefaultCourseVisibility,
 			AllowSelfEnrollment:     req.Settings.AllowSelfEnrollment,
 		}
@@ -545,6 +545,7 @@ func (s *OrganizationService) toOrgResponse(org *models.Organization) *dto.OrgRe
 		if err := json.Unmarshal(org.Settings, &ms); err == nil {
 			settingsDTO = &dto.OrgSettingsDTO{
 				AllowSelfEnrollment:     ms.AllowSelfEnrollment,
+				AllowCrossOrgCourses:    ms.AllowCrossOrgCourses,
 				DefaultCourseVisibility: ms.DefaultCourseVisibility,
 			}
 			if ms.MaxMembers > 0 {

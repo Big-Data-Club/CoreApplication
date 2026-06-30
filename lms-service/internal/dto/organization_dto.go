@@ -6,6 +6,7 @@ import "time"
 // Replaces json.RawMessage so that swag can generate Swagger docs.
 type OrgSettingsDTO struct {
 	AllowSelfEnrollment        bool   `json:"allow_self_enrollment"`
+	AllowCrossOrgCourses       bool   `json:"allow_cross_org_courses"`
 	DefaultCourseVisibility    string `json:"default_course_visibility" enums:"PUBLIC,ORG_ONLY"`
 	MaxMembers                 *int   `json:"max_members,omitempty"`
 }

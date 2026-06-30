@@ -294,6 +294,10 @@ func main() {
 			sync.POST("/user", syncHandler.SyncUser)
 			sync.POST("/users/bulk", syncHandler.BulkSyncUsers)
 			sync.DELETE("/user/:userId", syncHandler.DeleteUser)
+			sync.POST("/organizations", syncHandler.SyncOrganization)
+			sync.DELETE("/organizations/:orgId", syncHandler.DeleteOrganization)
+			sync.POST("/organization-members", syncHandler.SyncOrganizationMember)
+			sync.DELETE("/organization-members/:orgId/users/:userId", syncHandler.RemoveOrganizationMember)
 		}
 
 		// FILE SERVING - Public access (no auth needed for viewing)
