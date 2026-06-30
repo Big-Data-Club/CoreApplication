@@ -184,36 +184,62 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 
 	// Org isolation checks
 	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher && !isEnrolled {
-		isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, userID)
+		userOrgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
+			return nil, fmt.Errorf("failed to get user organizations: %w", err)
 		}
 
-		if !isMember {
-			if course.Visibility != models.VisibilityPublic {
-				return nil, fmt.Errorf("unauthorized to view this course")
+		hasPrivateOrg := false
+		for _, uo := range userOrgs {
+			var settings models.OrgSettings
+			if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
+				hasPrivateOrg = true
+				break
 			}
+		}
 
-			// Check if any of the user's organizations allow cross-org courses
-			userOrgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get user organizations: %w", err)
-			}
-
-			allowCross := len(userOrgs) == 0
+		if hasPrivateOrg {
+			// If they have a private org, they can only view courses of their private organizations!
+			isMemberOfCoursePrivateOrg := false
 			for _, uo := range userOrgs {
 				var settings models.OrgSettings
-				if err := json.Unmarshal(uo.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {
-					allowCross = true
-					break
+				if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
+					if uo.ID == course.OrgID {
+						isMemberOfCoursePrivateOrg = true
+						break
+					}
 				}
 			}
-
-			if !allowCross {
+			if !isMemberOfCoursePrivateOrg {
 				return nil, fmt.Errorf("unauthorized to view cross-organization courses")
+			}
+		} else {
+			isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, userID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to verify organization membership: %w", err)
+			}
+
+			if !isMember {
+				if course.Visibility != models.VisibilityPublic {
+					return nil, fmt.Errorf("unauthorized to view this course")
+				}
+
+				allowCross := len(userOrgs) == 0
+				for _, uo := range userOrgs {
+					var settings models.OrgSettings
+					if err := json.Unmarshal(uo.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {
+						allowCross = true
+						break
+					}
+				}
+
+				if !allowCross {
+					return nil, fmt.Errorf("unauthorized to view cross-organization courses")
+				}
 			}
 		}
 	}
+
 
 	return s.toCourseResponseWithCreator(course), nil
 }
@@ -385,19 +411,39 @@ func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, 
 		return nil, fmt.Errorf("failed to list published courses: %w", err)
 	}
 
-	orgIDs := make([]int64, len(orgs))
-	includePublic := false
+	orgIDs := make([]int64, 0, len(orgs))
+	includePublic := true
 
-	for i, org := range orgs {
-		orgIDs[i] = org.ID
+	// Check if the user belongs to any private organization (AllowCrossOrgCourses = false)
+	hasPrivateOrg := false
+	for _, org := range orgs {
 		var settings models.OrgSettings
-		if err := json.Unmarshal(org.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {
-			includePublic = true
+		if err := json.Unmarshal(org.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
+			hasPrivateOrg = true
+			break
 		}
 	}
 
-	// Default org fallback
-	if len(orgIDs) == 0 {
+	for _, org := range orgs {
+		var settings models.OrgSettings
+		err := json.Unmarshal(org.Settings, &settings)
+
+		if hasPrivateOrg {
+			// If they belong to a private org, they only see courses of private orgs they belong to.
+			if err == nil && !settings.AllowCrossOrgCourses {
+				orgIDs = append(orgIDs, org.ID)
+			}
+			includePublic = false
+		} else {
+			orgIDs = append(orgIDs, org.ID)
+			if err == nil && settings.AllowCrossOrgCourses {
+				includePublic = true
+			}
+		}
+	}
+
+	// Default fallback if user has no orgs
+	if len(orgs) == 0 {
 		includePublic = true
 	}
 
@@ -405,6 +451,7 @@ func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, 
 		UserOrgIDs:    orgIDs,
 		IncludePublic: includePublic,
 	}
+
 
 	courses, _, err := s.courseRepo.ListVisibleForUser(ctx, filter, 1000, 0)
 	if err != nil {

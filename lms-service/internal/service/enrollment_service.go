@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -22,6 +23,7 @@ type EnrollmentService struct {
 	courseRepo     *repository.CourseRepository
 	userRepo       *repository.UserRepository
 	progressRepo   *repository.ProgressRepository
+	orgRepo        *repository.OrganizationRepository
 	cache          *cache.RedisCache
 	loader         *cache.Loader
 }
@@ -31,6 +33,7 @@ func NewEnrollmentService(
 	courseRepo *repository.CourseRepository,
 	userRepo *repository.UserRepository,
 	progressRepo *repository.ProgressRepository,
+	orgRepo *repository.OrganizationRepository,
 	c *cache.RedisCache,
 ) *EnrollmentService {
 	return &EnrollmentService{
@@ -38,10 +41,12 @@ func NewEnrollmentService(
 		courseRepo:     courseRepo,
 		userRepo:       userRepo,
 		progressRepo:   progressRepo,
+		orgRepo:        orgRepo,
 		cache:          c,
 		loader:         cache.NewLoader(c),
 	}
 }
+
 
 // CachedMembership is the small payload we cache for the membership check -
 // it's intentionally narrower than the full enrollment row so that unrelated
@@ -95,7 +100,8 @@ func (s *EnrollmentService) invalidateMembership(ctx context.Context, studentID,
 
 // EnrollCourse enrolls a student in a course.
 func (s *EnrollmentService) EnrollCourse(ctx context.Context, courseID, studentID int64) (*dto.EnrollmentResponse, error) {
-	if _, err := s.courseRepo.GetByID(ctx, courseID); err != nil {
+	course, err := s.courseRepo.GetByID(ctx, courseID)
+	if err != nil {
 		return nil, fmt.Errorf("course not found")
 	}
 
@@ -104,6 +110,61 @@ func (s *EnrollmentService) EnrollCourse(ctx context.Context, courseID, studentI
 	// attempt to enroll twice within the cache window.
 	if existing, _ := s.enrollmentRepo.GetByStudentAndCourse(ctx, studentID, courseID); existing != nil {
 		return nil, fmt.Errorf("student already enrolled in this course")
+	}
+
+	// Org isolation checks for enrollment
+	userOrgs, err := s.orgRepo.GetUserOrgs(ctx, studentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify student organization: %w", err)
+	}
+
+	hasPrivateOrg := false
+	for _, uo := range userOrgs {
+		var settings models.OrgSettings
+		if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
+			hasPrivateOrg = true
+			break
+		}
+	}
+
+	if hasPrivateOrg {
+		isMemberOfCoursePrivateOrg := false
+		for _, uo := range userOrgs {
+			var settings models.OrgSettings
+			if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
+				if uo.ID == course.OrgID {
+					isMemberOfCoursePrivateOrg = true
+					break
+				}
+			}
+		}
+		if !isMemberOfCoursePrivateOrg {
+			return nil, fmt.Errorf("unauthorized to enroll in cross-organization courses")
+		}
+	} else {
+		isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, studentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
+		}
+
+		if !isMember {
+			if course.Visibility != models.VisibilityPublic {
+				return nil, fmt.Errorf("unauthorized to enroll in this course")
+			}
+
+			allowCross := len(userOrgs) == 0
+			for _, uo := range userOrgs {
+				var settings models.OrgSettings
+				if err := json.Unmarshal(uo.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {
+					allowCross = true
+					break
+				}
+			}
+
+			if !allowCross {
+				return nil, fmt.Errorf("unauthorized to enroll in cross-organization courses")
+			}
+		}
 	}
 
 	enrollment := &models.Enrollment{

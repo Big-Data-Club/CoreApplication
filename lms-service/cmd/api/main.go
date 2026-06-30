@@ -202,8 +202,9 @@ func main() {
 	userService := service.NewUserService(userRepo, redisClient)
 	orgService := service.NewOrganizationService(orgRepo, userRepo, redisClient)
 	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient)
-	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, redisClient)
+	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, orgRepo, redisClient)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient)
+
 	userSyncService := service.NewUserSyncService(userRepo, redisClient)
 	forumService := service.NewForumService(forumRepo, courseRepo)
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
