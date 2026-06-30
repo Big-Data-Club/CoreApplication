@@ -728,6 +728,11 @@ services:
     labels:
       - "service.type=personalize"
       - "service.name=personalize-service"
+      - "traefik.enable=true"
+      - "traefik.http.routers.personalize.entrypoints=web"
+      - "traefik.http.routers.personalize.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && (PathPrefix(`/personalize-dashboard`) || PathPrefix(`/personalize`))"
+      - "traefik.http.routers.personalize.priority=10"
+      - "traefik.http.services.personalize.loadbalancer.server.port=8082"
 
 
 
