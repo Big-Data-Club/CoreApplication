@@ -54,6 +54,13 @@ class OpenAICompatAdapter(LLMAdapter):
         # for OpenAI-compatible servers too.
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # Inject custom headers from config if provided (e.g. Cloudflare Access, Custom proxies)
+        config_headers = self.provider_config.get("headers")
+        if isinstance(config_headers, dict):
+            for k, v in config_headers.items():
+                headers[str(k)] = str(v)
+
  
         try:
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
