@@ -14,6 +14,17 @@ from app.core.database import get_ai_conn
 logger = logging.getLogger(__name__)
 
 
+def _custom_json_serializer(obj):
+    if hasattr(obj, "model_dump") and callable(obj.model_dump):
+        return obj.model_dump()
+    if hasattr(obj, "dict") and callable(obj.dict):
+        return obj.dict()
+    try:
+        return str(obj)
+    except Exception:
+        return "<Unserializable Object>"
+
+
 class MessageStore:
     async def save_message(
         self,
@@ -31,7 +42,7 @@ class MessageStore:
                     session_id,
                     role,
                     content,
-                    json.dumps(metadata, ensure_ascii=False) if metadata else '{}'
+                    json.dumps(metadata, ensure_ascii=False, default=_custom_json_serializer) if metadata else '{}'
                 )
         except Exception as exc:
             logger.error("Failed to save message to persistent store: %s", exc)

@@ -1150,4 +1150,67 @@ func (s *CourseService) InternalListContentBySection(ctx context.Context, sectio
 	return s.courseRepo.ListContentBySection(ctx, sectionID)
 }
 
+func (s *CourseService) ReorderSections(ctx context.Context, courseID int64, req *dto.ReorderSectionsRequest, userID int64, role string) error {
+	course, err := s.getCourseCached(ctx, courseID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("course not found")
+		}
+		return fmt.Errorf("failed to get course: %w", err)
+	}
+
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+		return fmt.Errorf("unauthorized to reorder sections in this course")
+	}
+
+	err = s.courseRepo.ReorderSections(ctx, courseID, req.SectionIDs)
+	if err != nil {
+		return err
+	}
+
+	// Invalidate course sections list cache and individual section caches
+	keys := []string{cache.KeyCourseSections(courseID)}
+	for _, id := range req.SectionIDs {
+		keys = append(keys, cache.KeySection(id))
+	}
+	cache.Invalidate(ctx, s.cache, keys...)
+
+	return nil
+}
+
+func (s *CourseService) ReorderContents(ctx context.Context, sectionID int64, req *dto.ReorderContentsRequest, userID int64, role string) error {
+	section, err := s.getSectionCached(ctx, sectionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("section not found")
+		}
+		return fmt.Errorf("failed to get section: %w", err)
+	}
+
+	course, err := s.getCourseCached(ctx, section.CourseID)
+	if err != nil {
+		return fmt.Errorf("failed to get course: %w", err)
+	}
+
+	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+		return fmt.Errorf("unauthorized to reorder contents in this section")
+	}
+
+	err = s.courseRepo.ReorderContents(ctx, sectionID, req.ContentIDs)
+	if err != nil {
+		return err
+	}
+
+	// Invalidate section content list cache and individual content caches
+	keys := []string{cache.KeySectionContents(sectionID)}
+	for _, id := range req.ContentIDs {
+		keys = append(keys, cache.KeyContent(id))
+	}
+	cache.Invalidate(ctx, s.cache, keys...)
+
+	return nil
+}
+
 

@@ -795,3 +795,49 @@ func (r *CourseRepository) IsCoTeacher(ctx context.Context, courseID, userID int
 	err := r.db.QueryRowContext(ctx, query, courseID, userID).Scan(&exists)
 	return exists, err
 }
+
+// ReorderSections updates the order_index of sections in a course using a transaction
+func (r *CourseRepository) ReorderSections(ctx context.Context, courseID int64, sectionIDs []int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	query := `
+		UPDATE course_sections 
+		SET order_index = $1, updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $2 AND course_id = $3
+	`
+	for idx, id := range sectionIDs {
+		_, err := tx.ExecContext(ctx, query, idx, id, courseID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// ReorderContents updates the order_index of contents in a section using a transaction
+func (r *CourseRepository) ReorderContents(ctx context.Context, sectionID int64, contentIDs []int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	query := `
+		UPDATE section_content 
+		SET order_index = $1, updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $2 AND section_id = $3
+	`
+	for idx, id := range contentIDs {
+		_, err := tx.ExecContext(ctx, query, idx, id, sectionID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}

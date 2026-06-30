@@ -416,6 +416,7 @@ func main() {
 
 				// Teacher/Admin only - Update/Delete/Publish course
 				courses.PUT("/:courseId", courseHandler.UpdateCourse)
+				courses.PUT("/:courseId/sections/reorder", courseHandler.ReorderSections)
 				courses.DELETE("/:courseId", middleware.RequirePermission(permService, "COURSE_DELETE"), courseHandler.DeleteCourse)
 				courses.POST("/:courseId/publish", courseHandler.PublishCourse)
 
@@ -467,6 +468,7 @@ func main() {
 				// Content management
 				sections.POST("/:sectionId/content", courseHandler.CreateContent)
 				sections.GET("/:sectionId/content", courseHandler.ListContent)
+				sections.PUT("/:sectionId/content/reorder", courseHandler.ReorderContents)
 			}
 
 			// CONTENT MANAGEMENT

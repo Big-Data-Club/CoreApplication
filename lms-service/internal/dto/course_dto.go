@@ -131,3 +131,13 @@ type ContentHierarchyResponse struct {
 	CourseID          int64   `json:"course_id"`
 	SiblingContentIDs []int64 `json:"sibling_content_ids"`
 }
+
+// ReorderSectionsRequest represents the request to reorder sections in a course
+type ReorderSectionsRequest struct {
+	SectionIDs []int64 `json:"section_ids" binding:"required,min=1"`
+}
+
+// ReorderContentsRequest represents the request to reorder content in a section
+type ReorderContentsRequest struct {
+	ContentIDs []int64 `json:"content_ids" binding:"required,min=1"`
+}

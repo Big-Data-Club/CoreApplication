@@ -777,3 +777,73 @@ func (h *CourseHandler) InternalGetContentHierarchy(c *gin.Context) {
 	c.JSON(http.StatusOK, hierarchy)
 }
 
+// ReorderSections handles changing the order of sections in a course
+func (h *CourseHandler) ReorderSections(c *gin.Context) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid course ID"))
+		return
+	}
+
+	var req dto.ReorderSectionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	role := getRoleFromContext(c)
+
+	err = h.courseService.ReorderSections(c.Request.Context(), courseID, &req, userID, role)
+	if err != nil {
+		if err.Error() == "course not found" {
+			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
+			return
+		}
+		if strings.Contains(err.Error(), "unauthorized") {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
+			return
+		}
+		logger.Error("Failed to reorder sections", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to reorder sections"))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Sections reordered successfully"))
+}
+
+// ReorderContents handles changing the order of contents in a section
+func (h *CourseHandler) ReorderContents(c *gin.Context) {
+	sectionID, err := strconv.ParseInt(c.Param("sectionId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid section ID"))
+		return
+	}
+
+	var req dto.ReorderContentsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	role := getRoleFromContext(c)
+
+	err = h.courseService.ReorderContents(c.Request.Context(), sectionID, &req, userID, role)
+	if err != nil {
+		if err.Error() == "section not found" {
+			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Section not found"))
+			return
+		}
+		if strings.Contains(err.Error(), "unauthorized") {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
+			return
+		}
+		logger.Error("Failed to reorder contents", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to reorder contents"))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Contents reordered successfully"))
+}
+
