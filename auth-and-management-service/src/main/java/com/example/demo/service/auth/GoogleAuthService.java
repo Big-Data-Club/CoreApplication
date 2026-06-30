@@ -8,9 +8,14 @@ import com.example.demo.exception.BadRequestException;
 import com.example.demo.exception.DuplicateResourceException;
 import com.example.demo.exception.UnauthorizedException;
 import com.example.demo.model.User;
+import com.example.demo.model.Organization;
+import com.example.demo.model.OrganizationMember;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.RoleRepository;
+import com.example.demo.repository.OrganizationRepository;
+import com.example.demo.repository.OrganizationMemberRepository;
 import com.example.demo.service.user.UserSyncService;
+import com.example.demo.service.org.OrganizationSyncService;
 import com.example.demo.utils.PasswordGenerator;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
@@ -34,6 +39,9 @@ public class GoogleAuthService {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final OrganizationRepository organizationRepository;
+    private final OrganizationMemberRepository organizationMemberRepository;
+    private final OrganizationSyncService organizationSyncService;
     private final PasswordEncoder passwordEncoder;
     private final UserSyncService userSyncService;
 
@@ -139,6 +147,7 @@ public class GoogleAuthService {
                 .team(req.getTeam())
                 .code(req.getCode())
                 .type(req.getType())
+                .organization(req.getOrganization())
                 .authProvider(AuthProvider.GOOGLE)
                 .googleId(googleId)
                 .active(false)
@@ -149,6 +158,27 @@ public class GoogleAuthService {
 
         User saved = userRepository.save(user);
         log.info("Google user registered (pending approval): email={}, googleId={}, role={}", email, googleId, resolvedRole);
+
+        // Link user to their selected organization
+        if (req.getOrganization() != null && !req.getOrganization().trim().isEmpty()) {
+            Optional<Organization> orgOpt = organizationRepository.findByName(req.getOrganization());
+            if (!orgOpt.isPresent()) {
+                // Try looking up by slug
+                String slug = req.getOrganization().toLowerCase().trim().replace(" ", "-");
+                orgOpt = organizationRepository.findBySlug(slug);
+            }
+            if (orgOpt.isPresent()) {
+                OrganizationMember member = OrganizationMember.builder()
+                        .organization(orgOpt.get())
+                        .user(saved)
+                        .orgRole("MEMBER")
+                        .build();
+                organizationMemberRepository.save(member);
+                organizationSyncService.syncMember(member);
+            } else {
+                log.warn("Organization '{}' not found during Google register!", req.getOrganization());
+            }
+        }
 
         return saved;
     }

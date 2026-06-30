@@ -21,4 +21,7 @@ public class GoogleRegisterRequest {
 
     @NotBlank(message = "Type is required")
     private String type;
+
+    @NotBlank(message = "Organization is required")
+    private String organization;
 }
