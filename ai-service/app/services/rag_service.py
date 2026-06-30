@@ -382,31 +382,61 @@ class RAGService:
         min_similarity: float = 0.30,
         content_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
+        import asyncio
+        top_k = top_k or settings.top_k_chunks
+        # Fetch slightly more candidates from each search channel for RRF merge
+        fetch_k = (settings.rerank_fetch_k if settings.use_reranker else top_k) * 2
+        
+        query_vector = await self._get_query_embedding(query)
+
+        # 1. Vector Search Task
+        async def run_vector():
+            if settings.use_qdrant:
+                from app.services.qdrant_service import qdrant_service
+                scored = await qdrant_service.search_chunks(
+                    query_vector=query_vector,
+                    course_id=course_id,
+                    node_id=node_id,
+                    content_id=content_id,
+                    top_k=fetch_k,
+                    score_threshold=min_similarity,
+                    content_ids=content_ids,
+                )
+                return [self._scored_point_to_chunk(p) for p in scored]
+            else:
+                return await self._pgvector_search(
+                    query_vector=query_vector,
+                    course_id=course_id, node_id=node_id, content_id=content_id,
+                    top_k=fetch_k, min_similarity=min_similarity,
+                    content_ids=content_ids,
+                )
+
+        # 2. Keyword Search Task
+        async def run_keyword():
+            try:
+                return await self._keyword_search(
+                    query=query,
+                    course_id=course_id,
+                    node_id=node_id,
+                    content_id=content_id,
+                    top_k=fetch_k,
+                    content_ids=content_ids,
+                )
+            except Exception as e:
+                logger.warning("Keyword search failed, falling back to empty list: %s", e)
+                return []
+
+        # Execute searches in parallel
+        vector_chunks, keyword_chunks = await asyncio.gather(run_vector(), run_keyword())
+        
+        # 3. Merge results using Reciprocal Rank Fusion (RRF)
+        merged_chunks = self._rrf_merge(vector_chunks, keyword_chunks, top_k=top_k)
+        return merged_chunks
+
+    async def _get_query_embedding(self, query: str) -> list[float]:
         from app.core.embeddings import create_embedding
-        top_k        = top_k or settings.top_k_chunks
-        fetch_k      = settings.rerank_fetch_k if settings.use_reranker else top_k
-        query_vector = await create_embedding(query)
+        return await create_embedding(query)
 
-        if settings.use_qdrant:
-            from app.services.qdrant_service import qdrant_service
-            scored = await qdrant_service.search_chunks(
-                query_vector=query_vector,
-                course_id=course_id,
-                node_id=node_id,
-                content_id=content_id,
-                top_k=fetch_k,
-                score_threshold=min_similarity,
-                content_ids=content_ids,
-            )
-            return [self._scored_point_to_chunk(p) for p in scored]
-
-        # ── Legacy pgvector ───────────────────────────────────────────────────
-        return await self._pgvector_search(
-            query_vector=query_vector,
-            course_id=course_id, node_id=node_id, content_id=content_id,
-            top_k=fetch_k, min_similarity=min_similarity,
-            content_ids=content_ids,
-        )
 
     @staticmethod
     def _scored_point_to_chunk(point) -> RetrievedChunk:
@@ -474,7 +504,113 @@ class RAGService:
             for r in rows
         ]
 
+    async def _keyword_search(
+        self,
+        query: str,
+        course_id: int | None = None,
+        node_id: int | None = None,
+        content_id: int | None = None,
+        top_k: int = 10,
+        content_ids: list[int] | None = None,
+    ) -> list[RetrievedChunk]:
+        """Perform a lexical/keyword search on PostgreSQL combining tsvector + ILIKE."""
+        import re
+        # Sanitize query by removing special tsquery characters to prevent query parsing errors
+        clean_query = re.sub(r'[!&|():*<>]', ' ', query).strip()
+        if not clean_query:
+            return []
+
+        conditions = ["status = 'ready'", "chunk_level = 'child'"]
+        params = []
+        
+        # Param 1: tsquery input (words joined with &)
+        words = [w for w in clean_query.split() if w]
+        tsquery_str = " & ".join(words)
+        params.append(tsquery_str)
+        
+        # Param 2: ILIKE input for exact substring matching
+        params.append(f"%{query}%")
+        
+        idx = 3
+        if course_id is not None:
+            conditions.append(f"course_id = ${idx}"); params.append(course_id); idx += 1
+        if node_id is not None:
+            conditions.append(f"node_id = ${idx}"); params.append(node_id); idx += 1
+        if content_id is not None:
+            conditions.append(f"content_id = ${idx}"); params.append(content_id); idx += 1
+        elif content_ids:
+            conditions.append(f"content_id = ANY(${idx})"); params.append(content_ids); idx += 1
+            
+        where = " AND ".join(conditions)
+        sql = f"""
+            SELECT id, chunk_text, content_id, node_id,
+                   source_type, page_number, start_time_sec, end_time_sec, language,
+                   (CASE WHEN chunk_text ILIKE $2 THEN 2.0 ELSE 0.0 END) +
+                   ts_rank(to_tsvector('simple', chunk_text), plainto_tsquery('simple', $1)) AS rank
+            FROM document_chunks
+            WHERE {where}
+              AND (
+                to_tsvector('simple', chunk_text) @@ plainto_tsquery('simple', $1)
+                OR chunk_text ILIKE $2
+              )
+            ORDER BY rank DESC, id
+            LIMIT ${idx}
+        """
+        params.append(top_k)
+        
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(sql, *params)
+            
+        return [
+            RetrievedChunk(
+                chunk_id=r["id"],
+                chunk_text=r["chunk_text"],
+                similarity=float(r["rank"]),
+                source_type=r["source_type"],
+                page_number=r["page_number"],
+                start_time_sec=r["start_time_sec"],
+                end_time_sec=r["end_time_sec"],
+                content_id=r["content_id"],
+                node_id=r["node_id"],
+                language=r["language"] or "vi",
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    def _rrf_merge(
+        vector_results: list[RetrievedChunk],
+        keyword_results: list[RetrievedChunk],
+        top_k: int,
+        k: int = 60,
+    ) -> list[RetrievedChunk]:
+        """Merge vector and keyword results using Reciprocal Rank Fusion (RRF)."""
+        scores: dict[int, float] = {}
+        items: dict[int, RetrievedChunk] = {}
+
+        # 1. Process vector results
+        for rank, item in enumerate(vector_results):
+            cid = item.chunk_id
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            items[cid] = item
+
+        # 2. Process keyword results
+        for rank, item in enumerate(keyword_results):
+            cid = item.chunk_id
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            if cid not in items:
+                # If a chunk only came from keyword search, assign it a default
+                # high similarity (e.g. 0.75) so it survives min_similarity checks
+                item.similarity = 0.75
+                items[cid] = item
+
+        # Sort all chunks by their RRF score descending
+        sorted_ids = sorted(scores, key=lambda x: scores[x], reverse=True)
+
+        return [items[cid] for cid in sorted_ids[:top_k]]
+
     async def _search_and_rerank(
+
         self, query: str, top_k: int, **kw
     ) -> list[RetrievedChunk]:
         candidates = await self.search(query=query, **kw)

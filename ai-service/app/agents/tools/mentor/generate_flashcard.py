@@ -87,11 +87,13 @@ class GenerateFlashcardTool(BaseTool):
                 ui_instruction={
                     "component": "FlashcardDeck",
                     "props": {
+                        "cards": preview,
                         "flashcards": preview,
                         "course_id": course_id,
                         "node_id": node_id,
                     },
                 },
+
             )
 
         except ValueError as e:
