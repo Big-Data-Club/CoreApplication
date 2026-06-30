@@ -6,26 +6,25 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <title>BDC Lakehouse Control Center</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #080612;
-            --card-bg: rgba(20, 16, 38, 0.65);
-            --border-color: rgba(139, 92, 246, 0.2);
-            --border-hover: rgba(139, 92, 246, 0.4);
-            --text-primary: #f3f4f6;
-            --text-secondary: #9ca3af;
-            --text-muted: #6b7280;
-            --primary: #8b5cf6;
-            --primary-glow: rgba(139, 92, 246, 0.3);
-            --accent-blue: #3b82f6;
-            --accent-cyan: #06b6d4;
-            --accent-green: #10b981;
-            --accent-red: #ef4444;
-            --font-main: 'Inter', sans-serif;
-            --font-title: 'Outfit', sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
-            --glow: 0 0 20px var(--primary-glow);
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --border-hover: #cbd5e1;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --primary-light: #e0e7ff;
+            --accent-blue: #2563eb;
+            --accent-green: #16a34a;
+            --accent-red: #dc2626;
+            --accent-orange: #ea580c;
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
         }
 
         * {
@@ -36,16 +35,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         body {
             background-color: var(--bg-color);
-            background-image: 
-                radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
-                radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
-                radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.03) 0%, transparent 60%);
-            background-attachment: fixed;
             color: var(--text-primary);
             font-family: var(--font-main);
             min-height: 100vh;
-            padding: 2rem;
+            padding: 1.5rem;
             line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
         }
 
         .container {
@@ -53,7 +48,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             margin: 0 auto;
             display: flex;
             flex-direction: column;
-            gap: 2rem;
+            gap: 1.5rem;
         }
 
         /* --- Header --- */
@@ -61,8 +56,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 1.5rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
         }
 
         .logo-group {
@@ -72,36 +70,36 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         }
 
         .logo-icon {
-            font-size: 2.2rem;
-            animation: float 4s ease-in-out infinite;
+            font-size: 1.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         h1 {
-            font-family: var(--font-title);
-            font-size: 1.8rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #fff 30%, #a78bfa 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -0.02em;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
         }
 
         .subtitle {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            margin-top: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 400;
         }
 
         .auth-badge {
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            background: rgba(17, 24, 39, 0.5);
-            padding: 0.5rem 1rem;
+            background: #f1f5f9;
+            padding: 0.375rem 0.875rem;
             border-radius: 9999px;
             border: 1px solid var(--border-color);
-            font-size: 0.825rem;
+            font-size: 0.75rem;
             font-weight: 500;
+            color: var(--text-secondary);
         }
 
         .status-dot {
@@ -109,71 +107,48 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             height: 8px;
             border-radius: 50%;
             background-color: var(--accent-red);
-            box-shadow: 0 0 8px var(--accent-red);
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
         }
 
         .status-dot.active {
             background-color: var(--accent-green);
-            box-shadow: 0 0 8px var(--accent-green);
         }
 
-        /* --- Stats Overview --- */
+        /* --- Stats Grid --- */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.25rem;
         }
 
         .stat-card {
             background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
             border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 1.5rem;
+            border-radius: 12px;
+            padding: 1.25rem;
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
-            position: relative;
-            overflow: hidden;
-            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+            gap: 0.375rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+            transition: border-color 0.2s ease;
         }
 
         .stat-card:hover {
-            transform: translateY(-2px);
             border-color: var(--border-hover);
         }
 
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 4px;
-            background: linear-gradient(90deg, var(--primary), var(--accent-blue));
-            opacity: 0.7;
-        }
-
-        .stat-card.alerts::before {
-            background: linear-gradient(90deg, var(--accent-red), #f97316);
-        }
-
         .stat-label {
-            font-size: 0.825rem;
+            font-size: 0.75rem;
             font-weight: 600;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
 
         .stat-value {
-            font-family: var(--font-title);
-            font-size: 2.2rem;
+            font-size: 1.75rem;
             font-weight: 700;
-            color: #fff;
-            margin-top: 0.25rem;
+            color: var(--text-primary);
         }
 
         .stat-desc {
@@ -181,11 +156,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             color: var(--text-muted);
         }
 
-        /* --- Configuration & Control --- */
+        /* --- Controls & Configuration --- */
         .controls-grid {
             display: grid;
             grid-template-columns: 2fr 1fr;
-            gap: 1.5rem;
+            gap: 1.25rem;
         }
 
         @media (max-width: 900px) {
@@ -196,175 +171,148 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         .panel-card {
             background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
             border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 1.5rem;
+            border-radius: 12px;
+            padding: 1.25rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
             display: flex;
             flex-direction: column;
-            gap: 1.25rem;
+            gap: 1rem;
         }
 
         .panel-title {
-            font-family: var(--font-title);
-            font-size: 1.1rem;
+            font-size: 0.875rem;
             font-weight: 600;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        .button-row {
             display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: #fff;
+            flex-wrap: wrap;
+            gap: 0.75rem;
         }
 
         .input-group {
             display: flex;
             gap: 0.5rem;
-            width: 100%;
         }
 
         .input-field {
-            flex-grow: 1;
-            background: rgba(10, 8, 20, 0.8);
-            border: 1px solid var(--border-color);
+            flex: 1;
+            padding: 0.5rem 0.75rem;
             border-radius: 8px;
-            color: #fff;
-            padding: 0.75rem 1rem;
-            font-family: var(--font-mono);
+            border: 1px solid var(--border-color);
+            background: #ffffff;
+            color: var(--text-primary);
             font-size: 0.875rem;
-            transition: all 0.3s ease;
+            transition: all 0.15s ease;
         }
 
         .input-field:focus {
             outline: none;
             border-color: var(--primary);
-            box-shadow: 0 0 10px rgba(139, 92, 246, 0.25);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
         }
 
         .btn {
-            background: linear-gradient(135deg, var(--primary) 0%, #6d28d9 100%);
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            padding: 0.75rem 1.25rem;
-            font-weight: 600;
+            background: var(--primary);
+            color: #ffffff;
+            border: 1px solid transparent;
+            padding: 0.5rem 1rem;
             font-size: 0.875rem;
+            font-weight: 500;
+            border-radius: 8px;
             cursor: pointer;
-            display: flex;
+            transition: all 0.15s ease;
+            display: inline-flex;
             align-items: center;
-            gap: 0.5rem;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+            justify-content: center;
+            gap: 0.375rem;
         }
 
         .btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 16px rgba(139, 92, 246, 0.35), var(--glow);
+            background: var(--primary-hover);
         }
 
         .btn:active {
-            transform: translateY(1px);
+            transform: scale(0.98);
         }
 
         .btn.secondary {
-            background: rgba(255, 255, 255, 0.05);
+            background: #f1f5f9;
+            color: var(--text-secondary);
             border: 1px solid var(--border-color);
-            box-shadow: none;
         }
 
         .btn.secondary:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: var(--border-hover);
-            box-shadow: none;
+            background: #e2e8f0;
+            color: var(--text-primary);
         }
 
-        .btn.danger {
-            background: linear-gradient(135deg, var(--accent-red) 0%, #b91c1c 100%);
-            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
-        }
-
-        .btn.danger:hover {
-            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.35);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-            box-shadow: none !important;
-        }
-
-        .button-row {
+        /* --- Main Data Explorer --- */
+        .explorer-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+            overflow: hidden;
             display: flex;
-            gap: 0.75rem;
-            flex-wrap: wrap;
+            flex-direction: column;
         }
 
-        /* --- Tab System & Table --- */
-        .tab-bar {
+        .explorer-header {
             display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.25rem;
             border-bottom: 1px solid var(--border-color);
-            gap: 1.5rem;
-            overflow-x: auto;
-            scrollbar-width: none;
+            background: #f8fafc;
+            flex-wrap: wrap;
+            gap: 1rem;
         }
-        .tab-bar::-webkit-scrollbar {
-            display: none;
+
+        .tabs-container {
+            display: flex;
+            gap: 0.25rem;
+            background: #f1f5f9;
+            padding: 0.25rem;
+            border-radius: 8px;
         }
 
         .tab-item {
-            font-family: var(--font-title);
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: var(--text-secondary);
-            padding: 0.75rem 0.25rem 1rem;
-            cursor: pointer;
-            position: relative;
-            background: none;
+            background: transparent;
             border: none;
-            transition: color 0.3s ease;
-        }
-
-        .tab-item:hover {
-            color: #fff;
+            color: var(--text-secondary);
+            padding: 0.375rem 0.875rem;
+            font-size: 0.825rem;
+            font-weight: 500;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
         }
 
         .tab-item.active {
-            color: var(--primary);
-        }
-
-        .tab-item.active::after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background-color: var(--primary);
-            box-shadow: 0 0 10px var(--primary);
+            background: #ffffff;
+            color: var(--text-primary);
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
         }
 
         .search-bar {
             display: flex;
-            justify-content: space-between;
             align-items: center;
             gap: 1rem;
+            flex-wrap: wrap;
         }
 
-        @media (max-width: 600px) {
-            .search-bar {
-                flex-direction: column;
-                align-items: stretch;
-            }
-        }
-
+        /* --- Table Styling --- */
         .table-container {
-            width: 100%;
-            overflow-x: auto;
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            background: rgba(10, 8, 20, 0.4);
-            min-height: 250px;
             position: relative;
+            overflow-x: auto;
+            min-height: 250px;
         }
 
         table {
@@ -375,157 +323,139 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         }
 
         th {
-            background-color: rgba(15, 12, 28, 0.85);
-            font-family: var(--font-title);
+            background: #f8fafc;
+            color: var(--text-muted);
             font-weight: 600;
             text-transform: uppercase;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             letter-spacing: 0.05em;
-            color: var(--text-secondary);
-            padding: 1rem 1.25rem;
+            padding: 0.75rem 1.25rem;
             border-bottom: 1px solid var(--border-color);
         }
 
         td {
-            padding: 1rem 1.25rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-            color: var(--text-primary);
-            font-family: var(--font-main);
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
         }
 
         tr:hover td {
-            background-color: rgba(255, 255, 255, 0.02);
+            background-color: #f8fafc;
         }
 
-        /* Special styled columns */
         .mono-val {
             font-family: var(--font-mono);
-            font-size: 0.825rem;
-            color: var(--accent-cyan);
-            background: rgba(6, 182, 212, 0.07);
-            padding: 0.2rem 0.4rem;
+            font-size: 0.8rem;
+            background: #f1f5f9;
+            padding: 0.125rem 0.375rem;
             border-radius: 4px;
-            border: 1px solid rgba(6, 182, 212, 0.15);
+            color: var(--text-primary);
         }
 
+        /* Badge design */
         .badge {
             display: inline-flex;
-            align-items: center;
-            padding: 0.25rem 0.6rem;
+            padding: 0.125rem 0.5rem;
             border-radius: 9999px;
             font-size: 0.75rem;
-            font-weight: 600;
+            font-weight: 500;
             text-transform: capitalize;
         }
 
-        .badge.alert-struggle {
-            background-color: rgba(239, 68, 68, 0.15);
+        .badge.alert-concept_struggle {
+            background-color: #fef2f2;
             color: var(--accent-red);
-            border: 1px solid rgba(239, 68, 68, 0.25);
-            box-shadow: 0 0 10px rgba(239, 68, 68, 0.05);
+            border: 1px solid #fecaca;
         }
 
         .badge.alert-inactivity {
-            background-color: rgba(249, 115, 22, 0.15);
-            color: #f97316;
-            border: 1px solid rgba(249, 115, 22, 0.25);
+            background-color: #fff7ed;
+            color: var(--accent-orange);
+            border: 1px solid #ffedd5;
         }
 
-        .badge.success {
-            background-color: rgba(16, 185, 129, 0.15);
-            color: var(--accent-green);
-            border: 1px solid rgba(16, 185, 129, 0.25);
-        }
-
-        /* --- Loading & Empty States --- */
+        /* Loading & Empty State */
         .loading-overlay {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(8, 6, 18, 0.8);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            backdrop-filter: blur(4px);
-            border-radius: 12px;
-            z-index: 10;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.8);
             display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
         }
 
         .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(139, 92, 246, 0.1);
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border-color);
             border-top-color: var(--primary);
             border-radius: 50%;
-            animation: spin 1s infinite linear;
-            filter: drop-shadow(0 0 8px var(--primary));
+            animation: spin 0.8s linear infinite;
         }
 
         .empty-state {
-            padding: 4rem 2rem;
-            text-align: center;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 1rem;
-            color: var(--text-secondary);
+            padding: 4rem 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            gap: 0.75rem;
         }
 
         .empty-icon {
-            font-size: 3rem;
-            opacity: 0.4;
+            font-size: 2rem;
         }
 
-        /* --- Notifications / Toast --- */
+        #emptyText {
+            max-width: 400px;
+            font-size: 0.875rem;
+        }
+
+        /* Toast notifications */
         .toast-container {
             position: fixed;
-            bottom: 2rem;
-            right: 2rem;
+            bottom: 1.5rem;
+            right: 1.5rem;
             display: flex;
             flex-direction: column;
-            gap: 0.75rem;
-            z-index: 100;
+            gap: 0.5rem;
+            z-index: 999;
         }
 
         .toast {
-            background: rgba(20, 16, 38, 0.9);
+            background: #ffffff;
             border: 1px solid var(--border-color);
             border-left: 4px solid var(--primary);
-            padding: 1rem 1.5rem;
             border-radius: 8px;
-            color: #fff;
-            font-size: 0.875rem;
-            font-weight: 500;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            padding: 0.75rem 1.25rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            transform: translateX(120%);
-            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            backdrop-filter: blur(12px);
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            transform: translateY(20px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .toast.show {
-            transform: translateX(0);
+            transform: translateY(0);
+            opacity: 1;
         }
 
-        .toast.success {
-            border-left-color: var(--accent-green);
-        }
-
-        .toast.error {
-            border-left-color: var(--accent-red);
-        }
-
-        /* --- Animations --- */
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-6px); }
-        }
+        .toast.success { border-left-color: var(--accent-green); }
+        .toast.error { border-left-color: var(--accent-red); }
+        .toast.info { border-left-color: var(--accent-blue); }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
@@ -537,7 +467,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <!-- Header -->
         <header>
             <div class="logo-group">
-                <div class="logo-icon">🌌</div>
+                <div class="logo-icon">📊</div>
                 <div>
                     <h1>BDC Lakehouse Control Center</h1>
                     <div class="subtitle">DuckDB Student Analytics & Personalization Ledger</div>
@@ -561,7 +491,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <div id="statStruggles" class="stat-value">--</div>
                 <div class="stat-desc">Concepts failed on Quick Checks</div>
             </div>
-            <div class="stat-card alerts">
+            <div class="stat-card">
                 <div class="stat-label">Active Struggle Alerts</div>
                 <div id="statAlerts" class="stat-value">--</div>
                 <div class="stat-desc">Triggered triggers needing attention</div>
@@ -598,25 +528,26 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Tab bar & Table Section -->
-        <div class="panel-card" style="min-height: 500px;">
-            <div class="tab-bar">
-                <button class="tab-item active" onclick="switchTab('student-metrics', this)">📊 Student Course Metrics</button>
-                <button class="tab-item" onclick="switchTab('concept-struggles', this)">⚠️ Concept Struggles</button>
-                <button class="tab-item" onclick="switchTab('interaction-matrix', this)">🔗 User-Item Affinity Matrix</button>
-                <button class="tab-item" onclick="switchTab('struggle-alerts', this)">🚨 Struggle Alerts</button>
-            </div>
-
-            <div class="search-bar">
-                <input type="text" id="tableSearch" class="input-field" style="max-width: 400px;" placeholder="🔍 Search records..." oninput="filterTable()">
-                <div id="tableCount" class="stat-desc">Showing 0 rows</div>
+        <!-- Explorer panel -->
+        <div class="explorer-card">
+            <div class="explorer-header">
+                <div class="tabs-container">
+                    <button class="tab-item active" onclick="switchTab('student-metrics', this)">Metrics</button>
+                    <button class="tab-item" onclick="switchTab('concept-struggles', this)">Struggles</button>
+                    <button class="tab-item" onclick="switchTab('interaction-matrix', this)">Matrix</button>
+                    <button class="tab-item" onclick="switchTab('struggle-alerts', this)">Alerts</button>
+                </div>
+                <div class="search-bar">
+                    <input type="text" id="tableSearch" class="input-field" style="max-width: 400px;" placeholder="🔍 Search records..." oninput="filterTable()">
+                    <div id="tableCount" class="stat-desc">Showing 0 rows</div>
+                </div>
             </div>
 
             <div class="table-container">
                 <div id="loadingOverlay" class="loading-overlay">
                     <div class="spinner"></div>
                 </div>
-                <table id="dataTable">
+                <table>
                     <thead id="tableHead"></thead>
                     <tbody id="tableBody"></tbody>
                 </table>
@@ -645,12 +576,25 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             
             if (urlSecret) {
                 secretKey = urlSecret;
-                localStorage.setItem('bdc_ai_secret', secretKey);
+                try {
+                    localStorage.setItem('bdc_ai_secret', secretKey);
+                } catch (e) {
+                    console.warn('LocalStorage is blocked. Key loaded in memory for this session.', e);
+                }
                 document.getElementById('secretKey').value = secretKey;
-                // Clean URL
-                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                // Clean URL safely
+                try {
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                } catch (e) {
+                    console.warn('Could not clean secret from address bar history.', e);
+                }
             } else {
-                secretKey = localStorage.getItem('bdc_ai_secret') || '';
+                try {
+                    secretKey = localStorage.getItem('bdc_ai_secret') || '';
+                } catch (e) {
+                    console.warn('LocalStorage is blocked. Please enter secret manually.', e);
+                }
                 document.getElementById('secretKey').value = secretKey;
             }
 
@@ -663,7 +607,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         function saveSecretKey() {
             const inputVal = document.getElementById('secretKey').value.trim();
             secretKey = inputVal;
-            localStorage.setItem('bdc_ai_secret', secretKey);
+            try {
+                localStorage.setItem('bdc_ai_secret', secretKey);
+            } catch (e) {
+                console.warn('Failed to save to localStorage:', e);
+            }
             updateAuthStatus();
             showToast('API Key saved successfully', 'success');
             loadAllData();
@@ -742,14 +690,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             document.getElementById('emptyState').style.display = 'none';
 
             try {
-                // Determine base path to correctly route in Traefik environments
-                const pathParts = window.location.pathname.split('/');
-                // Remove trailing file or page if exists
-                if (pathParts[pathParts.length - 1].includes('.')) {
-                    pathParts.pop();
-                }
-                
-                // Fetch metrics, struggles, Alerts and Matrix concurrently
                 const metricsUrl = '/personalize/analytics/gold/student-metrics';
                 const strugglesUrl = '/personalize/analytics/gold/concept-struggles';
                 const matrixUrl = '/personalize/analytics/gold/interaction-matrix';
@@ -788,7 +728,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             }
         }
 
-        // Render standard tables dynamically
+        // Render tables dynamically
         function renderTable() {
             const tableHead = document.getElementById('tableHead');
             const tableBody = document.getElementById('tableBody');
@@ -808,7 +748,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
             emptyState.style.display = 'none';
             
-            // Build dynamic headers based on keys in first item
             const firstRow = tableData[0];
             const columns = Object.keys(firstRow);
             
@@ -820,7 +759,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             });
             tableHead.appendChild(trHead);
 
-            // Populate rows
             tableData.forEach(row => {
                 const tr = document.createElement('tr');
                 columns.forEach(col => {
@@ -834,7 +772,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     } else if (col === 'alert_type') {
                         td.innerHTML = `<span class="badge alert-${val}">${val}</span>`;
                     } else if (col === 'check_accuracy' || col === 'struggle_rate' || col === 'implicit_affinity_score') {
-                        td.innerHTML = `<strong style="color: #fff;">${typeof val === 'number' ? val.toFixed(2) : val}</strong>`;
+                        td.innerHTML = `<strong style="color: var(--primary);">${typeof val === 'number' ? val.toFixed(2) : val}</strong>`;
                     } else if (typeof val === 'object') {
                         td.innerText = JSON.stringify(val);
                     } else {
@@ -910,22 +848,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const headers = Object.keys(tableData[0]);
             let csvContent = "data:text/csv;charset=utf-8,";
             
-            // Headers row
             csvContent += headers.join(",") + "\n";
             
-            // Data rows
             tableData.forEach(row => {
                 const rowValues = headers.map(header => {
                     const val = row[header];
                     if (val === null || val === undefined) return "";
-                    // Escape commas and quotes
                     const stringVal = String(val).replace(/"/g, '""');
                     return stringVal.includes(",") || stringVal.includes("\n") ? `"${stringVal}"` : stringVal;
                 });
                 csvContent += rowValues.join(",") + "\n";
             });
 
-            // Trigger download link
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
