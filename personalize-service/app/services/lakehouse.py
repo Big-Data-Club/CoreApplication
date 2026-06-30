@@ -128,7 +128,7 @@ class LakehouseService:
             try:
                 # Verify if there is data to archive
                 res = self.conn.execute(
-                    "SELECT COUNT(*) FROM bronze_interactions WHERE created_at < NOW() - INTERVAL ? DAY",
+                    "SELECT COUNT(*) FROM bronze_interactions WHERE created_at < NOW() - INTERVAL '1 day' * ?",
                     (age_days,)
                 ).fetchone()
                 count = res[0] if res else 0
@@ -144,7 +144,7 @@ class LakehouseService:
                 self.conn.execute(f"""
                     COPY (
                         SELECT * FROM bronze_interactions 
-                        WHERE created_at < NOW() - INTERVAL ? DAY
+                        WHERE created_at < NOW() - INTERVAL '1 day' * ?
                     ) TO '{temp_dir}' (
                         FORMAT 'PARQUET', 
                         PARTITION_BY (course_id, action_type),
@@ -154,7 +154,7 @@ class LakehouseService:
                 
                 # Remove archived rows from active table
                 self.conn.execute(
-                    "DELETE FROM bronze_interactions WHERE created_at < NOW() - INTERVAL ? DAY",
+                    "DELETE FROM bronze_interactions WHERE created_at < NOW() - INTERVAL '1 day' * ?",
                     (age_days,)
                 )
                 logger.info(f"Archived {count} old interactions to Parquet under {temp_dir}")
@@ -513,13 +513,13 @@ class LakehouseService:
                     res = self.conn.execute("""
                         SELECT COUNT(*) FROM sent_notifications 
                         WHERE user_id = ? AND alert_type = ? AND node_id = ? 
-                          AND sent_at > NOW() - INTERVAL ? HOUR
+                          AND sent_at > NOW() - INTERVAL '1 hour' * ?
                     """, (user_id, alert_type, node_id, cooldown_hours)).fetchone()
                 else:
                     res = self.conn.execute("""
                         SELECT COUNT(*) FROM sent_notifications 
                         WHERE user_id = ? AND alert_type = ? AND node_id IS NULL
-                          AND sent_at > NOW() - INTERVAL ? HOUR
+                          AND sent_at > NOW() - INTERVAL '1 hour' * ?
                     """, (user_id, alert_type, cooldown_hours)).fetchone()
                 return res[0] > 0 if res else False
             except Exception as e:
