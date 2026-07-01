@@ -124,12 +124,14 @@ class LakehouseService:
         Lakehouse Pipeline: Move old Bronze raw logs into partitioned Parquet files.
         This keeps the active DuckDB database lightweight while preserving full logs.
         """
+        from datetime import timedelta
+        cutoff_date = datetime.now() - timedelta(days=age_days)
         with self.lock:
             try:
                 # Verify if there is data to archive
                 res = self.conn.execute(
-                    "SELECT COUNT(*) FROM bronze_interactions WHERE created_at < NOW() - INTERVAL '1 day' * ?",
-                    (age_days,)
+                    "SELECT COUNT(*) FROM bronze_interactions WHERE created_at < ?",
+                    (cutoff_date,)
                 ).fetchone()
                 count = res[0] if res else 0
                 
@@ -144,18 +146,18 @@ class LakehouseService:
                 self.conn.execute(f"""
                     COPY (
                         SELECT * FROM bronze_interactions 
-                        WHERE created_at < NOW() - INTERVAL '1 day' * ?
+                        WHERE created_at < ?
                     ) TO '{temp_dir}' (
                         FORMAT 'PARQUET', 
                         PARTITION_BY (course_id, action_type),
                         OVERWRITE True
                     )
-                """, (age_days,))
+                """, (cutoff_date,))
                 
                 # Remove archived rows from active table
                 self.conn.execute(
-                    "DELETE FROM bronze_interactions WHERE created_at < NOW() - INTERVAL '1 day' * ?",
-                    (age_days,)
+                    "DELETE FROM bronze_interactions WHERE created_at < ?",
+                    (cutoff_date,)
                 )
                 logger.info(f"Archived {count} old interactions to Parquet under {temp_dir}")
                 self.refresh_views()
@@ -507,20 +509,15 @@ class LakehouseService:
         return self._query_to_dict_list("SELECT * FROM gold_struggle_alerts")
 
     def has_notification_been_sent_recently(self, user_id: int, alert_type: str, node_id: Optional[int], cooldown_hours: int = 24) -> bool:
+        from datetime import timedelta
+        cutoff_time = datetime.now() - timedelta(hours=cooldown_hours)
         with self.lock:
             try:
-                if node_id is not None:
-                    res = self.conn.execute("""
-                        SELECT COUNT(*) FROM sent_notifications 
-                        WHERE user_id = ? AND alert_type = ? AND node_id = ? 
-                          AND sent_at > NOW() - INTERVAL '1 hour' * ?
-                    """, (user_id, alert_type, node_id, cooldown_hours)).fetchone()
-                else:
-                    res = self.conn.execute("""
-                        SELECT COUNT(*) FROM sent_notifications 
-                        WHERE user_id = ? AND alert_type = ? AND node_id IS NULL
-                          AND sent_at > NOW() - INTERVAL '1 hour' * ?
-                    """, (user_id, alert_type, cooldown_hours)).fetchone()
+                # Global per-user cooldown to prevent sending more than 1 email per day
+                res = self.conn.execute("""
+                    SELECT COUNT(*) FROM sent_notifications 
+                    WHERE user_id = ? AND sent_at > ?
+                """, (user_id, cutoff_time)).fetchone()
                 return res[0] > 0 if res else False
             except Exception as e:
                 logger.error(f"Error checking sent notifications: {e}")
