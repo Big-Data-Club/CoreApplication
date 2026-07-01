@@ -535,7 +535,7 @@ services:
       redis-lms:
         condition: service_healthy
       backend:
-        condition: service_healthy
+        condition: service_started
     networks:
       - app-network
     healthcheck:
@@ -625,7 +625,7 @@ services:
       redis-lms:
         condition: service_healthy
       backend:
-        condition: service_healthy
+        condition: service_started
     networks:
       - app-network
     healthcheck:
@@ -704,7 +704,7 @@ services:
       redis-lms:
         condition: service_healthy
       backend:
-        condition: service_healthy
+        condition: service_started
     networks:
       - app-network
     healthcheck:
