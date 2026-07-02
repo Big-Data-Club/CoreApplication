@@ -383,26 +383,50 @@ class LakehouseService:
                 # A. Student course metrics
                 self.conn.execute("""
                     CREATE OR REPLACE VIEW gold_student_course_metrics AS
+                    WITH base_metrics AS (
+                        SELECT 
+                            user_id,
+                            course_id,
+                            COUNT(DISTINCT COALESCE(lesson_id, node_id)) FILTER (WHERE action_type IN ('lesson_complete', 'lesson_completed')) as completed_lessons_count,
+                            COUNT(DISTINCT COALESCE(lesson_id, node_id)) FILTER (WHERE action_type IN ('lesson_view', 'lesson_viewed')) as viewed_lessons_count,
+                            COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') as correct_checks_count,
+                            COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') as incorrect_checks_count,
+                            COUNT(*) FILTER (WHERE action_type = 'ask_ai') as ask_ai_count,
+                            COUNT(*) FILTER (WHERE action_type = 'flashcard_flip') as flashcard_flips_count,
+                            COUNT(*) as total_interactions_count,
+                            MAX(created_at) as last_active_at
+                        FROM unified_interactions
+                        GROUP BY user_id, course_id
+                    )
                     SELECT 
-                        user_id,
-                        course_id,
-                        COUNT(DISTINCT lesson_id) FILTER (WHERE action_type IN ('lesson_complete', 'lesson_completed')) as completed_lessons_count,
-                        COUNT(DISTINCT lesson_id) FILTER (WHERE action_type IN ('lesson_view', 'lesson_viewed')) as viewed_lessons_count,
-                        COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') as correct_checks_count,
-                        COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') as incorrect_checks_count,
-                        COUNT(*) FILTER (WHERE action_type = 'ask_ai') as ask_ai_count,
-                        COUNT(*) FILTER (WHERE action_type = 'flashcard_flip') as flashcard_flips_count,
+                        *,
                         ROUND(
                             CASE 
-                                WHEN (COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') + COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect')) > 0 
-                                THEN (COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') * 1.0 / (COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') + COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect')))
+                                WHEN (correct_checks_count + incorrect_checks_count) > 0 
+                                THEN (correct_checks_count * 1.0 / (correct_checks_count + incorrect_checks_count))
                                 ELSE 0.0 
                             END, 
                             2
                         ) as check_accuracy,
-                        MAX(created_at) as last_active_at
-                    FROM unified_interactions
-                    GROUP BY user_id, course_id
+                        CASE 
+                            WHEN flashcard_flips_count >= GREATEST(ask_ai_count, correct_checks_count + incorrect_checks_count, 1) THEN 'Chủ động (Flashcard)'
+                            WHEN ask_ai_count >= GREATEST(flashcard_flips_count, correct_checks_count + incorrect_checks_count, 1) THEN 'Tương tác AI'
+                            WHEN (correct_checks_count + incorrect_checks_count) >= GREATEST(flashcard_flips_count, ask_ai_count, 1) THEN 'Thực hành (Trắc nghiệm)'
+                            ELSE 'Đọc hiểu & Lý thuyết'
+                        END as learning_style,
+                        CASE 
+                            WHEN total_interactions_count >= 15 THEN 'Rất tích cực'
+                            WHEN total_interactions_count >= 5 THEN 'Tích cực'
+                            ELSE 'Cần cố gắng'
+                        END as engagement_level,
+                        CASE 
+                            WHEN (correct_checks_count + incorrect_checks_count) = 0 THEN 'Nên làm thêm Quick Check để tự đánh giá.'
+                            WHEN (correct_checks_count * 1.0 / (correct_checks_count + incorrect_checks_count)) < 0.6 THEN 'Độ chính xác thấp, nên xem kỹ lại lý thuyết và thảo luận với AI.'
+                            WHEN flashcard_flips_count < 3 THEN 'Nên dùng Flashcards để ghi nhớ nhanh các khái niệm chính.'
+                            WHEN ask_ai_count = 0 THEN 'Đừng ngần ngại sử dụng Hỏi AI khi gặp kiến thức khó.'
+                            ELSE 'Đang học tập rất tốt! Hãy tiếp tục duy trì phong độ.'
+                        END as study_recommendation
+                    FROM base_metrics
                 """)
 
                 # B. Concept struggles
@@ -427,7 +451,7 @@ class LakehouseService:
                     WHERE node_id IS NOT NULL
                     GROUP BY user_id, course_id, node_id
                     HAVING COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') >= 2 
-                       OR COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') > COUNT(*) FILTER (WHERE action_type = 'quick_check_correct')
+                       AND COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') > COUNT(*) FILTER (WHERE action_type = 'quick_check_correct')
                 """)
 
                 # C. User-Item Affinity Matrix (for DS ML Models)
@@ -458,18 +482,33 @@ class LakehouseService:
                 # D. Struggle Alerts
                 self.conn.execute("""
                     CREATE OR REPLACE VIEW gold_struggle_alerts AS
+                    -- 1. Concept Struggle
                     SELECT 
                         user_id,
                         course_id,
                         node_id,
                         'concept_struggle' as alert_type,
-                        'Học viên đang gặp khó khăn ở phần kiến thức (Node ID: ' || CAST(node_id AS VARCHAR) || '). Vui lòng ôn tập lại bài học liên quan!' as alert_message,
+                        'Học viên đang gặp khó khăn ở khái niệm (Khái niệm ID: ' || CAST(node_id AS VARCHAR) || ') với tỷ lệ làm sai là ' || CAST(ROUND(struggle_rate * 100, 0) AS VARCHAR) || '%. Hãy ôn tập lại bài học!' as alert_message,
                         last_attempt_at as detected_at
                     FROM gold_concept_struggles
-                    WHERE incorrect_checks_count >= 3 AND correct_checks_count = 0
+                    WHERE incorrect_checks_count >= 2
                     
                     UNION ALL
                     
+                    -- 2. Low Performance Warning
+                    SELECT 
+                        user_id,
+                        course_id,
+                        NULL as node_id,
+                        'low_performance' as alert_type,
+                        'Cảnh báo: Bạn đang có độ chính xác Quick Check khá thấp (' || CAST(ROUND(check_accuracy * 100, 0) AS VARCHAR) || '%). Hãy dành thời gian xem kỹ lại lý thuyết.' as alert_message,
+                        last_active_at as detected_at
+                    FROM gold_student_course_metrics
+                    WHERE (correct_checks_count + incorrect_checks_count) >= 3 AND check_accuracy < 0.60
+                    
+                    UNION ALL
+                    
+                    -- 3. Inactivity Warning
                     SELECT 
                         user_id,
                         course_id,
@@ -479,6 +518,45 @@ class LakehouseService:
                         last_active_at as detected_at
                     FROM gold_student_course_metrics
                     WHERE last_active_at < NOW() - INTERVAL 7 DAY
+                    
+                    UNION ALL
+                    
+                    -- 4. Positive Reinforcement
+                    SELECT 
+                        user_id,
+                        course_id,
+                        NULL as node_id,
+                        'positive_reinforcement' as alert_type,
+                        'Tuyệt vời! Bạn đang học tập rất tích cực với ' || CAST(completed_lessons_count AS VARCHAR) || ' bài học đã hoàn thành. Hãy tiếp tục phát huy nhé!' as alert_message,
+                        last_active_at as detected_at
+                    FROM gold_student_course_metrics
+                    WHERE completed_lessons_count >= 3 AND engagement_level = 'Rất tích cực'
+                    
+                    UNION ALL
+                    
+                    -- 5. AI Helper Suggestion
+                    SELECT 
+                        user_id,
+                        course_id,
+                        NULL as node_id,
+                        'ai_suggestion' as alert_type,
+                        'Gợi ý: Bạn đang gặp một số câu hỏi khó ở chủ đề này. Hãy thử nhấn nút "Hỏi AI" ở góc phải để được giải thích chi tiết!' as alert_message,
+                        last_active_at as detected_at
+                    FROM gold_student_course_metrics
+                    WHERE ask_ai_count = 0 AND (correct_checks_count + incorrect_checks_count) > 0 AND check_accuracy < 0.8
+                    
+                    UNION ALL
+                    
+                    -- 6. Flashcard Review Suggestion
+                    SELECT 
+                        user_id,
+                        course_id,
+                        NULL as node_id,
+                        'flashcard_suggestion' as alert_type,
+                        'Gợi ý: Bạn có thể sử dụng Thẻ ghi nhớ (Flashcards) để ôn tập nhanh các từ khóa quan trọng của bài học!' as alert_message,
+                        last_active_at as detected_at
+                    FROM gold_student_course_metrics
+                    WHERE flashcard_flips_count = 0 AND viewed_lessons_count >= 2
                 """)
                 logger.info("DuckDB Silver and Gold Views refreshed successfully")
             except Exception as e:
