@@ -821,7 +821,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         let secretKey = '';
 
         // Initialize on load
-        window.addEventListener('DOMContentLoaded', () => {
+        function initializeDashboard() {
             // Load key from LocalStorage or URL params
             const urlParams = new URLSearchParams(window.location.search);
             const urlSecret = urlParams.get('secret');
@@ -833,7 +833,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 } catch (e) {
                     console.warn('LocalStorage is blocked. Key loaded in memory for this session.', e);
                 }
-                document.getElementById('secretKey').value = secretKey;
+                const secretInput = document.getElementById('secretKey');
+                if (secretInput) {
+                    secretInput.value = secretKey;
+                }
                 
                 // Clean URL safely
                 try {
@@ -847,14 +850,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 } catch (e) {
                     console.warn('LocalStorage is blocked. Please enter secret manually.', e);
                 }
-                document.getElementById('secretKey').value = secretKey;
+                const secretInput = document.getElementById('secretKey');
+                if (secretInput) {
+                    secretInput.value = secretKey;
+                }
             }
 
             updateAuthStatus();
             if (secretKey) {
                 loadAllData();
             }
-        });
+        }
+
+        // Initialize immediately if DOM is already ready
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            initializeDashboard();
+        } else {
+            window.addEventListener('DOMContentLoaded', initializeDashboard);
+        }
 
         function saveSecretKey() {
             const inputVal = document.getElementById('secretKey').value.trim();
@@ -873,6 +886,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const dot = document.getElementById('authDot');
             const text = document.getElementById('authText');
             const badge = document.getElementById('authBadge');
+            if (!dot || !text || !badge) return;
             if (secretKey) {
                 dot.classList.add('active');
                 text.innerText = 'Authenticated';
@@ -951,10 +965,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 const alertsUrl = '/personalize/analytics/gold/struggle-alerts';
 
                 const [metrics, struggles, matrix, alerts] = await Promise.all([
-                    fetchAPI(metricsUrl).catch(e => { console.error(e); return []; }),
-                    fetchAPI(strugglesUrl).catch(e => { console.error(e); return []; }),
-                    fetchAPI(matrixUrl).catch(e => { console.error(e); return []; }),
-                    fetchAPI(alertsUrl).catch(e => { console.error(e); return []; })
+                    fetchAPI(metricsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
+                    fetchAPI(strugglesUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
+                    fetchAPI(matrixUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
+                    fetchAPI(alertsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; })
                 ]);
 
                 // Update Overview Cards
