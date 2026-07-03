@@ -715,6 +715,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </style>
 </head>
 <body>
+    <script>
+        window.addEventListener('error', function(e) {
+            const errDiv = document.createElement('div');
+            errDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:#ef4444;color:#fff;padding:12px;z-index:99999;font-family:monospace;font-size:13px;font-weight:bold;box-shadow:0 4px 15px rgba(0,0,0,0.5);text-align:center;';
+            errDiv.innerHTML = '🚨 JS ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno + ':' + e.colno;
+            document.body.appendChild(errDiv);
+        });
+    </script>
     <div class="container">
         <!-- Header -->
         <header>
@@ -727,7 +735,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             </div>
             <div class="auth-badge" id="authBadge">
                 <div id="authDot" class="status-dot"></div>
-                <span id="authText">API Disconnected</span>
+                <span id="authText">API Disconnected (JS Pending)</span>
             </div>
         </header>
 
@@ -815,6 +823,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="toast-container" id="toastContainer"></div>
 
     <script>
+        console.log("BDC Dashboard Script Tag Executing...");
         // State
         let activeTab = 'student-metrics';
         let tableData = [];
