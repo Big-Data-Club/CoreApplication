@@ -719,7 +719,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         window.addEventListener('error', function(e) {
             const errDiv = document.createElement('div');
             errDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:#ef4444;color:#fff;padding:12px;z-index:99999;font-family:monospace;font-size:13px;font-weight:bold;box-shadow:0 4px 15px rgba(0,0,0,0.5);text-align:center;';
-            errDiv.innerHTML = '🚨 JS ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno + ':' + e.colno;
+            errDiv.innerHTML = '[JS ERROR] ' + e.message + ' at ' + e.filename + ':' + e.lineno + ':' + e.colno;
             document.body.appendChild(errDiv);
         });
     </script>
@@ -1165,16 +1165,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const headers = Object.keys(tableData[0]);
             let csvContent = "data:text/csv;charset=utf-8,";
             
-            csvContent += headers.join(",") + "\n";
+            csvContent += headers.join(",") + "\\n";
             
             tableData.forEach(row => {
                 const rowValues = headers.map(header => {
                     const val = row[header];
                     if (val === null || val === undefined) return "";
                     const stringVal = String(val).replace(/"/g, '""');
-                    return stringVal.includes(",") || stringVal.includes("\n") ? `"${stringVal}"` : stringVal;
+                    return stringVal.includes(",") || stringVal.includes("\\n") ? `"${stringVal}"` : stringVal;
                 });
-                csvContent += rowValues.join(",") + "\n";
+                csvContent += rowValues.join(",") + "\\n";
             });
 
             const encodedUri = encodeURI(csvContent);
