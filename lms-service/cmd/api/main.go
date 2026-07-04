@@ -151,7 +151,7 @@ func main() {
 								if err == nil && content != nil {
 									docMap["title"] = content.Title
 									if content.FilePath.Valid && content.FilePath.String != "" {
-										docMap["file_url"] = fmt.Sprintf("/lmsapiv1/files/serve/%s", content.FilePath.String)
+										docMap["file_url"] = fmt.Sprintf("/files/%s", content.FilePath.String)
 									}
 								}
 							}
