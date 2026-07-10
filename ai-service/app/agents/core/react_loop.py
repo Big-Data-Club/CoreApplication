@@ -1207,7 +1207,7 @@ async def _maybe_emit_title_update(
 ) -> AsyncIterator[AgentEvent]:
     """Emit title update event on first turn — unchanged."""
     try:
-        existing = await message_store.get_conversation_title(session_id)
+        existing = await mtm.get_title(session_id)
         if existing:
             return
         from app.core.llm import chat_complete
@@ -1230,7 +1230,7 @@ async def _maybe_emit_title_update(
         )
         title = (title_resp or "").strip().strip('"').strip("'")
         if title:
-            await message_store.set_conversation_title(session_id, title)
+            await mtm.update_title(session_id, title)
             yield AgentEvent(
                 type=AgentEventType.TITLE_UPDATE,
                 data={"title": title},

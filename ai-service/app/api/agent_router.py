@@ -92,6 +92,10 @@ class ChatRequest(BaseModel):
     system_context: Optional[SystemContext] = None
 
 
+class RenameSessionRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=100)
+
+
 class SessionListResponse(BaseModel):
     sessions: list[dict]
 
@@ -238,6 +242,18 @@ async def delete_session(
     _verify_secret(x_ai_secret)
     await mtm.delete_session(session_id)
     return {"status": "ok"}
+
+
+@router.put("/sessions/{session_id}")
+async def rename_session(
+    session_id: str,
+    body: RenameSessionRequest,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
+):
+    """Rename a session's title."""
+    _verify_secret(x_ai_secret)
+    await mtm.update_title(session_id, body.title)
+    return {"status": "ok", "title": body.title}
 
 
 # ── Notebook CRUD Proxy ───────────────────────────────────────────────────────
