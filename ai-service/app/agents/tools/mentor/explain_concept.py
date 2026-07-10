@@ -1,9 +1,15 @@
 """
 Mentor Tool: explain_concept
 
-Uses RAG + LLM to explain a concept, adapting the explanation depth
-based on the student's mastery level. Does NOT just return raw chunks -
-it synthesizes an explanation tailored to the student.
+GraphRAG-upgraded concept explanation tool.
+
+Changes from v1:
+  - Fetches prerequisite chain from Neo4j for the query concept.
+  - Injects concept map (prerequisites, related concepts, mastery signals)
+    into the LLM system prompt before generating the explanation.
+  - LLM now knows: "student needs to understand A and B before C",
+    and adapts explanation depth + structure accordingly.
+  - Falls back gracefully to standard RAG when Neo4j is unavailable.
 """
 from __future__ import annotations
 
@@ -17,10 +23,10 @@ logger = logging.getLogger(__name__)
 class ExplainConceptTool(BaseTool):
     name = "explain_concept"
     description = (
-        "Explain a concept to the student using course materials as context. "
-        "The explanation adapts to the student's mastery level - simpler for "
-        "beginners, deeper for advanced students. Use when the student asks "
-        "to explain something, or when you need to teach a concept."
+        "Explain a concept to the student using course materials and knowledge graph context. "
+        "The explanation adapts to the student's mastery level AND the concept's prerequisite "
+        "structure - explaining foundational concepts first if the student has gaps. "
+        "Use when the student asks to explain something, or when you need to teach a concept."
     )
     parameters = {
         "type": "object",
@@ -51,10 +57,11 @@ class ExplainConceptTool(BaseTool):
     }
 
     async def execute(self, **kwargs) -> ToolResult:
+        from app.core.config import get_settings
         from app.core.llm import chat_complete
         from app.core.llm_gateway import TASK_CHAT
-        from app.services.rag_service import rag_service
 
+        settings = get_settings()
         concept = kwargs["concept"]
         course_id = kwargs.get("_course_id") or kwargs.get("course_id")
         content_id = kwargs.get("_content_id") or kwargs.get("content_id")
@@ -67,43 +74,112 @@ class ExplainConceptTool(BaseTool):
         expansion_enabled = True
         max_expansion_level = "global"
         min_similarity = 0.25
+        graph_expansion_needed = settings.graphrag_enabled
 
         if execution_plan:
             strategy = execution_plan.retrieval_strategy
             expansion_enabled = strategy.expansion_enabled
             max_expansion_level = strategy.max_expansion_level
             min_similarity = strategy.min_similarity
+            graph_expansion_needed = getattr(execution_plan, "graph_expansion_needed", settings.graphrag_enabled)
 
         try:
-            # 1. Auto-detect depth from mastery if not provided
+            # ── 1. Auto-detect depth from mastery ──────────────────────────
             if not depth:
-                from app.services.mastery_service import mastery_service
-                weaknesses = await mastery_service.get_user_struggles(
-                    user_id=student_id, course_id=course_id,
-                )
-                if weaknesses and any(w["mastery_level"] < 0.3 for w in weaknesses):
-                    depth = "beginner"
-                elif weaknesses and any(w["mastery_level"] < 0.6 for w in weaknesses):
+                try:
+                    from app.services.mastery_service import mastery_service
+                    weaknesses = await mastery_service.get_user_struggles(
+                        user_id=student_id, course_id=course_id,
+                    )
+                    if weaknesses and any(w["mastery_level"] < 0.3 for w in weaknesses):
+                        depth = "beginner"
+                    elif weaknesses and any(w["mastery_level"] < 0.6 for w in weaknesses):
+                        depth = "intermediate"
+                    else:
+                        depth = "intermediate"
+                except Exception:
                     depth = "intermediate"
-                else:
-                    depth = "intermediate"  # default
 
-            # 2. RAG context - depth-adaptive retrieval
+            # ── 2. Retrieve concept materials (GraphRAG or standard) ────────
             depth_top_k = {"beginner": 3, "intermediate": 5, "advanced": 8}
             top_k = depth_top_k.get(depth, 5)
-            chunks, resolved_scope = await rag_service.search_hierarchical(
-                query=concept,
-                course_id=course_id,
-                section_id=section_id,
-                content_id=content_id,
-                top_k=top_k,
-                min_similarity=min_similarity,
-                expansion_enabled=expansion_enabled,
-                max_expansion_level=max_expansion_level,
-            )
+
+            concept_map_text = ""
+            prereq_chain_names: list[str] = []
+            weak_prereqs: list[str] = []
+
+            if settings.graphrag_enabled and graph_expansion_needed:
+                from app.services.graphrag_service import graphrag_service
+                from app.agents.core.context_formatter import graphrag_context_formatter
+
+                # Fetch weak nodes for personalization
+                weak_node_ids: list[int] = []
+                if student_id:
+                    try:
+                        from app.agents.memory.ltm import ltm
+                        weak_node_ids = await ltm.get_weak_nodes(
+                            user_id=student_id,
+                            course_id=course_id,
+                            threshold=0.5,
+                        )
+                    except Exception:
+                        pass
+
+                ctx = await graphrag_service.retrieve(
+                    query=concept,
+                    course_id=course_id,
+                    content_id=content_id,
+                    top_k=top_k,
+                    min_similarity=min_similarity,
+                    expansion_enabled=expansion_enabled,
+                    max_expansion_level=max_expansion_level,
+                    user_id=student_id,
+                    weak_node_ids=weak_node_ids or None,
+                )
+                chunks = ctx.ranked_chunks
+
+                # Build concept map text for LLM context
+                concept_map_text = graphrag_context_formatter.format(ctx)
+
+                # Extract prereq chain names for depth adjustment
+                prereq_chain_names = [
+                    (cn.name_vi or cn.name) for cn in ctx.prereq_chain
+                ]
+                # Extract weak prereqs
+                if ctx.weak_nodes:
+                    node_map = {cn.id: cn for cn in ctx.concept_nodes}
+                    weak_in_prereq_ids = set(ctx.weak_nodes.keys()) & set(ctx.prereq_node_ids)
+                    weak_prereqs = [
+                        (node_map[nid].name_vi or node_map[nid].name)
+                        for nid in weak_in_prereq_ids
+                        if nid in node_map
+                    ]
+
+                # Auto-adjust depth: if student has weak prerequisites, start simpler
+                if weak_prereqs and depth in ("intermediate", "advanced"):
+                    depth = "beginner"
+                    logger.debug(
+                        "explain_concept: depth downgraded to beginner due to weak prereqs: %s",
+                        weak_prereqs,
+                    )
+
+            else:
+                # Standard RAG fallback
+                from app.services.rag_service import rag_service
+                chunks, _ = await rag_service.search_hierarchical(
+                    query=concept,
+                    course_id=course_id,
+                    section_id=section_id,
+                    content_id=content_id,
+                    top_k=top_k,
+                    min_similarity=min_similarity,
+                    expansion_enabled=expansion_enabled,
+                    max_expansion_level=max_expansion_level,
+                )
+
             context = "\n---\n".join(c.chunk_text for c in chunks) if chunks else ""
 
-            # 3. Depth-specific instructions
+            # ── 3. Build LLM prompt ────────────────────────────────────────
             depth_instructions = {
                 "beginner": (
                     "Explain like the student is seeing this for the first time. "
@@ -122,13 +198,32 @@ class ExplainConceptTool(BaseTool):
 
             lang_note = "Trả lời bằng tiếng Việt." if language == "vi" else "Answer in English."
 
+            # Build prerequisite guidance section
+            prereq_guidance = ""
+            if prereq_chain_names and len(prereq_chain_names) > 1:
+                prereq_guidance = (
+                    f"\n\n## Prerequisite Path\n"
+                    f"To fully understand '{concept}', the student should know this chain:\n"
+                    + " → ".join(prereq_chain_names)
+                    + "\nBriefly confirm or reinforce earlier concepts in this chain before the main explanation."
+                )
+            if weak_prereqs:
+                prereq_guidance += (
+                    f"\n\n## Student Weakness Alert\n"
+                    f"The student is WEAK at these prerequisite concepts: {', '.join(weak_prereqs)}. "
+                    f"Start by briefly re-explaining these before the main concept."
+                )
+
             system_prompt = (
                 f"You are an expert tutor. {lang_note}\n"
-                f"{depth_instructions.get(depth, depth_instructions['intermediate'])}\n\n"
-                f"Use the following course materials as primary source:\n"
+                f"{depth_instructions.get(depth, depth_instructions['intermediate'])}\n"
+                f"{prereq_guidance}\n\n"
+                f"## Course Materials\n"
                 f"{context if context else '(No specific materials found, use general knowledge)'}\n\n"
+                f"{concept_map_text}\n\n"
                 f"Format: Use markdown with headers, bullet points, and code blocks "
-                f"where appropriate. Keep it focused and educational."
+                f"where appropriate. Keep it focused and educational. "
+                f"End with 1-2 thought-provoking questions to deepen understanding."
             )
 
             explanation = await chat_complete(
@@ -137,7 +232,7 @@ class ExplainConceptTool(BaseTool):
                     {"role": "user", "content": f"Explain: {concept}"},
                 ],
                 temperature=0.4,
-                max_tokens=1500,
+                max_tokens=1800,
                 task=TASK_CHAT,
             )
 
@@ -148,8 +243,14 @@ class ExplainConceptTool(BaseTool):
                     "concept": concept,
                     "depth": depth,
                     "source_count": len(chunks),
+                    "prereq_chain": prereq_chain_names,
+                    "weak_prereqs": weak_prereqs,
+                    "graph_expanded": bool(concept_map_text),
                 },
-                message=f"Giải thích '{concept}' ở mức {depth}.",
+                message=(
+                    f"Giải thích '{concept}' ở mức {depth}."
+                    + (f" (Dựa trên chuỗi tiên quyết: {' → '.join(prereq_chain_names[-3:])})" if prereq_chain_names else "")
+                ),
             )
 
         except Exception as e:

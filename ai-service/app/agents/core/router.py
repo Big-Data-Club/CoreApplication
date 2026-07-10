@@ -1,3 +1,18 @@
+"""
+ai-service/app/agents/core/router.py
+
+Intent Router - Backward-Compatible Wrapper.
+
+As of Planner v2, the router and planner share a single LLM call via
+generate_plan() in planner.py.  This module is kept for backward
+compatibility with any code that calls classify_intent() directly.
+
+When MERGED_PLANNER_ENABLED=true (default):
+  classify_intent() calls generate_plan() and wraps the result as RouterOutput.
+
+When MERGED_PLANNER_ENABLED=false:
+  classify_intent() makes its own separate LLM call (legacy behavior).
+"""
 from __future__ import annotations
 
 import logging
@@ -40,9 +55,13 @@ class RouterOutput(BaseModel):
     )
     requires_tool: bool = Field(
         default=False,
-        description="True if the user is explicitly requesting a system action or database modification that requires a tool (such as generating quiz drafts, creating flashcards, starting a practice challenge, or indexing documents) rather than just requesting a textual answer/explanation or study advice."
+        description="True if the user is explicitly requesting a system action or database modification that requires a tool."
     )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Legacy standalone router prompt (used only when MERGED_PLANNER_ENABLED=false)
+# ─────────────────────────────────────────────────────────────────────────────
 
 ROUTER_PROMPT = """\
 You are the Intent Router and Scope Resolver for the BDC Learning Management System.
@@ -82,11 +101,15 @@ async def classify_intent(
     """
     Classify the user's message into an intent type with structured details.
 
-    Returns a RouterOutput object.
-    Falls back to a default RouterOutput on error.
+    When MERGED_PLANNER_ENABLED=true: delegates to generate_plan() to reuse
+    the single planning LLM call instead of making a separate router call.
+
+    When MERGED_PLANNER_ENABLED=false: makes a standalone LLM call (legacy).
+
+    Returns a RouterOutput object. Falls back to a default RouterOutput on error.
     """
+    # Short-circuit for trivial inputs (saves LLM call regardless of mode)
     try:
-        # Short messages and greetings -> skip LLM call
         stripped = user_message.strip().lower()
         if len(stripped) < 5 or stripped in (
             "hi", "hello", "hey", "xin chào", "chào",
@@ -100,7 +123,36 @@ async def classify_intent(
                 matched_course_id=None,
                 requires_tool=False,
             )
+    except Exception:
+        pass
 
+    # ── Merged Planner path (default) ──────────────────────────────────────
+    if settings.merged_planner_enabled:
+        try:
+            from app.agents.core.planner import generate_plan
+            plan = await generate_plan(
+                user_message=user_message,
+                active_courses=active_courses,
+                agent_type=agent_type,
+                current_course_id=current_course_id,
+                page_context=page_context,
+            )
+            intent = plan.intent if plan.intent in VALID_INTENTS else "general_chat"
+            return RouterOutput(
+                intent=intent,
+                is_ambiguous=plan.is_ambiguous,
+                ambiguity_reason=plan.ambiguity_reason,
+                missing_context=plan.missing_context,
+                matched_course_id=plan.matched_course_id,
+                requires_tool=plan.requires_tool,
+            )
+        except Exception as exc:
+            logger.warning(
+                "classify_intent (merged planner path) failed, falling back: %s", exc
+            )
+
+    # ── Legacy standalone router path ─────────────────────────────────────
+    try:
         courses = (active_courses or {}).get("courses") or []
         course_lines = []
         for c in courses:
@@ -137,7 +189,7 @@ async def classify_intent(
                 {"role": "user", "content": user_message[:500]},
             ],
             response_model=RouterOutput,
-            model=settings.chat_model,  # fast model
+            model=settings.chat_model,
             temperature=0.0,
             max_tokens=256,
             task=TASK_AGENT_ROUTER,
@@ -147,7 +199,7 @@ async def classify_intent(
             output.intent = "general_chat"
 
         logger.debug(
-            "Intent classified: intent=%s, is_ambiguous=%s, matched_course_id=%s, requires_tool=%s",
+            "Intent classified (legacy): intent=%s, is_ambiguous=%s, matched_course_id=%s, requires_tool=%s",
             output.intent, output.is_ambiguous, output.matched_course_id, output.requires_tool
         )
         return output
@@ -162,4 +214,3 @@ async def classify_intent(
             matched_course_id=None,
             requires_tool=False,
         )
-

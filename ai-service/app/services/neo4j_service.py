@@ -432,6 +432,172 @@ class Neo4jService:
             )
             return [dict(r) async for r in result]
 
+    # ── GraphRAG: Concept Context Expansion ────────────────────────────────────
+
+    async def get_concept_context(
+        self,
+        node_ids: list[int],
+        depth: int = 2,
+        max_nodes: int = 40,
+    ) -> dict[str, Any]:
+        """
+        Expand a set of seed node_ids into a subgraph of related concepts.
+
+        This is the primary GraphRAG expansion step: given the node_ids
+        attached to initially retrieved chunks, we traverse the knowledge graph
+        up to `depth` hops and collect:
+          - All expanded nodes (id, name, name_vi, course_id, description)
+          - All relationship edges within the subgraph
+            (source, target, relation_type, strength, cross_course)
+
+        Returns:
+            {
+                "seed_node_ids": [...],
+                "expanded_nodes": [{id, name, name_vi, course_id, description, hops}],
+                "edges": [{source, target, relation_type, strength, cross_course}],
+            }
+        Falls back to empty result if Neo4j is disabled or query fails.
+        """
+        from app.core.config import get_settings
+        _settings = get_settings()
+        if not _settings.neo4j_enabled or not node_ids:
+            return {"seed_node_ids": node_ids, "expanded_nodes": [], "edges": []}
+
+        try:
+            async with self._get_driver().session() as s:
+                # Multi-seed BFS expansion: start from any seed node,
+                # traverse up to `depth` hops in any direction.
+                result = await s.run(
+                    """
+                    UNWIND $seed_ids AS seed_id
+                    MATCH path = (start:KnowledgeNode {id: seed_id})
+                                 -[*1..$depth]-(neighbor:KnowledgeNode)
+                    WHERE NOT neighbor.id IN $seed_ids
+                    WITH DISTINCT neighbor,
+                         MIN(length(path)) AS hops
+                    ORDER BY hops, neighbor.id
+                    LIMIT $limit
+                    RETURN neighbor.id          AS id,
+                           neighbor.name        AS name,
+                           neighbor.name_vi     AS name_vi,
+                           neighbor.course_id   AS course_id,
+                           neighbor.description AS description,
+                           hops
+                    """,
+                    seed_ids=node_ids,
+                    depth=depth,
+                    limit=max_nodes,
+                )
+                expanded = [dict(r) async for r in result]
+
+                # Fetch edges within the full subgraph (seeds + expanded)
+                all_ids = node_ids + [n["id"] for n in expanded]
+                edge_result = await s.run(
+                    """
+                    MATCH (a:KnowledgeNode)-[r]->(b:KnowledgeNode)
+                    WHERE a.id IN $ids AND b.id IN $ids
+                    RETURN a.id           AS source,
+                           b.id           AS target,
+                           type(r)        AS relation_type,
+                           r.strength     AS strength,
+                           r.cross_course AS cross_course,
+                           r.reason       AS reason
+                    """,
+                    ids=all_ids,
+                )
+                edges = [dict(r) async for r in edge_result]
+
+            return {
+                "seed_node_ids":  node_ids,
+                "expanded_nodes": expanded,
+                "edges":          edges,
+            }
+
+        except Exception as exc:
+            logger.warning("get_concept_context failed (non-fatal): %s", exc)
+            return {"seed_node_ids": node_ids, "expanded_nodes": [], "edges": []}
+
+    # ── GraphRAG: Prerequisite Chain ──────────────────────────────────────────
+
+    async def get_prerequisite_chain(
+        self,
+        target_node_id: int,
+        max_depth: int = 4,
+    ) -> list[dict]:
+        """
+        Return the ordered prerequisite chain leading TO `target_node_id`.
+
+        Traverses PREREQUISITE edges in reverse (prerequisites → target) and
+        returns nodes ordered from earliest prerequisite to the target itself.
+        Used by the GraphRAG formatter to produce a "learning path" hint for
+        the LLM.
+
+        Returns [] when Neo4j is disabled, the node has no prerequisites, or
+        the query fails.
+        """
+        from app.core.config import get_settings
+        _settings = get_settings()
+        if not _settings.neo4j_enabled:
+            return []
+
+        try:
+            async with self._get_driver().session() as s:
+                result = await s.run(
+                    """
+                    MATCH path = (prereq:KnowledgeNode)
+                                 -[:PREREQUISITE*1..$depth]->(target:KnowledgeNode {id: $target_id})
+                    WITH nodes(path) AS path_nodes, length(path) AS path_len
+                    ORDER BY path_len DESC
+                    LIMIT 1
+                    UNWIND path_nodes AS n
+                    RETURN n.id        AS id,
+                           n.name      AS name,
+                           n.name_vi   AS name_vi,
+                           n.course_id AS course_id
+                    """,
+                    target_id=target_node_id,
+                    depth=max_depth,
+                )
+                return [dict(r) async for r in result]
+
+        except Exception as exc:
+            logger.warning(
+                "get_prerequisite_chain for node=%d failed (non-fatal): %s",
+                target_node_id, exc,
+            )
+            return []
+
+    # ── GraphRAG: Nodes Lookup by IDs ─────────────────────────────────────────
+
+    async def get_nodes_by_ids(self, node_ids: list[int]) -> list[dict]:
+        """
+        Fetch node metadata for a list of known IDs in a single round-trip.
+        Used by graphrag_service to enrich chunk results with node names.
+        """
+        if not node_ids:
+            return []
+        from app.core.config import get_settings
+        if not get_settings().neo4j_enabled:
+            return []
+        try:
+            async with self._get_driver().session() as s:
+                result = await s.run(
+                    """
+                    UNWIND $ids AS nid
+                    MATCH (n:KnowledgeNode {id: nid})
+                    RETURN n.id          AS id,
+                           n.name        AS name,
+                           n.name_vi     AS name_vi,
+                           n.course_id   AS course_id,
+                           n.description AS description
+                    """,
+                    ids=node_ids,
+                )
+                return [dict(r) async for r in result]
+        except Exception as exc:
+            logger.warning("get_nodes_by_ids failed (non-fatal): %s", exc)
+            return []
+
     # ── Health ─────────────────────────────────────────────────────────────────
 
     async def health(self) -> dict[str, Any]:

@@ -34,6 +34,22 @@ class Settings(BaseSettings):
     # Feature flags
     use_qdrant: bool = True
 
+    # ── GraphRAG ───────────────────────────────────────────────────────────────
+    # Set GRAPHRAG_ENABLED=false to revert to flat vector-only RAG without
+    # code changes. All graph expansion logic is gated behind this flag.
+    graphrag_enabled: bool = True
+    # Neo4j traversal depth when expanding chunk context via the graph.
+    # depth=1 → direct neighbors only; depth=2 → 2 hops (default, recommended).
+    graph_context_depth: int = 2
+    # Max chunks to fetch per expanded neighbor node (keeps context budget bounded).
+    graph_neighbor_top_k: int = 3
+    # Multiplicative boost applied to chunks on a user's prerequisite learning
+    # path during graph-guided re-ranking. 1.0 = no boost; 1.3 = 30% boost.
+    graph_prereq_boost: float = 1.3
+    # When true, the planner and router share a single LLM call (Planner v2).
+    # When false, the legacy separate router call is preserved for backward compat.
+    merged_planner_enabled: bool = True
+
     # Redis
     redis_host: str = "redis-lms"
     redis_port: int = 6379

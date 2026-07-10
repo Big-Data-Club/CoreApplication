@@ -279,6 +279,7 @@ this student across turns. Use it actively:
 - In the thought block, reason through ALL of these steps IN ORDER:
     Step 1 - What exactly is the student asking? What is their real learning goal?
     Step 2 - What do I know about this student from memory? (level, weak topics, recent activity)
+    Step 2b - Does the Knowledge Graph Context section below contain prerequisite or relationship signals? If so, identify: (a) which prerequisite concepts to address first, (b) which concepts the student is weak at.
     Step 3 - Is the question about the current active lesson, or are they pivoting to a different topic? Check the In-Page Context block.
     Step 4 - What knowledge / materials do I have available? What do I need to search for?
     Step 5 - What is the clearest pedagogical structure for this response? (explain → example → analogy → challenge question)
@@ -289,6 +290,9 @@ this student across turns. Use it actively:
 - Use code blocks for programming examples
 - Include hints before full solutions when possible
 - Keep responses conversational, not textbook-like
+
+# Knowledge Graph Context
+{graph_context}
 """
 
 
@@ -299,6 +303,7 @@ def build_system_prompt(
     active_courses_section: str = "",
     page_context: dict | None = None,
     system_context: dict | None = None,
+    graph_context: str = "",
 ) -> str:
     """
     Build the final system prompt with memory and user context injected.
@@ -306,6 +311,9 @@ def build_system_prompt(
     [PATCH] Khi có rich page_context (học viên đang đọc bài), suppress
     active_courses_block thành compact summary để giảm context bloat.
     Budget tiết kiệm được dành cho CoT thinking.
+
+    [GraphRAG] graph_context is injected into MENTOR prompt's
+    'Knowledge Graph Context' section. Empty string means no graph data.
     """
     template = (
         TEACHER_SYSTEM_PROMPT if agent_type == "teacher"
@@ -357,13 +365,22 @@ def build_system_prompt(
     page_section = _format_page_context(page_context)
     sys_section = _format_system_context(system_context)
 
-    return template.format(
+    # GraphRAG context: only inject into mentor prompt (teacher has different flow)
+    graph_section = ""
+    if agent_type == "mentor" and graph_context:
+        graph_section = graph_context
+
+    kwargs = dict(
         active_courses_block=block,
         memory_context=memory_context,
         user_context=user_section,
         page_context=page_section,
         system_context=sys_section,
     )
+    if agent_type == "mentor":
+        kwargs["graph_context"] = graph_section
+
+    return template.format(**kwargs)
 
 
 def _format_user_context(ctx: dict | None, agent_type: str) -> str:

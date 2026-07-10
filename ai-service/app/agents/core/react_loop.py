@@ -285,14 +285,19 @@ async def run_react_loop(
         history=history_turns,
     )
 
-    router_output = await classify_intent(
-        user_message=user_message,
-        active_courses=active_courses,
-        agent_type=agent_type,
-        current_course_id=course_id,
-        page_context=page_context,
+    # Planner v2 covers routing - use execution_plan fields directly
+    # The legacy classify_intent() wrapper would just call generate_plan() again;
+    # we short-circuit it by building a lightweight RouterOutput from the plan.
+    from app.agents.core.router import RouterOutput
+    router_output = RouterOutput(
+        intent=execution_plan.intent,
+        is_ambiguous=execution_plan.is_ambiguous,
+        ambiguity_reason=execution_plan.ambiguity_reason,
+        missing_context=execution_plan.missing_context,
+        matched_course_id=execution_plan.matched_course_id,
+        requires_tool=execution_plan.requires_tool,
     )
-    
+
     intent_type = execution_plan.user_intent
 
     yield AgentEvent(
@@ -309,6 +314,10 @@ async def run_react_loop(
             "personalization_enabled": execution_plan.personalization_enabled,
             "lakehouse_required": execution_plan.lakehouse_required,
             "reasoning": execution_plan.reasoning,
+            # GraphRAG v2 signals
+            "graph_expansion_needed": getattr(execution_plan, "graph_expansion_needed", False),
+            "user_weakness_relevant": getattr(execution_plan, "user_weakness_relevant", False),
+            "primary_node_name": getattr(execution_plan, "primary_node_name", None),
         },
         session_id=session_id,
         turn_id=turn_id,
@@ -637,6 +646,60 @@ async def run_react_loop(
                 turn_id=turn_id,
             )
 
+    # -- Step 3.7: GraphRAG pre-fetch (when graph expansion is signaled) --------
+    # Fetch concept graph context BEFORE building the system prompt so the
+    # LLM receives prerequisite and relationship signals from the first token.
+    graph_context_text = ""
+    _graph_expansion_needed = getattr(execution_plan, "graph_expansion_needed", False)
+    _user_weakness_relevant = getattr(execution_plan, "user_weakness_relevant", False)
+
+    if agent_type == "mentor" and _graph_expansion_needed:
+        try:
+            from app.core.config import get_settings as _get_settings
+            _cfg = _get_settings()
+            if _cfg.graphrag_enabled and _cfg.neo4j_enabled:
+                from app.services.graphrag_service import graphrag_service
+                from app.agents.core.context_formatter import graphrag_context_formatter
+
+                _weak_node_ids: list[int] = []
+                if _user_weakness_relevant:
+                    try:
+                        from app.agents.memory.ltm import ltm as _ltm
+                        _weak_node_ids = await _ltm.get_weak_nodes(
+                            user_id=user_id,
+                            course_id=effective_course_id,
+                            threshold=0.5,
+                        )
+                    except Exception:
+                        pass
+
+                _graph_ctx = await graphrag_service.retrieve(
+                    query=user_message,
+                    course_id=effective_course_id,
+                    top_k=3,  # lightweight pre-fetch (tools will do deeper retrieval)
+                    min_similarity=0.30,
+                    expansion_enabled=True,
+                    max_expansion_level="course",  # cap to avoid over-expansion at prompt level
+                    user_id=user_id,
+                    weak_node_ids=_weak_node_ids or None,
+                )
+                graph_context_text = graphrag_context_formatter.format(_graph_ctx)
+
+                yield AgentEvent(
+                    type=AgentEventType.THINKING,
+                    data={
+                        "step": "graphrag_prefetch",
+                        "seed_nodes": _graph_ctx.seed_node_ids,
+                        "expanded_nodes": len(_graph_ctx.expanded_node_ids),
+                        "prereq_chain_len": len(_graph_ctx.prereq_chain),
+                        "graph_expanded": _graph_ctx.graph_expanded,
+                    },
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
+        except Exception as _exc:
+            logger.warning("GraphRAG pre-fetch failed (non-fatal): %s", _exc)
+
     # -- Step 4: Build messages ------------------------------------------------
     active_courses_section = format_active_courses_for_prompt(active_courses)
 
@@ -649,6 +712,7 @@ async def run_react_loop(
         active_courses_section=active_courses_section,
         page_context=ctx_decision.effective_page_context,
         system_context=ctx_decision.effective_system_context,
+        graph_context=graph_context_text,
     )
 
     # Start with system prompt
