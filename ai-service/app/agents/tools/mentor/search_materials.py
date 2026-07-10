@@ -37,7 +37,7 @@ class SearchMaterialsTool(BaseTool):
                 "description": "Search query - the concept or question to look up.",
             },
             "course_id": {
-                "type": "integer",
+                "type": ["integer", "null"],
                 "description": "Optional: filter search to a specific course ID. Omit to search across all courses.",
             },
             "top_k": {

@@ -30,10 +30,10 @@ class GetStudyPlanTool(BaseTool):
         "type": "object",
         "properties": {
             "course_id": {
-                "type": "integer",
+                "type": ["integer", "null"],
                 "description": (
                     "Optional: filter results to a specific course. "
-                    "Leave omitted to get a global plan across all courses."
+                    "Leave omitted or pass null to get a global plan across all courses."
                 ),
             },
         },
