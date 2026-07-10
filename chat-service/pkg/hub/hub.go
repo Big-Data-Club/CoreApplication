@@ -57,6 +57,7 @@ type EventType string
 const (
 	EventMessage  EventType = "message"
 	EventDelete   EventType = "delete"
+	EventEdit     EventType = "edit"
 	EventTyping   EventType = "typing"
 	EventJoin     EventType = "join"
 	EventLeave    EventType = "leave"
@@ -72,14 +73,18 @@ type WSEvent struct {
 	Timestamp time.Time   `json:"ts"`
 }
 
-// MessagePayload is the Payload for EventMessage / EventDelete.
+// MessagePayload is the Payload for EventMessage / EventDelete / EventEdit.
 type MessagePayload struct {
-	ID           int64  `json:"id"`
-	SenderID     int64  `json:"sender_id"`
-	SenderName   string `json:"sender_name"`
-	SenderAvatar string `json:"sender_avatar,omitempty"`
-	Body         string `json:"body"`
-	IsDeleted    bool   `json:"is_deleted,omitempty"`
+	ID               int64   `json:"id"`
+	SenderID         int64   `json:"sender_id"`
+	SenderName       string  `json:"sender_name"`
+	SenderAvatar     string  `json:"sender_avatar,omitempty"`
+	Body             string  `json:"body"`
+	IsDeleted        bool    `json:"is_deleted,omitempty"`
+	IsEdited         bool    `json:"is_edited,omitempty"`
+	ParentID         *int64  `json:"parent_id,omitempty"`
+	ParentSenderName string  `json:"parent_sender_name,omitempty"`
+	ParentBody       string  `json:"parent_body,omitempty"`
 }
 
 // TypingPayload is the Payload for EventTyping.

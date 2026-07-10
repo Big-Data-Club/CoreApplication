@@ -64,19 +64,28 @@ type ChannelUsersResponse struct {
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 type SendMessageRequest struct {
+	Body     string `json:"body"      binding:"required,min=1,max=4000"`
+	ParentID *int64 `json:"parent_id"` // nil = top-level, non-nil = reply
+}
+
+type EditMessageRequest struct {
 	Body string `json:"body" binding:"required,min=1,max=4000"`
 }
 
 type MessageResponse struct {
-	ID           int64     `json:"id"`
-	ChannelID    int64     `json:"channel_id"`
-	SenderID     int64     `json:"sender_id"`
-	SenderName   string    `json:"sender_name"`
-	SenderEmail  string    `json:"sender_email"`
-	SenderAvatar string    `json:"sender_avatar"`
-	Body         string    `json:"body"`
-	IsDeleted    bool      `json:"is_deleted"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID               int64     `json:"id"`
+	ChannelID        int64     `json:"channel_id"`
+	SenderID         int64     `json:"sender_id"`
+	SenderName       string    `json:"sender_name"`
+	SenderEmail      string    `json:"sender_email"`
+	SenderAvatar     string    `json:"sender_avatar"`
+	Body             string    `json:"body"`
+	IsDeleted        bool      `json:"is_deleted"`
+	IsEdited         bool      `json:"is_edited"`
+	ParentID         *int64    `json:"parent_id,omitempty"`
+	ParentSenderName string    `json:"parent_sender_name,omitempty"`
+	ParentBody       string    `json:"parent_body,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 type MessageListResponse struct {

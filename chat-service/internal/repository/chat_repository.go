@@ -30,17 +30,21 @@ type ChannelRole struct {
 	CanWrite  bool
 }
 
-// Message is one row in chat_messages enriched with sender data.
+// Message is one row in chat_messages enriched with sender and parent data.
 type Message struct {
-	ID             int64
-	ChannelID      int64
-	SenderID       int64
-	SenderName     string
-	SenderEmail    string
-	SenderAvatar   string
-	Body           string
-	IsDeleted      bool
-	CreatedAt      time.Time
+	ID               int64
+	ChannelID        int64
+	SenderID         int64
+	SenderName       string
+	SenderEmail      string
+	SenderAvatar     string
+	Body             string
+	IsDeleted        bool
+	IsEdited         bool
+	ParentID         *int64
+	ParentSenderName string
+	ParentBody       string
+	CreatedAt        time.Time
 }
 
 // ChatRepository handles all chat-domain DB operations.
@@ -507,13 +511,21 @@ func (r *ChatRepository) ListMessages(
 	if beforeID > 0 {
 		rows, err = r.db.QueryContext(ctx, `
 			SELECT m.id, m.channel_id, m.sender_id,
-			       COALESCE(u.full_name, u.email) AS sender_name,
-			       u.email                         AS sender_email,
-			       COALESCE(u.profile_picture, '')  AS sender_avatar,
+			       COALESCE(u.full_name, u.email)       AS sender_name,
+			       u.email                              AS sender_email,
+			       COALESCE(u.profile_picture, '')       AS sender_avatar,
 			       CASE WHEN m.is_deleted THEN '[deleted]' ELSE m.body END AS body,
-			       m.is_deleted, m.created_at
+			       m.is_deleted, m.is_edited,
+			       m.parent_id,
+			       COALESCE(pu.full_name, pu.email, '') AS parent_sender_name,
+			       CASE WHEN pm.is_deleted THEN '[deleted]'
+			            WHEN pm.body IS NOT NULL THEN LEFT(pm.body, 200)
+			            ELSE '' END                      AS parent_body,
+			       m.created_at
 			FROM chat_messages m
 			JOIN users u ON u.id = m.sender_id
+			LEFT JOIN chat_messages pm ON pm.id = m.parent_id
+			LEFT JOIN users pu ON pu.id = pm.sender_id
 			WHERE m.channel_id = $1 AND m.id < $2
 			ORDER BY m.id DESC
 			LIMIT $3
@@ -521,13 +533,21 @@ func (r *ChatRepository) ListMessages(
 	} else {
 		rows, err = r.db.QueryContext(ctx, `
 			SELECT m.id, m.channel_id, m.sender_id,
-			       COALESCE(u.full_name, u.email) AS sender_name,
-			       u.email                         AS sender_email,
-			       COALESCE(u.profile_picture, '')  AS sender_avatar,
+			       COALESCE(u.full_name, u.email)       AS sender_name,
+			       u.email                              AS sender_email,
+			       COALESCE(u.profile_picture, '')       AS sender_avatar,
 			       CASE WHEN m.is_deleted THEN '[deleted]' ELSE m.body END AS body,
-			       m.is_deleted, m.created_at
+			       m.is_deleted, m.is_edited,
+			       m.parent_id,
+			       COALESCE(pu.full_name, pu.email, '') AS parent_sender_name,
+			       CASE WHEN pm.is_deleted THEN '[deleted]'
+			            WHEN pm.body IS NOT NULL THEN LEFT(pm.body, 200)
+			            ELSE '' END                      AS parent_body,
+			       m.created_at
 			FROM chat_messages m
 			JOIN users u ON u.id = m.sender_id
+			LEFT JOIN chat_messages pm ON pm.id = m.parent_id
+			LEFT JOIN users pu ON pu.id = pm.sender_id
 			WHERE m.channel_id = $1
 			ORDER BY m.id DESC
 			LIMIT $2
@@ -542,12 +562,22 @@ func (r *ChatRepository) ListMessages(
 	var msgs []Message
 	for rows.Next() {
 		var msg Message
+		var parentID sql.NullInt64
+		var parentSenderName, parentBody sql.NullString
 		if err := rows.Scan(
 			&msg.ID, &msg.ChannelID, &msg.SenderID,
 			&msg.SenderName, &msg.SenderEmail, &msg.SenderAvatar,
-			&msg.Body, &msg.IsDeleted, &msg.CreatedAt,
+			&msg.Body, &msg.IsDeleted, &msg.IsEdited,
+			&parentID, &parentSenderName, &parentBody,
+			&msg.CreatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if parentID.Valid {
+			v := parentID.Int64
+			msg.ParentID = &v
+			msg.ParentSenderName = parentSenderName.String
+			msg.ParentBody = parentBody.String
 		}
 		msgs = append(msgs, msg)
 	}
@@ -564,19 +594,21 @@ func (r *ChatRepository) ListMessages(
 }
 
 // CreateMessage inserts a new message and returns it with sender info.
+// parentID is nil for top-level messages, non-nil for direct replies.
 func (r *ChatRepository) CreateMessage(
 	ctx context.Context,
 	channelID, senderID int64,
 	body string,
+	parentID *int64,
 ) (*Message, error) {
 	var msgID int64
 	var createdAt time.Time
 
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO chat_messages (channel_id, sender_id, body)
-		VALUES ($1, $2, $3)
+		INSERT INTO chat_messages (channel_id, sender_id, body, parent_id)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, created_at
-	`, channelID, senderID, body).Scan(&msgID, &createdAt)
+	`, channelID, senderID, body, nullInt64(parentID)).Scan(&msgID, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("create message: %w", err)
 	}
@@ -591,21 +623,65 @@ func (r *ChatRepository) CreateMessage(
 
 func (r *ChatRepository) getMessageByID(ctx context.Context, msgID int64) (*Message, error) {
 	msg := &Message{}
+	var parentID sql.NullInt64
+	var parentSenderName, parentBody sql.NullString
 	err := r.db.QueryRowContext(ctx, `
 		SELECT m.id, m.channel_id, m.sender_id,
-		       COALESCE(u.full_name, u.email) AS sender_name,
-		       u.email                         AS sender_email,
-		       COALESCE(u.profile_picture, '')  AS sender_avatar,
-		       m.body, m.is_deleted, m.created_at
+		       COALESCE(u.full_name, u.email)       AS sender_name,
+		       u.email                              AS sender_email,
+		       COALESCE(u.profile_picture, '')       AS sender_avatar,
+		       m.body, m.is_deleted, m.is_edited,
+		       m.parent_id,
+		       COALESCE(pu.full_name, pu.email, '') AS parent_sender_name,
+		       CASE WHEN pm.is_deleted THEN '[deleted]'
+		            WHEN pm.body IS NOT NULL THEN LEFT(pm.body, 200)
+		            ELSE '' END                      AS parent_body,
+		       m.created_at
 		FROM chat_messages m
 		JOIN users u ON u.id = m.sender_id
+		LEFT JOIN chat_messages pm ON pm.id = m.parent_id
+		LEFT JOIN users pu ON pu.id = pm.sender_id
 		WHERE m.id = $1
 	`, msgID).Scan(
 		&msg.ID, &msg.ChannelID, &msg.SenderID,
 		&msg.SenderName, &msg.SenderEmail, &msg.SenderAvatar,
-		&msg.Body, &msg.IsDeleted, &msg.CreatedAt,
+		&msg.Body, &msg.IsDeleted, &msg.IsEdited,
+		&parentID, &parentSenderName, &parentBody,
+		&msg.CreatedAt,
 	)
-	return msg, err
+	if err != nil {
+		return nil, err
+	}
+	if parentID.Valid {
+		v := parentID.Int64
+		msg.ParentID = &v
+		msg.ParentSenderName = parentSenderName.String
+		msg.ParentBody = parentBody.String
+	}
+	return msg, nil
+}
+
+// UpdateMessageBody updates a message's body and sets is_edited=true.
+// Only the original sender may edit. Returns ErrForbidden if the caller
+// does not own the message or the message is deleted.
+func (r *ChatRepository) UpdateMessageBody(
+	ctx context.Context,
+	msgID, senderID int64,
+	newBody string,
+) (*Message, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE chat_messages
+		SET body = $3, is_edited = true
+		WHERE id = $1 AND sender_id = $2 AND is_deleted = false
+	`, msgID, senderID, newBody)
+	if err != nil {
+		return nil, fmt.Errorf("update message body: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, fmt.Errorf("message not found or permission denied")
+	}
+	return r.getMessageByID(ctx, msgID)
 }
 
 // SoftDeleteMessage marks a message as deleted.
@@ -732,6 +808,14 @@ func buildRoleArgs(firstArg interface{}, roles []string) (string, []interface{})
 		phs[i] = fmt.Sprintf("$%d", i+2)
 	}
 	return strings.Join(phs, ","), args
+}
+
+// nullInt64 converts a *int64 pointer to a sql.NullInt64 for DB insertion.
+func nullInt64(v *int64) sql.NullInt64 {
+	if v == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: *v, Valid: true}
 }
 
 // SeedDefaultChannel checks if the 'general' channel exists. If not, it creates it using the first available user.

@@ -260,7 +260,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		logger.Warnf("ensure guest user %d: %v", userID, err)
 	}
 
-	msg, err := h.chatRepo.CreateMessage(c.Request.Context(), channelID, userID, req.Body)
+	msg, err := h.chatRepo.CreateMessage(c.Request.Context(), channelID, userID, req.Body, req.ParentID)
 	if err != nil {
 		logger.Errorf("create message channel=%d user=%d: %v", channelID, userID, err)
 		c.JSON(dto.ErrInternal("Failed to send message"))
@@ -271,13 +271,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	event := hub.WSEvent{
 		Type:      hub.EventMessage,
 		ChannelID: channelID,
-		Payload:   hub.MessagePayload{
-			ID:           msg.ID,
-			SenderID:     msg.SenderID,
-			SenderName:   msg.SenderName,
-			SenderAvatar: msg.SenderAvatar,
-			Body:         msg.Body,
-		},
+		Payload:   messagepayload(msg),
 		Timestamp: time.Now().UTC(),
 	}
 	if err := h.hub.Publish(c.Request.Context(), channelID, event); err != nil {
@@ -327,6 +321,45 @@ func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 	_ = h.hub.Publish(c.Request.Context(), channelID, event)
 
 	c.JSON(dto.OK(gin.H{"deleted": true}))
+}
+
+// ─── EditMessage PUT /api/v1/chat/channels/:id/messages/:msgId ────────────────
+
+func (h *ChatHandler) EditMessage(c *gin.Context) {
+	channelID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	msgID, ok := parseID(c, "msgId")
+	if !ok {
+		return
+	}
+
+	userID := mustUserID(c)
+
+	var req dto.EditMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(dto.ErrBadRequest(err.Error()))
+		return
+	}
+
+	msg, err := h.chatRepo.UpdateMessageBody(c.Request.Context(), msgID, userID, req.Body)
+	if err != nil {
+		logger.Errorf("edit message msgID=%d user=%d: %v", msgID, userID, err)
+		c.JSON(dto.ErrForbidden(err.Error()))
+		return
+	}
+
+	// Broadcast edit event so all clients update in-place without reload
+	event := hub.WSEvent{
+		Type:      hub.EventEdit,
+		ChannelID: channelID,
+		Payload:   messagepayload(msg),
+		Timestamp: time.Now().UTC(),
+	}
+	_ = h.hub.Publish(c.Request.Context(), channelID, event)
+
+	c.JSON(dto.OK(messageToDTO(*msg)))
 }
 
 // ─── WebSocket GET /api/v1/chat/ws?token=<jwt> ────────────────────────────────
@@ -402,7 +435,7 @@ func (h *ChatHandler) handleWSMessage(ctx context.Context, c *hub.Client, msg hu
 
 		// Persist
 		t0 := time.Now()
-		newMsg, err := h.chatRepo.CreateMessage(ctx, msg.ChannelID, c.UserID, msg.Body)
+		newMsg, err := h.chatRepo.CreateMessage(ctx, msg.ChannelID, c.UserID, msg.Body, msg.ParentID)
 		if err != nil {
 			logger.Errorf("ws: persist message channelID=%d userID=%d: %v", msg.ChannelID, c.UserID, err)
 			return
@@ -414,13 +447,7 @@ func (h *ChatHandler) handleWSMessage(ctx context.Context, c *hub.Client, msg hu
 		event := hub.WSEvent{
 			Type:      hub.EventMessage,
 			ChannelID: msg.ChannelID,
-			Payload: hub.MessagePayload{
-				ID:           newMsg.ID,
-				SenderID:     newMsg.SenderID,
-				SenderName:   newMsg.SenderName,
-				SenderAvatar: newMsg.SenderAvatar,
-				Body:         newMsg.Body,
-			},
+			Payload:   messagepayload(newMsg),
 			Timestamp: time.Now().UTC(),
 		}
 		if err := h.hub.Publish(ctx, msg.ChannelID, event); err != nil {
@@ -492,14 +519,37 @@ func channelToDTO(ch repository.Channel) dto.ChannelResponse {
 
 func messageToDTO(m repository.Message) dto.MessageResponse {
 	return dto.MessageResponse{
+		ID:               m.ID,
+		ChannelID:        m.ChannelID,
+		SenderID:         m.SenderID,
+		SenderName:       m.SenderName,
+		SenderEmail:      m.SenderEmail,
+		SenderAvatar:     m.SenderAvatar,
+		Body:             m.Body,
+		IsDeleted:        m.IsDeleted,
+		IsEdited:         m.IsEdited,
+		ParentID:         m.ParentID,
+		ParentSenderName: m.ParentSenderName,
+		ParentBody:       m.ParentBody,
+		CreatedAt:        m.CreatedAt,
+	}
+}
+
+// messagepayload builds a hub.MessagePayload from a repository.Message.
+// Used for both new messages and edit broadcasts.
+func messagepayload(m *repository.Message) hub.MessagePayload {
+	p := hub.MessagePayload{
 		ID:           m.ID,
-		ChannelID:    m.ChannelID,
 		SenderID:     m.SenderID,
 		SenderName:   m.SenderName,
-		SenderEmail:  m.SenderEmail,
 		SenderAvatar: m.SenderAvatar,
 		Body:         m.Body,
-		IsDeleted:    m.IsDeleted,
-		CreatedAt:    m.CreatedAt,
+		IsEdited:     m.IsEdited,
 	}
+	if m.ParentID != nil {
+		p.ParentID = m.ParentID
+		p.ParentSenderName = m.ParentSenderName
+		p.ParentBody = m.ParentBody
+	}
+	return p
 }

@@ -119,6 +119,7 @@ func main() {
 			chat.GET("/channels", chatHandler.ListChannels)
 			chat.GET("/channels/:id/messages", chatHandler.ListMessages)
 			chat.POST("/channels/:id/messages", chatHandler.SendMessage)
+			chat.PUT("/channels/:id/messages/:msgId", chatHandler.EditMessage)
 			chat.DELETE("/channels/:id/messages/:msgId", chatHandler.DeleteMessage)
 			chat.GET("/users/search", chatHandler.SearchUsers)
 			chat.POST("/dm", chatHandler.GetOrCreateDM)

@@ -73,7 +73,8 @@ func NewClient(
 type InboundMsg struct {
 	Type      EventType `json:"type"`
 	ChannelID int64     `json:"channel_id"`
-	Body      string    `json:"body,omitempty"` // for EventMessage
+	Body      string    `json:"body,omitempty"`      // for EventMessage
+	ParentID  *int64    `json:"parent_id,omitempty"` // for threaded replies
 }
 
 // WritePump pumps messages from the send channel to the WebSocket.
