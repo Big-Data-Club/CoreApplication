@@ -73,7 +73,7 @@ class GraphRAGContext:
     query: str
 
     # Ranked evidence chunks (vector + keyword + graph-expanded, re-ranked)
-    ranked_chunks: list  # list[RetrievedChunk]
+    ranked_chunks: list = field(default_factory=list)  # list[RetrievedChunk]
 
     # Concept nodes involved (seeds + expanded neighbors)
     concept_nodes: list[ConceptNode] = field(default_factory=list)

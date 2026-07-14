@@ -212,9 +212,14 @@ class TestMentorEnhancements(unittest.IsolatedAsyncioTestCase):
 
         from app.services.rag_service import rag_service
         from app.core import llm
+        from app.core.config import get_settings
+        settings = get_settings()
+        
+        original_graphrag_enabled = settings.graphrag_enabled
         original_search = rag_service.search_hierarchical
         original_chat_complete = llm.chat_complete
         
+        settings.graphrag_enabled = False
         rag_service.search_hierarchical = AsyncMock(return_value=([], "course"))
         llm.chat_complete = AsyncMock(return_value="Detailed Explanation")
 
@@ -258,6 +263,7 @@ class TestMentorEnhancements(unittest.IsolatedAsyncioTestCase):
                 max_expansion_level="global",
             )
         finally:
+            settings.graphrag_enabled = original_graphrag_enabled
             rag_service.search_hierarchical = original_search
             llm.chat_complete = original_chat_complete
 
