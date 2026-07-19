@@ -558,6 +558,46 @@ class LakehouseService:
                     FROM gold_student_course_metrics
                     WHERE flashcard_flips_count = 0 AND viewed_lessons_count >= 2
                 """)
+
+                # E. Study Recommendations (Heuristics next best action)
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_study_recommendations AS
+                    WITH weakest_concepts AS (
+                        SELECT 
+                            user_id,
+                            course_id,
+                            node_id as weakest_node_id,
+                            struggle_rate,
+                            ROW_NUMBER() OVER (PARTITION BY user_id, course_id ORDER BY struggle_rate DESC) as rank
+                        FROM gold_concept_struggles
+                    ),
+                    student_metrics AS (
+                        SELECT 
+                            user_id,
+                            course_id,
+                            check_accuracy
+                        FROM gold_student_course_metrics
+                    )
+                    SELECT 
+                        m.user_id,
+                        m.course_id,
+                        CASE 
+                            WHEN w.weakest_node_id IS NOT NULL THEN 'review_struggle_concept'
+                            WHEN m.check_accuracy < 0.60 THEN 'discuss_with_ai'
+                            ELSE 'learn_next_lesson'
+                        END as recommended_action_type,
+                        w.weakest_node_id as recommended_node_id,
+                        CASE 
+                            WHEN w.weakest_node_id IS NOT NULL 
+                                THEN 'Bạn đang gặp khó khăn ở khái niệm (ID: ' || CAST(w.weakest_node_id AS VARCHAR) || '). Hãy ôn tập lại lý thuyết bài học này!'
+                            WHEN m.check_accuracy < 0.60 
+                                THEN 'Cảnh báo: Độ chính xác Quick Check của bạn đang dưới 60%. Hãy thảo luận với AI Mentor để củng cố kiến thức.'
+                            ELSE 'Tiến độ học tập rất tốt! Hãy tiếp tục học bài học tiếp theo trong giáo trình.'
+                        END as recommendation_message,
+                        CURRENT_TIMESTAMP as generated_at
+                    FROM student_metrics m
+                    LEFT JOIN weakest_concepts w ON m.user_id = w.user_id AND m.course_id = w.course_id AND w.rank = 1
+                """)
                 logger.info("DuckDB Silver and Gold Views refreshed successfully")
             except Exception as e:
                 logger.error(f"Failed to refresh Lakehouse views: {str(e)}")
@@ -585,6 +625,14 @@ class LakehouseService:
         if user_id is not None:
             return self._query_to_dict_list("SELECT * FROM gold_struggle_alerts WHERE user_id = ?", (user_id,))
         return self._query_to_dict_list("SELECT * FROM gold_struggle_alerts")
+
+    def get_gold_study_recommendations(self, user_id: Optional[int] = None, course_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        with self.lock:
+            if user_id is not None and course_id is not None:
+                return self._query_to_dict_list("SELECT * FROM gold_study_recommendations WHERE user_id = ? AND course_id = ?", (user_id, course_id))
+            elif user_id is not None:
+                return self._query_to_dict_list("SELECT * FROM gold_study_recommendations WHERE user_id = ?", (user_id,))
+            return self._query_to_dict_list("SELECT * FROM gold_study_recommendations")
 
     def has_notification_been_sent_recently(self, user_id: int, alert_type: str, node_id: Optional[int], cooldown_hours: int = 24) -> bool:
         from datetime import timedelta
@@ -617,7 +665,7 @@ class LakehouseService:
         with self.lock:
             try:
                 os.makedirs(self.gold_parquet_dir, exist_ok=True)
-                tables = ["gold_student_course_metrics", "gold_concept_struggles", "gold_user_item_matrix", "gold_struggle_alerts"]
+                tables = ["gold_student_course_metrics", "gold_concept_struggles", "gold_user_item_matrix", "gold_struggle_alerts", "gold_study_recommendations"]
                 exports = {}
                 for t in tables:
                     dest_file = os.path.join(self.gold_parquet_dir, f"{t}.parquet").replace("\\", "/")

@@ -796,6 +796,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     <button class="tab-item" onclick="switchTab('concept-struggles', this)">Struggles</button>
                     <button class="tab-item" onclick="switchTab('interaction-matrix', this)">Matrix</button>
                     <button class="tab-item" onclick="switchTab('struggle-alerts', this)">Alerts</button>
+                    <button class="tab-item" onclick="switchTab('study-recommendations', this)">Recommendations</button>
                 </div>
                 <div class="search-bar">
                     <input type="text" id="tableSearch" class="input-field" style="max-width: 400px;" placeholder="🔍 Search records..." oninput="filterTable()">
@@ -972,12 +973,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 const strugglesUrl = '/personalize/analytics/gold/concept-struggles';
                 const matrixUrl = '/personalize/analytics/gold/interaction-matrix';
                 const alertsUrl = '/personalize/analytics/gold/struggle-alerts';
+                const recsUrl = '/personalize/analytics/gold/study-recommendations';
 
-                const [metrics, struggles, matrix, alerts] = await Promise.all([
+                const [metrics, struggles, matrix, alerts, recs] = await Promise.all([
                     fetchAPI(metricsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
                     fetchAPI(strugglesUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
                     fetchAPI(matrixUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
-                    fetchAPI(alertsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; })
+                    fetchAPI(alertsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
+                    fetchAPI(recsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; })
                 ]);
 
                 // Update Overview Cards
@@ -990,7 +993,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     'student-metrics': metrics,
                     'concept-struggles': struggles,
                     'interaction-matrix': matrix,
-                    'struggle-alerts': alerts
+                    'struggle-alerts': alerts,
+                    'study-recommendations': recs
                 };
 
                 showToast('Lakehouse data loaded successfully', 'success');
@@ -1048,10 +1052,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     
                     if (val === null || val === undefined) {
                         td.innerHTML = '<span style="color: var(--text-muted); font-style: italic;">--</span>';
-                    } else if (col === 'user_id' || col === 'course_id' || col === 'node_id' || col === 'lesson_id' || col === 'interaction_id') {
-                        td.innerHTML = `<span class="mono-val">${val}</span>`;
+                    } else if (col === 'user_id' || col === 'course_id' || col === 'node_id' || col === 'lesson_id' || col === 'interaction_id' || col === 'recommended_node_id') {
+                        td.innerHTML = val ? `<span class="mono-val">${val}</span>` : '<span style="color: var(--text-muted); font-style: italic;">--</span>';
                     } else if (col === 'alert_type') {
                         td.innerHTML = `<span class="badge alert-${val}">${val.replace(/_/g, ' ')}</span>`;
+                    } else if (col === 'recommended_action_type') {
+                        let actionClass = 'alert-ai_suggestion';
+                        if (val === 'review_struggle_concept') actionClass = 'alert-concept_struggle';
+                        else if (val === 'discuss_with_ai') actionClass = 'alert-low_performance';
+                        else if (val === 'learn_next_lesson') actionClass = 'alert-positive_reinforcement';
+                        td.innerHTML = `<span class="badge ${actionClass}">${val.replace(/_/g, ' ')}</span>`;
                     } else if (col === 'learning_style') {
                         let styleClass = 'style-theory';
                         if (val.includes('AI')) styleClass = 'style-ai';

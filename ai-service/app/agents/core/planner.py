@@ -67,6 +67,9 @@ class ExecutionPlan(BaseModel):
             "'quiz_help' (quiz attempts/wrong answers), "
             "'prerequisite' (foundational knowledge), "
             "'next_step' (next learning action), "
+            "'elicitation' (preference elicitation / user stating learning preferences), "
+            "'feedback' (feedback / critique of recommended topics/items), "
+            "'explanation_request' (asking why a recommendation was made), "
             "'chitchat' (greetings/chitchat), "
             "'other'"
         )
@@ -192,6 +195,10 @@ Planning Rules:
    - Lesson view (pageType=lesson) + "explain this" -> stay_in_context, content_qa, scope='content', graph_expansion_needed=true.
    - Asking about topic not in current lesson -> pivot_new_topic, scope='course' or 'global', graph_expansion_needed=true.
    - Greetings/chitchat -> general_chat, scope='none', graph_expansion_needed=false.
+   - Request recommendation/next steps ("nên học gì tiếp theo?", "gợi ý bài tiếp theo") -> recommendation_engine, user_intent='recommendation', personalization+lakehouse required, scope='none', selected_tools=['get_study_plan'].
+   - Share study preferences ("tôi thích thực hành", "tôi muốn học nâng cao") -> recommendation_engine, user_intent='elicitation', personalization+lakehouse required, scope='none'.
+   - Reject/critique suggestions ("bài này khó quá", "tôi không muốn học SQL") -> recommendation_engine, user_intent='feedback', personalization+lakehouse required, scope='none', selected_tools=['get_study_plan'].
+   - Ask why something was recommended ("sao tôi phải học bài này?", "tại sao gợi ý bài này?") -> recommendation_engine, user_intent='explanation_request', personalization+lakehouse required.
 
 2. **GraphRAG Signals**:
    - Set graph_expansion_needed=true whenever the user asks a knowledge question (explanation, clarification, comparison, prerequisite) and course materials are indexed.
@@ -199,7 +206,7 @@ Planning Rules:
    - Extract primary_node_name if the user names a specific concept (e.g. "Queue", "Binary Search", "TCP/IP"). Set to null for general or multi-topic queries.
 
 3. **Router fields** (merged):
-   - intent: classify into one of the 5 router intents.
+   - intent: classify into one of the 5 router intents (use 'progress_advice' for recommendation requests, elicitation, feedback, and explanation requests).
    - is_ambiguous: true if the request is too vague and cannot be acted on without clarification.
    - matched_course_id: set if user explicitly names or implies a specific course from the active courses list.
    - requires_tool: true only if the user explicitly asks for a system action (generate quiz, create flashcard, etc.).

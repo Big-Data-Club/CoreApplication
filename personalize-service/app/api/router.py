@@ -119,6 +119,16 @@ async def get_gold_struggle_alerts(
     return lakehouse_service.get_gold_struggle_alerts(user_id)
 
 
+@router.get("/personalize/analytics/gold/study-recommendations")
+async def get_gold_study_recommendations(
+    user_id: Optional[int] = Query(None, description="Filter recommendations by user ID"),
+    course_id: Optional[int] = Query(None, description="Filter recommendations by course ID"),
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")
+):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_study_recommendations(user_id, course_id)
+
+
 @router.post("/personalize/analytics/gold/export")
 async def export_gold_tables(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
     verify_secret(x_ai_secret)

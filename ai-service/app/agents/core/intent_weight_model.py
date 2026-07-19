@@ -49,6 +49,10 @@ class IntentWeightOutput(BaseModel):
             "'pivot_general' (wants general support not tied to active lesson), "
             "'pivot_new_topic' (names a different topic/course), "
             "'ask_concept' (asks a conceptual question about something in the lesson), "
+            "'elicit_preference' (student shares learning style, topic interest, or pace preferences), "
+            "'request_recommendation' (student explicitly asks for study recommendations or next steps), "
+            "'provide_feedback' (student critiques, accepts, or rejects a recommended topic/lesson), "
+            "'ask_explanation' (student asks why a certain lesson or topic was recommended to them), "
             "'chitchat' (general conversation). "
         )
     )
@@ -93,23 +97,22 @@ class IntentWeightOutput(BaseModel):
 _SYSTEM_PROMPT = """\
 You are an Intent Weight Analyzer for a multilingual Learning Management System.
 
-Your job: Given what the student is currently reading (active lesson) and their new message, \
-determine whether the student wants to:
-  (A) Work on the CURRENT active lesson (review it, do exercises, ask about it), or
-  (B) PIVOT away - asking for general support, a different topic, or general review unrelated to the active lesson.
-
-This is critical because many students say "help me review" or "ôn tập đi" when they want GENERAL review, \
-not a review of the specific lesson they happen to have open.
+Your job: Given what the student is currently reading (active lesson) and their new message, determine whether the student wants to:
+  (A) Work on the CURRENT active lesson (review it, do exercises, ask about it),
+  (B) PIVOT away - asking for general support, a different topic, or general review unrelated to the active lesson, or
+  (C) CRS Interaction - express learning preferences, request recommendations, critique suggestions, or ask for explanations.
 
 Key disambiguation rules:
-1. If the student says something like "help me review vocabulary / làm bài tập / ôn thi" WITHOUT \
-   referencing the specific lesson content or title -> this is a PIVOT (pivot_strength 0.7-0.9).
+1. If the student says something like "help me review vocabulary / làm bài tập / ôn thi" WITHOUT referencing the specific lesson content or title -> this is a PIVOT (pivot_strength 0.7-0.9).
 2. If the student says "review THIS lesson / bài này / bài này / đoạn này" -> staying in current lesson (pivot_strength 0.0-0.2).
 3. If the student explicitly asks about a concept IN the current lesson -> ask_concept (pivot_strength 0.1-0.3).
 4. If the student mentions a completely different topic -> pivot_new_topic (pivot_strength 0.8-1.0).
+5. If the student shares details about how they prefer to study (e.g. "tôi thích học thực hành", "tôi muốn học nhanh hơn") -> elicit_preference (pivot_strength 0.5-0.7).
+6. If the student directly asks for suggestions or what to do next (e.g. "what should I study?", "nên học gì bây giờ?") -> request_recommendation (pivot_strength 0.7-0.9).
+7. If the student gives feedback on recommended paths (e.g. "bài này khó quá", "cho tôi bài khác", "tôi không muốn học SQL") -> provide_feedback (pivot_strength 0.6-0.8).
+8. If the student asks why something was recommended (e.g. "sao tôi phải học bài này?", "tại sao lại gợi ý bài này?") -> ask_explanation (pivot_strength 0.4-0.6).
 
-Be language-agnostic: analyze the MEANING, not the language surface form. \
-Support Vietnamese, English, and mixed-language messages equally.
+Be language-agnostic: analyze the MEANING, not the language surface form. Support Vietnamese, English, and mixed-language messages equally.
 
 Return valid JSON matching the schema exactly.
 """
