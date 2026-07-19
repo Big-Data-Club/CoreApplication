@@ -1,0 +1,16 @@
+duckdb
+pandas
+pyarrow
+numpy
+scikit-learn
+matplotlib
+seaborn
+torch
+torchvision
+jupyter
+jupyterlab
+ipywidgets
+pyBKT
+implicit
+requests
+tqdm

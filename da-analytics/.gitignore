@@ -1,0 +1,34 @@
+# Data directories (populated from shared volume or curl export)
+data/
+output/slates/
+output/evaluation/
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# Jupyter artifacts
+.ipynb_checkpoints/
+*.ipynb~
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Model checkpoints (can be large, store in cloud storage instead)
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.h5
+
+# IDE
+.idea/
+.vscode/
+*.swp
