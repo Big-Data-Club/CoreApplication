@@ -23,6 +23,7 @@ from app.agents.tools.teacher.analyze_performance import AnalyzePerformanceTool
 from app.agents.tools.teacher.generate_quiz_draft import GenerateQuizDraftTool
 from app.agents.tools.teacher.list_knowledge_nodes import ListKnowledgeNodesTool
 from app.agents.tools.teacher.create_section import CreateSectionTool
+from app.agents.tools.teacher.parse_quiz_questions import ParseQuizQuestionsTool
 
 # ── Mentor Tools ──────────────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ _SHARED_TOOLS: list[BaseTool] = [
 _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     ListMyCoursesTool(),
     GenerateQuizDraftTool(),
+    ParseQuizQuestionsTool(),
     AnalyzePerformanceTool(),
     TriggerAutoIndexTool(),
     GenerateContentDraftTool(),

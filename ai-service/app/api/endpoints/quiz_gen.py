@@ -57,6 +57,12 @@ class RecordResponseRequest(BaseModel):
     quality: int = Field(..., ge=0, le=5, description="SM-2 quality rating 0–5")
 
 
+class ParseQuizTextRequest(BaseModel):
+    raw_text: str = Field(..., min_length=1, description="Raw unformatted text containing quiz questions")
+    points_per_question: int = Field(default=10, ge=1, le=100)
+    language: str = Field(default="vi")
+
+
 # ── Quiz Generation Endpoints ─────────────────────────────────────────────────
 
 @router.post("/generate")
@@ -152,6 +158,36 @@ async def reject_question(gen_id: int, body: RejectRequest, request: Request):
         review_note=body.review_note,
     )
     return {"status": "REJECTED"}
+
+
+@router.post("/parse-text")
+async def parse_quiz_text(body: ParseQuizTextRequest, request: Request):
+    """
+    Synchronous endpoint: parse raw unformatted text into structured quiz questions.
+
+    This is called directly from:
+    1. The Smart Paste modal on the quiz manage page
+    2. The Teacher chatbot agent's parse_quiz_questions tool
+
+    Returns a list of question objects ready for batch insertion.
+    Typical latency: 2-6 seconds for 1-10 questions.
+    """
+    _verify_internal(request)
+    try:
+        from app.services.quiz_parse_service import quiz_parse_service
+        questions = await quiz_parse_service.parse(
+            raw_text=body.raw_text,
+            points_per_question=body.points_per_question,
+            language=body.language,
+        )
+        return {
+            "questions": questions,
+            "count": len(questions),
+            "status": "ok",
+        }
+    except Exception as e:
+        logger.error("parse_quiz_text failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Parse failed: {e}")
 
 
 # ── Spaced Repetition Endpoints ────────────────────────────────────────────────

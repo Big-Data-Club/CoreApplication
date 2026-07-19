@@ -615,6 +615,10 @@ func main() {
 				aiGroup.POST("/concept-check",
 					aiHandler.GenerateConceptCheck)
 
+				// Quiz Smart Import - Parse raw text into structured questions
+				aiGroup.POST("/quizzes/parse-text",
+					aiHandler.ParseQuizText)
+
 				// Spaced Repetition total due reviews (student dashboard)
 				aiGroup.GET("/reviews/total-due-today",
 					aiHandler.GetTotalDueReviews)

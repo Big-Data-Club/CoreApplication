@@ -225,6 +225,34 @@ func (c *Client) RejectQuestion(ctx context.Context, genID int64, req RejectQues
 	return c.post(ctx, fmt.Sprintf("/ai/quiz/%d/reject", genID), req, &resp)
 }
 
+// ── Quiz Smart Parse ───────────────────────────────────────────────────────────
+
+// ParseQuizTextRequest is sent to ai-service to parse raw text into quiz questions.
+type ParseQuizTextRequest struct {
+	RawText           string `json:"raw_text"`
+	PointsPerQuestion int    `json:"points_per_question"`
+	Language          string `json:"language"`
+}
+
+// ParseQuizTextResponse contains the parsed questions list.
+type ParseQuizTextResponse struct {
+	Questions []map[string]interface{} `json:"questions"`
+	Count     int                      `json:"count"`
+	Status    string                   `json:"status"`
+}
+
+// ParseQuizText calls the AI service to parse raw text into structured quiz questions.
+// This is a synchronous call (fast LLM parse, typically 2-6 seconds).
+func (c *Client) ParseQuizText(ctx context.Context, req ParseQuizTextRequest) (*ParseQuizTextResponse, error) {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	var resp ParseQuizTextResponse
+	if err := c.post(ctxWithTimeout, "/ai/quiz/parse-text", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizText: %w", err)
+	}
+	return &resp, nil
+}
+
 // ── Spaced Repetition (Phase 2) ────────────────────────────────────────────────
 
 type RecordReviewRequest struct {

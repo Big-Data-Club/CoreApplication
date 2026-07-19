@@ -1186,3 +1186,50 @@ func (h *AIHandler) GenerateConceptCheck(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(resp))
 }
+
+// ParseQuizText godoc
+// @Summary      Parse Raw Text Into Quiz Questions
+// @Description  Uses AI to parse unformatted text (pasted by teacher) into structured quiz questions.
+//               Supports SINGLE_CHOICE, MULTIPLE_CHOICE, FILL_BLANK_TEXT, SHORT_ANSWER, ESSAY.
+//               The result is returned directly (synchronous, ~2-6s) for the teacher to review.
+// @Tags         AI - Quiz Smart Import
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Router       /ai/quizzes/parse-text [post]
+func (h *AIHandler) ParseQuizText(c *gin.Context) {
+	role, _ := c.Get("user_role")
+	if role != "TEACHER" && role != "ADMIN" {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Teacher or Admin access required"))
+		return
+	}
+
+	var body struct {
+		RawText           string `json:"raw_text"            binding:"required"`
+		PointsPerQuestion int    `json:"points_per_question"`
+		Language          string `json:"language"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+	if body.PointsPerQuestion <= 0 {
+		body.PointsPerQuestion = 10
+	}
+	if body.Language == "" {
+		body.Language = "vi"
+	}
+
+	result, err := h.aiClient.ParseQuizText(c.Request.Context(), ai.ParseQuizTextRequest{
+		RawText:           body.RawText,
+		PointsPerQuestion: body.PointsPerQuestion,
+		Language:          body.Language,
+	})
+	if err != nil {
+		logger.Error("ParseQuizText failed", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(result))
+}
