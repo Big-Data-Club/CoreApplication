@@ -450,7 +450,7 @@ class LakehouseService:
                     FROM unified_interactions
                     WHERE node_id IS NOT NULL
                     GROUP BY user_id, course_id, node_id
-                    HAVING COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') >= 2 
+                    HAVING COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') >= 1 
                        AND COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') > COUNT(*) FILTER (WHERE action_type = 'quick_check_correct')
                 """)
 
@@ -470,6 +470,7 @@ class LakehouseService:
                                 WHEN action_type = 'quick_check_correct' THEN 2.0
                                 WHEN action_type = 'quick_check_incorrect' THEN 0.5
                                 WHEN action_type = 'ask_ai' THEN 1.5
+                                WHEN action_type = 'preference_elicited' THEN 3.0
                                 ELSE 0.5
                             END
                         ) as implicit_affinity_score,
@@ -491,7 +492,7 @@ class LakehouseService:
                         'Học viên đang gặp khó khăn ở khái niệm (Khái niệm ID: ' || CAST(node_id AS VARCHAR) || ') với tỷ lệ làm sai là ' || CAST(ROUND(struggle_rate * 100, 0) AS VARCHAR) || '%. Hãy ôn tập lại bài học!' as alert_message,
                         last_attempt_at as detected_at
                     FROM gold_concept_struggles
-                    WHERE incorrect_checks_count >= 2
+                    WHERE incorrect_checks_count >= 1
                     
                     UNION ALL
                     
@@ -562,7 +563,20 @@ class LakehouseService:
                 # E. Study Recommendations (Heuristics next best action)
                 self.conn.execute("""
                     CREATE OR REPLACE VIEW gold_study_recommendations AS
-                    WITH weakest_concepts AS (
+                    WITH user_courses AS (
+                        SELECT DISTINCT user_id, course_id FROM unified_interactions
+                    ),
+                    popular_concepts AS (
+                        SELECT 
+                            course_id,
+                            node_id as popular_node_id,
+                            COUNT(*) as interaction_count,
+                            ROW_NUMBER() OVER (PARTITION BY course_id ORDER BY COUNT(*) DESC) as pop_rank
+                        FROM unified_interactions
+                        WHERE node_id IS NOT NULL AND action_type IN ('lesson_view', 'lesson_viewed', 'lesson_complete', 'lesson_completed')
+                        GROUP BY course_id, node_id
+                    ),
+                    weakest_concepts AS (
                         SELECT 
                             user_id,
                             course_id,
@@ -575,28 +589,38 @@ class LakehouseService:
                         SELECT 
                             user_id,
                             course_id,
-                            check_accuracy
+                            check_accuracy,
+                            viewed_lessons_count
                         FROM gold_student_course_metrics
                     )
                     SELECT 
-                        m.user_id,
-                        m.course_id,
+                        uc.user_id,
+                        uc.course_id,
                         CASE 
                             WHEN w.weakest_node_id IS NOT NULL THEN 'review_struggle_concept'
-                            WHEN m.check_accuracy < 0.60 THEN 'discuss_with_ai'
+                            WHEN sm.check_accuracy < 0.60 AND sm.viewed_lessons_count > 0 THEN 'discuss_with_ai'
+                            WHEN sm.viewed_lessons_count IS NULL OR sm.viewed_lessons_count = 0 THEN 'learn_popular_lesson'
                             ELSE 'learn_next_lesson'
                         END as recommended_action_type,
-                        w.weakest_node_id as recommended_node_id,
+                        CASE 
+                            WHEN w.weakest_node_id IS NOT NULL THEN w.weakest_node_id
+                            WHEN sm.viewed_lessons_count IS NULL OR sm.viewed_lessons_count = 0 THEN pc.popular_node_id
+                            ELSE NULL
+                        END as recommended_node_id,
                         CASE 
                             WHEN w.weakest_node_id IS NOT NULL 
                                 THEN 'Bạn đang gặp khó khăn ở khái niệm (ID: ' || CAST(w.weakest_node_id AS VARCHAR) || '). Hãy ôn tập lại lý thuyết bài học này!'
-                            WHEN m.check_accuracy < 0.60 
+                            WHEN sm.check_accuracy < 0.60 AND sm.viewed_lessons_count > 0
                                 THEN 'Cảnh báo: Độ chính xác Quick Check của bạn đang dưới 60%. Hãy thảo luận với AI Mentor để củng cố kiến thức.'
+                            WHEN sm.viewed_lessons_count IS NULL OR sm.viewed_lessons_count = 0
+                                THEN 'Khóa học mới! Hãy bắt đầu với chủ đề phổ biến nhất: (ID: ' || CAST(COALESCE(pc.popular_node_id, 0) AS VARCHAR) || ').'
                             ELSE 'Tiến độ học tập rất tốt! Hãy tiếp tục học bài học tiếp theo trong giáo trình.'
                         END as recommendation_message,
                         CURRENT_TIMESTAMP as generated_at
-                    FROM student_metrics m
-                    LEFT JOIN weakest_concepts w ON m.user_id = w.user_id AND m.course_id = w.course_id AND w.rank = 1
+                    FROM user_courses uc
+                    LEFT JOIN weakest_concepts w ON uc.user_id = w.user_id AND uc.course_id = w.course_id AND w.rank = 1
+                    LEFT JOIN student_metrics sm ON uc.user_id = sm.user_id AND uc.course_id = sm.course_id
+                    LEFT JOIN popular_concepts pc ON uc.course_id = pc.course_id AND pc.pop_rank = 1
                 """)
                 logger.info("DuckDB Silver and Gold Views refreshed successfully")
             except Exception as e:
