@@ -471,6 +471,13 @@ def _format_page_context(ctx: dict | None) -> str:
     if nid:
         parts.append(f"Node ID: {nid}")
 
+    # Extract quiz_id if viewing a quiz
+    qid = ctx.get("quizId") or ctx.get("quiz_id")
+    if not qid and isinstance(ctx.get("extra"), dict):
+        qid = ctx.get("extra", {}).get("quizId") or ctx.get("extra", {}).get("quiz_id")
+    if qid:
+        parts.append(f"Quiz ID: {qid}")
+
     title = ctx.get("contentTitle") or ctx.get("title") or ctx.get("name")
     if title:
         parts.append(f"Title: {title}")

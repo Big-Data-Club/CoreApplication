@@ -270,6 +270,9 @@ async def generate_plan(
         node_id = page_context.get("nodeId") or page_context.get("node_id")
         if node_id:
             current_context_lines.append(f"  - Current Node ID: {node_id}")
+        quiz_id = page_context.get("quizId") or page_context.get("quiz_id") or (page_context.get("extra") or {}).get("quizId") or (page_context.get("extra") or {}).get("quiz_id")
+        if quiz_id:
+            current_context_lines.append(f"  - Current Quiz ID: {quiz_id}")
 
     # System Context
     if system_context:

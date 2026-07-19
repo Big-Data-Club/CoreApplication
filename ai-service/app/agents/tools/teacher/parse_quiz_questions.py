@@ -47,6 +47,7 @@ class ParseQuizQuestionsTool(BaseTool):
                 "type": "integer",
                 "description": (
                     "The ID of the quiz to add questions to. "
+                    "Locate this from 'Current Quiz ID' in the Page Context. "
                     "REQUIRED. Ask the teacher if unknown."
                 ),
             },
