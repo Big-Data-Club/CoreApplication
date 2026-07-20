@@ -14,6 +14,12 @@ While the guide uses **K3s** (a lightweight, fully-certified Kubernetes distribu
 
 ---
 
+> [!IMPORTANT]
+> **Serverless-Only Mode:**
+> Currently, the system is designed and supported to run **exclusively in Serverless mode** (`overlays/serverless/`). In this setup, stateful databases and services (Neon Postgres, Qdrant Cloud, Neo4j Aura, Cloudflare R2) are fully delegated to external managed cloud providers. The cluster-hosted database overlay (`overlays/local-db/`) is **not supported** for production.
+
+---
+
 ## 1. Architecture Comparison
 
 Before executing the migration, review the system architecture transition:
@@ -27,7 +33,7 @@ graph TD
         D_Services --> D_Cloud[Neon DBs, Qdrant, Neo4j, CF R2]
     end
 
-    subgraph "K3s Kubernetes Setup (Target)"
+    subgraph "Kubernetes Setup (Target)"
         K_Clients[Clients / Web Browser] -->|Port 80/443| K_Traefik[K3s Built-in Traefik Ingress]
         K_Traefik --> K_Services[K8s Service Layer]
         K_Services --> K_Pods[Pods: auth-service, lms-service, frontend, ai-service, ...]
@@ -62,7 +68,7 @@ To prevent port conflicts and release VM resources, stop and remove the active D
 
 1. SSH into the server:
    ```bash
-   ssh bdc_web@10.1.8.133
+   ssh <user_name>@<server_ip>
    ```
 2. Navigate to the deployment folder and stop the stack:
    ```bash
@@ -79,7 +85,7 @@ To prevent port conflicts and release VM resources, stop and remove the active D
 
 ### Step 3: Install K3s (Lightweight Kubernetes)
 
-K3s installs in a single command, bundling Traefik Ingress Controller and `kubectl` utility by default.
+We use a lightweight K8s engine (K3s) for single-VM environments, which bundles the Traefik Ingress Controller and `kubectl` utility by default.
 
 1. Run the installation script:
    ```bash
@@ -179,7 +185,7 @@ Update the ConfigMap overlays to point the applications to your managed serverle
 
 ---
 
-### Step 8: Deploy CoreApplication workloads
+### Step 8: Deploy CoreApplication workloads (Serverless Mode)
 
 Deploy the system in `serverless` mode using Kustomize (`kubectl apply -k`):
 
@@ -188,7 +194,7 @@ Deploy the system in `serverless` mode using Kustomize (`kubectl apply -k`):
    cd ~/k8s
    kubectl apply -k overlays/serverless/ --dry-run=client
    ```
-2. Apply the configurations to launch the workload:
+2. Apply the configurations to launch the serverless workload:
    ```bash
    kubectl apply -k overlays/serverless/
    ```
@@ -248,7 +254,7 @@ Update the deployment steps as follows:
       - name: Deploy to Kubernetes via Kustomize
         run: |
           cd /home/bdc_web/k8s
-          # Apply manifest updates (keeps the local secrets.yaml unchanged on host)
+          # Apply serverless manifest updates (keeps local secrets.yaml unchanged on host)
           kubectl apply -k overlays/serverless/
 
       - name: Trigger Rolling Restart to pull new images
