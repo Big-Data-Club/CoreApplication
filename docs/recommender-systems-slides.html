@@ -1,0 +1,2351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recommender Systems & CRS — BDC End-to-End Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+<!-- Highlight.js for beautiful code blocks -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+<!-- MathJax for rendering gorgeous math equations -->
+<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: rgba(99,179,237,0.15);
+    --accent: #3b82f6;
+    --accent2: #8b5cf6;
+    --accent3: #06b6d4;
+    --accent4: #10b981;
+    --accent5: #f59e0b;
+    --accent6: #ef4444;
+    --text: #f1f5f9;
+    --text-dim: #94a3b8;
+    --text-dimmer: #475569;
+    --gradient-hero: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #06b6d4 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* ── Slide Container ── */
+  .deck { position: relative; width: 100%; height: 100vh; }
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    justify-content: flex-start; /* Align content to the top-middle */
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    transform: translateX(60px);
+    padding: 60px 80px 140px 80px;
+    overflow: hidden;
+  }
+  .slide.active {
+    opacity: 1; pointer-events: all; transform: translateX(0);
+  }
+  .slide.exit {
+    opacity: 0; transform: translateX(-60px);
+  }
+
+  /* Slide types */
+  .slide-hero {
+    justify-content: center; align-items: center;
+    text-align: center;
+    background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(59,130,246,0.2) 0%, transparent 70%),
+                radial-gradient(ellipse 60% 50% at 80% 100%, rgba(139,92,246,0.15) 0%, transparent 60%),
+                var(--bg);
+  }
+  .slide-content {
+    background: var(--bg);
+  }
+
+  /* Decorative BG shapes */
+  .bg-glow {
+    position: absolute; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: 0;
+  }
+  .bg-glow-1 { width: 400px; height: 400px; background: rgba(59,130,246,0.08); top: -100px; right: -80px; }
+  .bg-glow-2 { width: 300px; height: 300px; background: rgba(139,92,246,0.07); bottom: -80px; left: -60px; }
+  .bg-glow-3 { width: 200px; height: 200px; background: rgba(6,182,212,0.06); bottom: 50px; right: 100px; }
+
+  .slide-content > * { position: relative; z-index: 1; }
+  .slide-hero > * { position: relative; z-index: 1; }
+
+  /* Typography */
+  .hero-tag {
+    display: inline-block; padding: 6px 16px; border-radius: 20px;
+    background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3);
+    font-size: 13px; font-weight: 600; color: var(--accent3); letter-spacing: 1.5px;
+    text-transform: uppercase; margin-bottom: 24px;
+  }
+  .hero-title {
+    font-size: clamp(36px, 5vw, 58px); font-weight: 900; line-height: 1.1;
+    background: var(--gradient-hero); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 20px;
+  }
+  .hero-sub {
+    font-size: 18px; color: var(--text-dim); font-weight: 400; max-width: 680px; line-height: 1.7;
+    margin-bottom: 40px;
+  }
+  .hero-meta {
+    display: flex; gap: 24px; justify-content: center; flex-wrap: wrap;
+  }
+  .hero-meta-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-dim);
+  }
+  .hero-meta-item .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+
+  .slide-num {
+    position: absolute; top: 30px; right: 80px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text-dimmer);
+  }
+
+  .slide-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 6px;
+  }
+  .slide-title {
+    font-size: clamp(22px, 3vw, 32px); font-weight: 800; line-height: 1.2;
+    margin-bottom: 4px;
+  }
+  .slide-title span { background: var(--gradient-hero); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .divider {
+    width: 48px; height: 3px; border-radius: 2px;
+    background: var(--gradient-hero); margin-bottom: 20px;
+  }
+
+  /* Cards */
+  .card-grid { display: grid; gap: 16px; }
+  .card-grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .card-grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .card-grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 20px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .card:hover { border-color: rgba(99,179,237,0.35); transform: translateY(-2px); }
+  .card-icon {
+    font-size: 24px; margin-bottom: 8px;
+  }
+  .card-title { font-size: 13.5px; font-weight: 700; margin-bottom: 4px; }
+  .card-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+
+  .card-accent { border-color: rgba(59,130,246,0.4); background: linear-gradient(135deg, rgba(59,130,246,0.08), transparent); }
+  .card-accent2 { border-color: rgba(139,92,246,0.4); background: linear-gradient(135deg, rgba(139,92,246,0.08), transparent); }
+  .card-accent3 { border-color: rgba(6,182,212,0.4); background: linear-gradient(135deg, rgba(6,182,212,0.08), transparent); }
+  .card-accent4 { border-color: rgba(16,185,129,0.4); background: linear-gradient(135deg, rgba(16,185,129,0.08), transparent); }
+  .card-accent5 { border-color: rgba(245,158,11,0.4); background: linear-gradient(135deg, rgba(245,158,11,0.08), transparent); }
+
+  /* Info Rows */
+  .info-row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 14px; border-radius: 8px; margin-bottom: 6px;
+    background: var(--surface); border: 1px solid var(--border);
+  }
+  .info-row-icon { font-size: 18px; flex-shrink: 0; margin-top: 2px; }
+  .info-row-title { font-size: 12.5px; font-weight: 700; margin-bottom: 1px; }
+  .info-row-desc { font-size: 11.5px; color: var(--text-dim); line-height: 1.45; }
+
+  /* Tags */
+  .tag {
+    display: inline-block; padding: 3px 8px; border-radius: 6px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.5px; margin: 2px;
+  }
+  .tag-blue { background: rgba(59,130,246,0.15); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+  .tag-purple { background: rgba(139,92,246,0.15); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); }
+  .tag-cyan { background: rgba(6,182,212,0.15); color: #67e8f9; border: 1px solid rgba(6,182,212,0.3); }
+  .tag-green { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .tag-amber { background: rgba(245,158,11,0.15); color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+  .tag-red { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+
+  /* Custom Code formatting over highlight.js */
+  pre code {
+    background: #0d1117 !important;
+    border-radius: 10px !important;
+    border: 1px solid var(--border) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 10.5px !important;
+    line-height: 1.5 !important;
+    padding: 10px 14px !important;
+  }
+
+  /* Pipeline/Flow */
+  .pipeline {
+    display: flex; align-items: center; gap: 0; flex-wrap: nowrap; overflow-x: auto;
+    padding: 4px 0;
+  }
+  .pipeline-step {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; text-align: center;
+    min-width: 110px; flex-shrink: 0;
+  }
+  .pipeline-step .step-icon { font-size: 20px; margin-bottom: 2px; }
+  .pipeline-step .step-label { font-size: 10.5px; font-weight: 700; color: var(--text-dim); }
+  .pipeline-arrow {
+    color: var(--accent3); font-size: 16px; flex-shrink: 0; margin: 0 4px;
+  }
+
+  /* Table */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .data-table th {
+    background: var(--surface2); padding: 8px 12px;
+    text-align: left; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+  .data-table td {
+    padding: 8px 12px; border-bottom: 1px solid rgba(99,179,237,0.06);
+    color: var(--text);
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: rgba(59,130,246,0.04); }
+
+  /* Two-column */
+  .two-col { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 24px; align-items: start; }
+
+  /* Math equation display adjustments */
+  .math-block {
+    text-align: center;
+    padding: 6px;
+    margin: 2px 0;
+    color: #c4b5fd;
+  }
+
+  /* Status badge */
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700;
+  }
+  .badge-green { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .badge-amber { background: rgba(245,158,11,0.15); color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+  .badge-blue { background: rgba(59,130,246,0.15); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+
+  /* Highlight box */
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(59,130,246,0.1), rgba(139,92,246,0.1));
+    border: 1px solid rgba(99,179,237,0.25);
+    border-radius: 12px; padding: 12px 16px;
+    margin: 8px 0;
+  }
+
+  /* Bullet list */
+  .bullet-list { list-style: none; }
+  .bullet-list li {
+    display: flex; gap: 8px; align-items: flex-start;
+    font-size: 12px; color: var(--text-dim); padding: 4px 0; line-height: 1.45;
+  }
+  .bullet-list li::before {
+    content: '▸'; color: var(--accent); flex-shrink: 0; font-size: 10px; margin-top: 1px;
+  }
+  .bullet-list li strong { color: var(--text); font-weight: 600; }
+
+  /* Timeline */
+  .timeline { display: flex; flex-direction: column; gap: 10px; }
+  .timeline-item { display: flex; gap: 12px; align-items: flex-start; }
+  .timeline-num {
+    width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800; background: var(--gradient-hero);
+    color: white;
+  }
+  .timeline-content { flex: 1; }
+  .timeline-title { font-size: 12px; font-weight: 700; margin-bottom: 1px; }
+  .timeline-desc { font-size: 11px; color: var(--text-dim); line-height: 1.4; }
+
+  /* Stats row */
+  .stats-row { display: flex; gap: 16px; margin-bottom: 16px; }
+  .stat-box {
+    flex: 1; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px; text-align: center;
+  }
+  .stat-val { font-size: 24px; font-weight: 800; background: var(--gradient-hero); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat-label { font-size: 10px; color: var(--text-dim); font-weight: 600; margin-top: 2px; }
+
+  /* ── Sliding Presenter Notes Sidebar ── */
+  .sidebar {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 380px; background: rgba(11, 16, 30, 0.95);
+    backdrop-filter: blur(25px);
+    border-left: 1px solid var(--border);
+    box-shadow: -10px 0 35px rgba(0,0,0,0.6);
+    z-index: 1005;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-close {
+    position: absolute; top: 20px; right: 20px;
+    background: none; border: none; color: var(--text-dim);
+    font-size: 24px; cursor: pointer;
+  }
+  .sidebar-close:hover { color: var(--text); }
+  .sidebar-title {
+    font-size: 15px; font-weight: 800; color: var(--accent3);
+    margin-bottom: 24px; display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid rgba(99, 179, 237, 0.15);
+    padding-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .sidebar-content {
+    flex: 1; display: flex; flex-direction: column; gap: 20px;
+  }
+  .sidebar-section {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .sidebar-section-title {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    color: var(--accent); letter-spacing: 0.5px;
+  }
+  .sidebar-notes-summary {
+    font-size: 12px; line-height: 1.5; color: var(--text);
+  }
+  .sidebar-notes-script {
+    font-size: 12px; line-height: 1.55; color: var(--text-dim);
+    font-style: italic; background: rgba(59, 130, 246, 0.04);
+    padding: 12px; border-left: 3px solid var(--accent);
+    border-radius: 4px;
+  }
+
+  /* Notes Toggle Button */
+  .notes-toggle-btn {
+    position: fixed; top: 25px; right: 150px;
+    background: rgba(17, 24, 39, 0.9); backdrop-filter: blur(16px);
+    border: 1px solid var(--border); border-radius: 30px;
+    color: var(--text-dim); cursor: pointer;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    padding: 5px 12px; display: flex; align-items: center; gap: 6px;
+    z-index: 1000; transition: all 0.2s;
+  }
+  .notes-toggle-btn:hover {
+    background: rgba(59, 130, 246, 0.15); color: var(--text); border-color: rgba(99, 179, 237, 0.35);
+  }
+
+  /* Navigation elements */
+  .nav {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px; z-index: 1000;
+    background: rgba(17,24,39,0.9); backdrop-filter: blur(16px);
+    border: 1px solid var(--border); border-radius: 40px;
+    padding: 6px 16px;
+  }
+  .nav-btn {
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 16px; padding: 4px 8px; border-radius: 8px;
+    transition: all 0.2s; font-family: inherit;
+  }
+  .nav-btn:hover { background: rgba(59,130,246,0.15); color: var(--text); }
+  .nav-counter {
+    font-size: 11px; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace; min-width: 50px; text-align: center;
+  }
+  .nav-progress {
+    width: 80px; height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden;
+  }
+  .nav-progress-fill {
+    height: 100%; background: var(--gradient-hero); border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+  .key-hint {
+    position: fixed; bottom: 35px; right: 80px;
+    font-size: 10px; color: var(--text-dimmer); z-index: 1000;
+  }
+  .key { 
+    display: inline-block; padding: 1px 4px; border-radius: 4px;
+    background: var(--surface); border: 1px solid var(--border); margin: 0 2px;
+  }
+
+  /* ── PRINT MEDIA QUERIES FOR PERFECT PDF EXPORT ── */
+  @media print {
+    @page {
+      size: A4 landscape;
+      margin: 0;
+    }
+    html, body {
+      background: var(--bg) !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      overflow: visible !important;
+      height: auto !important;
+    }
+    .deck {
+      height: auto !important;
+      overflow: visible !important;
+    }
+    .slide {
+      position: relative !important;
+      opacity: 1 !important;
+      pointer-events: all !important;
+      transform: none !important;
+      display: flex !important;
+      flex-direction: column !important;
+      page-break-after: always !important;
+      break-after: page !important;
+      height: 100vh !important;
+      width: 100vw !important;
+      padding: 60px 80px !important;
+      box-sizing: border-box !important;
+    }
+    /* Hide presentation control widgets when printing */
+    .nav, .notes-toggle-btn, .sidebar, .key-hint, .top-progress {
+      display: none !important;
+    }
+    /* Hide specific background gradients/glows that break layout */
+    .bg-glow {
+      display: none !important;
+    }
+    /* Force logo rendering at slide corner */
+    img[alt="BDC Logo"] {
+      position: absolute !important;
+      bottom: 25px !important;
+      left: 80px !important;
+      display: block !important;
+      z-index: 9999 !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- BDC Logo relative path embed -->
+<img src="../frontend/src/assets/bdclogo.png" alt="BDC Logo" onerror="this.style.display='none'" style="height: 35px; position: fixed; bottom: 25px; left: 80px; z-index: 1001; opacity: 0.85;">
+
+<!-- Slide deck -->
+<button class="notes-toggle-btn" onclick="toggleSidebar()" title="Toggle Presenter Notes [N]">🎤 Notes</button>
+
+<!-- Fixed Presenter Notes Sidebar -->
+<div class="sidebar" id="notesSidebar">
+  <button class="sidebar-close" onclick="toggleSidebar()">&times;</button>
+  <h3 class="sidebar-title">🎤 Speaker Script &amp; Notes</h3>
+  <div class="sidebar-content" id="sidebarContent">
+    <!-- Populated dynamically by JavaScript -->
+  </div>
+</div>
+
+<div class="top-progress"><div class="top-progress-fill" id="topProgress"></div></div>
+
+<div class="deck" id="deck">
+
+<!-- ── SLIDE 1: Hero ── -->
+<div class="slide slide-hero active" id="slide-1">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="bg-glow bg-glow-3"></div>
+  <div class="hero-tag">BDC Learning Platform · 2026</div>
+  <h1 class="hero-title">Recommender Systems<br>&amp; Conversational RS</h1>
+  <p class="hero-sub">
+    From fundamental theory to production deployment — an end-to-end guide for the BDC CoreApplication project
+  </p>
+  <div class="hero-meta">
+    <div class="hero-meta-item"><div class="dot" style="background:#3b82f6"></div>25 Slides</div>
+    <div class="hero-meta-item"><div class="dot" style="background:#8b5cf6"></div>RS Fundamentals</div>
+    <div class="hero-meta-item"><div class="dot" style="background:#06b6d4"></div>Algorithms &amp; Modeling</div>
+    <div class="hero-meta-item"><div class="dot" style="background:#10b981"></div>Production Deploy</div>
+    <div class="hero-meta-item"><div class="dot" style="background:#f59e0b"></div>BDC Integration</div>
+  </div>
+
+  <!-- Hidden Notes Source Data -->
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Welcome the audience and introduce the presentation topic.</li>
+        <li>Set expectations: bridging recommender theory with actual BDC production services.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Good morning everyone. Today we are walking through the end-to-end guide for Recommender Systems and Conversational Recommender Systems within our BDC ecosystem. We will cover basic theory, transition into algorithmic structures like BKT and GRU4Rec, explore temporal validations, and conclude with the DA workspace."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 2: Agenda ── -->
+<div class="slide slide-content" id="slide-2">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">02 / 25</div>
+  <div class="slide-label">Overview</div>
+  <h2 class="slide-title">Presentation <span>Agenda</span></h2>
+  <div class="divider"></div>
+  <div class="card-grid card-grid-3" style="gap:14px;">
+    <div class="card card-accent">
+      <div class="card-icon">🎯</div>
+      <div class="card-title">Part 1 · RS Intro</div>
+      <div class="card-desc">Definition, motivation, business impact, and CRS paradigms. Slides 3–6</div>
+    </div>
+    <div class="card card-accent2">
+      <div class="card-icon">🧠</div>
+      <div class="card-title">Part 2 · Modeling</div>
+      <div class="card-desc">Data representations, cold starts, feature engineering, and BKT. Slides 7–10</div>
+    </div>
+    <div class="card card-accent3">
+      <div class="card-icon">⚙️</div>
+      <div class="card-title">Part 3 · Algorithms</div>
+      <div class="card-desc">Collaborative Filtering, sequential models, RL tuning, and Spaced Repetition. Slides 11–15</div>
+    </div>
+    <div class="card card-accent4">
+      <div class="card-icon">📊</div>
+      <div class="card-title">Part 4 · Evaluation</div>
+      <div class="card-desc">Offline metrics, online A/B testing, and temporal splitting. Slides 16–18</div>
+    </div>
+    <div class="card card-accent5">
+      <div class="card-icon">🚀</div>
+      <div class="card-title">Part 5 · Deploy</div>
+      <div class="card-desc">Production pipelines, serving SLAs, and MLOps feedback loops. Slides 19–21</div>
+    </div>
+    <div class="card" style="border-color:rgba(239,68,68,0.4);background:linear-gradient(135deg,rgba(239,68,68,0.08),transparent)">
+      <div class="card-icon">🏫</div>
+      <div class="card-title">Part 6 · BDC System</div>
+      <div class="card-desc">CoreApplication architectural implementation &amp; DA workflows. Slides 22–25</div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Map out the 6 agenda stages.</li>
+        <li>Highlights that the slides bridge academic theory with live service components.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Let's review our path today. The presentation is organized into six logical blocks. We begin with introductory concepts, detail our data modeling layers, explain the core algorithms, outline evaluation, review production deployment, and look at the actual BDC microservices blueprint."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 3: What is RS ── -->
+<div class="slide slide-content" id="slide-3">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">03 / 25</div>
+  <div class="slide-label">Part 1 · Introduction</div>
+  <h2 class="slide-title">What is a <span>Recommender System?</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div class="highlight-box" style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:#93c5fd">📖 Core Definition</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          A software engine that automatically predicts <strong style="color:var(--text)">user preference</strong> and presents a personalized feed of items <strong style="color:var(--text)">most relevant</strong> to their interests, drawing from historical actions and content attributes.
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-icon">🎬</div>
+        <div><div class="info-row-title">Netflix</div><div class="info-row-desc">80% of watched content comes from recommendation cards. Saves $1B+/year.</div></div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-icon">🛒</div>
+        <div><div class="info-row-title">Amazon</div><div class="info-row-desc">35% of total sales originate from cross-sell widgets ("Frequently bought together").</div></div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-icon">🎵</div>
+        <div><div class="info-row-title">Spotify Discover Weekly</div><div class="info-row-desc">Generates over 2.3 billion personalized streams every single week.</div></div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Mathematical Formulation</div>
+      <div class="math-block">
+        $$f : \mathcal{U} \times \mathcal{I} \to \mathbb{R}$$
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);text-align:center;margin-bottom:16px">Predict relevance score → sort candidates → output top-K</div>
+      <div class="card" style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;font-weight:600">Input Data</span>
+          <span class="tag tag-blue">User ID + Context</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:6px">user_id, learning_history, device, time, active_course_id...</div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;font-weight:600">Output Feed</span>
+          <span class="tag tag-green">Top-K Items</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:6px">Sorted slate of concepts, lessons, or exercises matching user level</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Explain the relevance mapping function mathematically.</li>
+        <li>Point to industry CTR and retention baseline examples.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Let's define our core function. Mathematically, a recommender maps the cross product of user variables and item variables to a relevance score. Industrial telemetry shows that this is the absolute backbone of user retention, driving 80% of consumption on platforms like Netflix."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 4: Why we need RS ── -->
+<div class="slide slide-content" id="slide-4">
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">04 / 25</div>
+  <div class="slide-label">Part 1 · The Problem</div>
+  <h2 class="slide-title">The <span>Information Overload</span> Era</h2>
+  <div class="divider"></div>
+  <div class="stats-row">
+    <div class="stat-box"><div class="stat-val">2.5 ZB</div><div class="stat-label">Daily Data Created</div></div>
+    <div class="stat-box"><div class="stat-val">500M+</div><div class="stat-label">YouTube Catalog Size</div></div>
+    <div class="stat-box"><div class="stat-val">100M+</div><div class="stat-label">Spotify Song Index</div></div>
+    <div class="stat-box"><div class="stat-val">8.5B</div><div class="stat-label">Google Searches/day</div></div>
+  </div>
+  <div class="card-grid card-grid-3">
+    <div class="card card-accent">
+      <div class="card-icon">😵</div>
+      <div class="card-title">User Paralysis</div>
+      <div class="card-desc">Faced with infinite choices, users encounter decision fatigue and quickly exit the application.</div>
+    </div>
+    <div class="card card-accent2">
+      <div class="card-icon">💡</div>
+      <div class="card-title">RS Remedy</div>
+      <div class="card-desc">Filters noise. Creates a unique portal tailored exactly to each individual user's needs.</div>
+    </div>
+    <div class="card card-accent4">
+      <div class="card-icon">📈</div>
+      <div class="card-title">Business Return</div>
+      <div class="card-desc">Increases session lengths, monthly active user retention, conversion rates, and lifetime value.</div>
+    </div>
+  </div>
+  <div class="highlight-box-amber highlight-box" style="margin-top:16px">
+    <div style="font-size:13px;font-weight:700;color:#fcd34d;margin-bottom:4px">⚡ Special Application in EdTech</div>
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+      Students learn at <strong style="color:var(--text)">different paces</strong>. Presenting content that is too easy triggers boredom; content that is too hard triggers dropout. RS balances the challenge curve.
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Explain choice paralysis and user abandonment.</li>
+        <li>Contextualize in EdTech: dynamic pace matching as a necessity.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "With zettabytes of data created daily, users face severe choice paralysis. In EdTech, recommendations are not just about engagement—they are pedagogical. We must match the student's current learning pace dynamically to prevent them from dropping out."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 5: Conversational RS ── -->
+<div class="slide slide-content" id="slide-5">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">05 / 25</div>
+  <div class="slide-label">Part 1 · Conversational RS</div>
+  <h2 class="slide-title">Conversational <span>Recommender Systems</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div class="highlight-box" style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:#c4b5fd;margin-bottom:6px">🤖 Dialogue-Driven Personalization</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          Unlike static one-way recommendations, CRS <strong style="color:var(--text)">interactively queries</strong> users to narrow down preferences, explain logic, and refine results in real-time.
+        </div>
+      </div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Elicitation — Intent discovery</div>
+            <div class="timeline-desc">AI asks: "Do you want to practice quizzes or read theory?" to register explicit intents.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Recommendation — Slate delivery</div>
+            <div class="timeline-desc">Provides immediate items matching the user's conversational response.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Feedback Loop — Immediate correction</div>
+            <div class="timeline-desc">User replies: "This concept is too basic" $\to$ system shifts difficulty instantly.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Explanation — Building trust</div>
+            <div class="timeline-desc">"I am recommending this Python guide because you failed the Quick Check on loops."</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Static RS vs. Conversational RS</div>
+      <table class="data-table" style="background:var(--surface);border-radius:10px;overflow:hidden">
+        <thead>
+          <tr><th>Attribute</th><th>Static RS</th><th>Conversational RS</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Interaction</td><td>Passive consumption</td><td>Active conversation</td></tr>
+          <tr><td>Feedback Signal</td><td>Implicit clicks</td><td>Explicit dialogue + clicks</td></tr>
+          <tr><td>Cold Start</td><td>Suffers severely</td><td>Solves by asking</td></tr>
+          <tr><td>Explainability</td><td>Black-box score</td><td>Natural language dialogue</td></tr>
+          <tr><td>Adaptation Time</td><td>Batch offline (daily)</td><td>Real-time inside session</td></tr>
+          <tr><td>Complexity</td><td>Standard ML models</td><td>High (NLP + RL Agents)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Highlight the active dialogue feedback loop of CRS.</li>
+        <li>Review key comparative criteria: latency, complexity, explainability.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Conversational recommender systems represent a massive paradigm shift. Instead of waiting for historical clicks to train models overnight, the system actively asks onboarding queries to elicit preferences, resolve cold starts, and explain recommend decisions."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 6: Taxonomy of RS ── -->
+<div class="slide slide-content" id="slide-6">
+  <div class="bg-glow bg-glow-3"></div>
+  <div class="slide-num">06 / 25</div>
+  <div class="slide-label">Part 1 · Classifications</div>
+  <h2 class="slide-title">Recommender System <span>Taxonomy</span></h2>
+  <div class="divider"></div>
+  <div class="card-grid card-grid-2" style="gap:14px">
+    <div class="card card-accent">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="font-size:22px">👥</div>
+        <div class="card-title" style="margin:0">Collaborative Filtering (CF)</div>
+      </div>
+      <div class="card-desc" style="margin-bottom:10px">"Users similar to you also liked..." Matches historical behaviors across populations.</div>
+      <div><span class="tag tag-blue">User-based</span><span class="tag tag-blue">Item-based</span><span class="tag tag-purple">Matrix Factorization</span></div>
+      <div class="highlight-box-amber highlight-box" style="margin-top:10px;padding:8px 12px">
+        <div style="font-size:11px;color:#fcd34d">⚠️ Vulnerable to Cold Starts &amp; Data Sparsity</div>
+      </div>
+    </div>
+    <div class="card card-accent2">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="font-size:22px">📝</div>
+        <div class="card-title" style="margin:0">Content-Based Filtering</div>
+      </div>
+      <div class="card-desc" style="margin-bottom:10px">"You liked X, item Y is similar to X, hence you will like Y." Relies on metadata tags.</div>
+      <div><span class="tag tag-purple">TF-IDF</span><span class="tag tag-cyan">Embeddings</span><span class="tag tag-green">Cosine Similarity</span></div>
+      <div class="highlight-box highlight-box" style="margin-top:10px;padding:8px 12px">
+        <div style="font-size:11px;color:#93c5fd">✅ Requires zero peer interaction logs</div>
+      </div>
+    </div>
+    <div class="card card-accent3">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="font-size:22px">🔀</div>
+        <div class="card-title" style="margin:0">Hybrid Systems</div>
+      </div>
+      <div class="card-desc" style="margin-bottom:10px">Combines Collaborative, Content-Based, and Knowledge-Graph rules to eliminate single-model bottlenecks.</div>
+      <div><span class="tag tag-amber">Weighted</span><span class="tag tag-amber">Switching</span><span class="tag tag-amber">Cascading</span></div>
+    </div>
+    <div class="card card-accent4">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="font-size:22px">🧩</div>
+        <div class="card-title" style="margin:0">Knowledge-Based</div>
+      </div>
+      <div class="card-desc" style="margin-bottom:10px">Uses deterministic graph pathways and domain rules (e.g., prerequisite lesson hierarchies) to recommend.</div>
+      <div><span class="tag tag-green">Neo4j Graph</span><span class="tag tag-green">Graph Neural Nets</span><span class="tag tag-green">Prerequisites</span></div>
+    </div>
+  </div>
+  <div class="highlight-box" style="margin-top:14px;padding:10px 16px">
+    <div style="font-size:13px;color:var(--text-dim)">
+      <strong style="color:var(--text)">Production Best Practice:</strong> Modern high-traffic recommender backends are almost exclusively <strong style="color:var(--accent3)">Cascaded Hybrids</strong>.
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Introduce the 4 main recommender approaches.</li>
+        <li>Explain why hybrid cascade logic dominates in high-throughput scale.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Here is our structural taxonomy. We categorize platforms by their primary signal: collaborative, content metadata, or relational graphs. In standard production scale, we combine these approaches to leverage their distinct strengths."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 7: Data Modeling ── -->
+<div class="slide slide-content" id="slide-7">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">07 / 25</div>
+  <div class="slide-label">Part 2 · Data Representations</div>
+  <h2 class="slide-title">Data <span>Modeling</span> for Recommenders</h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">The 3 Data Pillars</div>
+      <div class="info-row">
+        <div class="info-row-icon">👤</div>
+        <div>
+          <div class="info-row-title">User Vector</div>
+          <div class="info-row-desc">user_id, demographic context, historic logs, mastery vectors, preferences...</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-icon">📚</div>
+        <div>
+          <div class="info-row-title">Item Vector</div>
+          <div class="info-row-desc">item_id (lesson/node), course_id, difficulty levels, tag keywords, content embedding...</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-icon">🔁</div>
+        <div>
+          <div class="info-row-title">Interaction Data</div>
+          <div class="info-row-desc">Logs of user × item actions: action_type, timestamps, completion status, score...</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Feedback Signals</div>
+      <div style="display:flex;gap:10px">
+        <div class="card" style="flex:1;padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#93c5fd;margin-bottom:4px">Implicit Feedback</div>
+          <div style="font-size:11.5px;color:var(--text-dim)">Views, complete events, duration. Abundant but noisy.</div>
+        </div>
+        <div class="card" style="flex:1;padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#6ee7b7;margin-bottom:4px">Explicit Feedback</div>
+          <div style="font-size:11.5px;color:var(--text-dim)">Likes, star ratings, ratings. High signal but scarce.</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">User-Item Interaction Matrix</div>
+      <pre><code class="language-text">         node_1001  node_1002  node_1003
+user_183    9          0          5
+user_187    17         12         0
+user_115    0          6          11</code></pre>
+      <div class="highlight-box" style="margin-top:12px;padding:10px 14px">
+        <div style="font-size:12px;color:var(--text-dim);line-height:1.6">
+          <strong style="color:var(--text)">Implicit Affinity Score:</strong> Constructed by summing weighted interactions per user-concept pair (complete = 2.0, correct check = 2.0, view = 0.5...).
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Introduce users, items, and interactions data pillars.</li>
+        <li>Point to the sparse matrix formatting in the code section.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "To build our models, we model three objects: user profiles, item data, and interactions. In academic applications, the user-item matrix is massive and sparse. We compute an implicit affinity score based on actions to fill these gaps."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 8: Cold Starts ── -->
+<div class="slide slide-content" id="slide-8">
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">08 / 25</div>
+  <div class="slide-label">Part 2 · Data Bottlenecks</div>
+  <h2 class="slide-title">Handling the <span>Cold Start</span> Problem</h2>
+  <div class="divider"></div>
+  <div class="card-grid card-grid-3" style="margin-bottom:16px">
+    <div class="card card-accent">
+      <div class="card-icon">🧊</div>
+      <div class="card-title">New User Cold Start</div>
+      <div class="card-desc">No behavioral history exists. Collaborative filtering yields zero candidates.</div>
+    </div>
+    <div class="card card-accent2">
+      <div class="card-icon">📦</div>
+      <div class="card-title">New Item Cold Start</div>
+      <div class="card-desc">A new lesson is published. No student has clicked it yet, creating zero logs.</div>
+    </div>
+    <div class="card card-accent3">
+      <div class="card-icon">🌑</div>
+      <div class="card-title">Sparse Interactions</div>
+      <div class="card-desc">Inactive users have minimal actions, causing high variance predictions.</div>
+    </div>
+  </div>
+  <div style="font-size:13px;font-weight:700;margin-bottom:12px">🛠 Mitigation Tactics</div>
+  <div class="card-grid card-grid-2">
+    <div>
+      <ul class="bullet-list">
+        <li><strong>Popularity fallback</strong> — Serve top catalog items when user log size is zero</li>
+        <li><strong>Interactive Elicitation</strong> — AI asks onboarding style questions to build initial vector</li>
+        <li><strong>Knowledge Graph Prerequisites</strong> — Follow graph paths to recommend starting nodes</li>
+      </ul>
+    </div>
+    <div>
+      <ul class="bullet-list">
+        <li><strong>Demographic clustering</strong> — Group users by profile fields (e.g., job role, level)</li>
+        <li><strong>Content Similarity</strong> — Serve new items that resemble already popular lessons</li>
+        <li><strong>Synthetic Ingest</strong> — Generate initial training interactions to pre-warm weights</li>
+      </ul>
+    </div>
+  </div>
+  <div class="highlight-box-green highlight-box" style="margin-top:14px">
+    <div style="font-size:13px;color:var(--text-dim)">
+      <strong style="color:#6ee7b7">✅ BDC Applied logic:</strong> The Lakehouse view triggers a <code style="font-family:monospace;color:#a5d6ff">learn_popular_lesson</code> fallback for cold users. AI preferences assign a heavy score weight of 3.0 to bootstrap CF matrices.
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Explain cold starts: user-side vs item-side.</li>
+        <li>Review BDC's concrete fallbacks: popular lessons and preference overrides.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "How do we handle new users with zero history? We use fallbacks. We serve globally popular lessons, cluster users by demographic details, and use our Conversational AI to ask initial preferences, establishing a baseline score."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 9: Feature Engineering ── -->
+<div class="slide slide-content" id="slide-9">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">09 / 25</div>
+  <div class="slide-label">Part 2 · Feature Engineering</div>
+  <h2 class="slide-title">Recommender <span>Feature Engineering</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">User Features Table</div>
+      <table class="data-table" style="background:var(--surface);border-radius:10px;overflow:hidden;margin-bottom:16px">
+        <thead><tr><th>Feature Name</th><th>Datatype</th><th>Functional Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>mastery_level</td><td><span class="tag tag-blue">Float</span></td><td>Running score of concept mastery (0-1)</td></tr>
+          <tr><td>check_accuracy</td><td><span class="tag tag-blue">Float</span></td><td>Ratio of correct quick checks</td></tr>
+          <tr><td>engagement_level</td><td><span class="tag tag-purple">Enum</span></td><td>Activity tiers (Highly Active, Normal, At Risk)</td></tr>
+          <tr><td>learning_style</td><td><span class="tag tag-purple">Enum</span></td><td>Behavioral styles (Practical, Theoretical)</td></tr>
+          <tr><td>struggle_nodes</td><td><span class="tag tag-amber">Array</span></td><td>IDs of nodes flagged with error rate &gt; threshold</td></tr>
+        </tbody>
+      </table>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Item Features Table</div>
+      <table class="data-table" style="background:var(--surface);border-radius:10px;overflow:hidden">
+        <thead><tr><th>Feature Name</th><th>Datatype</th><th>Functional Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>difficulty</td><td><span class="tag tag-blue">Float</span></td><td>Academic complexity rating (1-5)</td></tr>
+          <tr><td>topic_embedding</td><td><span class="tag tag-purple">Vector</span></td><td>LLM embeddings representing content semantics</td></tr>
+          <tr><td>prerequisites</td><td><span class="tag tag-amber">Array</span></td><td>Parent node IDs in the knowledge hierarchy</td></tr>
+          <tr><td>popularity_score</td><td><span class="tag tag-blue">Float</span></td><td>Global interaction frequency rank</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Interaction Matrix Scoring Logic</div>
+      <pre><code class="language-python"># Explicit Interaction weights mapping
+weights = {
+    'lesson_complete':     2.0,
+    'quick_check_correct': 2.0,
+    'ask_ai':              1.5,
+    'flashcard_flip':      1.0,
+    'preference_elicited': 3.0,  # CRS explicit statement
+    'lesson_view':         0.5,
+    'quick_check_wrong':   0.5,
+}
+
+affinity_score = sum(
+    weights[action] for action in user_action_sequence
+)</code></pre>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin:14px 0 10px">Temporal Dynamics Features</div>
+      <ul class="bullet-list">
+        <li><strong>Exponential recency decay</strong> — Recent actions represent current interests</li>
+        <li><strong>Session density</strong> — Interaction counts in active windows</li>
+        <li><strong>Lapse interval</strong> — Time elapsed since last login to capture churn</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Review engineered feature vectors for users and items.</li>
+        <li>Detail the python script scoring interaction weight dictionary.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "To feed our algorithms, we engineer features. We construct dynamic variables like mastery levels, check accuracies, and content embeddings. We weight interactions differently: completing a lesson is 2.0, while explicit conversational inputs get 3.0."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 10: Bayesian Knowledge Tracing ── -->
+<div class="slide slide-content" id="slide-10">
+  <div class="bg-glow bg-glow-3"></div>
+  <div class="slide-num">10 / 25</div>
+  <div class="slide-label">Part 2 · Mastery Modeling</div>
+  <h2 class="slide-title">Bayesian Knowledge Tracing <span>(BKT)</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div class="highlight-box" style="margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:#93c5fd">Why BKT?</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          Standard recommenders know <em>what you visited</em>. BKT models <em>whether you understood it</em>. It tracks the hidden state of concept mastery based on correct/incorrect response sequences.
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Step-by-Step BKT Update Mechanics</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Fetch Prior: P(L_t-1)</div>
+            <div class="timeline-desc">Initial probability of mastery (starts at P(L0) parameter).</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Assess action outcome (correct/incorrect)</div>
+            <div class="timeline-desc">Student attempts a check. Correct counts map to probability updates.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Compute Posterior P(L_t-1 | Action)</div>
+            <div class="timeline-desc">Applies Bayes' theorem using slip P(S) and guess P(G) factors.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Apply learning transition P(T)</div>
+            <div class="timeline-desc">Accounts for learning event to yield final mastery state P(L_t).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">BKT Probability Equations</div>
+      <div class="math-block">
+        $$P(L_{t-1} \mid \text{Correct}) = \frac{P(L_{t-1}) \cdot (1 - P(S))}{P(L_{t-1}) \cdot (1 - P(S)) + (1 - P(L_{t-1})) \cdot P(G)}$$
+      </div>
+      <div class="math-block">
+        $$P(L_{t-1} \mid \text{Incorrect}) = \frac{P(L_{t-1}) \cdot P(S)}{P(L_{t-1}) \cdot P(S) + (1 - P(L_{t-1})) \cdot (1 - P(G))}$$
+      </div>
+      <div class="math-block">
+        $$P(L_t) = P(L_{t-1} \mid \text{Action}) + (1 - P(L_{t-1} \mid \text{Action})) \cdot P(T)$$
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin:14px 0 10px">Downstream RS Applications</div>
+      <ul class="bullet-list">
+        <li><strong>P(mastery) &lt; 0.8</strong> $\to$ Flags knowledge gap $\to$ RS boosts practice items</li>
+        <li><strong>P(mastery) ≥ 0.8</strong> $\to$ Mastery reached $\to$ System unlocks next lesson node</li>
+        <li><strong>Performance decline</strong> $\to$ Triggers Spaced Repetition review</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Explain Bayesian updates of mastery state after check attempts.</li>
+        <li>Relate prior variables and transitional probabilities to learning trajectories.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Bayesian Knowledge Tracing updates the student's mastery probability dynamically. By estimating guess rates and slip rates, we calculate the posterior probability after correct or incorrect answers, deciding whether to serve review items."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 11: CF Algorithms ── -->
+<div class="slide slide-content" id="slide-11">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">11 / 25</div>
+  <div class="slide-label">Part 3 · Core Algorithms</div>
+  <h2 class="slide-title">Collaborative Filtering <span>Paradigms</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">Memory-Based CF</div>
+      <div class="card card-accent" style="margin-bottom:10px">
+        <div class="card-title">User-User CF Similarity</div>
+        <div class="card-desc" style="margin:6px 0">Finds peers with similar history using cosine similarity metrics.</div>
+        <div class="math-block">
+          $$\text{sim}(u, v) = \frac{u \cdot v}{\|u\| \times \|v\|}$$
+        </div>
+      </div>
+      <div class="card card-accent2" style="margin-bottom:14px">
+        <div class="card-title">Item-Item CF</div>
+        <div class="card-desc" style="margin:6px 0">Scores similarity between items directly. More stable in production since catalog changes slowly.</div>
+      </div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">Model-Based CF (Matrix Factorization)</div>
+      <div class="card card-accent3">
+        <div class="card-title">Alternating Least Squares (ALS) Step-by-Step</div>
+        <div class="card-desc" style="margin:6px 0">Decomposes interaction matrix by optimizing user and item factors alternatively.</div>
+        <ul class="bullet-list" style="margin-top:6px">
+          <li><strong>Step 1:</strong> Freeze V, solve U by minimizing squared reconstruction error.</li>
+          <li><strong>Step 2:</strong> Freeze U, solve V by minimizing squared reconstruction error.</li>
+          <li><strong>Step 3:</strong> Repeat until convergence metric is satisfied.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Matrix Decomposition Formulation</div>
+      <div class="math-block">
+        $$R \approx U \times V^T$$
+      </div>
+      <pre><code class="language-python"># ALS Factorization Epoch Loop
+for epoch in range(num_epochs):
+    # Solve U with V fixed:
+    # U = R @ V @ (V.T @ V + lambda * I)^-1
+    
+    # Solve V with U fixed:
+    # V = R.T @ U @ (U.T @ U + lambda * I)^-1</code></pre>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Trade-Off Analysis</div>
+      <table class="data-table" style="background:var(--surface);border-radius:10px;overflow:hidden">
+        <thead><tr><th>Method</th><th>Precision</th><th>Scalability</th><th>New User Cold Start</th></tr></thead>
+        <tbody>
+          <tr><td>User-User</td><td>Medium</td><td>Low ❌</td><td>Poor ❌</td></tr>
+          <tr><td>Item-Item</td><td>Medium</td><td>Medium ⚡</td><td>Poor ❌</td></tr>
+          <tr><td>ALS (implicit)</td><td>High</td><td>High ✅</td><td>Poor ❌</td></tr>
+          <tr><td>Neural CF</td><td>Very High</td><td>High ✅</td><td>Moderate ⚡</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Contrast memory-based similarity with model-based factorization (ALS).</li>
+        <li>Explain the step-by-step least squares parameter updates.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Let's cover collaborative filtering. Memory-based methods compute cosine similarity in real-time, but model-based Matrix Factorization via Alternating Least Squares is far more scalable, solving U and V alternatively."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 12: Sequential Recs ── -->
+<div class="slide slide-content" id="slide-12">
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">12 / 25</div>
+  <div class="slide-label">Part 3 · Advanced Algorithms</div>
+  <h2 class="slide-title">Sequential <span>Recommendation</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div class="highlight-box" style="margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:#93c5fd;margin-bottom:6px">Why Sequential Models?</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          Learning order is strict: A $\to$ B $\to$ C differs from B $\to$ A $\to$ C. Sequential recommender models treat user history as an ordered sequence of events to predict the next action.
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">GRU4Rec Forward Path Step-by-Step</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Represent history sequence</div>
+            <div class="timeline-desc">Input sequence of item IDs: $[i_1, i_2, ..., i_{t-1}]$.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Project to Embedding Space</div>
+            <div class="timeline-desc">Embeds each item ID into a dense vector representation.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Process with recurrent cells</div>
+            <div class="timeline-desc">Feeds embedded vectors into GRU cells to accumulate sequential dependencies.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Map hidden state to logits</div>
+            <div class="timeline-desc">Decodes last hidden vector $h_{t-1}$ to calculate next item vocabulary logits.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <pre><code class="language-python">class GRU4RecBackbone(nn.Module):
+    def __init__(self, vocab_size, hidden=128):
+        super().__init__()
+        self.item_emb = nn.Embedding(vocab_size, 64)
+        self.gru = nn.GRU(64, hidden, num_layers=2)
+        self.fc = nn.Linear(hidden, vocab_size)
+
+    def forward(self, seq):
+        x = self.item_emb(seq)
+        h, _ = self.gru(x)
+        logits = self.fc(h[:, -1, :])
+        return logits</code></pre>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin:10px 0 2px">SRD Composite Loss Equation</div>
+      <div class="math-block">
+        $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{CE}} + \lambda \cdot \mathcal{L}_{\text{diversity}}$$
+      </div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Explain GRU recurrent state updates over interaction arrays.</li>
+        <li>Review SRD composite loss logic combining CE and diversity.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Next, we move to sequential recommenders. The order of lessons is crucial. We feed interaction sequences into GRU cells to encode historical contexts, training with a Soft-Rank Diversity loss to maintain list diversity."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 13: RL Fine-Tuning ── -->
+<div class="slide slide-content" id="slide-13">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">13 / 25</div>
+  <div class="slide-label">Part 3 · Advanced Algorithms</div>
+  <h2 class="slide-title">Reinforcement Learning <span>Fine-Tuning</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div class="highlight-box" style="margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:6px">RL Tuning Paradigm</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          Pre-train sequential models offline. Then, treat recommendation slates as actions and update the policy using <strong style="color:var(--text)">REINFORCE</strong> gradient updates based on user success rewards.
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">REINFORCE Policy Update Step-by-Step</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Run policy forward pass</div>
+            <div class="timeline-desc">Generate model logits $\pi_\theta(a|s)$ representing probability values over catalog items.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Sample K actions</div>
+            <div class="timeline-desc">Sample a slate of Top-K recommendation items using multinomial sampling.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Acquire environmental reward R</div>
+            <div class="timeline-desc">Measure user engagement: reward = nDCG@K + 0.2 × item novelty.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Compute loss &amp; update weights</div>
+            <div class="timeline-desc">Update network weights using gradient ascent: $\theta \leftarrow \theta + \alpha R \nabla \log \pi_\theta(a|s)$.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Policy Gradient (REINFORCE) Equation</div>
+      <div class="math-block">
+        $$\nabla_\theta J(\theta) = \mathbb{E} \left[ \nabla_\theta \log \pi_\theta(a \mid s) \cdot R(a,s) \right]$$
+      </div>
+      <pre><code class="language-python">def train_rl_step(model, ref_model, batch):
+    logits = model(batch['seq'])
+    actions = sample_top_k(logits, k=5)
+    rewards = compute_rewards(actions, batch)
+
+    # KL Divergence constraint (DivKG)
+    kl = kl_div(logits, ref_model(batch))
+    loss = -(rewards * logits).mean() + 0.05 * kl
+    
+    loss.backward(); optimizer.step()</code></pre>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Explain policy gradient REINFORCE updates with custom rewards.</li>
+        <li>Review KL divergence constraint calculations inside the loop.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "To optimize our model for student learning outcomes, we use policy gradients. Using REINFORCE, we adjust our weights based on nDCG and novelty rewards, applying a KL penalty to keep updates stable."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 14: Spaced Repetition ── -->
+<div class="slide slide-content" id="slide-14">
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">14 / 25</div>
+  <div class="slide-label">Part 3 · Memory Retention</div>
+  <h2 class="slide-title">Spaced Repetition <span>Systems (SRS)</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div class="highlight-box" style="margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:#67e8f9;margin-bottom:6px">🧬 Ebbinghaus Forgetting Curve</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          Memory retention decays exponentially. Spaced repetition calculates the <strong style="color:var(--text)">optimal review date</strong> — right before the user is likely to forget — to lock knowledge in long-term memory.
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">SuperMemo-2 Algorithm Step-by-Step</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Collect quality score (0-5)</div>
+            <div class="timeline-desc">User rates recall performance on a flashcard.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Adjust Easiness Factor (EF)</div>
+            <div class="timeline-desc">Update easiness factor based on rating value.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Calculate next interval (I)</div>
+            <div class="timeline-desc">Calculates spacing interval in days for next repetition.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Schedule next review date</div>
+            <div class="timeline-desc">Set next_review_date to current time + interval days.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">SM-2 Spacing Formulas</div>
+      <div class="math-block">
+        $$EF' = EF + (0.1 - (5 - q) \cdot (0.08 + (5 - q) \cdot 0.02))$$
+      </div>
+      <div class="math-block">
+        $$I(n) = I(n-1) \cdot EF$$
+      </div>
+      <pre><code class="language-sql">-- flashcard_repetitions schema
+CREATE TABLE flashcard_repetitions (
+    flashcard_id BIGINT,
+    student_id BIGINT,
+    easiness_factor FLOAT DEFAULT 2.5,
+    interval INT DEFAULT 1,
+    repetition_count INT DEFAULT 0,
+    next_review_date TIMESTAMP
+);</code></pre>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Explain intervals calculation mathematically.</li>
+        <li>Detail the database layout and target review triggers.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Memory decays exponentially. Our Spaced Repetition System calculates optimal review intervals using the SM-2 algorithm, pushing cards that are due directly to Priority 1 status in the learning queue."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 15: Recommendation Pipeline ── -->
+<div class="slide slide-content" id="slide-15">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">15 / 25</div>
+  <div class="slide-label">Part 3 · Architecture</div>
+  <h2 class="slide-title">End-to-End <span>Serving Pipeline</span></h2>
+  <div class="divider"></div>
+  <div style="margin-bottom:20px">
+    <div class="pipeline">
+      <div class="pipeline-step" style="border-color:rgba(59,130,246,0.4)">
+        <div class="step-icon">📡</div>
+        <div class="step-label">1. Request Ingest</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step" style="border-color:rgba(139,92,246,0.4)">
+        <div class="step-icon">🔍</div>
+        <div class="step-label">2. Retrieval</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step" style="border-color:rgba(6,182,212,0.4)">
+        <div class="step-icon">🏆</div>
+        <div class="step-label">3. Ranking</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step" style="border-color:rgba(16,185,129,0.4)">
+        <div class="step-icon">✨</div>
+        <div class="step-label">4. Re-Ranking</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step" style="border-color:rgba(245,158,11,0.4)">
+        <div class="step-icon">📋</div>
+        <div class="step-label">5. Filters</div>
+      </div>
+      <div class="pipeline-arrow">→</div>
+      <div class="pipeline-step" style="border-color:rgba(239,68,68,0.4)">
+        <div class="step-icon">🎁</div>
+        <div class="step-label">6. Top-K output</div>
+      </div>
+    </div>
+  </div>
+  <div class="card-grid card-grid-3">
+    <div class="card card-accent">
+      <div class="card-title">1️⃣ Candidate Generation</div>
+      <div class="card-desc">Vector search (ANN) + graph prerequisites extraction. Selects ~500 candidates out of 100K+ items in &lt; 10ms.</div>
+    </div>
+    <div class="card card-accent2">
+      <div class="card-title">2️⃣ Ranking Score</div>
+      <div class="card-desc">GRU4Rec model outputs sequence logits. Combines embedding similarity and mastery probabilities to assign score weights.</div>
+    </div>
+    <div class="card card-accent3">
+      <div class="card-title">3️⃣ Real-Time Re-Ranking</div>
+      <div class="card-desc">Applies policy gradient networks (DivKG) to rearrange slots, maximizing diversity metrics and novelty.</div>
+    </div>
+    <div class="card card-accent4">
+      <div class="card-title">4️⃣ Hard Filters</div>
+      <div class="card-desc">Strips out already-completed items. Ensures prerequisite nodes are met. Drops out-of-course concepts.</div>
+    </div>
+    <div class="card card-accent5">
+      <div class="card-title">5️⃣ Context Boost</div>
+      <div class="card-desc">Forces SRS due cards to priority positions. Elevates active struggle nodes to catch students before they slip.</div>
+    </div>
+    <div class="card">
+      <div class="card-title">6️⃣ Delivery & Log</div>
+      <div class="card-desc">Serves the top-K array. Registers impression events to Kafka to close the system feedback loop.</div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Examine the candidate lookup, neural scoring, and filtering steps.</li>
+        <li>Discuss why separating retrieval and scoring is crucial for high throughput.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Here is the complete recommendation pipeline. When an API call lands, we retrieve candidates in under 10ms, score them using our neural network, filter out completed concepts, and boost due cards before rendering."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 16: Offline Metrics ── -->
+<div class="slide slide-content" id="slide-16">
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">16 / 25</div>
+  <div class="slide-label">Part 4 · Evaluation</div>
+  <h2 class="slide-title">Offline <span>Evaluation Metrics</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Accuracy Equations</div>
+      <div class="math-block">
+        $$\text{Precision}@K = \frac{|\text{Relevant} \cap \text{Recommended}|}{K}$$
+      </div>
+      <div class="math-block">
+        $$\text{Recall}@K = \frac{|\text{Relevant} \cap \text{Recommended}|}{|\text{Relevant}|}$$
+      </div>
+      <div class="math-block">
+        $$\text{nDCG}@K = \frac{\text{DCG}@K}{\text{IDCG}@K}$$
+      </div>
+      <div style="font-size:13px;font-weight:700;margin:14px 0 10px">Beyond-Accuracy Metrics</div>
+      <div class="card-grid card-grid-2" style="gap:8px;margin-bottom:14px">
+        <div class="card" style="padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#67e8f9;margin-bottom:4px">ILD (Diversity)</div>
+          <div style="font-size:11px;color:var(--text-dim)">Intra-List Distance. Higher values mean more diverse lists.</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:4px">Novelty</div>
+          <div style="font-size:11px;color:var(--text-dim)">−log₂(popularity). Measures how unexpected recommendations are.</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#6ee7b7;margin-bottom:4px">Catalog Coverage</div>
+          <div style="font-size:11px;color:var(--text-dim)">% of distinct items recommended to at least one user.</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#fcd34d;margin-bottom:4px">Serendipity</div>
+          <div style="font-size:11px;color:var(--text-dim)">Surprising yet highly relevant recommendations.</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Offline Model Benchmarks</div>
+      <table class="data-table" style="background:var(--surface);border-radius:10px;overflow:hidden;margin-bottom:16px">
+        <thead><tr><th>Model Pipeline</th><th>P@5</th><th>Recall@5</th><th>nDCG@5</th><th>ILD</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-amber" style="font-size:10px">Baseline</span> Heuristic</td>
+            <td>0.40</td><td>0.25</td><td>0.38</td><td>0.72</td>
+          </tr>
+          <tr>
+            <td>Cosine Similarity CF</td>
+            <td>0.48</td><td>0.31</td><td>0.45</td><td>0.65</td>
+          </tr>
+          <tr>
+            <td>ALS Latent Factors</td>
+            <td>0.55</td><td>0.38</td><td>0.52</td><td>0.68</td>
+          </tr>
+          <tr>
+            <td>Sequential GRU4Rec</td>
+            <td>0.63</td><td>0.45</td><td>0.61</td><td>0.70</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-green" style="font-size:10px">Production</span> SRD + DivKG RL</td>
+            <td><strong>0.71</strong></td><td><strong>0.52</strong></td><td><strong>0.69</strong></td><td><strong>0.81</strong></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="highlight-box-amber highlight-box">
+        <div style="font-size:12px;color:var(--text-dim);line-height:1.6">
+          <strong style="color:#fcd34d">⚠️ Offline Warning:</strong> Excellent offline metrics do not guarantee live user conversion. Live online A/B testing is mandatory.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Contrast Precision, Recall, and nDCG formulas.</li>
+        <li>Review benchmark rankings showing sequential + RL model dominance.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "To measure algorithms offline, we use Precision, Recall, and nDCG. We also track list diversity. Our baseline heuristic scores 0.38 on nDCG, while our sequential model with RL reaches a much higher benchmark score of 0.69."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 17: Online Evaluation ── -->
+<div class="slide slide-content" id="slide-17">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">17 / 25</div>
+  <div class="slide-label">Part 4 · Evaluation</div>
+  <h2 class="slide-title">Online <span>A/B Testing</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div class="highlight-box" style="margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:#93c5fd;margin-bottom:6px">A/B Testing Framework</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          Directs incoming traffic randomly to Control (model A) or Treatment (model B). Evaluates real business changes over a set period.
+        </div>
+      </div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Hypothesis Design</div>
+            <div class="timeline-desc">Defines target variables, target metrics, and minimal sample size requirements (power analysis).</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Hash-Based Traffic Split</div>
+            <div class="timeline-desc">Computes <code style="font-family:monospace;color:#a5d6ff">Hash(user_id + salt) % 100</code> to enforce static cohort mapping.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Run & Monitor (10-14 days)</div>
+            <div class="timeline-desc">Collects metrics. Controls for temporal novelty effects. Tracks latency.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Statistical Test</div>
+            <div class="timeline-desc">Performs t-tests or z-tests. Validates that p-value &lt; 0.05 before shipping the new model.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Key Online Metrics</div>
+      <div class="card-grid card-grid-2" style="gap:8px;margin-bottom:14px">
+        <div class="card card-accent" style="padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#93c5fd">Click-Through Rate (CTR)</div>
+          <div style="font-size:11px;color:var(--text-dim)">Clicks / Impressions of recommended cards</div>
+        </div>
+        <div class="card card-accent2" style="padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#c4b5fd">Lesson Completion Rate</div>
+          <div style="font-size:11px;color:var(--text-dim)">Ratio of recommended lessons completed</div>
+        </div>
+        <div class="card card-accent3" style="padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#67e8f9">Active Session Duration</div>
+          <div style="font-size:11px;color:var(--text-dim)">Mean time spent learning per user session</div>
+        </div>
+        <div class="card card-accent4" style="padding:12px">
+          <div style="font-size:12px;font-weight:700;color:#6ee7b7">Retention (D7 / D30)</div>
+          <div style="font-size:11px;color:var(--text-dim)">% of users returning after N days</div>
+        </div>
+      </div>
+      <div class="highlight-box-green highlight-box">
+        <div style="font-size:12px;color:var(--text-dim);line-height:1.6">
+          <strong style="color:#6ee7b7">Guardrail Metrics:</strong> Keep an eye on error rates and latency. If p95 latency spikes above 200ms or error rates exceed 1%, abort the experiment immediately.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Discuss traffic hashing to avoid cohort contamination.</li>
+        <li>Review key metrics: CTR, completions, and latency guardrails.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "To run online validations, we partition incoming traffic using static MD5 hashes. Over two weeks, we track click-through rates and completion rates, maintaining a strict watch on API latencies as guardrails."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 18: Temporal Splitting ── -->
+<div class="slide slide-content" id="slide-18">
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">18 / 25</div>
+  <div class="slide-label">Part 4 · Validation Design</div>
+  <h2 class="slide-title">Quy trình <span>Temporal Evaluation</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div class="highlight-box" style="margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:#93c5fd;margin-bottom:6px">⚠️ Preventing Data Leakage</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6">
+          Never split recommendation datasets randomly. Because learning behavior is chronological, random splits leak future interactions. Always partition using a <strong style="color:var(--text)">Temporal Split</strong>.
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Temporal Split Protocol Step-by-Step</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Sort user interactions chronologically</div>
+            <div class="timeline-desc">Order all logged student actions by their timestamp field.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Establish division boundary</div>
+            <div class="timeline-desc">Define a boundary cut point (e.g. last 20% of actions per user).</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Train on past logs</div>
+            <div class="timeline-desc">Train recommendation algorithms exclusively on pre-split historical data.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Evaluate predictions on future events</div>
+            <div class="timeline-desc">Test predictions against post-split records (guarantees zero look-ahead bias).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Implementation Code Pattern</div>
+      <pre><code class="language-python">def temporal_split(df, test_ratio=0.2):
+    # Sort chronologically
+    df = df.sort_values('timestamp')
+    # Slice the last 20% records per user
+    test_idx = df.groupby('user_id').apply(
+        lambda g: g.tail(int(len(g) * test_ratio))
+    ).index.get_level_values(1)
+    
+    train_set = df.drop(test_idx)
+    test_set = df.loc[test_idx]
+    return train_set, test_set</code></pre>
+      <div style="margin-top:12px"><span class="badge badge-blue">📓 Evaluated in: 08_offline_evaluation.ipynb</span></div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Explain why random splitting causes data leakage.</li>
+        <li>Walk through the temporal split python script steps.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "To avoid look-ahead bias, we must partition temporally. Standard random splits leak future states. We train on the first 80% chronologically and evaluate on the final 20%, as written in our offline evaluation script."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 19: Production Serving ── -->
+<div class="slide slide-content" id="slide-19">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">19 / 25</div>
+  <div class="slide-label">Part 5 · Systems Engineering</div>
+  <h2 class="slide-title">Production <span>Serving Architecture</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">The Multi-Stage Serving Flow</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num" style="background:rgba(59,130,246,0.8)">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Retrieval Stage (&lt; 10ms)</div>
+            <div class="timeline-desc">FAISS vector lookups + Graph DB queries. Narrows down items from 100K+ to ~500 candidates.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num" style="background:rgba(139,92,246,0.8)">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Ranking Stage (&lt; 50ms)</div>
+            <div class="timeline-desc">Scores candidate items using GRU4Rec. Gathers user profiles from Feature Stores. Returns top-50.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num" style="background:rgba(6,182,212,0.8)">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Re-Ranking Stage (&lt; 20ms)</div>
+            <div class="timeline-desc">Applies business rules, skips completed items, checks graph prerequisites, and pushes SRS due cards.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num" style="background:rgba(16,185,129,0.8)">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Auditing &amp; Logging</div>
+            <div class="timeline-desc">Delivers recommendations. Dispatches impression payloads to Kafka to close the feedback loop.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Infrastructure Components</div>
+      <div class="info-row" style="margin-bottom:6px">
+        <div class="info-row-icon">⚡</div>
+        <div><div class="info-row-title">Feature Store (Redis)</div><div class="info-row-desc">Holds pre-computed user profiles and latent item embeddings. Serving latency P99 &lt; 2ms.</div></div>
+      </div>
+      <div class="info-row" style="margin-bottom:6px">
+        <div class="info-row-icon">🔍</div>
+        <div><div class="info-row-title">Vector Database (Qdrant)</div><div class="info-row-desc">Conducts fast Approximate Nearest Neighbor searches over embedding spaces.</div></div>
+      </div>
+      <div class="info-row" style="margin-bottom:6px">
+        <div class="info-row-icon">📊</div>
+        <div><div class="info-row-title">Model Registry (MLflow)</div><div class="info-row-desc">Tracks model versions, parameters, and metadata. Enables 1-click rollbacks.</div></div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-icon">📡</div>
+        <div><div class="info-row-title">Telemetry (Prometheus + Grafana)</div><div class="info-row-desc">Monitors serving latency, throughput, prediction drift, and error codes.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Highlight retrieval, ranking, and audit workflows.</li>
+        <li>Review physical storage components: Redis, Qdrant.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Our serving architecture separating candidate generation from ranking relies on a Redis Feature Store for pre-computed user profiles, Qdrant for vector matching, and MLflow for registry control, meeting sub-100ms SLAs."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 20: ML Pipelines ── -->
+<div class="slide slide-content" id="slide-20">
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">20 / 25</div>
+  <div class="slide-label">Part 5 · Automation</div>
+  <h2 class="slide-title">ML Training <span>Pipelines</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Scheduled Pipeline Step-by-Step</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Run hourly Lakehouse Parquet Archiving</div>
+            <div class="timeline-desc">Background cron `archive_scheduler` moves events from Postgres to Bronze Parquet folders.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Execute silver-to-gold ETL transformations</div>
+            <div class="timeline-desc">DuckDB queries aggregate raw events into user affinity scores and student course metrics.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Train sequential model weights (weekly)</div>
+            <div class="timeline-desc">Triggers GPU training scripts over unified historical Parquet logs.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Deploy model to staging registry</div>
+            <div class="timeline-desc">Saves model binaries to MLflow registries and initiates canary splits.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Online API Inference Endpoint</div>
+      <pre><code class="language-python">@router.get("/personalize/student/{user_id}")
+async def serve_recommendations(user_id: int, course_id: int):
+    # 1. Fetch user mastery profile from DuckDB
+    profile = lakehouse.get_student_profile(user_id, course_id)
+
+    # 2. Run GRU4Rec network over history sequence
+    recs = model.predict(profile['history'])
+
+    # 3. Contextual boost using due SRS items
+    final_slate = rerank(recs, profile['srs_due'])
+    return final_slate[:5]</code></pre>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Production SLA Targets</div>
+      <div class="card-grid card-grid-2" style="gap:8px">
+        <div class="card" style="padding:10px;text-align:center">
+          <div style="font-size:20px;font-weight:800;color:#93c5fd">&lt; 100ms</div>
+          <div style="font-size:11px;color:var(--text-dim)">P99 Serving Latency</div>
+        </div>
+        <div class="card" style="padding:10px;text-align:center">
+          <div style="font-size:20px;font-weight:800;color:#6ee7b7">99.95%</div>
+          <div style="font-size:11px;color:var(--text-dim)">API Availability</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Walk through step-by-step ETL crons from database to registry.</li>
+        <li>Review API route layout in FastAPI code section.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "MLOps pipelines automate model runs. Chron jobs sync interactions to Parquet hourly. Models are retrained weekly, and our FastAPI endpoints serve predictions under strict latency SLAs."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 21: MLOps ── -->
+<div class="slide slide-content" id="slide-21">
+  <div class="bg-glow bg-glow-3"></div>
+  <div class="slide-num">21 / 25</div>
+  <div class="slide-label">Part 5 · Model Operations</div>
+  <h2 class="slide-title">Recommender <span>MLOps Lifecycle</span></h2>
+  <div class="divider"></div>
+  <div class="card-grid card-grid-3">
+    <div class="card card-accent">
+      <div class="card-icon">📉</div>
+      <div class="card-title">Drift Detection</div>
+      <div class="card-desc">Tracks changes in user action distributions. Automatically triggers retraining when feature drift exceeds thresholds.</div>
+    </div>
+    <div class="card card-accent2">
+      <div class="card-icon">🎯</div>
+      <div class="card-title">Online Tracking</div>
+      <div class="card-desc">Monitors click-through rates and lesson completion rates. Alerts when engagement drops by &gt; 5%.</div>
+    </div>
+    <div class="card card-accent3">
+      <div class="card-icon">⚡</div>
+      <div class="card-title">Fail-Safe Fallbacks</div>
+      <div class="card-desc">If the neural ranking network times out, the API automatically falls back to popular items in under 5ms.</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">The Feedback Loop Architecture</div>
+      <div class="pipeline" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div style="display:flex;align-items:center;gap:8px;width:100%">
+          <div class="arch-box" style="flex:1;border-color:rgba(59,130,246,0.4)">Student Clicks</div>
+          <div style="color:var(--accent3);font-size:14px">→</div>
+          <div class="arch-box" style="flex:1;border-color:rgba(139,92,246,0.4)">Kafka Ingestion</div>
+        </div>
+        <div style="color:var(--text-dimmer);font-size:11px;padding-left:8px"></div>
+        <div style="display:flex;align-items:center;gap:8px;width:100%">
+          <div class="arch-box" style="flex:1;border-color:rgba(6,182,212,0.4)">Personalize Service</div>
+          <div style="color:var(--accent3);font-size:14px">→</div>
+          <div class="arch-box" style="flex:1;border-color:rgba(16,185,129,0.4)">DuckDB Lakehouse</div>
+        </div>
+        <div style="color:var(--text-dimmer);font-size:11px;padding-left:8px"></div>
+        <div style="display:flex;align-items:center;gap:8px;width:100%">
+          <div class="arch-box" style="flex:1;border-color:rgba(245,158,11,0.4)">Retrain Pipeline</div>
+          <div style="color:var(--accent3);font-size:14px">→</div>
+          <div class="arch-box" style="flex:1;border-color:rgba(239,68,68,0.4)">Shadow / Canary Rollout</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Safe Deployment Checklist</div>
+      <ul class="bullet-list">
+        <li><strong>Verification</strong> — Ensure offline nDCG@5 score exceeds previous production metrics</li>
+        <li><strong>Shadow Testing</strong> — Run the new model silently in parallel to inspect outputs</li>
+        <li><strong>Canary Rollouts</strong> — Route traffic gradually: 5% $\to$ 20% $\to$ 100%</li>
+        <li><strong>Guardrail Limits</strong> — Monitor error counts and latency SLAs closely</li>
+        <li><strong>Automatic Rollback</strong> — Revert to the stable version if error rates exceed 1%</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Identify feedback stages: logs, queue, retrain, rollout.</li>
+        <li>Emphasize guardrails and automatic rollback mechanisms.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Deploying recommenders safely requires drift monitoring. We track behavioral distributions and online CTR. Our deployment checklist includes canary rollouts and automatic rollbacks if error metrics spike."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 22: BDC Architecture ── -->
+<div class="slide slide-content" id="slide-22">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">22 / 25</div>
+  <div class="slide-label">Part 6 · BDC Integration</div>
+  <h2 class="slide-title">BDC <span>System Architecture</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Microservices Blueprint</div>
+      <div class="info-row" style="margin-bottom:6px">
+        <div class="info-row-icon">🖥️</div>
+        <div><div class="info-row-title">lms-service (Go)</div><div class="info-row-desc">Handles user interaction clicks and writes to Postgres; publishes events to Kafka.</div></div>
+      </div>
+      <div class="info-row" style="margin-bottom:6px">
+        <div class="info-row-icon">🧮</div>
+        <div><div class="info-row-title">personalize-service (Python)</div><div class="info-row-desc">Consumes Kafka logs, updates DuckDB views, and serves the recommendation API.</div></div>
+      </div>
+      <div class="info-row" style="margin-bottom:6px">
+        <div class="info-row-icon">🤖</div>
+        <div><div class="info-row-title">ai-service (FastAPI + LLM)</div><div class="info-row-desc">Runs the AI Mentor. Invokes <code style="font-family:monospace;color:#a5d6ff">get_study_plan</code> tool to fetch user profiles.</div></div>
+      </div>
+      <div class="info-row" style="margin-bottom:6px">
+        <div class="info-row-icon">⚛️</div>
+        <div><div class="info-row-title">frontend (Next.js)</div><div class="info-row-desc">Renders the learning dashboard, quiz modules, and the AI chatbot panel.</div></div>
+      </div>
+      <div class="info-row">
+        <div class="info-row-icon">📊</div>
+        <div><div class="info-row-title">da-analytics (Python workspace)</div><div class="info-row-desc">Offline training sandbox for BKT, GRU4Rec, and DivKG models.</div></div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Medallion Lakehouse Layout (DuckDB)</div>
+      <div class="card-grid card-grid-2" style="gap:8px;margin-bottom:12px">
+        <div class="card" style="padding:12px;border-color:rgba(245,158,11,0.4)">
+          <div style="font-size:11px;font-weight:700;color:#fcd34d;margin-bottom:4px">🥉 Bronze Layer</div>
+          <div style="font-size:11px;color:var(--text-dim)">bronze_interactions — Raw JSON logs consumed from Kafka topics.</div>
+        </div>
+        <div class="card" style="padding:12px;border-color:rgba(192,192,192,0.4)">
+          <div style="font-size:11px;font-weight:700;color:#d1d5db;margin-bottom:4px">🥈 Silver Layer</div>
+          <div style="font-size:11px;color:var(--text-dim)">unified_interactions — Cleaned, schema-conformed, unified view.</div>
+        </div>
+        <div class="card" style="padding:12px;border-color:rgba(245,158,11,0.6);grid-column:span 2">
+          <div style="font-size:11px;font-weight:700;color:#fcd34d;margin-bottom:6px">🥇 Gold Layer — Business views</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <span class="tag tag-amber" style="font-size:10px">user_item_matrix</span>
+            <span class="tag tag-amber" style="font-size:10px">concept_struggles</span>
+            <span class="tag tag-amber" style="font-size:10px">student_metrics</span>
+            <span class="tag tag-amber" style="font-size:10px">struggle_alerts</span>
+            <span class="tag tag-amber" style="font-size:10px">study_recommendations</span>
+          </div>
+        </div>
+      </div>
+      <div class="badge badge-green" style="margin-bottom:6px">✅ Real-Time: Kafka ingest to DuckDB updates take &lt; 1s</div><br>
+      <div class="badge badge-blue">📦 Batch: Parquet exports run hourly via background crons</div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Map BDC services: LMS, personalization worker, AI-Agent, analytics workspace.</li>
+        <li>Review database schema layers (Bronze, Silver, Gold).</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "This slide outlines our system blueprint. The Go LMS service records actions, the Python Personalize worker aggregates them in DuckDB views, and the AI Mentor fetches profiles. The Medallion Lakehouse layout partitions this data dynamically."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 23: BDC Current State ── -->
+<div class="slide slide-content" id="slide-23">
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">23 / 25</div>
+  <div class="slide-label">Part 6 · BDC Status</div>
+  <h2 class="slide-title">BDC's Current <span>Recommender State</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Active Production Heuristic RS</div>
+      <pre><code class="language-sql">-- gold_study_recommendations logic
+SELECT 
+    user_id, 
+    course_id,
+    CASE
+        WHEN has_struggle_concept THEN 'review_struggle_concept'
+        WHEN check_accuracy < 0.60 THEN 'discuss_with_ai'
+        WHEN viewed_count = 0 THEN 'learn_popular_lesson'
+        ELSE 'learn_next_lesson'
+    END AS recommended_action_type
+FROM student_metrics;</code></pre>
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">AI Mentor Conversational Features</div>
+      <ul class="bullet-list">
+        <li><strong>get_study_plan</strong> — Merges Lakehouse metrics with SRS queues</li>
+        <li><strong>Stuck detection</strong> — Triggers alerts when struggle thresholds are crossed</li>
+        <li><strong>Conversational onboarding</strong> — Maps intents directly to interest vectors</li>
+        <li><strong>Proactive notification</strong> — Pushes reviews via Kafka when inactive</li>
+      </ul>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Future Upgrade Roadmap</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num" style="background:rgba(16,185,129,0.8)">✓</div>
+          <div class="timeline-content">
+            <div class="timeline-title" style="color:#6ee7b7">Phase 1 · Heuristic + CRS Agent</div>
+            <div class="timeline-desc">SQL heuristics + AI Mentor tools + Lakehouse pipelines are fully deployed.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num" style="background:rgba(245,158,11,0.8)">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Phase 2 · Collaborative Filtering</div>
+            <div class="timeline-desc">Train ALS and cosine similarity models over Gold user-item matrix files.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num" style="background:rgba(139,92,246,0.8)">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Phase 3 · Sequential GRU4Rec</div>
+            <div class="timeline-desc">Deploy sequential models using SRD loss to capture study patterns.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num" style="background:rgba(59,130,246,0.8)">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Phase 4 · Policy Gradient tuning</div>
+            <div class="timeline-desc">Apply REINFORCE loops to optimize live retention; launch A/B tests.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Examine active CASE WHEN heuristics.</li>
+        <li>Review microservice roadmap details from rules to deep sequential architectures.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "Currently, BDC runs a SQL heuristic view that routes users to struggles, discussions, or popular fallbacks. We also integrate AI Mentor tools. The roadmap transitions this heuristic to sequential ML networks."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 24: DA Workspace ── -->
+<div class="slide slide-content" id="slide-24">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="slide-num">24 / 25</div>
+  <div class="slide-label">Part 6 · Data Analyst Workflows</div>
+  <h2 class="slide-title">DA Analytics <span>Workspace</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">The 8 Interactive Notebooks</div>
+      <div class="card-grid card-grid-2" style="gap:8px">
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700;color:#93c5fd;margin-bottom:3px">01 Data Exploration</div>
+          <div style="font-size:10.5px;color:var(--text-dim)">Profiles the Gold Parquet layers and generates plots.</div>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700;color:#c4b5fd;margin-bottom:3px">02 Heuristic Baseline</div>
+          <div style="font-size:10.5px;color:var(--text-dim)">Calculates offline metrics for the active SQL strategy.</div>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700;color:#67e8f9;margin-bottom:3px">03 CF (Cosine &amp; ALS)</div>
+          <div style="font-size:10.5px;color:var(--text-dim)">Develops matrix factorizations and sparse CF indexes.</div>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700;color:#6ee7b7;margin-bottom:3px">04 BKT Model</div>
+          <div style="font-size:10.5px;color:var(--text-dim)">Fits BKT parameters to diagnose hard concepts.</div>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700;color:#fcd34d;margin-bottom:3px">05 Behavioral LSTM</div>
+          <div style="font-size:10.5px;color:var(--text-dim)">Models session vectors to predict user friction scores.</div>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700;color:#f97316;margin-bottom:3px">06 SRD GRU4Rec</div>
+          <div style="font-size:10.5px;color:var(--text-dim)">Trains GRU networks with Soft-Rank Diversity losses.</div>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700;color:#ec4899;margin-bottom:3px">07 DivKG RL</div>
+          <div style="font-size:10.5px;color:var(--text-dim)">Fine-tunes the policy network using REINFORCE.</div>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700;color:#a78bfa;margin-bottom:3px">08 Offline Comparison</div>
+          <div style="font-size:10.5px;color:var(--text-dim)">Builds the master benchmark table comparing all models.</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">DA Quick Start Guide</div>
+      <pre><code class="language-bash"># 1. Spin up the environment
+cd da-analytics
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Bootstrap data using the generator
+python scripts/generate_mock_data.py --output-dir data/lakehouse/gold
+
+# 3. Launch the Jupyter lab server
+jupyter lab</code></pre>
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">Key Scripts Reference</div>
+      <ul class="bullet-list">
+        <li><strong>generate_mock_data.py</strong> — Builds synthetic databases for 100 users</li>
+        <li><strong>train_srd.py</strong> — Trains the sequential GRU4Rec network</li>
+        <li><strong>train_bkt.py</strong> — Computes mastery and fits BKT parameters</li>
+        <li><strong>export_results.py</strong> — Saves recommendation slates to CSV files</li>
+        <li><strong>metrics.py</strong> — Core evaluations (Precision, Recall, nDCG, ILD, Novelty)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Review the 8 analytics notebooks roles.</li>
+        <li>Examine CLI scripts for local execution.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "For our data analysts, we set up 8 notebooks spanning exploration to model comparison. Analysts can bootstrap mock data and train BKT or GRU4Rec locally using our scripts."
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 25: Summary & Roadmap ── -->
+<div class="slide slide-content" id="slide-25">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="slide-num">25 / 25</div>
+  <div class="slide-label">Summary</div>
+  <h2 class="slide-title">Summary &amp; <span>Next Steps</span></h2>
+  <div class="divider"></div>
+  <div class="two-col">
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">✅ Key Takeaways</div>
+      <ul class="bullet-list">
+        <li><strong>RS</strong> helps solve information overload by matching users with optimal content feeds.</li>
+        <li><strong>CRS</strong> turns recommendations into conversational exchanges, solving cold starts.</li>
+        <li><strong>User modeling</strong> combines implicit logs, BKT mastery estimates, and SRS review cards.</li>
+        <li><strong>Algorithm evolution</strong> goes from simple heuristics to CF, sequential GRU networks, and RL.</li>
+        <li><strong>Validations</strong> rely on offline evaluations and live online A/B testing splits.</li>
+        <li><strong>Deployments</strong> use a multi-stage flow (Retrieval $\to$ Ranking $\to$ Re-ranking).</li>
+      </ul>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">🎯 Action Items</div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-num">1</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Run the 8 Analyst Notebooks</div>
+            <div class="timeline-desc">Inspect training outputs and generate the master offline comparison benchmarks.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">2</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Accumulate Live Student Interaction Logs</div>
+            <div class="timeline-desc">Needs &gt;500 active users with &gt;10 logs each to transition from heuristics to neural CF.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">3</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Execute GRU4Rec (Phase 3)</div>
+            <div class="timeline-desc">Run training scripts locally: <code style="font-family:monospace;color:#a5d6ff">python scripts/train_srd.py --epochs 20</code>.</div>
+          </div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-num">4</div>
+          <div class="timeline-content">
+            <div class="timeline-title">Trigger A/B Tests on Personalize Service</div>
+            <div class="timeline-desc">Deploy the GRU candidate generator alongside the active heuristic controller.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="highlight-box" style="margin-top:16px;text-align:center;padding:12px">
+    <div style="font-size:14px;color:var(--text-dim)">
+      <strong style="color:var(--text)">📚 Additional Reading:</strong>
+      <span class="tag tag-blue" style="margin:0 4px">Matrix Factorization (Netflix, 2009)</span>
+      <span class="tag tag-purple" style="margin:0 4px">GRU4Rec (Hidasi et al., 2016)</span>
+      <span class="tag tag-cyan" style="margin:0 4px">Duolingo Spaced Repetition (2016)</span>
+      <span class="tag tag-green" style="margin:0 4px">CRS Survey (Gao et al., 2021)</span>
+    </div>
+  </div>
+
+  <div class="presenter-notes-data" style="display: none;">
+    <div class="notes-summary-data">
+      <ul class="bullet-list">
+        <li>Wrap up recommendations values.</li>
+        <li>Stress the 4 action items: run, log, train, test.</li>
+      </ul>
+    </div>
+    <div class="notes-script-data">
+      "In summary, recommenders are essential for BDC. Our immediate action items are running the baseline notebooks, collecting active student interaction logs, and preparing A/B testing frameworks for the GRU model. Thank you."
+    </div>
+  </div>
+</div>
+
+</div><!-- /deck -->
+
+<!-- Navigation -->
+<div class="nav">
+  <button class="nav-btn" onclick="prevSlide()" title="Previous">←</button>
+  <div class="nav-progress"><div class="nav-progress-fill" id="navProgress"></div></div>
+  <span class="nav-counter" id="navCounter">1 / 25</span>
+  <button class="nav-btn" onclick="nextSlide()" title="Next">→</button>
+</div>
+
+<div class="key-hint">
+  <span class="key">←</span><span class="key">→</span> navigate &nbsp;
+  <span class="key">F</span> fullscreen &nbsp;
+  <span class="key">N</span> speaker notes
+</div>
+
+<script>
+  const TOTAL = 25;
+  let current = 1;
+
+  function updateUI() {
+    document.getElementById('navCounter').textContent = `${current} / ${TOTAL}`;
+    const pct = ((current - 1) / (TOTAL - 1)) * 100;
+    document.getElementById('navProgress').style.width = pct + '%';
+    document.getElementById('topProgress').style.width = (current / TOTAL * 100) + '%';
+  }
+
+  function updateNotes() {
+    const activeSlide = document.getElementById(`slide-${current}`);
+    const notesData = activeSlide.querySelector('.presenter-notes-data');
+    const content = document.getElementById('sidebarContent');
+    
+    if (notesData) {
+      const summaryText = notesData.querySelector('.notes-summary-data').innerHTML;
+      const scriptText = notesData.querySelector('.notes-script-data').innerHTML;
+      
+      content.innerHTML = `
+        <div class="sidebar-section">
+          <div class="sidebar-section-title">Key Summary Points</div>
+          <div class="sidebar-notes-summary">${summaryText}</div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-section-title">Suggested Presenter Script</div>
+          <div class="sidebar-notes-script">${scriptText}</div>
+        </div>
+      `;
+    } else {
+      content.innerHTML = `<div style="color: var(--text-dimmer); font-style: italic; font-size:12px;">No notes available for this slide.</div>`;
+    }
+  }
+
+  function toggleSidebar() {
+    const sidebar = document.getElementById('notesSidebar');
+    sidebar.classList.toggle('open');
+  }
+
+  function goTo(n) {
+    if (n < 1 || n > TOTAL) return;
+    const prev = document.getElementById(`slide-${current}`);
+    prev.classList.remove('active');
+    prev.classList.add('exit');
+    setTimeout(() => prev.classList.remove('exit'), 500);
+    current = n;
+    const next = document.getElementById(`slide-${current}`);
+    next.classList.add('active');
+    updateUI();
+    updateNotes();
+  }
+
+  function nextSlide() { goTo(current + 1); }
+  function prevSlide() { goTo(current - 1); }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
+    else if (e.key === 'ArrowLeft') prevSlide();
+    else if (e.key === 'f' || e.key === 'F') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+    else if (e.key === 'n' || e.key === 'N') {
+      toggleSidebar();
+    }
+  });
+
+  // Touch swipe
+  let startX = 0;
+  document.addEventListener('touchstart', e => startX = e.touches[0].clientX);
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    if (Math.abs(dx) > 50) dx < 0 ? nextSlide() : prevSlide();
+  });
+
+  updateUI();
+  updateNotes(); // Initial notes load
+</script>
+
+<!-- Initialize syntax highlighting -->
+<script>hljs.highlightAll();</script>
+
+</body>
+</html>
