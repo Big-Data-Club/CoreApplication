@@ -27,6 +27,10 @@ The deployment topology places the Next.js frontend and all backend microservice
 *   **Object Storage**: Media files and documents are stored on Cloudflare R2 (compatible with the S3/MinIO API).
 *   **Local Infrastructure**: Only Redis (caching and job queue status) and Apache Kafka (event bus broker) run locally in containers on the host.
 
+> [!NOTE]
+> **Kubernetes (K3s) Migration**:
+> If you want to migrate your environment from Docker Compose to Kubernetes (K3s) for enhanced orchestration and scaling, please refer to the [Kubernetes Migration Guide](file:///home/phucnhan/codespace/bdc/CoreApplication/docs/DOCKER_TO_K8S_MIGRATION.md).
+
 ---
 
 ## 2. Deployment Architecture
