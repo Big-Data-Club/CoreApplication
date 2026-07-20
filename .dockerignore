@@ -60,3 +60,8 @@ Thumbs.db
 .mvn/
 mvnw
 mvnw.cmd
+
+# Node & Build Cache
+**/node_modules/
+**/.next/
+**/.pnpm-store/

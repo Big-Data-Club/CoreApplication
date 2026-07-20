@@ -150,7 +150,7 @@ If you want hot-reload and direct debugging on your machine:
 
 | Tool | Version | Used For |
 |---|---|---|
-| Node.js + npm | 20 LTS | Frontend |
+| Node.js + pnpm | 20 LTS + 9+ | Frontend |
 | JDK (Temurin) | 21 | Java Backend |
 | Go | 1.21+ | LMS Service |
 
@@ -235,13 +235,13 @@ docker compose up -d postgres postgres-lms redis-lms minio
 ```bash
 cd frontend
 
-npm install
+pnpm install
 
 # Create a local env file pointing URLs to localhost instead of Docker containers
 cp .env.local.example .env.local
 # Set: BACKEND_URL=http://localhost:8080, LMS_API_URL=http://localhost:8081
 
-npm run dev  # Dev server with automatic hot-reload
+pnpm dev  # Dev server with automatic hot-reload
 ```
 
 Frontend runs at **http://localhost:3000**
@@ -250,10 +250,10 @@ Frontend runs at **http://localhost:3000**
 
 | Command | Description |
 |---|---|
-| `npm run dev` | Dev server with hot-reload |
-| `npm run build` | Production build |
-| `npm run lint` | ESLint check |
-| `npm run test:ci` | Run unit tests |
+| `pnpm dev` | Dev server with hot-reload |
+| `pnpm build` | Production build |
+| `pnpm lint` | ESLint check |
+| `pnpm test:ci` | Run unit tests |
 
 > **About proxy:** `next.config.ts` configures rewrites so `/apiv1/*` -> Spring Boot and `/lmsapiv1/*` -> Go. When running locally, make sure the backend services are listening on the expected ports.
 
@@ -584,7 +584,7 @@ Code push / PR opened
     ▼
  Build & Test (run in parallel)
  ├── Backend : ./mvnw test
- ├── Frontend: npm run test:ci
+ ├── Frontend: pnpm run test:ci
  └── LMS   : go test ./...
     │
     ▼
