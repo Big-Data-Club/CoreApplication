@@ -286,6 +286,7 @@ func main() {
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
+	v1.Use(middleware.NoCache())
 	{
 		// SYNC ROUTES
 		sync := v1.Group("/sync")
