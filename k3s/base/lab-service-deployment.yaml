@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-service
+  labels:
+    app: lab-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lab-service
+  template:
+    metadata:
+      labels:
+        app: lab-service
+    spec:
+      containers:
+      - name: lab-service
+        image: bdc-lab:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8082
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        # DB connection variables
+        - name: DB_HOST
+          value: "$(LAB_POSTGRES_HOST)"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_SSL_MODE
+          value: "$(AI_DB_SSL)"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: LAB_POSTGRES_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: LAB_POSTGRES_PASSWORD
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: LAB_POSTGRES_DB
+        # Redis connection variables
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: REDIS_PASSWORD
+        - name: REDIS_DB
+          value: "2"
+        # MinIO/R2 Storage setup
+        - name: LAB_MINIO_ENDPOINT
+          value: "$(LAB_R2_ENDPOINT)"
+        - name: LAB_MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_USER
+        - name: LAB_MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_PASSWORD
+        - name: LAB_MINIO_USE_SSL
+          value: "$(LAB_MINIO_USE_SSL)"
+        # Secret sync keys
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: JWT_SECRET
+        - name: LMS_SYNC_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: LMS_SYNC_SECRET
+        - name: GOMAXPROCS
+          value: "2"
+        resources:
+          limits:
+            cpu: "2.0"
+            memory: 1Gi
+          requests:
+            cpu: "0.5"
+            memory: 256Mi
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8082
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8082
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lab-service
+  labels:
+    app: lab-service
+spec:
+  ports:
+  - port: 8082
+    targetPort: 8082
+    protocol: TCP
+  selector:
+    app: lab-service

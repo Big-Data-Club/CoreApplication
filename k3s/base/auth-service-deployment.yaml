@@ -1,0 +1,168 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  labels:
+    app: auth-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+      - name: auth-service
+        image: bdc-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        # Load sensitive database configurations from secrets
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: POSTGRES_PASSWORD
+        # Java Spring Boot datasource setup
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://$(POSTGRES_HOST):5432/$(POSTGRES_DB)?sslmode=$(AI_DB_SSL)"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "$(POSTGRES_USER)"
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: "$(POSTGRES_PASSWORD)"
+        # Spring Boot Hikari Pool
+        - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: bdc-config
+              key: HIKARI_MAX_POOL_SIZE
+        - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+          valueFrom:
+            configMapKeyRef:
+              name: bdc-config
+              key: HIKARI_MIN_IDLE
+        # Other microservice secret tokens
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: JWT_SECRET
+        - name: ADMIN_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: ADMIN_EMAIL
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: ADMIN_PASSWORD
+        - name: EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: EMAIL
+        - name: EMAIL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: EMAIL_PASSWORD
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_SERVICE_SECRET
+        - name: LMS_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: LMS_API_SECRET
+        - name: CHAT_SYNC_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: CHAT_SYNC_SECRET
+        - name: GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: GOOGLE_CLIENT_ID
+        - name: GOOGLE_SCRIPT_URL
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: GOOGLE_SCRIPT_URL
+        - name: APP_PUBLIC_URL
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: APP_PUBLIC_URL
+        resources:
+          limits:
+            cpu: "2.0"
+            memory: 1536Mi
+          requests:
+            cpu: "0.5"
+            memory: 512Mi
+        securityContext:
+          runAsUser: 100
+          runAsGroup: 101
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: upload-dir
+          mountPath: /app/uploads
+        - name: logs-dir
+          mountPath: /app/logs
+        healthcheck:
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+      volumes:
+      - name: upload-dir
+        emptyDir: {}
+      - name: logs-dir
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  labels:
+    app: auth-service
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: auth-service

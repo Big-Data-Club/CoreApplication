@@ -1,0 +1,203 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress
+  namespace: default
+  annotations:
+    # Traefik (K3s built-in) router middlewares
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd,
+      default-strip-apiv1@kubernetescrd,
+      default-rewrite-lms@kubernetescrd,
+      default-rewrite-files@kubernetescrd,
+      default-rewrite-lab@kubernetescrd,
+      default-rewrite-chat@kubernetescrd,
+      default-uploads-cache@kubernetescrd,
+      default-files-cache@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
+      # ── Auth Backend API (/apiv1 → strips prefix → auth-service:8080) ─────
+      - path: /apiv1
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080
+
+      # ── Auth Uploads (cache headers → auth-service:8080) ──────────────────
+      - path: /uploads
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080
+
+      # ── LMS API (/lmsapiv1 → rewrites to /api/v1 → lms-service:8081) ─────
+      - path: /lmsapiv1
+        pathType: Prefix
+        backend:
+          service:
+            name: lms-service
+            port:
+              number: 8081
+
+      # ── LMS File Serving (/files → /api/v1/files/serve → lms-service:8081)
+      - path: /files
+        pathType: Prefix
+        backend:
+          service:
+            name: lms-service
+            port:
+              number: 8081
+
+      # ── Lab API (/labapiv1 → /api/v1 → lab-service:8082) ─────────────────
+      - path: /labapiv1
+        pathType: Prefix
+        backend:
+          service:
+            name: lab-service
+            port:
+              number: 8082
+
+      # ── Chat API (/chatapiv1 → /api/v1 → chat-service:8083) ──────────────
+      - path: /chatapiv1
+        pathType: Prefix
+        backend:
+          service:
+            name: chat-service
+            port:
+              number: 8083
+
+      # ── Personalize Service ───────────────────────────────────────────────
+      - path: /personalize
+        pathType: Prefix
+        backend:
+          service:
+            name: personalize-service
+            port:
+              number: 8082
+
+      - path: /personalize-dashboard
+        pathType: Prefix
+        backend:
+          service:
+            name: personalize-service
+            port:
+              number: 8082
+
+      # ── Grafana Monitoring UI (/monitor → grafana-service:3000) ───────────
+      - path: /monitor
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-service
+            port:
+              number: 3000
+
+      # ── Next.js Frontend (catch-all root route) ───────────────────────────
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 3001
+
+---
+# ── Traefik Middleware: Global Compression ────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: compress
+  namespace: default
+spec:
+  compress: {}
+
+---
+# ── Traefik Middleware: Strip /apiv1 prefix for Auth Service ─────────────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-apiv1
+  namespace: default
+spec:
+  stripPrefix:
+    prefixes:
+      - /apiv1
+
+---
+# ── Traefik Middleware: Rewrite /lmsapiv1 → /api/v1 ─────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-lms
+  namespace: default
+spec:
+  replacePathRegex:
+    regex: "^/lmsapiv1/(.*)"
+    replacement: "/api/v1/$1"
+
+---
+# ── Traefik Middleware: Rewrite /files → /api/v1/files/serve ─────────────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-files
+  namespace: default
+spec:
+  replacePathRegex:
+    regex: "^/files/(.*)"
+    replacement: "/api/v1/files/serve/$1"
+
+---
+# ── Traefik Middleware: Rewrite /labapiv1 → /api/v1 ─────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-lab
+  namespace: default
+spec:
+  replacePathRegex:
+    regex: "^/labapiv1/(.*)"
+    replacement: "/api/v1/$1"
+
+---
+# ── Traefik Middleware: Rewrite /chatapiv1 → /api/v1 ────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-chat
+  namespace: default
+spec:
+  replacePathRegex:
+    regex: "^/chatapiv1/(.*)"
+    replacement: "/api/v1/$1"
+
+---
+# ── Traefik Middleware: Cache headers for /uploads (auth service files) ───────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: uploads-cache
+  namespace: default
+spec:
+  headers:
+    customResponseHeaders:
+      Cache-Control: "public, max-age=31536000, immutable"
+
+---
+# ── Traefik Middleware: Cache headers for /files (LMS served files) ───────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: files-cache
+  namespace: default
+spec:
+  headers:
+    customResponseHeaders:
+      Cache-Control: "public, max-age=31536000, immutable"

@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Apply only during cutover, after K3s Traefik and ServiceLB are enabled.
+resources:
+- ../base/ingress.yaml

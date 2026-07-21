@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-config
+data:
+  # General Application Configuration
+  SPRING_PROFILES_ACTIVE: "docker"
+  VERSION: "1.0.0"
+  APP_ENV: "production"
+  GIN_MODE: "release"
+  LOG_LEVEL: "INFO"
+
+  # Internal Service Endpoints (Kubernetes DNS Names)
+  BACKEND_URL: "http://auth-service:8080"
+  LMS_API_URL: "http://lms-service:8081"
+  AI_SERVICE_URL: "http://ai-service:8000"
+  PERSONALIZE_SERVICE_URL: "http://personalize-service:8082"
+  CHAT_API_URL: "http://chat-service:8083"
+  AUTH_SERVICE_URL: "http://auth-service:8080"
+  
+  # Message Broker & Cache endpoints
+  KAFKA_BROKERS: "kafka-service:9092"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+
+  # Default DB / Vector / Graph / Storage Host Configurations (Points to Local DBs)
+  POSTGRES_HOST: "postgres-auth"
+  LMS_POSTGRES_HOST: "postgres-lms"
+  LAB_POSTGRES_HOST: "postgres-lab"
+  CHAT_POSTGRES_HOST: "postgres-auth"
+  AI_POSTGRES_HOST: "postgres-ai"
+  QDRANT_URL: "http://qdrant-service:6333"
+  NEO4J_URI: "bolt://neo4j-service:7687"
+  NEO4J_USERNAME: "neo4j"
+  R2_ENDPOINT: "http://minio-service:9000"
+  LAB_R2_ENDPOINT: "http://minio-service:9000"
+
+  # Default DB SSL Configurations (Disabled for Local DB)
+  AI_DB_SSL: "disable"
+  CHAT_DB_SSL_MODE: "disable"
+  MINIO_USE_SSL: "false"
+  LAB_MINIO_USE_SSL: "false"
+
+  # Ports
+  BACKEND_PORT: "8080"
+  LMS_PORT: "8081"
+  LAB_PORT: "8082"
+  CHAT_PORT: "8083"
+
+  # HikariCP Connection Pool (Java)
+  HIKARI_MAX_POOL_SIZE: "10"
+  HIKARI_MIN_IDLE: "5"
+  HIKARI_CONNECTION_TIMEOUT: "30000"
+  HIKARI_IDLE_TIMEOUT: "600000"
+  HIKARI_MAX_LIFETIME: "1800000"
+
+  # JPA / Hibernate Settings
+  JPA_DDL_AUTO: "update"
+  JPA_SHOW_SQL: "false"
+
+  # Redis Pool Settings (Go)
+  REDIS_POOL_SIZE: "50"
+  REDIS_MIN_IDLE_CONNS: "10"
+  REDIS_DIAL_TIMEOUT: "3s"
+  REDIS_READ_TIMEOUT: "500ms"
+  REDIS_WRITE_TIMEOUT: "500ms"
+  REDIS_POOL_TIMEOUT: "1s"
+
+  # Go DB Pool Settings
+  DB_MAX_OPEN_CONNS: "50"
+  DB_MAX_IDLE_CONNS: "10"
+  DB_CONN_MAX_LIFETIME: "30m"
+  DB_CONN_MAX_IDLE_TIME: "5m"
+
+  # AI Settings
+  AI_CHAT_MODEL: "llama-3.1-8b-instant"
+  AI_QUIZ_MODEL: "llama-3.3-70b-versatile"
+  EMBEDDING_MODEL: "BAAI/bge-m3"
+  EMBEDDING_DIMENSIONS: "1024"
+  EMBEDDING_PREFIX_MODE: "bge"
+  RERANKER_MODEL: "BAAI/bge-reranker-v2-m3"
+  REINDEX_BATCH_SIZE: "5"
+  RERANK_FETCH_K: "15"
+  STORAGE_TYPE: "minio"
+  USE_QDRANT: "true"
+  USE_RERANKER: "true"
+  NEO4J_ENABLED: "true"
+  YOUTUBE_WHISPER_FALLBACK: "true"
+
+  # NextJS Options
+  NEXT_TELEMETRY_DISABLED: "1"
+  NEXT_PUBLIC_YOUTUBE_UPLOAD_ENABLED: "true"
+
+  # Thread optimizations for ML libraries in AI Service
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  TOKENIZERS_PARALLELISM: "false"

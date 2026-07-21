@@ -1,0 +1,62 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../../base
+- ai-model-cache-pv.yaml
+
+patches:
+- path: configmap-serverless.yaml
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+  patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/envFrom/-
+      value:
+        configMapRef:
+          name: bdc-env-overrides
+
+images:
+- name: bdc-backend
+  newName: phucnhan2809/bdc-backend
+  digest: sha256:5cdefa44f35779b9361dc47005c90efc59dcabe2722302ece20405f0dda2539a
+- name: bdc-lms
+  newName: phucnhan2809/bdc-lms
+  digest: sha256:2d2d19da701f2ee379f1726ac92b7fa87eb345956dde4244531d6ed59e1d6bd9
+- name: bdc-lab
+  newName: phucnhan2809/bdc-lab
+  digest: sha256:3393f650955edab0ac25c48ce6cfc4c5838936be05e68d7328dae1e72c2f591e
+- name: bdc-chat
+  newName: phucnhan2809/bdc-chat
+  digest: sha256:64707e33b866a10a5084c873123125835e47a1686310d9c54262280e4a1e0c9c
+- name: bdc-ai
+  newName: phucnhan2809/bdc-ai
+  digest: sha256:dbec64e7fe9169869ea9ba28e4cea3dc2476134c144d23ab4475d8ad0082dadd
+- name: bdc-personalize
+  newName: phucnhan2809/bdc-personalize
+  digest: sha256:1097d8886cb3d7d1086e11aa4c667cb60e7b5ec5ef62f66f3c6debe36dc84cb8
+- name: bdc-frontend
+  newName: phucnhan2809/bdc-frontend
+  digest: sha256:42b6aa17684d4923867ec25b31e703605db3dcf7e6a682ab6a15e8b4627f3e34
+
+# Staging safety: application pods and Kafka consumers remain stopped until
+# configuration is verified and the controlled cutover begins.
+replicas:
+- name: auth-service
+  count: 0
+- name: lms-service
+  count: 0
+- name: lab-service
+  count: 0
+- name: chat-service
+  count: 0
+- name: ai-service
+  count: 0
+- name: ai-worker
+  count: 0
+- name: personalize-service
+  count: 0
+- name: frontend
+  count: 0

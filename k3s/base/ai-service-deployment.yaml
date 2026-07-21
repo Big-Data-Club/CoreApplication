@@ -1,0 +1,302 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service
+  labels:
+    app: ai-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-service
+  template:
+    metadata:
+      labels:
+        app: ai-service
+    spec:
+      containers:
+      - name: ai-service
+        image: bdc-ai:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        # DB connection variables
+        - name: AI_DB_HOST
+          value: "$(AI_POSTGRES_HOST)"
+        - name: AI_DB_PORT
+          value: "5432"
+        - name: AI_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_USER
+        - name: AI_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_PASSWORD
+        - name: AI_DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_DB
+        - name: AI_DB_SSL
+          value: "$(AI_DB_SSL)"
+        # Vector / Graph DB connections
+        - name: QDRANT_URL
+          value: "$(QDRANT_URL)"
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: QDRANT_API_KEY
+        - name: NEO4J_URI
+          value: "$(NEO4J_URI)"
+        - name: NEO4J_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEO4J_USERNAME
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEO4J_PASSWORD
+        # Redis connection variables
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: REDIS_PASSWORD
+        - name: REDIS_DB
+          value: "1"
+        # MinIO/R2 Storage setup
+        - name: MINIO_ENDPOINT
+          value: "$(R2_ENDPOINT)"
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_USER
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_PASSWORD
+        - name: MINIO_USE_SSL
+          value: "$(MINIO_USE_SSL)"
+        # API Keys & Secrets
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: GROQ_API_KEY
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_SERVICE_SECRET
+        - name: AI_KEY_ENCRYPTION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_KEY_ENCRYPTION_SECRET
+        resources:
+          limits:
+            cpu: "1.5"
+            memory: 1536Mi
+          requests:
+            cpu: "0.5"
+            memory: 512Mi
+        securityContext:
+          runAsUser: 1001
+          runAsGroup: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        # Mount shared memory /dev/shm
+        - name: dshm
+          mountPath: /dev/shm
+        # Mount ML models cache directory
+        - name: ai-model-cache
+          mountPath: /app/.cache/models
+        # Long health checks because models take time to load
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 15
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 15
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 15
+          timeoutSeconds: 10
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "1Gi"
+      - name: ai-model-cache
+        persistentVolumeClaim:
+          claimName: ai-model-cache
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-worker
+  labels:
+    app: ai-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-worker
+  template:
+    metadata:
+      labels:
+        app: ai-worker
+    spec:
+      containers:
+      - name: ai-worker
+        image: bdc-ai:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python", "-m", "app.worker.kafka_worker"]
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        # DB connection variables
+        - name: AI_DB_HOST
+          value: "$(AI_POSTGRES_HOST)"
+        - name: AI_DB_PORT
+          value: "5432"
+        - name: AI_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_USER
+        - name: AI_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_PASSWORD
+        - name: AI_DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_DB
+        - name: AI_DB_SSL
+          value: "$(AI_DB_SSL)"
+        # Vector / Graph DB connections
+        - name: QDRANT_URL
+          value: "$(QDRANT_URL)"
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: QDRANT_API_KEY
+        - name: NEO4J_URI
+          value: "$(NEO4J_URI)"
+        - name: NEO4J_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEO4J_USERNAME
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEO4J_PASSWORD
+        # Redis connection variables
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: REDIS_PASSWORD
+        - name: REDIS_DB
+          value: "1"
+        # MinIO/R2 Storage setup
+        - name: MINIO_ENDPOINT
+          value: "$(R2_ENDPOINT)"
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_USER
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_PASSWORD
+        - name: MINIO_USE_SSL
+          value: "$(MINIO_USE_SSL)"
+        # API Keys & Secrets
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: GROQ_API_KEY
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_SERVICE_SECRET
+        - name: AI_KEY_ENCRYPTION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_KEY_ENCRYPTION_SECRET
+        resources:
+          limits:
+            cpu: "1.5"
+            memory: 1536Mi
+          requests:
+            cpu: "0.5"
+            memory: 512Mi
+        securityContext:
+          runAsUser: 1001
+          runAsGroup: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+        - name: ai-model-cache
+          mountPath: /app/.cache/models
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "1Gi"
+      - name: ai-model-cache
+        persistentVolumeClaim:
+          claimName: ai-model-cache
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-service
+  labels:
+    app: ai-service
+spec:
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: ai-service

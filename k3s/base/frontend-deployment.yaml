@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: bdc-frontend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3001
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        # Override port configuration for NextJS running in container
+        - name: PORT
+          value: "3001"
+        - name: HOSTNAME
+          value: "0.0.0.0"
+        - name: NODE_ENV
+          value: "production"
+        # Secrets
+        - name: NEXTAUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEXTAUTH_SECRET
+        - name: GOOGLE_SCRIPT_URL
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: GOOGLE_SCRIPT_URL
+        - name: YOUTUBE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: YOUTUBE_CLIENT_ID
+        - name: YOUTUBE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: YOUTUBE_CLIENT_SECRET
+        - name: YOUTUBE_REDIRECT_URI
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: YOUTUBE_REDIRECT_URI
+        - name: NEXT_PUBLIC_GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEXT_PUBLIC_GOOGLE_CLIENT_ID
+        - name: NEXTAUTH_URL
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEXTAUTH_URL
+        - name: CLOUDINARY_CLOUD_NAME
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: CLOUDINARY_CLOUD_NAME
+        - name: CLOUDINARY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: CLOUDINARY_API_KEY
+        - name: CLOUDINARY_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: CLOUDINARY_API_SECRET
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_SERVICE_SECRET
+        - name: NEXT_PUBLIC_CHAT_WS_URL
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEXT_PUBLIC_CHAT_WS_URL
+        resources:
+          limits:
+            cpu: "1.5"
+            memory: 1Gi
+          requests:
+            cpu: "0.5"
+            memory: 256Mi
+        securityContext:
+          runAsUser: 1001
+          runAsGroup: 65533
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: data
+          mountPath: /app/data
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3001
+          initialDelaySeconds: 45
+          periodSeconds: 15
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3001
+          initialDelaySeconds: 45
+          periodSeconds: 15
+          timeoutSeconds: 5
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: data
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  ports:
+  - port: 3001
+    targetPort: 3001
+    protocol: TCP
+  selector:
+    app: frontend

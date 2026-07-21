@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../../base
+- postgres-auth-deployment.yaml
+- postgres-lms-deployment.yaml
+- postgres-lab-deployment.yaml
+- postgres-ai-deployment.yaml
+- qdrant-deployment.yaml
+- neo4j-deployment.yaml
+- minio-deployment.yaml

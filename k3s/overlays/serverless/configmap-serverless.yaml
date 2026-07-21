@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-config
+data:
+  # Ghi đè các DB host trỏ ra ngoài SaaS (Neon, Qdrant Cloud, Neo4j Aura, Cloudflare R2)
+  POSTGRES_HOST: "neon-auth-postgres-host.neon.tech"
+  LMS_POSTGRES_HOST: "neon-lms-postgres-host.neon.tech"
+  LAB_POSTGRES_HOST: "neon-lab-postgres-host.neon.tech"
+  CHAT_POSTGRES_HOST: "neon-chat-postgres-host.neon.tech"
+  AI_POSTGRES_HOST: "neon-ai-postgres-host.neon.tech"
+  
+  QDRANT_URL: "https://your-qdrant-cloud-cluster.qdrant.tech:6333"
+  NEO4J_URI: "bolt+s://your-neo4j-aura-dbid.databases.neo4j.io:7687"
+  NEO4J_USERNAME: "neo4j"
+  
+  R2_ENDPOINT: "https://your-cloudflare-account-id.r2.cloudflarestorage.com"
+  LAB_R2_ENDPOINT: "https://your-cloudflare-account-id.r2.cloudflarestorage.com"
+
+  # Bật SSL Mode kết nối ngoài
+  AI_DB_SSL: "require"
+  CHAT_DB_SSL_MODE: "require"
+  MINIO_USE_SSL: "true"
+  LAB_MINIO_USE_SSL: "true"
