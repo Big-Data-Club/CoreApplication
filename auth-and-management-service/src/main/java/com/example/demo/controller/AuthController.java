@@ -149,7 +149,7 @@ public class AuthController {
 
         // Link Google ID if not yet linked (existing LOCAL user logging in with Google for first time)
         if (user.getGoogleId() == null) {
-            user.setGoogleId(payload.getSubject());
+            googleAuthService.linkGoogleId(user, payload.getSubject());
         }
 
         String at = authService.generateToken(user);

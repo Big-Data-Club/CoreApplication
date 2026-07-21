@@ -39,35 +39,38 @@ func (r *UserRepository) Upsert(ctx context.Context, u User) error {
 	return err
 }
 
-// BulkUpsert upserts many users in a single transaction.
+// BulkUpsert upserts many users in a single query to minimize round-trips.
 func (r *UserRepository) BulkUpsert(ctx context.Context, users []User) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
+	if len(users) == 0 {
+		return nil
 	}
-	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO users (id, email, full_name, profile_picture, updated_at)
-		VALUES ($1, $2, $3, $4, NOW())
+	var sb strings.Builder
+	sb.WriteString("INSERT INTO users (id, email, full_name, profile_picture, updated_at) VALUES ")
+
+	args := make([]interface{}, 0, len(users)*4)
+	for i, u := range users {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		p1 := i*4 + 1
+		p2 := i*4 + 2
+		p3 := i*4 + 3
+		p4 := i*4 + 4
+		sb.WriteString(fmt.Sprintf("($%d, $%d, $%d, $%d, NOW())", p1, p2, p3, p4))
+		args = append(args, u.ID, u.Email, u.FullName, nullString(u.ProfilePicture))
+	}
+
+	sb.WriteString(`
 		ON CONFLICT (id) DO UPDATE SET
 			email           = EXCLUDED.email,
 			full_name       = EXCLUDED.full_name,
 			profile_picture = EXCLUDED.profile_picture,
 			updated_at      = NOW()
 	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
 
-	for _, u := range users {
-		if _, err := stmt.ExecContext(ctx, u.ID, u.Email, u.FullName, nullString(u.ProfilePicture)); err != nil {
-			return fmt.Errorf("bulk upsert user %d: %w", u.ID, err)
-		}
-	}
-
-	return tx.Commit()
+	_, err := r.db.ExecContext(ctx, sb.String(), args...)
+	return err
 }
 
 // GetByID returns a user by primary key.

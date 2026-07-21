@@ -98,6 +98,16 @@ public class GoogleAuthService {
     }
 
     /**
+     * Link Google ID to an existing user.
+     */
+    @Transactional
+    public void linkGoogleId(User user, String googleId) {
+        user.setGoogleId(googleId);
+        userRepository.save(user);
+        log.info("Linked Google ID {} to existing user email={}", googleId, user.getEmail());
+    }
+
+    /**
      * Build a GoogleProfileResponse from the token payload.
      */
     public GoogleProfileResponse buildProfileResponse(GoogleIdToken.Payload payload) {
