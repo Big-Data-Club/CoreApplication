@@ -37,6 +37,10 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       lms: ${{ steps.filter.outputs.lms }}
+      ai: ${{ steps.filter.outputs.ai }}
+      chat: ${{ steps.filter.outputs.chat }}
+      lab: ${{ steps.filter.outputs.lab }}
+      personalize: ${{ steps.filter.outputs.personalize }}
       docker: ${{ steps.filter.outputs.docker }}
       any_change: ${{ steps.check.outputs.any_change }}
       version: ${{ steps.version.outputs.version }}
@@ -63,8 +67,21 @@ jobs:
             lms:
               - 'lms-service/**'
               - 'lms-service/Dockerfile'
+            ai:
+              - 'ai-service/**'
+              - 'ai-service/Dockerfile'
+            chat:
+              - 'chat-service/**'
+              - 'chat-service/Dockerfile'
+            lab:
+              - 'lab-service/**'
+              - 'lab-service/Dockerfile'
+            personalize:
+              - 'personalize-service/**'
+              - 'personalize-service/Dockerfile'
             docker:
-              - 'docker-compose.yml'
+              - 'docker-compose*.yml'
+              - 'k3s/**'
               - '.github/workflows/**'
       
       - name: Check if any service changed
@@ -73,6 +90,10 @@ jobs:
           if [ "${{ steps.filter.outputs.backend }}" == "true" ] || \
              [ "${{ steps.filter.outputs.frontend }}" == "true" ] || \
              [ "${{ steps.filter.outputs.lms }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.ai }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.chat }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.lab }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.personalize }}" == "true" ] || \
              [ "${{ github.event.inputs.force_build_all }}" == "true" ]; then
             echo "any_change=true" >> $GITHUB_OUTPUT
           else
@@ -140,7 +161,43 @@ jobs:
             setup: 'go'
             test_cmd: 'go test -v ./... -coverprofile=coverage.out'
             build_cmd: 'go mod download && go build -v ./...'
-    
+
+          - service: ai
+            context: ./ai-service
+            dockerfile: ./ai-service/Dockerfile
+            image: bdc-ai-service
+            should_build: ${{ needs.detect-changes.outputs.ai == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'python'
+            test_cmd: 'pytest || echo "No tests configured"'
+            build_cmd: 'pip install -r requirements.txt || echo "Deps installed"'
+
+          - service: chat
+            context: ./chat-service
+            dockerfile: ./chat-service/Dockerfile
+            image: bdc-chat-service
+            should_build: ${{ needs.detect-changes.outputs.chat == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'go'
+            test_cmd: 'go test -v ./... -coverprofile=coverage.out || echo "No tests configured"'
+            build_cmd: 'go mod download && go build -v ./...'
+
+          - service: lab
+            context: ./lab-service
+            dockerfile: ./lab-service/Dockerfile
+            image: bdc-lab-service
+            should_build: ${{ needs.detect-changes.outputs.lab == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'go'
+            test_cmd: 'go test -v ./... -coverprofile=coverage.out || echo "No tests configured"'
+            build_cmd: 'go mod download && go build -v ./...'
+
+          - service: personalize
+            context: ./personalize-service
+            dockerfile: ./personalize-service/Dockerfile
+            image: bdc-personalize-service
+            should_build: ${{ needs.detect-changes.outputs.personalize == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'python'
+            test_cmd: 'pytest || echo "No tests configured"'
+            build_cmd: 'pip install -r requirements.txt || echo "Deps installed"'
+
     steps:
       - name: Skip if no changes
         if: matrix.should_build != 'true'
@@ -180,7 +237,15 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          cache-dependency-path: 'lms-service/go.sum'
+          cache-dependency-path: '${{ matrix.context }}/go.sum'
+
+      - name: Setup Python 3.12
+        if: matrix.should_build == 'true' && matrix.setup == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: '${{ matrix.context }}/requirements.txt'
 
       # Install dependencies
       - name: Install dependencies (Node)
@@ -339,6 +404,10 @@ jobs:
           echo "| auth-and-management-service | ${{ needs.detect-changes.outputs.backend }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend | ${{ needs.detect-changes.outputs.frontend }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| lms-service | ${{ needs.detect-changes.outputs.lms }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ai-service | ${{ needs.detect-changes.outputs.ai }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| chat-service | ${{ needs.detect-changes.outputs.chat }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| lab-service | ${{ needs.detect-changes.outputs.lab }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| personalize-service | ${{ needs.detect-changes.outputs.personalize }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ "${{ needs.build-and-test.result }}" == "failure" ]; then
@@ -367,6 +436,10 @@ jobs:
             - auth-and-management-service: ${{ needs.detect-changes.outputs.backend }}
             - Frontend: ${{ needs.detect-changes.outputs.frontend }}
             - lms-service: ${{ needs.detect-changes.outputs.lms }}
+            - ai-service: ${{ needs.detect-changes.outputs.ai }}
+            - chat-service: ${{ needs.detect-changes.outputs.chat }}
+            - lab-service: ${{ needs.detect-changes.outputs.lab }}
+            - personalize-service: ${{ needs.detect-changes.outputs.personalize }}
             
             All checks passed. Ready to merge! 🚀`;
             

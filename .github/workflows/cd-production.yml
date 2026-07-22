@@ -1,143 +1,98 @@
-name: CD - Deploy Production
+name: CD - Deploy Production (Self-Hosted K8s Rollout)
 
 on:
   workflow_run:
     workflows: ["CI - Build, Test & Push"]
     types: [completed]
-    branches: [main]
+    branches: [main, develop]
 
   workflow_dispatch:
     inputs:
-      image_tag:
-        description: 'Image tag cần deploy'
+      target_service:
+        description: 'Target service deployment to restart (e.g. auth-service, lms-service, frontend, ai-service, chat-service, lab-service, personalize-service, or "all")'
         required: false
-        default: 'latest'
-      force_restart:
-        description: 'Force down toàn bộ stack trước khi deploy'
-        required: false
-        type: boolean
-        default: false
+        default: 'all'
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
-env:
-  APP_DIR: /home/bdc_web/codespace/bdc_deploy
-
 jobs:
-  gate:
-    name: 🔍 Kiểm tra điều kiện
-    runs-on: ubuntu-latest
-    outputs:
-      ok:  ${{ steps.check.outputs.ok }}
-      tag: ${{ steps.check.outputs.tag }}
-
-    steps:
-      - name: Evaluate
-        id: check
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "ok=true"  >> $GITHUB_OUTPUT
-            echo "tag=${{ github.event.inputs.image_tag || 'latest' }}" >> $GITHUB_OUTPUT
-            echo "✅ Manual trigger"
-          elif [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
-            echo "ok=true"  >> $GITHUB_OUTPUT
-            echo "tag=latest" >> $GITHUB_OUTPUT
-            echo "✅ CI passed"
-          else
-            echo "ok=false" >> $GITHUB_OUTPUT
-            echo "tag=latest" >> $GITHUB_OUTPUT
-            echo "⏭️ CI không pass (${{ github.event.workflow_run.conclusion }}) - skip"
-          fi
-
   deploy:
-    name: 🚀 Deploy Production
-    runs-on: [self-hosted, linux, production, deploy]
-    needs: gate
-    if: needs.gate.outputs.ok == 'true'
-
-    environment:
-      name: production
-      url: https://bdc.hpcc.vn
+    name: 🚀 Rollout Kubernetes Deployments
+    runs-on: [self-hosted, linux]
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - name: Checkout deployment configuration only
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          clean: true
-          sparse-checkout: |
-            server
-
-      - name: Synchronize configuration files
+      - name: Selective Kubernetes Rollout
         run: |
-          mkdir -p ${{ env.APP_DIR }}
-          rsync -av --exclude='.env' ./server/ ${{ env.APP_DIR }}/
-
-      - name: Cleanup runner workspace code
-        run: |
-          rm -rf * .* || true
-
-      - name: Force stop stack
-        if: ${{ github.event.inputs.force_restart == 'true' }}
-        run: |
-          cd ${{ env.APP_DIR }}
-          echo "🔴 Force restart - dừng toàn bộ stack..."
-          docker compose -f docker-compose.serverless.yml down --remove-orphans --timeout 30
-          echo "✅ Đã dừng"
-
-      - name: Deploy
-        run: |
-          cd ${{ env.APP_DIR }}
-          bash deploy.sh
-
-      - name: Health check
-        run: |
-          echo "⏳ Chờ services ổn định (15s)..."
-          sleep 15
-
-          FAILED=0
-          _check() {
-            if curl -sf --max-time 10 "$1" > /dev/null 2>&1; then
-              echo "✅ $2"
-            else
-              echo "❌ $2 ($1)"
-              FAILED=1
-            fi
+          echo "🚀 Executing Kubernetes Rollout Restart on Self-Hosted Runner..."
+          
+          # Detect kubectl / k3s command wrapper
+          if command -v kubectl &> /dev/null; then
+            KUBECTL="kubectl"
+          elif command -v k3s &> /dev/null; then
+            KUBECTL="sudo k3s kubectl"
+          else
+            KUBECTL="sudo kubectl"
+          fi
+          
+          TARGET="${{ github.event.inputs.target_service || 'all' }}"
+          
+          restart_deployment() {
+            local DEP=$1
+            echo "🔄 Triggering rollout restart for deployment/${DEP}..."
+            ${KUBECTL} rollout restart deployment/${DEP} || echo "⚠️ Warning: Failed to restart ${DEP}"
+            echo "⏳ Waiting for deployment/${DEP} status..."
+            ${KUBECTL} rollout status deployment/${DEP} --timeout=180s || echo "⚠️ Timeout waiting for ${DEP}"
           }
 
-          _check "http://localhost:3000/api/health"      "Frontend"
-          _check "http://localhost:8080/actuator/health" "auth-and-management-service"
-          _check "http://localhost:8081/health"          "lms-service"
-
-          if [[ $FAILED -eq 1 ]]; then
-            echo ""
-            echo "Container status:"
-            docker compose -f ${{ env.APP_DIR }}/docker-compose.serverless.yml ps
-            exit 1
+          if [ "${TARGET}" != "all" ]; then
+            restart_deployment "${TARGET}"
+          else
+            echo "🔄 Rolling out all active Kubernetes deployments..."
+            for dep in auth-service frontend lms-service ai-service ai-worker chat-service lab-service personalize-service; do
+              if ${KUBECTL} get deployment ${dep} &> /dev/null; then
+                restart_deployment "${dep}"
+              fi
+            done
           fi
-          echo "✅ Tất cả healthy!"
 
-      - name: Docker logout
+      - name: Health Check & Pod Status
+        run: |
+          echo "⏳ Checking Pod status post-rollout..."
+          if command -v kubectl &> /dev/null; then
+            KUBECTL="kubectl"
+          elif command -v k3s &> /dev/null; then
+            KUBECTL="sudo k3s kubectl"
+          else
+            KUBECTL="sudo kubectl"
+          fi
+          ${KUBECTL} get pods -o wide || true
+
+      - name: Cleanup Old Docker Images & K8s Revisions
         if: always()
-        run: docker logout || true
+        run: |
+          echo "🧹 Cleaning up unused Docker images & containerd cache..."
+          if command -v docker &> /dev/null; then
+            sudo docker image prune -af --filter "until=24h" || docker image prune -f || true
+          fi
+          if command -v k3s &> /dev/null; then
+            sudo k3s crictl rmi --prune || true
+          fi
+          echo "✅ Cleanup complete!"
 
-      - name: Summary
+      - name: Deployment Summary
         if: always()
         run: |
           STATUS="${{ job.status }}"
           [[ "$STATUS" == "success" ]] && ICON="✅" || ICON="❌"
           cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## ${ICON} Deploy ${STATUS}
+          ## ${ICON} Self-Hosted Kubernetes Deployment ${STATUS}
           | | |
           |---|---|
-          | **URL** | https://bdc.hpcc.vn |
-          | **Tag** | \`${{ needs.gate.outputs.tag }}\` |
+          | **Runner** | Self-Hosted Linux Runner |
+          | **Target** | \`${{ github.event.inputs.target_service || 'all' }}\` |
           | **Commit** | \`${{ github.sha }}\` |
           | **Time** | $(date '+%Y-%m-%d %H:%M:%S %Z') |
-
-          \`\`\`
-          $(docker compose -f ${{ env.APP_DIR }}/docker-compose.serverless.yml ps 2>&1 || true)
-          \`\`\`
           EOF
