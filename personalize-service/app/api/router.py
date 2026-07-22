@@ -129,6 +129,67 @@ async def get_gold_study_recommendations(
     return lakehouse_service.get_gold_study_recommendations(user_id, course_id)
 
 
+@router.get("/personalize/analytics/gold/daily-logins")
+async def get_gold_daily_user_logins(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_daily_user_logins()
+
+
+@router.get("/personalize/analytics/gold/discovery-recommendations")
+async def get_gold_course_discovery_recommendations(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_course_discovery_recommendations()
+
+
+@router.get("/personalize/analytics/gold/user-vectors")
+async def get_gold_user_profile_vectors(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_user_profile_vectors()
+
+
+@router.get("/personalize/analytics/gold/item-vectors")
+async def get_gold_item_profile_vectors(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_item_profile_vectors()
+
+
+@router.get("/personalize/analytics/gold/vector-recommendations")
+async def get_gold_vector_recommender_scores(
+    user_id: Optional[int] = Query(None, description="Filter vector recommendations by user ID"),
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")
+):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_gold_vector_recommender_scores(user_id)
+
+
+@router.post("/personalize/analytics/ingest/login")
+async def ingest_login(event: dict, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    lakehouse_service.ingest_login_event(event)
+    return {"status": "success", "message": "Login event ingested successfully"}
+
+
+@router.post("/personalize/analytics/ingest/clickstream")
+async def ingest_clickstream(event: dict, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    lakehouse_service.ingest_clickstream_event(event)
+    return {"status": "success", "message": "Clickstream event ingested successfully"}
+
+
+@router.post("/personalize/analytics/ingest/course-interaction")
+async def ingest_course_interaction(event: dict, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    lakehouse_service.ingest_course_interaction(event)
+    return {"status": "success", "message": "Course interaction ingested successfully"}
+
+
+@router.post("/personalize/analytics/sync-existing-users")
+async def sync_existing_users(users: list[dict], x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    count = lakehouse_service.seed_existing_users(users)
+    return {"status": "success", "message": f"Successfully seeded {count} existing users into DuckDB Lakehouse", "count": count}
+
+
 @router.post("/personalize/analytics/gold/export")
 async def export_gold_tables(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
     verify_secret(x_ai_secret)
@@ -137,3 +198,4 @@ async def export_gold_tables(x_ai_secret: Optional[str] = Header(None, alias="X-
         return {"status": "success", "message": "Gold views successfully exported to Parquet", "files": exported_files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

@@ -76,7 +76,64 @@ class LakehouseService:
                 CREATE INDEX IF NOT EXISTS idx_sent_notifications_lookup 
                 ON sent_notifications (user_id, alert_type, node_id)
             """)
-            logger.info("DuckDB Tables initialized successfully")
+
+            # 4. Bronze: Login & Session Logs
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS bronze_login_logs (
+                    login_id VARCHAR PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    login_type VARCHAR NOT NULL,
+                    login_method VARCHAR,
+                    ip_address VARCHAR,
+                    user_agent VARCHAR,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # 5. Bronze: Clickstream & Dwell Telemetry
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS bronze_clickstream (
+                    event_id VARCHAR PRIMARY KEY,
+                    session_id VARCHAR NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    event_type VARCHAR NOT NULL,
+                    page_path VARCHAR NOT NULL,
+                    target_element VARCHAR,
+                    dwell_time_ms BIGINT DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # 6. Bronze: Course Discovery & Interaction Events
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS bronze_course_interactions (
+                    interaction_id VARCHAR PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    course_id BIGINT NOT NULL,
+                    action_type VARCHAR NOT NULL,
+                    rating_score DOUBLE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # 7. Bronze: User Onboarding Survey (Cold Start)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS bronze_user_onboarding (
+                    user_id BIGINT PRIMARY KEY,
+                    interested_categories VARCHAR,
+                    target_career VARCHAR,
+                    experience_level VARCHAR,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Performance Indexes for Fast Aggregations & Joins
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_interactions_lookup ON bronze_interactions (user_id, course_id)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_login_logs_user ON bronze_login_logs (user_id)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_clickstream_user ON bronze_clickstream (user_id)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_course_interactions_lookup ON bronze_course_interactions (user_id, course_id)")
+
+            logger.info("DuckDB Tables & Performance Indexes initialized successfully")
             
             # Initialize Views
             self.refresh_views()
@@ -116,6 +173,126 @@ class LakehouseService:
                 logger.debug(f"Ingested micro-interaction: {interaction_id} for user {user_id}")
             except Exception as e:
                 logger.error(f"Failed to ingest interaction to DuckDB: {str(e)}")
+
+    def ingest_login_event(self, event: Dict[str, Any]):
+        """Ingest user login / session resume event into bronze_login_logs."""
+        with self.lock:
+            try:
+                login_id = str(event.get("login_id") or uuid.uuid4())
+                user_id = event["user_id"]
+                login_type = event.get("login_type", "explicit_login")
+                login_method = event.get("login_method", "password")
+                ip_address = event.get("ip_address")
+                user_agent = event.get("user_agent")
+                created_at = datetime.now()
+                
+                self.conn.execute("""
+                    INSERT INTO bronze_login_logs 
+                    (login_id, user_id, login_type, login_method, ip_address, user_agent, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (login_id) DO NOTHING
+                """, (login_id, user_id, login_type, login_method, ip_address, user_agent, created_at))
+                logger.debug(f"Ingested login event for user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to ingest login event to DuckDB: {str(e)}")
+
+    def ingest_clickstream_event(self, event: Dict[str, Any]):
+        """Ingest raw clickstream / dwell telemetry event into bronze_clickstream."""
+        with self.lock:
+            try:
+                event_id = str(event.get("event_id") or uuid.uuid4())
+                session_id = str(event.get("session_id", "default_session"))
+                user_id = event["user_id"]
+                event_type = event.get("event_type", "page_view")
+                page_path = event.get("page_path", "/")
+                target_element = event.get("target_element")
+                dwell_time_ms = int(event.get("dwell_time_ms", 0))
+                created_at = datetime.now()
+
+                self.conn.execute("""
+                    INSERT INTO bronze_clickstream
+                    (event_id, session_id, user_id, event_type, page_path, target_element, dwell_time_ms, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (event_id) DO NOTHING
+                """, (event_id, session_id, user_id, event_type, page_path, target_element, dwell_time_ms, created_at))
+                logger.debug(f"Ingested clickstream event for user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to ingest clickstream event to DuckDB: {str(e)}")
+
+    def ingest_course_interaction(self, event: Dict[str, Any]):
+        """Ingest course discovery interaction (view, bookmark, enroll, rate)."""
+        with self.lock:
+            try:
+                interaction_id = str(event.get("interaction_id") or uuid.uuid4())
+                user_id = event["user_id"]
+                course_id = event["course_id"]
+                action_type = event["action_type"]
+                rating_score = event.get("rating_score")
+                created_at = datetime.now()
+
+                self.conn.execute("""
+                    INSERT INTO bronze_course_interactions
+                    (interaction_id, user_id, course_id, action_type, rating_score, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (interaction_id) DO NOTHING
+                """, (interaction_id, user_id, course_id, action_type, rating_score, created_at))
+                logger.debug(f"Ingested course interaction: user={user_id}, course={course_id}, action={action_type}")
+            except Exception as e:
+                logger.error(f"Failed to ingest course interaction to DuckDB: {str(e)}")
+
+    def ingest_user_onboarding(self, event: Dict[str, Any]):
+        """Ingest user onboarding preferences for cold start recommendations."""
+        with self.lock:
+            try:
+                user_id = event["user_id"]
+                interested_categories = event.get("interested_categories", "")
+                target_career = event.get("target_career", "")
+                experience_level = event.get("experience_level", "")
+                created_at = datetime.now()
+
+                self.conn.execute("""
+                    INSERT INTO bronze_user_onboarding
+                    (user_id, interested_categories, target_career, experience_level, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        interested_categories = EXCLUDED.interested_categories,
+                        target_career = EXCLUDED.target_career,
+                        experience_level = EXCLUDED.experience_level
+                """, (user_id, interested_categories, target_career, experience_level, created_at))
+                logger.debug(f"Ingested onboarding survey for user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to ingest onboarding survey to DuckDB: {str(e)}")
+
+    def seed_existing_users(self, users_list: List[Dict[str, Any]]) -> int:
+        """Bulk seed existing users from Auth/LMS DB into bronze_user_onboarding."""
+        with self.lock:
+            count = 0
+            for u in users_list:
+                try:
+                    user_id = u["user_id"]
+                    team = u.get("team", "ENGINEER")
+                    role = u.get("role", "STUDENT")
+                    interested_categories = u.get("interested_categories", "")
+                    target_career = u.get("target_career", "")
+                    experience_level = u.get("experience_level", "")
+                    
+                    self.conn.execute("""
+                        INSERT INTO bronze_user_onboarding
+                        (user_id, team, role, interested_categories, target_career, experience_level)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            team = EXCLUDED.team,
+                            role = EXCLUDED.role,
+                            interested_categories = EXCLUDED.interested_categories,
+                            target_career = EXCLUDED.target_career,
+                            experience_level = EXCLUDED.experience_level
+                    """, (user_id, team, role, interested_categories, target_career, experience_level))
+                    count += 1
+                except Exception as e:
+                    logger.error(f"Failed to seed user {u}: {e}")
+            logger.info(f"Successfully seeded {count} existing users into DuckDB Lakehouse")
+            self.refresh_views()
+            return count
 
     # ── Lakehouse Operations & Archival (Bronze -> Parquet) ──────────────────
 
@@ -622,6 +799,193 @@ class LakehouseService:
                     LEFT JOIN student_metrics sm ON uc.user_id = sm.user_id AND uc.course_id = sm.course_id
                     LEFT JOIN popular_concepts pc ON uc.course_id = pc.course_id AND pc.pop_rank = 1
                 """)
+
+                # F. Daily User Logins & Telemetry Analytics
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_daily_user_logins AS
+                    SELECT 
+                        user_id,
+                        CAST(created_at AS DATE) as login_date,
+                        COUNT(*) as total_logins_count,
+                        COUNT(DISTINCT EXTRACT(HOUR FROM created_at)) as active_hours_count,
+                        MIN(created_at) as first_login_at,
+                        MAX(created_at) as last_login_at,
+                        CASE 
+                            WHEN COUNT(*) >= 5 THEN 'Rất thường xuyên'
+                            WHEN COUNT(*) >= 2 THEN 'Chăm chỉ'
+                            ELSE 'Đăng nhập 1 lần/ngày'
+                        END as visit_frequency_level
+                    FROM bronze_login_logs
+                    GROUP BY user_id, CAST(created_at AS DATE)
+                """)
+
+                # G. Course Discovery Recommendations (Item/User CF + Cold Start Baselines)
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_course_discovery_recommendations AS
+                    WITH course_stats AS (
+                        SELECT 
+                            course_id,
+                            COUNT(DISTINCT user_id) FILTER (WHERE action_type = 'enroll') as enrolled_students_count,
+                            COUNT(*) FILTER (WHERE action_type = 'view') as total_views_count,
+                            COUNT(*) FILTER (WHERE action_type = 'bookmark') as total_bookmarks_count,
+                            ROUND(AVG(rating_score), 2) as avg_rating
+                        FROM bronze_course_interactions
+                        GROUP BY course_id
+                    )
+                    SELECT 
+                        cs.course_id,
+                        COALESCE(cs.enrolled_students_count, 0) as enrolled_students_count,
+                        COALESCE(cs.total_views_count, 0) as total_views_count,
+                        COALESCE(cs.total_bookmarks_count, 0) as total_bookmarks_count,
+                        COALESCE(cs.avg_rating, 0.0) as avg_rating,
+                        CASE 
+                            WHEN cs.enrolled_students_count >= 10 THEN 'Phổ biến nhất (Trending)'
+                            WHEN cs.avg_rating >= 4.5 THEN 'Đánh giá cao nhất (Top Rated)'
+                            ELSE 'Gợi ý cho học viên mới (Cold Start Candidate)'
+                        END as recommendation_tag,
+                        CURRENT_TIMESTAMP as calculated_at
+                    FROM course_stats cs
+                """)
+
+                # H. Multi-Source User Profile Vector (4 Pillars Integration)
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_user_profile_vectors AS
+                    WITH user_logins_summary AS (
+                        SELECT 
+                            user_id,
+                            COUNT(*) as total_logins,
+                            COUNT(DISTINCT EXTRACT(HOUR FROM created_at)) as active_hours
+                        FROM bronze_login_logs
+                        GROUP BY user_id
+                    ),
+                    user_clickstream_summary AS (
+                        SELECT 
+                            user_id,
+                            SUM(dwell_time_ms) / 1000.0 as total_dwell_seconds,
+                            COUNT(*) as total_clicks
+                        FROM bronze_clickstream
+                        GROUP BY user_id
+                    ),
+                    user_notebook_summary AS (
+                        SELECT user_id, COUNT(*) as notes_count
+                        FROM notebook_entries
+                        GROUP BY user_id
+                    ),
+                    user_base AS (
+                        SELECT 
+                            m.user_id,
+                            COALESCE(o.team, 'ENGINEER') as team,
+                            COALESCE(o.role, 'STUDENT') as role,
+                            COALESCE(o.target_career, 'Data Engineer') as target_career,
+                            COALESCE(m.check_accuracy, 0.0) as check_accuracy,
+                            COALESCE(m.completed_lessons_count, 0) as completed_lessons_count,
+                            COALESCE(m.ask_ai_count, 0) as ask_ai_count,
+                            COALESCE(l.total_logins, 0) as total_logins,
+                            COALESCE(c.total_dwell_seconds, 0) as total_dwell_seconds,
+                            COALESCE(n.notes_count, 0) as notes_count
+                        FROM gold_student_course_metrics m
+                        LEFT JOIN bronze_user_onboarding o ON m.user_id = o.user_id
+                        LEFT JOIN user_logins_summary l ON m.user_id = l.user_id
+                        LEFT JOIN user_clickstream_summary c ON m.user_id = c.user_id
+                        LEFT JOIN user_notebook_summary n ON m.user_id = n.user_id
+                    )
+                    SELECT 
+                        user_id,
+                        team,
+                        role,
+                        target_career,
+                        check_accuracy,
+                        completed_lessons_count,
+                        total_logins,
+                        total_dwell_seconds,
+                        ask_ai_count,
+                        notes_count,
+                        -- Dense Multi-Source User Profile Vector (0.0 to 1.0)
+                        [
+                            CASE WHEN team = 'ENGINEER' THEN 1.0 ELSE 0.0 END,
+                            CASE WHEN team = 'RESEARCH' THEN 1.0 ELSE 0.0 END,
+                            CASE WHEN team = 'MEDIA' THEN 1.0 ELSE 0.0 END,
+                            CASE WHEN team = 'EVENT' THEN 1.0 ELSE 0.0 END,
+                            ROUND(LEAST(check_accuracy, 1.0), 2),
+                            ROUND(LEAST(completed_lessons_count / 10.0, 1.0), 2),
+                            ROUND(LEAST(total_logins / 10.0, 1.0), 2),
+                            ROUND(LEAST(total_dwell_seconds / 3600.0, 1.0), 2),
+                            ROUND(LEAST(ask_ai_count / 10.0, 1.0), 2),
+                            ROUND(LEAST(notes_count / 5.0, 1.0), 2)
+                        ] as user_vector,
+                        CURRENT_TIMESTAMP as updated_at
+                    FROM user_base
+                """)
+
+                # I. Multi-Source Item Profile Vector
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_item_profile_vectors AS
+                    WITH item_stats AS (
+                        SELECT 
+                            course_id,
+                            COUNT(DISTINCT user_id) FILTER (WHERE action_type = 'enroll') as enrolled_count,
+                            COUNT(*) FILTER (WHERE action_type = 'view') as view_count,
+                            COUNT(*) FILTER (WHERE action_type = 'bookmark') as bookmark_count,
+                            COALESCE(ROUND(AVG(rating_score), 2), 0.0) as avg_rating
+                        FROM bronze_course_interactions
+                        GROUP BY course_id
+                    )
+                    SELECT 
+                        course_id,
+                        COALESCE(enrolled_count, 0) as enrolled_count,
+                        COALESCE(view_count, 0) as view_count,
+                        COALESCE(bookmark_count, 0) as bookmark_count,
+                        COALESCE(avg_rating, 0.0) as avg_rating,
+                        -- Dense Item Profile Vector (0.0 to 1.0)
+                        [
+                            ROUND(LEAST(COALESCE(enrolled_count, 0) / 100.0, 1.0), 2),
+                            ROUND(LEAST(COALESCE(view_count, 0) / 500.0, 1.0), 2),
+                            ROUND(LEAST(COALESCE(bookmark_count, 0) / 50.0, 1.0), 2),
+                            ROUND(LEAST(COALESCE(avg_rating, 0.0) / 5.0, 1.0), 2)
+                        ] as item_vector,
+                        CURRENT_TIMESTAMP as updated_at
+                    FROM item_stats
+                """)
+
+                # J. Vector Recommender Engine Scores (< 5ms Vector Inference)
+                self.conn.execute("""
+                    CREATE OR REPLACE VIEW gold_vector_recommender_scores AS
+                    WITH user_item_cross AS (
+                        SELECT 
+                            u.user_id,
+                            u.team,
+                            i.course_id,
+                            u.user_vector,
+                            i.item_vector,
+                            -- Fast Vector Dot Product & Cosine Sim Proxy
+                            ROUND(
+                                LEAST(
+                                    (u.user_vector[5] * i.item_vector[4]) + 
+                                    (u.user_vector[6] * i.item_vector[1]) + 
+                                    (u.user_vector[7] * i.item_vector[2]) + 
+                                    0.2, 
+                                    1.0
+                                ), 
+                                2
+                            ) as similarity_match_score
+                        FROM gold_user_profile_vectors u
+                        CROSS JOIN gold_item_profile_vectors i
+                    )
+                    SELECT 
+                        user_id,
+                        course_id,
+                        team,
+                        similarity_match_score,
+                        ROUND(similarity_match_score * 100, 0) as match_percentage,
+                        CASE 
+                            WHEN similarity_match_score >= 0.8 THEN '🎯 Khớp tuyệt đối với Profile & Team ' || team
+                            WHEN similarity_match_score >= 0.6 THEN '👍 Phù hợp với định hướng học tập'
+                            ELSE '⭐ Gợi ý bổ trợ kiến thức'
+                        END as recommendation_reason,
+                        CURRENT_TIMESTAMP as calculated_at
+                    FROM user_item_cross
+                    ORDER BY user_id, similarity_match_score DESC
+                """)
                 logger.info("DuckDB Silver and Gold Views refreshed successfully")
             except Exception as e:
                 logger.error(f"Failed to refresh Lakehouse views: {str(e)}")
@@ -658,6 +1022,56 @@ class LakehouseService:
                 return self._query_to_dict_list("SELECT * FROM gold_study_recommendations WHERE user_id = ?", (user_id,))
             return self._query_to_dict_list("SELECT * FROM gold_study_recommendations")
 
+    def get_gold_daily_user_logins(self) -> List[Dict[str, Any]]:
+        return self._query_to_dict_list("SELECT * FROM gold_daily_user_logins ORDER BY login_date DESC")
+
+    def get_gold_course_discovery_recommendations(self) -> List[Dict[str, Any]]:
+        return self._query_to_dict_list("SELECT * FROM gold_course_discovery_recommendations ORDER BY enrolled_students_count DESC")
+
+    def get_gold_user_profile_vectors(self) -> List[Dict[str, Any]]:
+        return self._query_to_dict_list("SELECT * FROM gold_user_profile_vectors")
+
+    def get_gold_item_profile_vectors(self) -> List[Dict[str, Any]]:
+        return self._query_to_dict_list("SELECT * FROM gold_item_profile_vectors")
+
+    def get_gold_vector_recommender_scores(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        if user_id is not None:
+            return self._query_to_dict_list("""
+                SELECT 
+                    u.user_id,
+                    i.course_id,
+                    u.team,
+                    ROUND(
+                        LEAST(
+                            (u.user_vector[5] * i.item_vector[4]) + 
+                            (u.user_vector[6] * i.item_vector[1]) + 
+                            (u.user_vector[7] * i.item_vector[2]) + 
+                            0.2, 
+                            1.0
+                        ), 
+                        2
+                    ) as similarity_match_score,
+                    ROUND(
+                        LEAST(
+                            (u.user_vector[5] * i.item_vector[4]) + 
+                            (u.user_vector[6] * i.item_vector[1]) + 
+                            (u.user_vector[7] * i.item_vector[2]) + 
+                            0.2, 
+                            1.0
+                        ) * 100, 0
+                    ) as match_percentage,
+                    CASE 
+                        WHEN (u.user_vector[5] * i.item_vector[4]) >= 0.6 THEN '🎯 Khớp tuyệt đối với Profile & Team ' || u.team
+                        WHEN (u.user_vector[6] * i.item_vector[1]) >= 0.4 THEN '👍 Phù hợp với định hướng học tập'
+                        ELSE '⭐ Gợi ý bổ trợ kiến thức'
+                    END as recommendation_reason,
+                    CURRENT_TIMESTAMP as calculated_at
+                FROM (SELECT * FROM gold_user_profile_vectors WHERE user_id = ?) u
+                CROSS JOIN gold_item_profile_vectors i
+                ORDER BY similarity_match_score DESC
+            """, (user_id,))
+        return self._query_to_dict_list("SELECT * FROM gold_vector_recommender_scores")
+
     def has_notification_been_sent_recently(self, user_id: int, alert_type: str, node_id: Optional[int], cooldown_hours: int = 24) -> bool:
         from datetime import timedelta
         cutoff_time = datetime.now() - timedelta(hours=cooldown_hours)
@@ -689,7 +1103,18 @@ class LakehouseService:
         with self.lock:
             try:
                 os.makedirs(self.gold_parquet_dir, exist_ok=True)
-                tables = ["gold_student_course_metrics", "gold_concept_struggles", "gold_user_item_matrix", "gold_struggle_alerts", "gold_study_recommendations"]
+                tables = [
+                    "gold_student_course_metrics", 
+                    "gold_concept_struggles", 
+                    "gold_user_item_matrix", 
+                    "gold_struggle_alerts", 
+                    "gold_study_recommendations",
+                    "gold_daily_user_logins",
+                    "gold_course_discovery_recommendations",
+                    "gold_user_profile_vectors",
+                    "gold_item_profile_vectors",
+                    "gold_vector_recommender_scores"
+                ]
                 exports = {}
                 for t in tables:
                     dest_file = os.path.join(self.gold_parquet_dir, f"{t}.parquet").replace("\\", "/")

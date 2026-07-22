@@ -152,6 +152,8 @@ Endpoints require the `X-AI-Secret` header for internal authentication.
 *   **Implicit Affinity Matrix:** `GET /personalize/analytics/gold/interaction-matrix`
 *   **Struggling Concepts:** `GET /personalize/analytics/gold/concept-struggles`
 *   **Overall Student Metrics:** `GET /personalize/analytics/gold/student-metrics`
+*   **Daily User Logins & DAU:** `GET /personalize/analytics/gold/daily-logins`
+*   **Course Discovery Recommendations:** `GET /personalize/analytics/gold/discovery-recommendations`
 
 ---
 

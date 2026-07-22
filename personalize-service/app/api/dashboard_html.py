@@ -797,6 +797,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     <button class="tab-item" onclick="switchTab('interaction-matrix', this)">Matrix</button>
                     <button class="tab-item" onclick="switchTab('struggle-alerts', this)">Alerts</button>
                     <button class="tab-item" onclick="switchTab('study-recommendations', this)">Recommendations</button>
+                    <button class="tab-item" onclick="switchTab('daily-logins', this)">Logins & Telemetry</button>
+                    <button class="tab-item" onclick="switchTab('discovery-recommendations', this)">Discovery Recommenders</button>
+                    <button class="tab-item" onclick="switchTab('user-vectors', this)">User Profile Vectors</button>
+                    <button class="tab-item" onclick="switchTab('vector-recommendations', this)">Vector Recommender</button>
                 </div>
                 <div class="search-bar">
                     <input type="text" id="tableSearch" class="input-field" style="max-width: 400px;" placeholder="🔍 Search records..." oninput="filterTable()">
@@ -974,13 +978,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 const matrixUrl = '/personalize/analytics/gold/interaction-matrix';
                 const alertsUrl = '/personalize/analytics/gold/struggle-alerts';
                 const recsUrl = '/personalize/analytics/gold/study-recommendations';
+                const loginsUrl = '/personalize/analytics/gold/daily-logins';
+                const discoveryRecsUrl = '/personalize/analytics/gold/discovery-recommendations';
+                const userVectorsUrl = '/personalize/analytics/gold/user-vectors';
+                const vectorRecsUrl = '/personalize/analytics/gold/vector-recommendations';
 
-                const [metrics, struggles, matrix, alerts, recs] = await Promise.all([
+                const [metrics, struggles, matrix, alerts, recs, logins, discoveryRecs, userVectors, vectorRecs] = await Promise.all([
                     fetchAPI(metricsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
                     fetchAPI(strugglesUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
                     fetchAPI(matrixUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
                     fetchAPI(alertsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
-                    fetchAPI(recsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; })
+                    fetchAPI(recsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
+                    fetchAPI(loginsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
+                    fetchAPI(discoveryRecsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
+                    fetchAPI(userVectorsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; }),
+                    fetchAPI(vectorRecsUrl).catch(e => { if (e.message && e.message.includes('Unauthorized')) throw e; console.error(e); return []; })
                 ]);
 
                 // Update Overview Cards
@@ -994,7 +1006,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     'concept-struggles': struggles,
                     'interaction-matrix': matrix,
                     'struggle-alerts': alerts,
-                    'study-recommendations': recs
+                    'study-recommendations': recs,
+                    'daily-logins': logins,
+                    'discovery-recommendations': discoveryRecs,
+                    'user-vectors': userVectors,
+                    'vector-recommendations': vectorRecs
                 };
 
                 showToast('Lakehouse data loaded successfully', 'success');
@@ -1068,11 +1084,23 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                         else if (val.includes('Flashcard')) styleClass = 'style-flashcard';
                         else if (val.includes('Trắc nghiệm')) styleClass = 'style-practice';
                         td.innerHTML = `<span class="badge ${styleClass}">${val}</span>`;
-                    } else if (col === 'engagement_level') {
+                    } else if (col === 'engagement_level' || col === 'visit_frequency_level') {
                         let levelClass = 'level-low';
-                        if (val === 'Rất tích cực') levelClass = 'level-high';
-                        else if (val === 'Tích cực') levelClass = 'level-mid';
+                        if (val === 'Rất tích cực' || val === 'Rất thường xuyên') levelClass = 'level-high';
+                        else if (val === 'Tích cực' || val === 'Chăm chỉ') levelClass = 'level-mid';
                         td.innerHTML = `<span class="badge ${levelClass}">${val}</span>`;
+                    } else if (col === 'recommendation_tag' || col === 'recommendation_reason') {
+                        let tagClass = 'level-mid';
+                        if (val.includes('Trending') || val.includes('Khớp tuyệt đối')) tagClass = 'level-high';
+                        else if (val.includes('Top Rated') || val.includes('Phù hợp')) tagClass = 'alert-positive_reinforcement';
+                        td.innerHTML = `<span class="badge ${tagClass}">${val}</span>`;
+                    } else if (col === 'match_percentage') {
+                        let matchClass = 'low';
+                        if (val >= 80) matchClass = 'high';
+                        else if (val >= 60) matchClass = 'mid';
+                        td.innerHTML = `<span class="accuracy-pill ${matchClass}">${val}%</span>`;
+                    } else if (col === 'user_vector' || col === 'item_vector') {
+                        td.innerHTML = `<code style="color: var(--accent-cyan); font-family: var(--font-mono); font-size: 0.85rem;">[${Array.isArray(val) ? val.join(', ') : val}]</code>`;
                     } else if (col === 'check_accuracy') {
                         let accuracyClass = 'low';
                         if (val >= 0.8) accuracyClass = 'high';

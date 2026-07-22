@@ -165,6 +165,9 @@ async def main():
 
     consumer = AIOKafkaConsumer(
         "lms.analytics.interactions",
+        "user.login.events",
+        "lms.analytics.telemetry",
+        "lms.course.interactions",
         bootstrap_servers=settings.kafka_brokers,
         group_id="personalize-worker-group",
         value_deserializer=lambda x: json.loads(x.decode("utf-8")),
@@ -181,6 +184,12 @@ async def main():
             logger.debug(f"Received message from topic {msg.topic}: {msg.value}")
             if msg.topic == "lms.analytics.interactions":
                 await process_interaction_event(msg.value)
+            elif msg.topic == "user.login.events":
+                lakehouse_service.ingest_login_event(msg.value)
+            elif msg.topic == "lms.analytics.telemetry":
+                lakehouse_service.ingest_clickstream_event(msg.value)
+            elif msg.topic == "lms.course.interactions":
+                lakehouse_service.ingest_course_interaction(msg.value)
     except asyncio.CancelledError:
         logger.info("Personalize Kafka Worker cancelled")
     finally:
@@ -191,3 +200,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
