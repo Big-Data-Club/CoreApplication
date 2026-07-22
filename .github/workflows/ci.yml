@@ -51,34 +51,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Detect file changes
         uses: dorny/paths-filter@v3
         id: filter
         with:
+          base: ${{ github.event.before }}
           filters: |
             backend:
+              - 'auth-and-management-service'
               - 'auth-and-management-service/**'
-              - 'auth-and-management-service/Dockerfile'
             frontend:
+              - 'frontend'
               - 'frontend/**'
-              - 'frontend/Dockerfile'
             lms:
+              - 'lms-service'
               - 'lms-service/**'
-              - 'lms-service/Dockerfile'
             ai:
+              - 'ai-service'
               - 'ai-service/**'
-              - 'ai-service/Dockerfile'
             chat:
+              - 'chat-service'
               - 'chat-service/**'
-              - 'chat-service/Dockerfile'
             lab:
+              - 'lab-service'
               - 'lab-service/**'
-              - 'lab-service/Dockerfile'
             personalize:
+              - 'personalize-service'
               - 'personalize-service/**'
-              - 'personalize-service/Dockerfile'
             docker:
               - 'docker-compose*.yml'
               - 'k3s/**'
