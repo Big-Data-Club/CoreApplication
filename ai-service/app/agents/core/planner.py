@@ -97,7 +97,8 @@ class ExecutionPlan(BaseModel):
     selected_tools: List[str] = Field(
         description=(
             "List of tool names selected to execute this plan. "
-            "Available tools: ['search_course_materials', 'explain_concept', "
+            "Available tools include ['generate_quiz_from_source', 'parse_quiz_questions', "
+            "'generate_quiz_draft', 'generate_content_draft', 'search_course_materials', 'explain_concept', "
             "'get_study_plan', 'diagnose_knowledge_gap', 'create_mini_challenge', "
             "'generate_flashcard', 'search_web', 'save_to_notebook']"
         )
@@ -180,6 +181,10 @@ Active courses for this user:
 {current_context}
 
 Available Tools:
+- generate_quiz_from_source: Generate additional quiz questions from supplied page/conversation text and preview them for an existing quiz
+- parse_quiz_questions: Import already-written pasted questions into an existing quiz via review preview
+- generate_quiz_draft: Generate questions from an indexed course knowledge node
+- generate_content_draft: Create a teacher-reviewable lesson/content draft
 - search_course_materials: Search course materials using semantic RAG
 - explain_concept: Pedagogy-aware conceptual explanation with prereq awareness
 - get_study_plan: Generate personalized next steps / roadmap based on Lakehouse metrics
@@ -191,6 +196,9 @@ Available Tools:
 
 Planning Rules:
 1. **Understand Intent & Context**:
+   - Teacher asks to add/import an already-written pasted question -> content_creation, requires_tool=true, selected_tools=['parse_quiz_questions'].
+   - Teacher asks for new/additional questions based on supplied lesson text/examples -> content_creation, requires_tool=true, selected_tools=['generate_quiz_from_source'].
+   - Teacher asks for quiz questions from indexed course materials -> content_creation, requires_tool=true, selected_tools=['generate_quiz_draft'].
    - Dashboard (pageType=dashboard or no open lesson) + "what to study next?" -> recommendation_engine, personalization+lakehouse required, scope='none', graph_expansion_needed=false.
    - Lesson view (pageType=lesson) + "explain this" -> stay_in_context, content_qa, scope='content', graph_expansion_needed=true.
    - Asking about topic not in current lesson -> pivot_new_topic, scope='course' or 'global', graph_expansion_needed=true.

@@ -29,7 +29,8 @@ class ParseQuizQuestionsTool(BaseTool):
         "question text and wants it imported into a quiz - e.g., "
         "'thêm câu hỏi này vào quiz', 'parse câu hỏi sau vào bài kiểm tra', "
         "'nhập câu hỏi sau đây', 'import these questions'. "
-        "The tool auto-detects question types (trắc nghiệm, điền từ, tự luận, ...). "
+        "The tool auto-detects question types, including text blanks and dropdown blanks, "
+        "and understands grading annotations such as Correct/Incorrect/Should have selected. "
         "Requires quiz_id and the raw question text. If quiz_id is not provided, "
         "ask the teacher which quiz they want to add questions to."
     )
@@ -55,6 +56,13 @@ class ParseQuizQuestionsTool(BaseTool):
                 "type": "integer",
                 "description": "Default points assigned to each parsed question. Default: 10.",
                 "default": 10,
+            },
+            "instructions": {
+                "type": "string",
+                "description": (
+                    "Optional teacher formatting requirement, for example "
+                    "'make this a fill-in-the-blank with dropdown options'."
+                ),
             },
         },
         "required": ["raw_text", "quiz_id"],
@@ -91,6 +99,7 @@ class ParseQuizQuestionsTool(BaseTool):
             questions = await quiz_parse_service.parse(
                 raw_text=raw_text,
                 points_per_question=points_per_question,
+                instructions=str(kwargs.get("instructions") or ""),
             )
         except Exception as e:
             logger.error("parse_quiz_questions tool: LLM parse failed: %s", e)

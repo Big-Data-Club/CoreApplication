@@ -47,14 +47,14 @@ def _resolve_max_tokens(intent_type: str, has_page_context: bool) -> int:
     Allocate the token budget for the LLM based on the expected complexity of the response.
 
     Instead of a hardcoded 2048 for all cases, the budget is adjusted according to the intent:
-    - content_creation / interactive_exercise: needs long generation -> 4096
+    - content_creation / interactive_exercise: tools perform the heavy generation -> 2048
     - knowledge_question + page_context (currently studying a lesson): requires deep explanation -> 3500
     - standard knowledge_question: -> 3000
     - progress_advice: -> 2500
     - general_chat / fallback: -> 2048
     """
     if intent_type in ("content_creation", "interactive_exercise"):
-        return 4096
+        return 2048
     if intent_type == "knowledge_question":
         return 3500 if has_page_context else 3000
     if intent_type == "progress_advice":
@@ -298,7 +298,10 @@ async def run_react_loop(
         requires_tool=execution_plan.requires_tool,
     )
 
-    intent_type = execution_plan.user_intent
+    # Downstream token budgets, memory, and orchestration expect the router's
+    # operational categories (content_creation, knowledge_question, ...), not
+    # the pedagogical user_intent labels (explanation, quiz_help, ...).
+    intent_type = execution_plan.intent
 
     yield AgentEvent(
         type=AgentEventType.THINKING,
@@ -549,7 +552,15 @@ async def run_react_loop(
         turn_id=turn_id,
     )
 
-    if score >= 0.45:
+    # The multi-agent pipeline produces prose only and cannot execute tools or
+    # emit HITL widgets. Keep teacher action requests in the tool-capable ReAct
+    # loop so "create/add" actually results in an editable draft.
+    teacher_action_request = agent_type == "teacher" and (
+        router_output.requires_tool
+        or intent_type in ("content_creation", "interactive_exercise")
+    )
+
+    if score >= 0.45 and not teacher_action_request:
         logger.info(
             "Spawning multi-agent: score=%.3f reasons=%s",
             score, breakdown.get("triggered_by", []),
@@ -612,6 +623,7 @@ async def run_react_loop(
                 session_id=session_id,
                 turn_id=turn_id,
             )
+
             yield AgentEvent(
                 type=AgentEventType.DONE,
                 data={
@@ -645,6 +657,9 @@ async def run_react_loop(
                 session_id=session_id,
                 turn_id=turn_id,
             )
+
+    if teacher_action_request:
+        logger.info("Skipping prose-only multi-agent flow for teacher action request")
 
     # -- Step 3.7: GraphRAG pre-fetch (when graph expansion is signaled) --------
     # Fetch concept graph context BEFORE building the system prompt so the

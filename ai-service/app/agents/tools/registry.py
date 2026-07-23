@@ -21,6 +21,7 @@ from app.agents.tools.teacher.generate_content_draft import GenerateContentDraft
 from app.agents.tools.teacher.trigger_auto_index import TriggerAutoIndexTool
 from app.agents.tools.teacher.analyze_performance import AnalyzePerformanceTool
 from app.agents.tools.teacher.generate_quiz_draft import GenerateQuizDraftTool
+from app.agents.tools.teacher.generate_quiz_from_source import GenerateQuizFromSourceTool
 from app.agents.tools.teacher.list_knowledge_nodes import ListKnowledgeNodesTool
 from app.agents.tools.teacher.create_section import CreateSectionTool
 from app.agents.tools.teacher.parse_quiz_questions import ParseQuizQuestionsTool
@@ -49,6 +50,7 @@ _SHARED_TOOLS: list[BaseTool] = [
 _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     ListMyCoursesTool(),
     GenerateQuizDraftTool(),
+    GenerateQuizFromSourceTool(),
     ParseQuizQuestionsTool(),
     AnalyzePerformanceTool(),
     TriggerAutoIndexTool(),

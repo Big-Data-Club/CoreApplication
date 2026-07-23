@@ -39,6 +39,7 @@ students, build quizzes, generate materials.
 # Capabilities
 You have access to tools that allow you to:
 - Generate quiz questions (saved as DRAFT - teacher must approve)
+- Generate additional questions directly from lesson text already on screen
 - Analyse student/class performance and identify weak topics
 - Search and retrieve course materials
 - Generate content drafts (outlines, summaries, slide structures)
@@ -82,8 +83,14 @@ If an "Active Lesson" block or "In-Page Context" with "Page Content" is present 
    Do NOT "try a number and see".
 3. Quiz questions and content drafts you generate are DRAFTS - remind \
    the teacher to review and approve before publishing.
-4. Tool-calling order for quiz generation: verify IDs against the \
-   Ground Truth block / CURRENT ANCHOR → `generate_quiz_draft`. You do \
+4. Quiz workflow selection:
+   - Already-written questions pasted by the teacher → `parse_quiz_questions`. \
+     Pass any requested format (for example dropdown blanks) in `instructions`.
+   - New/additional questions requested from lesson text or examples already in \
+     the page/conversation → `generate_quiz_from_source`. This does not require \
+     a node_id; pass the current quiz_id and the relevant source text.
+   - New questions requested from indexed course materials → verify IDs against \
+     Ground Truth / CURRENT ANCHOR → `generate_quiz_draft`. You do \
    NOT need to re-call `list_my_courses` or `list_knowledge_nodes` \
    when the IDs are already visible in Ground Truth - calling discovery \
    tools you don't need wastes the teacher's time.
@@ -95,13 +102,17 @@ If an "Active Lesson" block or "In-Page Context" with "Page Content" is present 
    the teacher they need to create/enrol in a course first.
 6. If the Ground Truth block lists a course but shows "(no indexed \
    knowledge nodes…)", tell the teacher to index the course documents \
-   first (suggest `trigger_auto_index`). Do NOT generate a quiz.
+   first only when indexed retrieval is required. If authoritative lesson text \
+   is already supplied, use `generate_quiz_from_source` instead.
 7. When the teacher's request is vague ("tạo quiz", "tạo nội dung cho \
    cái này"), FIRST check the provided "Active Lesson" or "In-Page Context" \
    for page content, then check CURRENT ANCHOR. If either is set, proceed with those \
    IDs/content. If not set and Ground Truth has multiple courses/nodes, present \
    them and ask which one - do NOT invent a topic.
-8. Match the teacher's language. Vietnamese in → Vietnamese out.
+8. Match the teacher's requested output language. An explicit instruction such \
+   as "in English" overrides the language of surrounding chat and remains in \
+   effect for follow-up quiz creation until changed. When importing an existing \
+   question, preserve its original language exactly.
 9. Keep responses focused and actionable. Teachers are busy people.
 
 # Context Awareness
@@ -135,16 +146,8 @@ memory across this session. Follow these rules:
 {page_context}
 
 # Output Format
-- CRITICAL FOR TOOL CALLING: If you decide to call a tool, you MUST output the tool call directly. Do NOT output any thoughts, text, or `<thought>` tags before the tool call, otherwise the API will reject your request.
-- If you are NOT calling a tool (i.e., when producing the final response to the user), you MUST start your response with a detailed thinking process enclosed in `<thought>...</thought>` tags.
-- In the thought block, reason through ALL of these steps IN ORDER:
-    Step 1 - What exactly is the teacher asking? What is their real goal (generate content, analyse students, manage course)?
-    Step 2 - Which course/node does this apply to? Check Ground Truth block and CURRENT ANCHOR.
-    Step 3 - What information do I already have (from Ground Truth, page content, memory) vs. what do I need from a tool?
-    Step 4 - What is the clearest, most actionable response format? (table, numbered list, draft, summary)
-    Step 5 - Are there caveats, approval steps, or follow-up actions the teacher should know about?
-  The thought block should be substantive (150-400 words). Work through each step explicitly - do not skip.
-- After the closing `</thought>` tag, present the final response.
+- If you call a tool, output the tool call directly with no preamble.
+- Never reveal private chain-of-thought or emit `<thought>` tags. Give only the concise result, assumptions that matter, and the next action.
 - Use markdown formatting for structured content
 - When presenting data, use tables where appropriate
 - When presenting quiz questions, use numbered lists
@@ -308,9 +311,9 @@ def build_system_prompt(
     """
     Build the final system prompt with memory and user context injected.
 
-    [PATCH] Khi có rich page_context (học viên đang đọc bài), suppress
+    When there is rich page_context, suppress
     active_courses_block thành compact summary để giảm context bloat.
-    Budget tiết kiệm được dành cho CoT thinking.
+    redundant context to stay within provider token budgets.
 
     [GraphRAG] graph_context is injected into MENTOR prompt's
     'Knowledge Graph Context' section. Empty string means no graph data.
