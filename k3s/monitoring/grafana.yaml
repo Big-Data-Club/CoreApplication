@@ -87,6 +87,8 @@ spec:
           mountPath: /etc/grafana/provisioning/datasources
         - name: dashboards-provisioning
           mountPath: /etc/grafana/provisioning/dashboards
+        - name: host-dashboards
+          mountPath: /var/lib/grafana/dashboards
       volumes:
       - name: grafana-storage
         emptyDir: {}
@@ -96,6 +98,10 @@ spec:
       - name: dashboards-provisioning
         configMap:
           name: grafana-dashboards-config
+      - name: host-dashboards
+        hostPath:
+          path: /opt/grafana/dashboards
+          type: DirectoryOrCreate
 
 ---
 apiVersion: v1
