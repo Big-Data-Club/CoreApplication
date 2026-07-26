@@ -41,8 +41,6 @@ jobs:
             context: ai-service
           - image: bdc-personalize
             context: personalize-service
-          - image: bdc-frontend
-            context: frontend
 
     steps:
       - name: Check out CoreApplication
@@ -50,21 +48,6 @@ jobs:
         with:
           submodules: false
           fetch-depth: 1
-
-      - name: Read frontend submodule revision
-        if: matrix.context == 'frontend'
-        id: frontend-ref
-        shell: bash
-        run: echo "sha=$(git ls-tree HEAD frontend | awk '{print $3}')" >> "$GITHUB_OUTPUT"
-
-      - name: Check out frontend submodule
-        if: matrix.context == 'frontend'
-        uses: actions/checkout@v4
-        with:
-          repository: Big-Data-Club/BDCHub---Frontend
-          ref: ${{ steps.frontend-ref.outputs.sha }}
-          token: ${{ secrets.SUBMODULE_TOKEN }}
-          path: frontend
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
