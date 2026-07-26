@@ -34,7 +34,8 @@ public class SecurityConfig {
         "/actuator/**",
         "/api/auth/**",
         "/uploads/profiles/**",
-        "/api/organizations"
+        "/api/organizations",
+        "/api/v1/hub/**"
     };
 
     @Value("${cors.allowed-origins:http://localhost:3000,http://localhost:8080}")
