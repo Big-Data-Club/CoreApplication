@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGISTRY_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
+  REGISTRY_NAMESPACE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   build:
@@ -72,8 +72,8 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD || secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push immutable image
         uses: docker/build-push-action@v6
@@ -114,8 +114,8 @@ jobs:
 
       - name: Log in to Docker Hub for K3s pulls
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKER_PASSWORD || secrets.DOCKERHUB_TOKEN }}
           DEPLOY_NAMESPACE: default
         shell: bash
         run: |
@@ -131,7 +131,7 @@ jobs:
 
       - name: Deploy immutable images and verify rollouts
         env:
-          REGISTRY_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
+          REGISTRY_NAMESPACE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
           IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
           DEPLOY_NAMESPACE: default
           ROLLOUT_TIMEOUT: 12m
