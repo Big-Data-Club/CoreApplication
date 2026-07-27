@@ -1,25 +1,17 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: bdc-ingress
+  name: bdc-ingress-auth
   namespace: default
   annotations:
-    # Traefik (K3s built-in) router middlewares
     traefik.ingress.kubernetes.io/router.middlewares: >-
       default-compress@kubernetescrd,
-      default-strip-apiv1@kubernetescrd,
-      default-rewrite-lms@kubernetescrd,
-      default-rewrite-files@kubernetescrd,
-      default-rewrite-lab@kubernetescrd,
-      default-rewrite-chat@kubernetescrd,
-      default-uploads-cache@kubernetescrd,
-      default-files-cache@kubernetescrd
+      default-strip-apiv1@kubernetescrd
 spec:
   rules:
   - host: bdc.hpcc.vn
     http:
       paths:
-      # ── Auth Backend API (/apiv1 → strips prefix → auth-service:8080) ─────
       - path: /apiv1
         pathType: Prefix
         backend:
@@ -28,7 +20,21 @@ spec:
             port:
               number: 8080
 
-      # ── Auth Uploads (cache headers → auth-service:8080) ──────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-uploads
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd,
+      default-uploads-cache@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
       - path: /uploads
         pathType: Prefix
         backend:
@@ -37,7 +43,21 @@ spec:
             port:
               number: 8080
 
-      # ── LMS API (/lmsapiv1 → rewrites to /api/v1 → lms-service:8081) ─────
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-lms
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd,
+      default-rewrite-lms@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
       - path: /lmsapiv1
         pathType: Prefix
         backend:
@@ -46,7 +66,22 @@ spec:
             port:
               number: 8081
 
-      # ── LMS File Serving (/files → /api/v1/files/serve → lms-service:8081)
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-files
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd,
+      default-rewrite-files@kubernetescrd,
+      default-files-cache@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
       - path: /files
         pathType: Prefix
         backend:
@@ -55,7 +90,21 @@ spec:
             port:
               number: 8081
 
-      # ── Lab API (/labapiv1 → /api/v1 → lab-service:8082) ─────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-lab
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd,
+      default-rewrite-lab@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
       - path: /labapiv1
         pathType: Prefix
         backend:
@@ -64,7 +113,21 @@ spec:
             port:
               number: 8082
 
-      # ── Chat API (/chatapiv1 → /api/v1 → chat-service:8083) ──────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-chat
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd,
+      default-rewrite-chat@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
       - path: /chatapiv1
         pathType: Prefix
         backend:
@@ -73,7 +136,20 @@ spec:
             port:
               number: 8083
 
-      # ── Personalize Service ───────────────────────────────────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-personalize
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
       - path: /personalize
         pathType: Prefix
         backend:
@@ -81,7 +157,6 @@ spec:
             name: personalize-service
             port:
               number: 8082
-
       - path: /personalize-dashboard
         pathType: Prefix
         backend:
@@ -90,16 +165,20 @@ spec:
             port:
               number: 8082
 
-      # ── Grafana Monitoring UI (/monitor → grafana-service:3000) ───────────
-      - path: /monitor
-        pathType: Prefix
-        backend:
-          service:
-            name: grafana-service
-            port:
-              number: 3000
-
-      # ── Next.js Frontend (catch-all root route) ───────────────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-frontend
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
       - path: /
         pathType: Prefix
         backend:
