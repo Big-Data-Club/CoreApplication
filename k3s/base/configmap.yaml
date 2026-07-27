@@ -23,21 +23,20 @@ data:
   REDIS_HOST: "redis-service"
   REDIS_PORT: "6379"
 
-  # Default DB / Vector / Graph / Storage Host Configurations (Points to Local DBs)
-  POSTGRES_HOST: "postgres-auth"
-  LMS_POSTGRES_HOST: "postgres-lms"
-  LAB_POSTGRES_HOST: "postgres-lab"
-  CHAT_POSTGRES_HOST: "postgres-auth"
-  AI_POSTGRES_HOST: "postgres-ai"
+  POSTGRES_HOST: "ep-morning-hill-aoxy9qhp-pooler.c-2.ap-southeast-1.aws.neon.tech"
+  LMS_POSTGRES_HOST: "ep-morning-hill-aoxy9qhp-pooler.c-2.ap-southeast-1.aws.neon.tech"
+  LAB_POSTGRES_HOST: "ep-morning-hill-aoxy9qhp-pooler.c-2.ap-southeast-1.aws.neon.tech"
+  CHAT_POSTGRES_HOST: "ep-morning-hill-aoxy9qhp-pooler.c-2.ap-southeast-1.aws.neon.tech"
+  AI_POSTGRES_HOST: "ep-morning-hill-aoxy9qhp-pooler.c-2.ap-southeast-1.aws.neon.tech"
   QDRANT_URL: "http://qdrant-service:6333"
   NEO4J_URI: "bolt://neo4j-service:7687"
   NEO4J_USERNAME: "neo4j"
   R2_ENDPOINT: "http://minio-service:9000"
   LAB_R2_ENDPOINT: "http://minio-service:9000"
 
-  # Default DB SSL Configurations (Disabled for Local DB)
-  AI_DB_SSL: "disable"
-  CHAT_DB_SSL_MODE: "disable"
+  # Default DB SSL Configurations (Enabled for Neon Cloud DB)
+  AI_DB_SSL: "require"
+  CHAT_DB_SSL_MODE: "require"
   MINIO_USE_SSL: "false"
   LAB_MINIO_USE_SSL: "false"
 
