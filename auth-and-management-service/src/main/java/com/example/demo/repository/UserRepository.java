@@ -3,6 +3,11 @@ package com.example.demo.repository;
 import com.example.demo.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 import java.util.Collection;
 import java.util.List;
@@ -11,6 +16,14 @@ import java.util.Set;
 
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
+    /**
+     * Serializes lazy user-profile creation for a user.  The profile config
+     * screen loads and saves concurrently on first use, so an unlocked lookup
+     * can otherwise try to insert the same one-to-one profile twice.
+    */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.email = :email")
+    Optional<User> findByEmailForUpdate(@Param("email") String email);
     Optional<User> findByEmail(String email);
     boolean existsByEmail(String email);
     boolean existsByCode(String code);

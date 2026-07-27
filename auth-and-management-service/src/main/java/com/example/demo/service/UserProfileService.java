@@ -123,7 +123,7 @@ public class UserProfileService {
 
     @Transactional
     public PublicUserProfileResponse getProfileConfig(String userEmail) {
-        User user = userRepository.findByEmail(userEmail)
+        User user = userRepository.findByEmailForUpdate(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userEmail));
 
         UserProfile profile = userProfileRepository.findById(user.getId())
@@ -149,7 +149,7 @@ public class UserProfileService {
 
     @Transactional
     public PublicUserProfileResponse updateProfileConfig(String userEmail, UserProfileConfigRequest request) {
-        User user = userRepository.findByEmail(userEmail)
+        User user = userRepository.findByEmailForUpdate(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userEmail));
 
         UserProfile profile = userProfileRepository.findById(user.getId())
