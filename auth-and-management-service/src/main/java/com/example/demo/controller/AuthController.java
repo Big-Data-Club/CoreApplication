@@ -169,6 +169,7 @@ public class AuthController {
                     "email",     user.getEmail(),
                     "role",      user.getRole(),
                     "token",     at,
+                    "refreshToken", rt,
                     "expiresIn", expirationMs
                 ));
     }
