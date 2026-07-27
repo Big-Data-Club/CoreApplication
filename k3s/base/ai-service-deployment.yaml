@@ -17,7 +17,7 @@ spec:
       containers:
       - name: ai-service
         image: bdc-ai:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         envFrom:
@@ -173,7 +173,7 @@ spec:
       containers:
       - name: ai-worker
         image: bdc-ai:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         command: ["python", "-m", "app.worker.kafka_worker"]
         envFrom:
         - configMapRef:

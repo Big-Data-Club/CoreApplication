@@ -17,7 +17,7 @@ spec:
       containers:
       - name: chat-service
         image: bdc-chat:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         ports:
         - containerPort: 8083
         envFrom:

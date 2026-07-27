@@ -17,7 +17,7 @@ spec:
       containers:
       - name: auth-service
         image: bdc-backend:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:

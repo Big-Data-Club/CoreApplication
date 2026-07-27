@@ -17,7 +17,7 @@ spec:
       containers:
       - name: lab-service
         image: bdc-lab:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         ports:
         - containerPort: 8082
         envFrom:
