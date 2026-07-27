@@ -28,17 +28,17 @@ data:
   LAB_POSTGRES_HOST: "ep-morning-hill-aoxy9qhp-pooler.c-2.ap-southeast-1.aws.neon.tech"
   CHAT_POSTGRES_HOST: "ep-morning-hill-aoxy9qhp-pooler.c-2.ap-southeast-1.aws.neon.tech"
   AI_POSTGRES_HOST: "ep-morning-hill-aoxy9qhp-pooler.c-2.ap-southeast-1.aws.neon.tech"
-  QDRANT_URL: "http://qdrant-service:6333"
-  NEO4J_URI: "bolt://neo4j-service:7687"
-  NEO4J_USERNAME: "neo4j"
-  R2_ENDPOINT: "http://minio-service:9000"
-  LAB_R2_ENDPOINT: "http://minio-service:9000"
+  QDRANT_URL: "https://9676b48e-2801-42d5-9005-cc7dd0a2c775.eu-central-1-0.aws.cloud.qdrant.io:6333"
+  NEO4J_URI: "neo4j+s://ac1a6436.databases.neo4j.io"
+  NEO4J_USERNAME: "ac1a6436"
+  R2_ENDPOINT: "https://de042190b722983f81c12477f844e9a0.r2.cloudflarestorage.com"
+  LAB_R2_ENDPOINT: "https://de042190b722983f81c12477f844e9a0.r2.cloudflarestorage.com"
 
-  # Default DB SSL Configurations (Enabled for Neon Cloud DB)
+  # DB SSL Configurations
   AI_DB_SSL: "require"
   CHAT_DB_SSL_MODE: "require"
-  MINIO_USE_SSL: "false"
-  LAB_MINIO_USE_SSL: "false"
+  MINIO_USE_SSL: "true"
+  LAB_MINIO_USE_SSL: "true"
 
   # Ports
   BACKEND_PORT: "8080"
@@ -85,6 +85,9 @@ data:
   USE_RERANKER: "true"
   NEO4J_ENABLED: "true"
   YOUTUBE_WHISPER_FALLBACK: "true"
+  LLM_PROVIDER: "groq"
+  APP_PUBLIC_URL: "https://bdc.hpcc.vn"
+  CORS_ALLOWED_ORIGINS: "https://bdc.hpcc.vn,http://localhost:3000"
 
   # NextJS Options
   NEXT_TELEMETRY_DISABLED: "1"
