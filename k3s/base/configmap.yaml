@@ -31,8 +31,8 @@ data:
   QDRANT_URL: "https://9676b48e-2801-42d5-9005-cc7dd0a2c775.eu-central-1-0.aws.cloud.qdrant.io:6333"
   NEO4J_URI: "neo4j+s://ac1a6436.databases.neo4j.io"
   NEO4J_USERNAME: "ac1a6436"
-  R2_ENDPOINT: "https://de042190b722983f81c12477f844e9a0.r2.cloudflarestorage.com"
-  LAB_R2_ENDPOINT: "https://de042190b722983f81c12477f844e9a0.r2.cloudflarestorage.com"
+  R2_ENDPOINT: "de042190b722983f81c12477f844e9a0.r2.cloudflarestorage.com"
+  LAB_R2_ENDPOINT: "de042190b722983f81c12477f844e9a0.r2.cloudflarestorage.com"
 
   # DB SSL Configurations
   AI_DB_SSL: "require"
