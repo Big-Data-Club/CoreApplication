@@ -45,12 +45,13 @@ public class AuthController {
                 .header(HttpHeaders.SET_COOKIE, cookieOf("authToken",    at, expirationMs / 1000))
                 .header(HttpHeaders.SET_COOKIE, cookieOf("refreshToken", rt, refreshExpirationMs / 1000))
                 .body(Map.of(
-                    "userId",    user.getId(),
-                    "name",      user.getName(),
-                    "email",     user.getEmail(),
-                    "role",      user.getRole(),
-                    "token",     at,
-                    "expiresIn", expirationMs
+                    "userId",       user.getId(),
+                    "name",         user.getName(),
+                    "email",        user.getEmail(),
+                    "role",         user.getRole(),
+                    "token",        at,
+                    "refreshToken", rt,
+                    "expiresIn",    expirationMs
                 ));
     }
 
@@ -73,7 +74,11 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookieOf("authToken",    newAt, expirationMs / 1000))
                 .header(HttpHeaders.SET_COOKIE, cookieOf("refreshToken", newRt, refreshExpirationMs / 1000))
-                .body(Map.of("expiresIn", expirationMs));
+                .body(Map.of(
+                    "token",        newAt,
+                    "refreshToken", newRt,
+                    "expiresIn",    expirationMs
+                ));
     }
 
     @PostMapping("/logout")
