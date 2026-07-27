@@ -9,7 +9,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-deploy
+  # Share the same lock as the core production workflow: both modify K3s.
+  group: production
   cancel-in-progress: false
 
 jobs:
