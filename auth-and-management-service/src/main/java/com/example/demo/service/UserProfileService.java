@@ -298,7 +298,9 @@ public class UserProfileService {
 
         UserProfile newProfile = UserProfile.builder()
                 .user(user)
-                .userId(user.getId())
+                // @MapsId derives user_id from the managed User.  Setting it
+                // explicitly makes JpaRepository choose merge() for a new
+                // profile and Hibernate then fails with a null identifier.
                 .alias(defaultAlias)
                 .published(false)
                 .title("Thành viên BDC Core")
