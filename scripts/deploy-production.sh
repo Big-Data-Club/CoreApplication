@@ -101,12 +101,4 @@ trap - ERR
 
 kubectl get pods --namespace "$DEPLOY_NAMESPACE" -o wide
 
-# K3s uses containerd, not Docker. Remove only images that are no longer used
-# by any container; active images and persistent volumes are preserved.
-if sudo -n /usr/local/bin/k3s crictl rmi --prune; then
-  echo "Pruned unused K3s/containerd images."
-else
-  echo "K3s image pruning was skipped (passwordless sudo rule not installed)." >&2
-fi
-
 echo "Production rollout completed for tag ${IMAGE_TAG}."
