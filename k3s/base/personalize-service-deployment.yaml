@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: personalize-service
-        image: bdc-personalize:latest
+        image: phucnhan2809/bdc-personalize:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8082

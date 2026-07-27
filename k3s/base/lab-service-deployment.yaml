@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: lab-service
-        image: bdc-lab:latest
+        image: phucnhan2809/bdc-lab:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8082

@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: lms-service
-        image: bdc-lms:latest
+        image: phucnhan2809/bdc-lms:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8081
