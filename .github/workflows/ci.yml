@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, dev, release/*]
   push:
-    branches: [main, dev, release/*]
+    branches: [dev, release/*]
   workflow_dispatch:
     inputs:
       force_build_all:
@@ -142,8 +142,9 @@ jobs:
             image: bdc-backend
             should_build: ${{ needs.detect-changes.outputs.backend == 'true' || github.event.inputs.force_build_all == 'true' }}
             setup: 'java'
-            test_cmd: './mvnw test'
-            build_cmd: './mvnw clean package -DskipTests -B'
+            # This service intentionally does not commit a Maven wrapper.
+            test_cmd: 'mvn -B test'
+            build_cmd: 'mvn -B clean package -DskipTests'
             
           - service: frontend
             context: ./frontend

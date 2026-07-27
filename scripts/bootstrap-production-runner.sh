@@ -30,6 +30,12 @@ for command in curl tar python3 kubectl sudo; do
   command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done
 
+# K3s creates its kubeconfig as root-only by default.  The runner needs
+# read-only access to authenticate with kubectl; its authorization remains
+# governed by Kubernetes RBAC.  Do this before the preflight checks below.
+sudo chgrp "$RUNNER_USER" /etc/rancher/k3s/k3s.yaml
+sudo chmod 0640 /etc/rancher/k3s/k3s.yaml
+
 kubectl get node >/dev/null
 for deployment in auth-service lms-service lab-service chat-service ai-service ai-worker personalize-service frontend; do
   kubectl get "deployment/${deployment}" >/dev/null
@@ -73,25 +79,7 @@ echo "${RUNNER_USER} ALL=(root) NOPASSWD: /usr/local/bin/k3s crictl rmi --prune"
 sudo chmod 0440 /etc/sudoers.d/bdc-actions-runner-k3s-cleanup
 sudo visudo -cf /etc/sudoers.d/bdc-actions-runner-k3s-cleanup
 
-# Docker is not used by K3s. Clean legacy objects only after confirming the
-# Kubernetes production deployments above are present.
-if command -v docker >/dev/null 2>&1; then
-  if docker info >/dev/null 2>&1; then
-    docker_command=(docker)
-  else
-    docker_command=(sudo docker)
-  fi
-  "${docker_command[@]}" ps -q | xargs --no-run-if-empty "${docker_command[@]}" stop
-  "${docker_command[@]}" ps -aq | xargs --no-run-if-empty "${docker_command[@]}" rm
-  "${docker_command[@]}" image prune --all --force
-  "${docker_command[@]}" builder prune --all --force || true
-  "${docker_command[@]}" network prune --force
-
-  if [[ "$PURGE_DOCKER_ENGINE" == true ]]; then
-    sudo systemctl disable --now docker.service docker.socket containerd.service 2>/dev/null || true
-    sudo apt-get purge -y docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin docker.io 2>/dev/null || true
-    sudo apt-get autoremove -y
-  fi
-fi
+# K3s owns containerd.  Do not stop, remove, or prune a legacy Docker daemon:
+# it may host unrelated workloads on the production VM.
 
 echo "Production runner installed with labels: self-hosted, Linux, ${runner_arch}, ${RUNNER_LABELS}"

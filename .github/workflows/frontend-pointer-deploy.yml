@@ -1,0 +1,36 @@
+name: Deploy frontend submodule pointer
+
+on:
+  push:
+    branches: [main]
+    paths: [frontend]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, x64, production]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+      - name: Roll out the image built by the frontend repository
+        env:
+          REGISTRY_NAMESPACE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG: ${{ github.sha }}
+          FRONTEND_IMAGE_TAG: ${{ github.event.after }}
+          SERVICES: frontend
+          DEPLOY_NAMESPACE: default
+          ROLLOUT_TIMEOUT: 12m
+        run: |
+          set -euo pipefail
+          FRONTEND_IMAGE_TAG="$(git rev-parse HEAD:frontend)"
+          export FRONTEND_IMAGE_TAG
+          ./scripts/deploy-production.sh

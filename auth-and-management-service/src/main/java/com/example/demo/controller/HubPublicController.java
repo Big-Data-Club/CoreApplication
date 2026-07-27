@@ -10,7 +10,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/hub")
+// /apiv1 is removed by Traefik/Next.js before the request reaches this service.
+@RequestMapping({"/hub", "/api/v1/hub"})
 @RequiredArgsConstructor
 public class HubPublicController {
 

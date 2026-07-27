@@ -9,7 +9,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/myaccount/profile-config")
+// Requests to this service pass through the /apiv1 gateway, which strips that
+// prefix before forwarding.  Keep the versioned mapping as a direct-service
+// compatibility alias, but expose the path the gateway actually forwards.
+@RequestMapping({"/myaccount/profile-config", "/api/v1/myaccount/profile-config"})
 @RequiredArgsConstructor
 public class MyAccountProfileController {
 

@@ -15,8 +15,15 @@ deployments=(
   ai-service
   ai-worker
   personalize-service
-  frontend
 )
+
+# A deployment job may roll out only the workloads whose image was published.
+# `SERVICES=auth-service,lms-service` is intentionally explicit; it avoids
+# restarting unrelated services and prevents a stale `latest` tag from being
+# deployed as a side effect of an application change.
+if [[ -n "${SERVICES:-}" ]]; then
+  IFS=',' read -r -a deployments <<< "${SERVICES}"
+fi
 
 declare -A containers=(
   [auth-service]=auth-service
@@ -63,7 +70,12 @@ for deployment in "${deployments[@]}"; do
 done
 
 for deployment in "${deployments[@]}"; do
-  image="${REGISTRY_NAMESPACE}/${images[$deployment]}:${IMAGE_TAG}"
+  [[ -n "${images[$deployment]:-}" ]] || { echo "Unknown deployment: ${deployment}" >&2; exit 2; }
+  tag="$IMAGE_TAG"
+  if [[ "$deployment" == "frontend" && -n "${FRONTEND_IMAGE_TAG:-}" ]]; then
+    tag="$FRONTEND_IMAGE_TAG"
+  fi
+  image="${REGISTRY_NAMESPACE}/${images[$deployment]}:${tag}"
   previous_images[$deployment]="$(
     kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
       -o "jsonpath={.spec.template.spec.containers[?(@.name=='${containers[$deployment]}')].image}"
@@ -95,14 +107,6 @@ if sudo -n /usr/local/bin/k3s crictl rmi --prune; then
   echo "Pruned unused K3s/containerd images."
 else
   echo "K3s image pruning was skipped (passwordless sudo rule not installed)." >&2
-fi
-
-# Clean remnants from a retained legacy Docker installation, if one exists.
-if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  docker container prune --force --filter "until=168h"
-  docker image prune --all --force --filter "until=168h"
-  docker builder prune --all --force --filter "until=168h"
-  docker network prune --force --filter "until=168h"
 fi
 
 echo "Production rollout completed for tag ${IMAGE_TAG}."
