@@ -1,0 +1,69 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bdc-performance-core-smoke
+  namespace: default
+  labels:
+    app: k6
+    testid: perf-20260728-core-smoke-01
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: k6
+        testid: perf-20260728-core-smoke-01
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          args: ["run", "--out", "experimental-prometheus-rw", "/scripts/script.js"]
+          env:
+            - name: K6_PROMETHEUS_RW_SERVER_URL
+              value: http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/write
+            - name: K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM
+              value: "true"
+            - name: BASE_URL
+              value: https://bdc.hpcc.vn
+            - name: COURSE_ID
+              value: "40"
+            - name: TEST_ID
+              value: perf-20260728-core-smoke-01
+            - name: TEST_TYPE
+              value: smoke
+            - name: SMOKE_VUS
+              value: "5"
+            - name: SMOKE_DURATION
+              value: 1m
+            - name: STUDENT_ACCOUNTS
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-performance-k6-accounts
+                  key: student_accounts
+            - name: TEACHER_ACCOUNTS
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-performance-k6-accounts
+                  key: teacher_accounts
+            - name: ADMIN_ACCOUNTS
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-performance-k6-accounts
+                  key: admin_accounts
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: bdc-performance-core-script

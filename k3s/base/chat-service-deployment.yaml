@@ -103,7 +103,8 @@ metadata:
     app: chat-service
 spec:
   ports:
-  - port: 8083
+  - name: http
+    port: 8083
     targetPort: 8083
     protocol: TCP
   selector:

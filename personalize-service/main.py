@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import time
 from fastapi import FastAPI
+from prometheus_client import Counter, Histogram, make_asgi_app
 from app.api.router import router
 from app.core.config import get_settings
 
@@ -14,6 +16,39 @@ app = FastAPI(
     description="Lightweight DuckDB Lakehouse for student interaction personalization",
     version="1.0"
 )
+
+http_requests_total = Counter(
+    "bdc_http_requests_total",
+    "HTTP requests completed by BDC services.",
+    ("service", "method", "route", "status"),
+)
+http_request_duration_seconds = Histogram(
+    "bdc_http_request_duration_seconds",
+    "HTTP request duration in seconds for BDC services.",
+    ("service", "method", "route", "status"),
+)
+
+
+@app.middleware("http")
+async def prometheus_metrics(request, call_next):
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    started = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", "unmatched")
+        labels = ("personalize-service", request.method, route_path, str(status))
+        http_requests_total.labels(*labels).inc()
+        http_request_duration_seconds.labels(*labels).observe(time.perf_counter() - started)
+
+
+app.mount("/metrics", make_asgi_app())
 
 # Include router
 app.include_router(router)
@@ -31,4 +66,3 @@ async def startup_event():
     # Spin off the worker consumer loop as a background task in the same event loop
     asyncio.create_task(run_worker())
     logger.info("BDC Personalize Service started successfully with Kafka background worker")
-

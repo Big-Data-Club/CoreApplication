@@ -1,6 +1,8 @@
 import logging
+import time
 
 from fastapi import FastAPI, Header, HTTPException, status
+from prometheus_client import Counter, Histogram, make_asgi_app
 
 from app.config import get_settings
 from app.schemas import RecommendationInteraction, RecommendationRequest, RecommendationResponse
@@ -10,6 +12,39 @@ settings = get_settings()
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="BDC Recommender Service", version="1.0.0")
+
+http_requests_total = Counter(
+    "bdc_http_requests_total",
+    "HTTP requests completed by BDC services.",
+    ("service", "method", "route", "status"),
+)
+http_request_duration_seconds = Histogram(
+    "bdc_http_request_duration_seconds",
+    "HTTP request duration in seconds for BDC services.",
+    ("service", "method", "route", "status"),
+)
+
+
+@app.middleware("http")
+async def prometheus_metrics(request, call_next):
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    started = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", "unmatched")
+        labels = ("recommender-service", request.method, route_path, str(status_code))
+        http_requests_total.labels(*labels).inc()
+        http_request_duration_seconds.labels(*labels).observe(time.perf_counter() - started)
+
+
+app.mount("/metrics", make_asgi_app())
 
 
 def verify_secret(secret: str | None) -> None:

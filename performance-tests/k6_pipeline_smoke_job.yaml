@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-pipeline-smoke-script
+  namespace: default
+data:
+  script.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+
+    export const options = {
+      vus: 5,
+      duration: '1m',
+      tags: { testid: 'perf-20260728-pipeline-smoke-02', profile: 'smoke' },
+      thresholds: { http_req_failed: ['rate<0.01'], http_req_duration: ['p(95)<800'] },
+    };
+
+    export default function () {
+      const homepage = http.get('https://bdc.hpcc.vn/', { tags: { name: 'GET /' } });
+      check(homepage, { 'homepage is 200': (r) => r.status === 200 });
+      const health = http.get('https://bdc.hpcc.vn/apiv1/actuator/health', { tags: { name: 'GET auth health' } });
+      check(health, { 'auth health is 200': (r) => r.status === 200 });
+      sleep(1);
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-pipeline-smoke-02
+  namespace: default
+  labels:
+    app: k6
+    testid: perf-20260728-pipeline-smoke-02
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: k6
+        testid: perf-20260728-pipeline-smoke-02
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          args: ["run", "--out", "experimental-prometheus-rw", "/scripts/script.js"]
+          env:
+            - name: K6_PROMETHEUS_RW_SERVER_URL
+              value: http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/write
+            - name: K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM
+              value: "true"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: k6-pipeline-smoke-script

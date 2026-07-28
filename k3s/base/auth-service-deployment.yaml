@@ -161,7 +161,8 @@ metadata:
     app: auth-service
 spec:
   ports:
-  - port: 8080
+  - name: http
+    port: 8080
     targetPort: 8080
     protocol: TCP
   selector:

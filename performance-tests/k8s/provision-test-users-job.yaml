@@ -1,0 +1,157 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-performance-provisioner-script
+  namespace: default
+data:
+  provision.py: |
+    import json
+    import os
+    import urllib.request
+
+    import psycopg2
+
+    USERS = []
+    for role, prefix, count in (("STUDENT", "test_student", 85), ("TEACHER", "test_teacher", 12), ("ADMIN", "test_admin", 3)):
+        for number in range(1, count + 1):
+            USERS.append({
+                "name": f"Performance {role.title()} {number:03d}",
+                "email": f"{prefix}_{number:03d}@perf.bdc.invalid",
+                "role": role,
+                "code": f"PERF{role[:3]}{number:03d}",
+            })
+
+    def post(url, payload, secret):
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "X-Sync-Secret": secret},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError(f"{url} returned HTTP {response.status}")
+            return json.loads(response.read().decode() or "{}")
+
+    connection = psycopg2.connect(
+        host=os.environ["AUTH_DB_HOST"],
+        port=5432,
+        user=os.environ["AUTH_DB_USER"],
+        password=os.environ["AUTH_DB_PASSWORD"],
+        dbname=os.environ["AUTH_DB_NAME"],
+        sslmode=os.environ.get("AUTH_DB_SSL", "require"),
+    )
+    synced = []
+    try:
+        with connection, connection.cursor() as cursor:
+            for user in USERS:
+                cursor.execute(
+                    """
+                    INSERT INTO users
+                      (name, email, password, role, team, code, type, organization,
+                       active, total_score, auth_provider, pending_approval)
+                    VALUES (%s, %s, %s, %s, 'PERFORMANCE', %s, 'PERFORMANCE',
+                            'Performance Testing', true, 0, 'LOCAL', false)
+                    ON CONFLICT (email) DO UPDATE SET
+                      name = EXCLUDED.name,
+                      password = EXCLUDED.password,
+                      role = EXCLUDED.role,
+                      active = true,
+                      pending_approval = false
+                    RETURNING id, email, name, role
+                    """,
+                    (user["name"], user["email"], os.environ["TEST_PASSWORD_HASH"],
+                     f"ROLE_{user['role']}", user["code"]),
+                )
+                user_id, email, name, role = cursor.fetchone()
+                synced.append({
+                    "user_id": user_id,
+                    "email": email,
+                    "full_name": name,
+                    "roles": [role.removeprefix("ROLE_")],
+                    "org": "Performance Testing",
+                })
+    finally:
+        connection.close()
+
+    post("http://lms-service:8081/api/v1/sync/users/bulk", {"users": synced}, os.environ["LMS_SYNC_SECRET"])
+    post(
+        "http://chat-service:8083/api/v1/sync/users/bulk",
+        {"users": [{"id": user["user_id"], "email": user["email"], "full_name": user["full_name"]} for user in synced]},
+        os.environ["CHAT_SYNC_SECRET"],
+    )
+    print(json.dumps({"provisioned": len(synced), "students": 85, "teachers": 12, "admins": 3}))
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bdc-performance-provision-users
+  namespace: default
+  labels:
+    app: bdc-performance-provisioner
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: provisioner
+          image: phucnhan2809/bdc-ai:fix-index-vlmguard-20260728
+          command: ["python", "/scripts/provision.py"]
+          env:
+            - name: AUTH_DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: bdc-config
+                  key: POSTGRES_HOST
+            - name: AUTH_DB_SSL
+              valueFrom:
+                configMapKeyRef:
+                  name: bdc-config
+                  key: AI_DB_SSL
+            - name: AUTH_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-secrets
+                  key: POSTGRES_USER
+            - name: AUTH_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-secrets
+                  key: POSTGRES_PASSWORD
+            - name: AUTH_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-secrets
+                  key: POSTGRES_DB
+            - name: TEST_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-performance-test-credentials
+                  key: password_hash
+            - name: LMS_SYNC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-secrets
+                  key: LMS_SYNC_SECRET
+            - name: CHAT_SYNC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-secrets
+                  key: CHAT_SYNC_SECRET
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: bdc-performance-provisioner-script

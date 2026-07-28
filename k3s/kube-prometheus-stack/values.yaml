@@ -26,6 +26,9 @@ grafana:
 
 prometheus:
   prometheusSpec:
+    # Required for k6's experimental-prometheus-rw output. Keep the service
+    # cluster-internal; do not publish this receiver through an Ingress.
+    enableRemoteWriteReceiver: true
     retention: 15d
 
     storageSpec:

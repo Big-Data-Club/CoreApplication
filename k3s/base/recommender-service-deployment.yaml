@@ -64,7 +64,8 @@ metadata:
     app: recommender-service
 spec:
   ports:
-  - port: 8086
+  - name: http
+    port: 8086
     targetPort: 8086
     protocol: TCP
   selector:

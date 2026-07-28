@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-performance-course-script
+  namespace: default
+data:
+  create_course.py: |
+    import json
+    import os
+    import urllib.request
+
+    BASE = "http://lms-service:8081/api/v1"
+    TITLE = "BDC Performance Test Course"
+
+    def request(method, url, payload=None, headers=None):
+        headers = headers or {}
+        data = None if payload is None else json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return response.status, json.loads(response.read().decode() or "{}")
+
+    _, login = request(
+        "POST",
+        "http://auth-service:8080/api/auth/login",
+        {"email": "test_admin_001@perf.bdc.invalid", "password": os.environ["TEST_PASSWORD"]},
+        {"Content-Type": "application/json"},
+    )
+    token = login["token"]
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    _, mine = request("GET", f"{BASE}/courses/my", headers=headers)
+    courses = mine.get("data", mine)
+    course = next((item for item in courses if item.get("title") == TITLE), None)
+    if course is None:
+        _, created = request(
+            "POST",
+            f"{BASE}/courses",
+            {
+                "title": TITLE,
+                "description": "Isolated course for performance testing only. Do not use for learning data.",
+                "category": "PERFORMANCE_TESTING",
+                "level": "ALL_LEVELS",
+                "visibility": "PUBLIC",
+            },
+            headers,
+        )
+        course = created.get("data", created)
+
+    course_id = course["id"]
+    request("POST", f"{BASE}/courses/{course_id}/publish", {}, headers)
+    print(json.dumps({"course_id": course_id, "title": TITLE}))
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bdc-performance-create-course
+  namespace: default
+  labels:
+    app: bdc-performance-provisioner
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: create-course
+          image: phucnhan2809/bdc-ai:fix-index-vlmguard-20260728
+          command: ["python", "/scripts/create_course.py"]
+          env:
+            - name: TEST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bdc-performance-test-credentials
+                  key: password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: bdc-performance-course-script
