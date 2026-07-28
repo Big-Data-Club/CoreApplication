@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       target_service:
-        description: 'Target service deployment to restart (e.g. auth-service, lms-service, frontend, ai-service, chat-service, lab-service, personalize-service, or "all")'
+        description: 'Target service deployment to restart (e.g. auth-service, lms-service, frontend, ai-service, recommender-service, chat-service, lab-service, personalize-service, or "all")'
         required: false
         default: 'all'
 
@@ -51,7 +51,7 @@ jobs:
             restart_deployment "${TARGET}"
           else
             echo "🔄 Rolling out all active Kubernetes deployments..."
-            for dep in auth-service frontend lms-service ai-service ai-worker chat-service lab-service personalize-service; do
+            for dep in auth-service frontend lms-service ai-service ai-worker recommender-service chat-service lab-service personalize-service; do
               if ${KUBECTL} get deployment ${dep} &> /dev/null; then
                 restart_deployment "${dep}"
               fi

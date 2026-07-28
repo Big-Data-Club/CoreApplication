@@ -188,7 +188,8 @@ Available Tools:
 - prepare_course_materials: Open an editable inbox to upload, classify, review and selectively index several files
 - search_course_materials: Search course materials using semantic RAG
 - explain_concept: Pedagogy-aware conceptual explanation with prereq awareness
-- get_study_plan: Generate personalized next steps / roadmap based on Lakehouse metrics
+- get_recommendations: Retrieve safe, personalized next actions / roadmap candidates with human confirmation
+- get_study_plan: Generate a detailed legacy study plan based on Lakehouse metrics
 - diagnose_knowledge_gap: Check student weaknesses / wrong answers
 - create_mini_challenge: Quick check concept exercises
 - generate_flashcard: Flashcard creation
@@ -205,9 +206,9 @@ Planning Rules:
    - Lesson view (pageType=lesson) + "explain this" -> stay_in_context, content_qa, scope='content', graph_expansion_needed=true.
    - Asking about topic not in current lesson -> pivot_new_topic, scope='course' or 'global', graph_expansion_needed=true.
    - Greetings/chitchat -> general_chat, scope='none', graph_expansion_needed=false.
-   - Request recommendation/next steps ("nên học gì tiếp theo?", "gợi ý bài tiếp theo") -> recommendation_engine, user_intent='recommendation', personalization+lakehouse required, scope='none', selected_tools=['get_study_plan'].
+   - Request recommendation/next steps ("nên học gì tiếp theo?", "gợi ý bài tiếp theo") -> recommendation_engine, user_intent='recommendation', personalization+lakehouse required, scope='none', selected_tools=['get_recommendations'].
    - Share study preferences ("tôi thích thực hành", "tôi muốn học nâng cao") -> recommendation_engine, user_intent='elicitation', personalization+lakehouse required, scope='none'.
-   - Reject/critique suggestions ("bài này khó quá", "tôi không muốn học SQL") -> recommendation_engine, user_intent='feedback', personalization+lakehouse required, scope='none', selected_tools=['get_study_plan'].
+   - Reject/critique suggestions ("bài này khó quá", "tôi không muốn học SQL") -> recommendation_engine, user_intent='feedback', personalization+lakehouse required, scope='none', selected_tools=['get_recommendations'].
    - Ask why something was recommended ("sao tôi phải học bài này?", "tại sao gợi ý bài này?") -> recommendation_engine, user_intent='explanation_request', personalization+lakehouse required.
 
 2. **GraphRAG Signals**:

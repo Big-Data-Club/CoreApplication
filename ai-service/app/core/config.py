@@ -119,6 +119,7 @@ class Settings(BaseSettings):
     # Internal
     lms_service_url: str = "http://lms-service:8081"
     personalize_service_url: str = "http://personalize-service:8082"
+    recommender_service_url: str = "http://recommender-service:8086"
     ai_service_secret: str = "ai-service-secret-change-me"
 
     def __init__(self, **values):

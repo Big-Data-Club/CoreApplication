@@ -41,6 +41,7 @@ jobs:
       chat: ${{ steps.filter.outputs.chat }}
       lab: ${{ steps.filter.outputs.lab }}
       personalize: ${{ steps.filter.outputs.personalize }}
+      recommender: ${{ steps.filter.outputs.recommender }}
       docker: ${{ steps.filter.outputs.docker }}
       any_change: ${{ steps.check.outputs.any_change }}
       version: ${{ steps.version.outputs.version }}
@@ -80,6 +81,9 @@ jobs:
             personalize:
               - 'personalize-service'
               - 'personalize-service/**'
+            recommender:
+              - 'recommender-service'
+              - 'recommender-service/**'
             docker:
               - 'docker-compose*.yml'
               - 'k3s/**'
@@ -95,6 +99,7 @@ jobs:
              [ "${{ steps.filter.outputs.chat }}" == "true" ] || \
              [ "${{ steps.filter.outputs.lab }}" == "true" ] || \
              [ "${{ steps.filter.outputs.personalize }}" == "true" ] || \
+             [ "${{ steps.filter.outputs.recommender }}" == "true" ] || \
              [ "${{ github.event.inputs.force_build_all }}" == "true" ]; then
             echo "any_change=true" >> $GITHUB_OUTPUT
           else
@@ -199,6 +204,15 @@ jobs:
             setup: 'python'
             test_cmd: 'pytest || echo "No tests configured"'
             build_cmd: 'pip install -r requirements.txt || echo "Deps installed"'
+
+          - service: recommender
+            context: ./recommender-service
+            dockerfile: ./recommender-service/Dockerfile
+            image: bdc-recommender
+            should_build: ${{ needs.detect-changes.outputs.recommender == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'python'
+            test_cmd: 'python -m unittest discover -s tests -v'
+            build_cmd: 'pip install -r requirements.txt'
 
     steps:
       - name: Skip if no changes
@@ -410,6 +424,7 @@ jobs:
           echo "| chat-service | ${{ needs.detect-changes.outputs.chat }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| lab-service | ${{ needs.detect-changes.outputs.lab }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| personalize-service | ${{ needs.detect-changes.outputs.personalize }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| recommender-service | ${{ needs.detect-changes.outputs.recommender }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ "${{ needs.build-and-test.result }}" == "failure" ]; then
@@ -442,6 +457,7 @@ jobs:
             - chat-service: ${{ needs.detect-changes.outputs.chat }}
             - lab-service: ${{ needs.detect-changes.outputs.lab }}
             - personalize-service: ${{ needs.detect-changes.outputs.personalize }}
+            - recommender-service: ${{ needs.detect-changes.outputs.recommender }}
             
             All checks passed. Ready to merge! 🚀`;
             

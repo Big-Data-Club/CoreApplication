@@ -168,6 +168,7 @@ async def main():
         "user.login.events",
         "lms.analytics.telemetry",
         "lms.course.interactions",
+        "recommender.interactions.v1",
         bootstrap_servers=settings.kafka_brokers,
         group_id="personalize-worker-group",
         value_deserializer=lambda x: json.loads(x.decode("utf-8")),
@@ -190,6 +191,8 @@ async def main():
                 lakehouse_service.ingest_clickstream_event(msg.value)
             elif msg.topic == "lms.course.interactions":
                 lakehouse_service.ingest_course_interaction(msg.value)
+            elif msg.topic == "recommender.interactions.v1":
+                lakehouse_service.ingest_recommendation_event(msg.value)
     except asyncio.CancelledError:
         logger.info("Personalize Kafka Worker cancelled")
     finally:
@@ -200,4 +203,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

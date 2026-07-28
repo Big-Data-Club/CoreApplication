@@ -37,7 +37,7 @@ sudo chgrp "$RUNNER_USER" /etc/rancher/k3s/k3s.yaml
 sudo chmod 0640 /etc/rancher/k3s/k3s.yaml
 
 kubectl get node >/dev/null
-for deployment in auth-service lms-service lab-service chat-service ai-service ai-worker personalize-service frontend; do
+for deployment in auth-service lms-service lab-service chat-service ai-service ai-worker personalize-service recommender-service frontend; do
   kubectl get "deployment/${deployment}" >/dev/null
   kubectl rollout status "deployment/${deployment}" --timeout=2m >/dev/null
 done

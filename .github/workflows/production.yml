@@ -46,6 +46,16 @@ jobs:
               - 'k3s/base/ai-service-deployment.yaml'
               - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
+            recommender:
+              - 'recommender-service/**'
+              - 'k3s/base/recommender-service-deployment.yaml'
+              - 'k3s/base/configmap.yaml'
+              - 'scripts/deploy-production.sh'
+            personalize:
+              - 'personalize-service/**'
+              - 'k3s/base/personalize-service-deployment.yaml'
+              - 'k3s/base/configmap.yaml'
+              - 'scripts/deploy-production.sh'
             lms:
               - 'lms-service/**'
               - 'k3s/base/lms-service-deployment.yaml'
@@ -54,6 +64,8 @@ jobs:
       - id: select
         env:
           AI_CHANGED: ${{ steps.changes.outputs.ai }}
+          RECOMMENDER_CHANGED: ${{ steps.changes.outputs.recommender }}
+          PERSONALIZE_CHANGED: ${{ steps.changes.outputs.personalize }}
           LMS_CHANGED: ${{ steps.changes.outputs.lms }}
           MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
           MANUAL_SERVICES: ${{ inputs.services }}
@@ -77,6 +89,14 @@ jobs:
           if [[ "${AI_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-ai","context":"ai-service"}')
             services+=(ai-service ai-worker)
+          fi
+          if [[ "${RECOMMENDER_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-recommender","context":"recommender-service"}')
+            services+=(recommender-service)
+          fi
+          if [[ "${PERSONALIZE_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-personalize","context":"personalize-service"}')
+            services+=(personalize-service)
           fi
           if [[ "${LMS_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-lms","context":"lms-service"}')

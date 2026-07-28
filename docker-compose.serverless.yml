@@ -69,6 +69,7 @@ x-ai-env: &ai-env
   AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-ai-service-secret-change-me}
   LMS_SERVICE_URL: http://lms-service:8081
   PERSONALIZE_SERVICE_URL: ${PERSONALIZE_SERVICE_URL:-http://personalize-service:8082}
+  RECOMMENDER_SERVICE_URL: ${RECOMMENDER_SERVICE_URL:-http://recommender-service:8086}
 
   # Neo4j Knowledge Graph
   NEO4J_URI: ${NEO4J_URI}
@@ -140,6 +141,7 @@ services:
       BACKEND_URL: http://backend:8080
       LMS_API_URL: http://lms-backend:8081
       AI_SERVICE_URL: http://ai-service:8000
+      RECOMMENDER_SERVICE_URL: http://recommender-service:8086
       GOOGLE_SCRIPT_URL: ${GOOGLE_SCRIPT_URL}
       YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID}
       YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET}
@@ -734,6 +736,44 @@ services:
       - "traefik.http.routers.personalize.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && (PathPrefix(`/personalize-dashboard`) || PathPrefix(`/personalize`))"
       - "traefik.http.routers.personalize.priority=10"
       - "traefik.http.services.personalize.loadbalancer.server.port=8082"
+
+  recommender-service:
+    build:
+      context: ./recommender-service
+      dockerfile: Dockerfile
+    image: ${DOCKER_USERNAME}/bdc-recommender:${IMAGE_TAG:-latest}
+    container_name: recommender-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-ai-service-secret-change-me}
+      PERSONALIZE_SERVICE_URL: http://personalize-service:8082
+    depends_on:
+      kafka:
+        condition: service_healthy
+      personalize-service:
+        condition: service_healthy
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 96M
+    labels:
+      - "service.type=recommender"
+      - "service.name=recommender-service"
 
 
 

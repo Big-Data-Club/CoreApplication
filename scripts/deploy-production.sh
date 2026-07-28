@@ -15,6 +15,7 @@ deployments=(
   ai-service
   ai-worker
   personalize-service
+  recommender-service
 )
 
 # A deployment job may roll out only the workloads whose image was published.
@@ -33,6 +34,7 @@ declare -A containers=(
   [ai-service]=ai-service
   [ai-worker]=ai-worker
   [personalize-service]=personalize-service
+  [recommender-service]=recommender-service
   [frontend]=frontend
 )
 
@@ -44,6 +46,7 @@ declare -A images=(
   [ai-service]=bdc-ai
   [ai-worker]=bdc-ai
   [personalize-service]=bdc-personalize
+  [recommender-service]=bdc-recommender
   [frontend]=bdc-frontend
 )
 
@@ -65,6 +68,17 @@ rollback_on_error() {
 trap rollback_on_error ERR
 
 kubectl cluster-info >/dev/null
+# Config changes are safe to apply in place; only deployments selected below
+# are restarted, so unrelated workloads keep their current pods.
+kubectl apply -f k3s/base/configmap.yaml --namespace "$DEPLOY_NAMESPACE"
+# New services must exist before an immutable image rollout. Apply only the
+# newly introduced manifest; applying the full base could overwrite unrelated
+# deployments with a stale manifest image.
+for deployment in "${deployments[@]}"; do
+  if [[ "$deployment" == "recommender-service" ]]; then
+    kubectl apply -f k3s/base/recommender-service-deployment.yaml --namespace "$DEPLOY_NAMESPACE"
+  fi
+done
 for deployment in "${deployments[@]}"; do
   kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" >/dev/null
 done

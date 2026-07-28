@@ -116,6 +116,27 @@ class LakehouseService:
                 )
             """)
 
+            # 7. Bronze: recommendation exposure and outcome ledger. This table
+            # is intentionally append-only and idempotent by event_id: DA needs
+            # impressions (not just clicks) to evaluate ranking policies.
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS bronze_recommendation_events (
+                    event_id VARCHAR PRIMARY KEY,
+                    event_time TIMESTAMP NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    course_id BIGINT,
+                    surface VARCHAR NOT NULL,
+                    event_type VARCHAR NOT NULL,
+                    recommendation_id VARCHAR NOT NULL,
+                    recommendation_set_id VARCHAR,
+                    entity_type VARCHAR,
+                    entity_id VARCHAR,
+                    rank INTEGER,
+                    metadata_json TEXT,
+                    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # 7. Bronze: User Onboarding Survey (Cold Start)
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS bronze_user_onboarding (
@@ -132,6 +153,7 @@ class LakehouseService:
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_login_logs_user ON bronze_login_logs (user_id)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_clickstream_user ON bronze_clickstream (user_id)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_course_interactions_lookup ON bronze_course_interactions (user_id, course_id)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_recommendation_events_lookup ON bronze_recommendation_events (user_id, recommendation_id)")
 
             logger.info("DuckDB Tables & Performance Indexes initialized successfully")
             
@@ -239,6 +261,35 @@ class LakehouseService:
                 logger.debug(f"Ingested course interaction: user={user_id}, course={course_id}, action={action_type}")
             except Exception as e:
                 logger.error(f"Failed to ingest course interaction to DuckDB: {str(e)}")
+
+    def ingest_recommendation_event(self, event: Dict[str, Any]):
+        """Ingest a deduplicated recommendation impression or outcome event."""
+        with self.lock:
+            try:
+                event_id = str(event["event_id"])
+                event_time_raw = event.get("event_time")
+                event_time = (
+                    datetime.fromisoformat(str(event_time_raw).replace("Z", "+00:00"))
+                    if event_time_raw else datetime.now()
+                )
+                metadata = event.get("metadata") or {}
+                import json
+                self.conn.execute("""
+                    INSERT INTO bronze_recommendation_events
+                    (event_id, event_time, user_id, course_id, surface, event_type,
+                     recommendation_id, recommendation_set_id, entity_type, entity_id,
+                     rank, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (event_id) DO NOTHING
+                """, (
+                    event_id, event_time, event["user_id"], event.get("course_id"),
+                    event.get("surface", "unknown"), event["event_type"],
+                    event["recommendation_id"], event.get("recommendation_set_id"),
+                    event.get("entity_type"), event.get("entity_id"), event.get("rank"),
+                    json.dumps(metadata, ensure_ascii=False),
+                ))
+            except Exception as e:
+                logger.error(f"Failed to ingest recommendation event to DuckDB: {str(e)}")
 
     def ingest_user_onboarding(self, event: Dict[str, Any]):
         """Ingest user onboarding preferences for cold start recommendations."""

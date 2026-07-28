@@ -10,6 +10,7 @@ resources:
 - ai-service-deployment.yaml
 - ai-model-cache-pvc.yaml
 - personalize-service-deployment.yaml
+- recommender-service-deployment.yaml
 - frontend-deployment.yaml
 - kafka-statefulset.yaml
 - redis-deployment.yaml

@@ -34,6 +34,7 @@ from app.agents.tools.mentor.diagnose_knowledge_gap import DiagnoseKnowledgeGapT
 from app.agents.tools.mentor.create_mini_challenge import CreateMiniChallengeTool
 from app.agents.tools.mentor.generate_flashcard import GenerateFlashcardTool
 from app.agents.tools.mentor.get_study_plan import GetStudyPlanTool
+from app.agents.tools.mentor.get_recommendations import GetRecommendationsTool
 from app.agents.tools.mentor.explain_concept import ExplainConceptTool
 from app.agents.tools.mentor.search_web import SearchWebTool
 from app.agents.tools.mentor.save_to_notebook import SaveToNotebookTool
@@ -66,6 +67,7 @@ _MENTOR_ONLY_TOOLS: list[BaseTool] = [
     CreateMiniChallengeTool(),
     GenerateFlashcardTool(),
     GetStudyPlanTool(),
+    GetRecommendationsTool(),
     ExplainConceptTool(),
     SaveToNotebookTool(),
 ]
