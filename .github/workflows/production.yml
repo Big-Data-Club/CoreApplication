@@ -9,6 +9,10 @@ on:
         description: Existing immutable image tag to deploy (defaults to this commit SHA)
         required: false
         type: string
+      services:
+        description: Comma-separated deployments for a manual rollout (required with image_tag)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,26 +25,84 @@ env:
   REGISTRY_NAMESPACE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
 
 jobs:
+  detect-changes:
+    name: Select production workloads
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.select.outputs.should_build }}
+      matrix: ${{ steps.select.outputs.matrix }}
+      services: ${{ steps.select.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            ai:
+              - 'ai-service/**'
+              - 'k3s/base/ai-service-deployment.yaml'
+              - 'k3s/base/configmap.yaml'
+              - 'scripts/deploy-production.sh'
+            lms:
+              - 'lms-service/**'
+              - 'k3s/base/lms-service-deployment.yaml'
+              - 'scripts/deploy-production.sh'
+
+      - id: select
+        env:
+          AI_CHANGED: ${{ steps.changes.outputs.ai }}
+          LMS_CHANGED: ${{ steps.changes.outputs.lms }}
+          MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
+          MANUAL_SERVICES: ${{ inputs.services }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          items=()
+          services=()
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${MANUAL_IMAGE_TAG}" ]]; then
+            if [[ -z "${MANUAL_SERVICES}" ]]; then
+              echo "services is required when deploying an existing image tag" >&2
+              exit 1
+            fi
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            echo "services=${MANUAL_SERVICES}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${AI_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-ai","context":"ai-service"}')
+            services+=(ai-service ai-worker)
+          fi
+          if [[ "${LMS_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-lms","context":"lms-service"}')
+            services+=(lms-service)
+          fi
+
+          if [[ ${#items[@]} -eq 0 ]]; then
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            echo 'services=' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          IFS=,
+          echo "matrix={\"include\":[${items[*]}]}" >> "$GITHUB_OUTPUT"
+          echo "services=${services[*]}" >> "$GITHUB_OUTPUT"
+          echo 'should_build=true' >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.image }}
-    if: github.event_name == 'push' || inputs.image_tag == ''
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - image: bdc-backend
-            context: auth-and-management-service
-          - image: bdc-lms
-            context: lms-service
-          - image: bdc-lab
-            context: lab-service
-          - image: bdc-chat
-            context: chat-service
-          - image: bdc-ai
-            context: ai-service
-          - image: bdc-personalize
-            context: personalize-service
+      matrix: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
 
     steps:
       - name: Check out CoreApplication
@@ -81,8 +143,11 @@ jobs:
 
   deploy:
     name: Roll out production
-    needs: build
-    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    needs: [detect-changes, build]
+    if: >-
+      always() && needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.services != '' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: [self-hosted, linux, x64, production]
     environment: production
     permissions:
@@ -116,7 +181,7 @@ jobs:
         env:
           REGISTRY_NAMESPACE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
           IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+          SERVICES: ${{ needs.detect-changes.outputs.services }}
           DEPLOY_NAMESPACE: default
           ROLLOUT_TIMEOUT: 12m
         run: ./scripts/deploy-production.sh
-

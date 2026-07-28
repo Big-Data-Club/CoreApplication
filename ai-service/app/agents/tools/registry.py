@@ -25,6 +25,7 @@ from app.agents.tools.teacher.generate_quiz_from_source import GenerateQuizFromS
 from app.agents.tools.teacher.list_knowledge_nodes import ListKnowledgeNodesTool
 from app.agents.tools.teacher.create_section import CreateSectionTool
 from app.agents.tools.teacher.parse_quiz_questions import ParseQuizQuestionsTool
+from app.agents.tools.teacher.prepare_course_materials import PrepareCourseMaterialsTool
 
 # ── Mentor Tools ──────────────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     GenerateContentDraftTool(),
     RecommendReviewTool(),
     CreateSectionTool(),
+    PrepareCourseMaterialsTool(),
 ]
 
 _MENTOR_ONLY_TOOLS: list[BaseTool] = [

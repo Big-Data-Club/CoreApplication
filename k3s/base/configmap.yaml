@@ -83,7 +83,13 @@ data:
   STORAGE_TYPE: "minio"
   USE_QDRANT: "true"
   USE_RERANKER: "true"
-  NEO4J_ENABLED: "true"
+  # No vision model is currently available for the configured provider.
+  # Skip image downloads/VLM retries until a valid vision binding is added.
+  VLM_ENABLED: "false"
+  # Neo4j is currently unreachable from the cluster. It is a derived graph,
+  # not the source of truth for document indexing, so keep it disabled until
+  # connectivity is restored.
+  NEO4J_ENABLED: "false"
   YOUTUBE_WHISPER_FALLBACK: "true"
   LLM_PROVIDER: "groq"
   APP_PUBLIC_URL: "https://bdc.hpcc.vn"

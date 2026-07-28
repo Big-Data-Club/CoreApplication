@@ -8,6 +8,7 @@ Each event type maps to a specific frontend rendering behaviour:
 
   text_delta     -> append to streaming text bubble
   thinking       -> show reasoning indicator (collapsible)
+  context        -> show the verified UI/course context for this turn
   scope          -> show resolved course scope (which course is in focus)
   tool_start     -> show tool loading spinner
   tool_result    -> show tool result summary
@@ -28,6 +29,7 @@ from pydantic import BaseModel
 class AgentEventType(str, Enum):
     TEXT_DELTA     = "text_delta"
     THINKING       = "thinking"
+    CONTEXT        = "context"
     SCOPE          = "scope"
     TOOL_START     = "tool_start"
     TOOL_RESULT    = "tool_result"

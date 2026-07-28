@@ -91,16 +91,28 @@ spec:
         volumeMounts:
         - name: kafka-data
           mountPath: /bitnami/kafka
+        # Kafka needs time to replay its KRaft/offset logs after an unclean
+        # shutdown.  A startup probe prevents liveness from killing the broker
+        # while it is still recovering and has not opened the listener yet.
+        startupProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 36
         livenessProbe:
           tcpSocket:
             port: 9092
-          initialDelaySeconds: 30
+          initialDelaySeconds: 10
           periodSeconds: 15
+          timeoutSeconds: 3
         readinessProbe:
           tcpSocket:
             port: 9092
-          initialDelaySeconds: 30
-          periodSeconds: 15
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
   volumeClaimTemplates:
   - metadata:
       name: kafka-data

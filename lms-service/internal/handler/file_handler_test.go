@@ -112,3 +112,18 @@ func TestSanitizeFilePath(t *testing.T) {
 		})
 	}
 }
+
+func TestDocumentContentType(t *testing.T) {
+	tests := map[string]string{
+		"document/slides.pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"document/notes.pdf":   "application/pdf",
+		"document/notes.txt":   "text/plain",
+		"document/archive.zip": "",
+	}
+
+	for path, want := range tests {
+		if got := documentContentType(path); got != want {
+			t.Errorf("documentContentType(%q) = %q; want %q", path, got, want)
+		}
+	}
+}

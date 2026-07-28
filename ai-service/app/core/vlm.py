@@ -21,9 +21,10 @@ _MAX_CACHE = 2000
 VLM_MODEL = settings.vlm_model
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB safety limit
 
-# Global concurrency limiter for VLM calls - prevents rate-limit storms
-# when processing PDFs with many embedded images (95+ images -> 95 parallel
-# VLM requests -> instant 429 from Groq's 30k TPM quota).
+# Global concurrency limiter for the complete image pipeline. It must cover
+# download + base64 encoding as well as the VLM request: a slide deck can have
+# many high-resolution images and starting all downloads at once can OOM the
+# worker before the old request-only limiter is reached.
 _VLM_SEMAPHORE = asyncio.Semaphore(3)
 
 # Rate-limit retry config
@@ -79,6 +80,8 @@ async def describe_image_url(
     Falls back gracefully to alt_text if the image cannot be fetched or VLM fails.
     Results are cached by URL hash.
     """
+    if not settings.vlm_enabled:
+        return alt_text or f"[Hình ảnh: {image_url}]"
     if not settings.groq_api_key:
         logger.warning("GROQ_API_KEY not set; skipping VLM for image description.")
         return alt_text or f"[Hình ảnh: {image_url}]"
@@ -88,15 +91,16 @@ async def describe_image_url(
         return _vlm_cache[cache_key]
 
     try:
-        image_b64, mime_type = await _fetch_image_base64(image_url)
-        if not image_b64:
-            return alt_text or f"[Hình ảnh không thể tải: {image_url}]"
+        async with _VLM_SEMAPHORE:
+            image_b64, mime_type = await _fetch_image_base64(image_url)
+            if not image_b64:
+                return alt_text or f"[Hình ảnh không thể tải: {image_url}]"
 
-        description = await _call_vlm(image_b64, mime_type, language)
-        if description:
-            _store_cache(cache_key, description)
-            logger.debug("VLM described image url=%s...", image_url[:60])
-            return description
+            description = await _call_vlm(image_b64, mime_type, language)
+            if description:
+                _store_cache(cache_key, description)
+                logger.debug("VLM described image url=%s...", image_url[:60])
+                return description
     except Exception as exc:
         logger.warning("VLM failed for url=%s: %s", image_url[:60], exc)
 
@@ -111,6 +115,8 @@ async def describe_image_bytes(
     """
     Describe an image from raw bytes (e.g. IMAGE content type downloaded from MinIO).
     """
+    if not settings.vlm_enabled:
+        return "[Hình ảnh chưa được mô tả]"
     if not settings.groq_api_key:
         return "[Hình ảnh chưa được mô tả (thiếu API key)]"
 
@@ -123,11 +129,12 @@ async def describe_image_bytes(
         return _vlm_cache[cache_key]
 
     try:
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        description = await _call_vlm(image_b64, mime_type, language)
-        if description:
-            _store_cache(cache_key, description)
-            return description
+        async with _VLM_SEMAPHORE:
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            description = await _call_vlm(image_b64, mime_type, language)
+            if description:
+                _store_cache(cache_key, description)
+                return description
     except Exception as exc:
         logger.warning("VLM bytes description failed: %s", exc)
 
@@ -169,54 +176,53 @@ async def _call_vlm(image_b64: str, mime_type: str, language: str = "vi") -> str
     """
     Call LLMGateway for vision API and return the text description.
 
-    Guarded by _VLM_SEMAPHORE to cap concurrency and includes exponential
-    backoff for rate-limit errors from the gateway.
+    Called inside the complete-pipeline concurrency guard and includes
+    exponential backoff for rate-limit errors from the gateway.
     """
     from app.core.llm_gateway.gateway import get_gateway
     from app.core.llm_gateway.types import ChatRequest, TASK_VLM_DESCRIBE
     from app.core.llm_gateway.errors import RateLimitedError, NoKeyAvailableError
 
-    async with _VLM_SEMAPHORE:
-        system = _SYSTEM_VI if language == "vi" else _SYSTEM_EN
-        prompt = _PROMPT_VI if language == "vi" else _PROMPT_EN
+    system = _SYSTEM_VI if language == "vi" else _SYSTEM_EN
+    prompt = _PROMPT_VI if language == "vi" else _PROMPT_EN
 
-        data_url = f"data:{mime_type};base64,{image_b64}"
-        req = ChatRequest(
-            task=TASK_VLM_DESCRIBE,
-            messages=[
-                {"role": "system", "content": system},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": data_url}},
-                        {"type": "text", "text": prompt},
-                    ],
-                },
-            ],
-            temperature=0.1,
-            max_tokens=512,
-        )
+    data_url = f"data:{mime_type};base64,{image_b64}"
+    req = ChatRequest(
+        task=TASK_VLM_DESCRIBE,
+        messages=[
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                    {"type": "text", "text": prompt},
+                ],
+            },
+        ],
+        temperature=0.1,
+        max_tokens=512,
+    )
 
-        last_exc: Exception | None = None
-        for attempt in range(_VLM_MAX_RETRIES + 1):
-            try:
-                resp = await get_gateway().chat(req)
-                return resp.content.strip()
-            except Exception as exc:
-                last_exc = exc
-                # Gateway throws specific errors. If we hit rate limits across all keys,
-                # or if no keys are available because they are all on cooldown, we wait and retry.
-                if isinstance(exc, (RateLimitedError, NoKeyAvailableError)) and attempt < _VLM_MAX_RETRIES:
-                    wait = _VLM_BASE_BACKOFF * (2 ** attempt)
-                    logger.warning(
-                        "VLM gateway rate limited / no keys, retrying in %.1fs (attempt %d/%d)",
-                        wait, attempt + 1, _VLM_MAX_RETRIES,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-                raise
+    last_exc: Exception | None = None
+    for attempt in range(_VLM_MAX_RETRIES + 1):
+        try:
+            resp = await get_gateway().chat(req)
+            return resp.content.strip()
+        except Exception as exc:
+            last_exc = exc
+            # Gateway throws specific errors. If we hit rate limits across all keys,
+            # or if no keys are available because they are all on cooldown, we wait and retry.
+            if isinstance(exc, (RateLimitedError, NoKeyAvailableError)) and attempt < _VLM_MAX_RETRIES:
+                wait = _VLM_BASE_BACKOFF * (2 ** attempt)
+                logger.warning(
+                    "VLM gateway rate limited / no keys, retrying in %.1fs (attempt %d/%d)",
+                    wait, attempt + 1, _VLM_MAX_RETRIES,
+                )
+                await asyncio.sleep(wait)
+                continue
+            raise
 
-        raise last_exc  # type: ignore[misc]
+    raise last_exc  # type: ignore[misc]
 
 
 def _cache_key(prefix: str, value: str) -> str:

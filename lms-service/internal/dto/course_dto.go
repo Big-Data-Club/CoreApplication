@@ -73,10 +73,12 @@ type SectionResponse struct {
 
 // CreateContentRequest represents the request to create section content
 type CreateContentRequest struct {
-	Type        string                 `json:"type" binding:"required,oneof=TEXT VIDEO DOCUMENT IMAGE QUIZ FORUM ANNOUNCEMENT"`
-	Title       string                 `json:"title" binding:"required,min=3,max=255"`
-	Description string                 `json:"description" binding:"max=2000"`
-	OrderIndex  int                    `json:"order_index" binding:"required,min=0"`
+	Type        string `json:"type" binding:"required,oneof=TEXT VIDEO DOCUMENT IMAGE QUIZ FORUM ANNOUNCEMENT"`
+	Title       string `json:"title" binding:"required,min=3,max=255"`
+	Description string `json:"description" binding:"max=2000"`
+	// Zero is a valid first position. `required` rejects Go's zero value, which
+	// made the first item in every bulk upload fail validation.
+	OrderIndex  int                    `json:"order_index" binding:"min=0"`
 	Metadata    map[string]interface{} `json:"metadata"`
 	IsMandatory bool                   `json:"is_mandatory"`
 }
@@ -93,22 +95,22 @@ type UpdateContentRequest struct {
 
 // ContentResponse represents the response for section content
 type ContentResponse struct {
-	ID          int64                  `json:"id"`
-	SectionID   int64                  `json:"section_id"`
-	Type        string                 `json:"type"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description,omitempty"`
-	OrderIndex  int                    `json:"order_index"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	IsPublished bool                   `json:"is_published"`
-	IsMandatory bool                   `json:"is_mandatory"`
-	FilePath    string                 `json:"file_path,omitempty"`
-	FileSize    int64                  `json:"file_size,omitempty"`
-	FileType    string                 `json:"file_type,omitempty"`
-	CreatedBy   int64                  `json:"created_by"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
-	AIIndexStatus string               `json:"ai_index_status,omitempty"`	
+	ID            int64                  `json:"id"`
+	SectionID     int64                  `json:"section_id"`
+	Type          string                 `json:"type"`
+	Title         string                 `json:"title"`
+	Description   string                 `json:"description,omitempty"`
+	OrderIndex    int                    `json:"order_index"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	IsPublished   bool                   `json:"is_published"`
+	IsMandatory   bool                   `json:"is_mandatory"`
+	FilePath      string                 `json:"file_path,omitempty"`
+	FileSize      int64                  `json:"file_size,omitempty"`
+	FileType      string                 `json:"file_type,omitempty"`
+	CreatedBy     int64                  `json:"created_by"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+	AIIndexStatus string                 `json:"ai_index_status,omitempty"`
 }
 
 type AddCoTeacherRequest struct {

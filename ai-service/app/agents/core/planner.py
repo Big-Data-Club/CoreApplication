@@ -185,6 +185,7 @@ Available Tools:
 - parse_quiz_questions: Import already-written pasted questions into an existing quiz via review preview
 - generate_quiz_draft: Generate questions from an indexed course knowledge node
 - generate_content_draft: Create a teacher-reviewable lesson/content draft
+- prepare_course_materials: Open an editable inbox to upload, classify, review and selectively index several files
 - search_course_materials: Search course materials using semantic RAG
 - explain_concept: Pedagogy-aware conceptual explanation with prereq awareness
 - get_study_plan: Generate personalized next steps / roadmap based on Lakehouse metrics
@@ -199,6 +200,7 @@ Planning Rules:
    - Teacher asks to add/import an already-written pasted question -> content_creation, requires_tool=true, selected_tools=['parse_quiz_questions'].
    - Teacher asks for new/additional questions based on supplied lesson text/examples -> content_creation, requires_tool=true, selected_tools=['generate_quiz_from_source'].
    - Teacher asks for quiz questions from indexed course materials -> content_creation, requires_tool=true, selected_tools=['generate_quiz_draft'].
+   - Teacher asks to upload, arrange, classify, prepare, or selectively index several files/materials -> content_creation, requires_tool=true, selected_tools=['prepare_course_materials'].
    - Dashboard (pageType=dashboard or no open lesson) + "what to study next?" -> recommendation_engine, personalization+lakehouse required, scope='none', graph_expansion_needed=false.
    - Lesson view (pageType=lesson) + "explain this" -> stay_in_context, content_qa, scope='content', graph_expansion_needed=true.
    - Asking about topic not in current lesson -> pivot_new_topic, scope='course' or 'global', graph_expansion_needed=true.

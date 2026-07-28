@@ -20,6 +20,7 @@ from app.agents.core.prompts import build_system_prompt
 from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
 )
+from app.agents.core.context_foundation import resolve_turn_context
 from app.agents.core.clarification import (
     build_scope_clarification,
     should_clarify,
@@ -263,6 +264,92 @@ async def run_react_loop(
         agent_type=agent_type,
     )
 
+    # -- Step 1a: Verify the UI context before spending an LLM call ---------
+    # Page context is a browser hint, never authority.  This fast resolver
+    # checks the hinted course against the user's active-course list and stops
+    # course-bound actions when there is no safe target.
+    context_resolution = resolve_turn_context(
+        message=user_message,
+        page_context=page_context,
+        user_context=user_context,
+        active_courses=active_courses,
+        agent_type=agent_type,
+        explicit_course_id=course_id,
+    )
+    yield AgentEvent(
+        type=AgentEventType.CONTEXT,
+        data=context_resolution.as_dict(),
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+
+    if context_resolution.status == "needs_course_navigation":
+        # Navigation changes the user's workspace, so make it an explicit
+        # human-approved action even though it is reversible.
+        yield AgentEvent(
+            type=AgentEventType.HITL_REQUEST,
+            data={
+                "tool": "navigate_to_course_list",
+                "message": context_resolution.clarification_question,
+                "data": {"action": "navigate", **(context_resolution.navigation or {})},
+            },
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        await stm.append(session_id, "user", user_message)
+        await stm.append(session_id, "clarification", context_resolution.clarification_question or "")
+        await message_store.save_message(session_id, "user", user_message)
+        await message_store.save_message(
+            session_id,
+            "assistant",
+            context_resolution.clarification_question or "",
+            {
+                "hitlRequest": {
+                    "tool": "navigate_to_course_list",
+                    "message": context_resolution.clarification_question or "",
+                    "data": {"action": "navigate", **(context_resolution.navigation or {})},
+                },
+                "context": context_resolution.as_dict(),
+            },
+        )
+        yield AgentEvent(
+            type=AgentEventType.DONE,
+            data={"reason": "course_navigation_requested"},
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        return
+
+    if context_resolution.status == "needs_course_choice":
+        question = context_resolution.clarification_question or "Bạn muốn làm việc với khóa học nào?"
+        await stm.append(session_id, "user", user_message)
+        await stm.append(session_id, "clarification", question)
+        await message_store.save_message(session_id, "user", user_message)
+        await message_store.save_message(
+            session_id,
+            "assistant",
+            question,
+            {"context": context_resolution.as_dict()},
+        )
+        yield AgentEvent(
+            type=AgentEventType.CLARIFICATION,
+            data={
+                "kind": "scope",
+                "question": question,
+                "options": context_resolution.clarification_options,
+                "missing": ["course_id"],
+            },
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        yield AgentEvent(
+            type=AgentEventType.DONE,
+            data={"reason": "course_selection_requested"},
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        return
+
     # -- Step 1: Unified Planning Layer ----------------------------------------
     from app.agents.core.planner import generate_plan
     from app.agents.core.scope_resolver import CourseScope, ContextScopeDecision
@@ -279,7 +366,7 @@ async def run_react_loop(
         user_message=user_message,
         active_courses=active_courses,
         agent_type=agent_type,
-        current_course_id=course_id,
+        current_course_id=context_resolution.course_id or course_id,
         page_context=page_context,
         system_context=system_context,
         history=history_turns,
@@ -364,11 +451,23 @@ async def run_react_loop(
         suggested_search_topic=user_message if is_pivot else None,
     )
 
-    focus_course_id = course_id
+    # The deterministic resolution is the trusted default. The planner may
+    # refine it only when it returned an ID from the active course list.
+    focus_course_id = context_resolution.course_id or course_id
+    active_course_ids = {
+        c.get("id") for c in (active_courses.get("courses") or [])
+        if c.get("id") is not None
+    }
+    if not focus_course_id and execution_plan.matched_course_id in active_course_ids:
+        focus_course_id = execution_plan.matched_course_id
     if not focus_course_id and page_context:
-        focus_course_id = page_context.get("courseId") or page_context.get("course_id")
+        page_course_id = page_context.get("courseId") or page_context.get("course_id")
+        if page_course_id in active_course_ids:
+            focus_course_id = page_course_id
     if not focus_course_id and system_context:
-        focus_course_id = system_context.get("course_id") or system_context.get("courseId")
+        system_course_id = system_context.get("course_id") or system_context.get("courseId")
+        if system_course_id in active_course_ids:
+            focus_course_id = system_course_id
 
     mode = "single" if focus_course_id else "global"
     if execution_plan.retrieval_strategy.scope == "global":
@@ -584,6 +683,7 @@ async def run_react_loop(
             metadata = {
                 "thinking": "Multi-agent orchestration executed successfully.",
                 "toolActivities": [],
+                "context": context_resolution.as_dict(),
                 "multiAgentLogs": orchestrator.multi_agent_logs,
                 "critiqueReport": orchestrator.critique_report,
                 "consolidation": orchestrator.consolidation,
@@ -767,7 +867,13 @@ async def run_react_loop(
     assistant_text = ""
     assistant_thinking = ""
     turn_references = []
-    assistant_metadata: dict = {"toolActivities": [], "references": []}
+    assistant_metadata: dict = {
+        "toolActivities": [],
+        "references": [],
+        # Persist the verified decision so reopened conversations explain the
+        # scope they were grounded in, without retaining raw lesson content.
+        "context": context_resolution.as_dict(),
+    }
 
     # Dynamic max_tokens
     has_page_context = ctx_decision.use_page_context or ctx_decision.use_system_context

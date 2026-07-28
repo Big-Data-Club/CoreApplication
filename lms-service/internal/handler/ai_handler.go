@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"example/hello/internal/dto"
@@ -143,7 +145,7 @@ func (h *AIHandler) DiagnoseWrongAnswer(c *gin.Context) {
 	}
 
 	jobID := uuid.New().String()
-	
+
 	payload, _ := json.Marshal(aiReq)
 	event := kafka.AICommandEvent{
 		JobID:       jobID,
@@ -324,7 +326,7 @@ func (h *AIHandler) GenerateQuiz(c *gin.Context) {
 	}
 
 	jobID := uuid.New().String()
-	
+
 	reqPayload := ai.GenerateQuizRequest{
 		NodeID:            body.NodeID,
 		CourseID:          courseID,
@@ -333,9 +335,9 @@ func (h *AIHandler) GenerateQuiz(c *gin.Context) {
 		Language:          body.Language,
 		QuestionsPerLevel: body.QuestionsPerLevel,
 	}
-	
+
 	payloadBytes, _ := json.Marshal(reqPayload)
-	
+
 	event := kafka.AICommandEvent{
 		JobID:       jobID,
 		CommandType: "GENERATE_QUIZ",
@@ -645,7 +647,6 @@ func (h *AIHandler) GetTotalDueReviews(c *gin.Context) {
 	}))
 }
 
-
 func (h *AIHandler) TriggerDocumentProcess(c *gin.Context) {
 	contentID, _ := strconv.ParseInt(c.Param("contentId"), 10, 64)
 
@@ -796,7 +797,7 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 					finalFilePath = vUrl
 					logger.Info(fmt.Sprintf("Auto-index fallback: Using video_url from metadata for content %d: %s", contentID, vUrl))
 				}
-				
+
 				if ftype, ok := meta["file_type"].(string); ok && ftype != "" {
 					finalFileType = ftype
 				} else if vType, ok := meta["video_type"].(string); ok && vType == "youtube" {
@@ -816,6 +817,13 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 	// Xác định courseID từ section
 	section, _ := h.courseRepo.GetSectionByID(c.Request.Context(), content.SectionID)
 	course, _ := h.courseRepo.GetByID(c.Request.Context(), section.CourseID)
+
+	// A number of older contents (and the bulk uploader) only store the
+	// object path. Never label every such file as a PDF: the worker chooses its
+	// parser from this MIME type, so derive it from the file extension first.
+	if inferredType := documentContentType(finalFilePath); inferredType != "" {
+		finalFileType = inferredType
+	}
 
 	// Phát sự kiện lên Kafka
 	eventID := fmt.Sprintf("evt-autoindex-%d", contentID)
@@ -859,6 +867,35 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 		"content_id": contentID,
 		"status":     "processing",
 	}))
+}
+
+// documentContentType returns the MIME type used by the AI document parser.
+// It intentionally uses the storage path rather than client-provided metadata
+// so existing uploaded documents are handled correctly as well.
+func documentContentType(filePath string) string {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".pdf":
+		return "application/pdf"
+	case ".doc":
+		return "application/msword"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".ppt":
+		return "application/vnd.ms-powerpoint"
+	case ".pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".txt":
+		return "text/plain"
+	case ".csv":
+		return "text/csv"
+	case ".md", ".markdown":
+		return "text/markdown"
+	}
+	return ""
 }
 
 // GetContentAutoIndexStatus godoc
@@ -1018,14 +1055,14 @@ func (h *AIHandler) TriggerGlobalLinking(c *gin.Context) {
 }
 
 func (h *AIHandler) GetNodeChunks(c *gin.Context) {
-    nodeID, _ := strconv.ParseInt(c.Param("nodeId"), 10, 64)
-    limit := 50
-    chunks, err := h.aiClient.GetNodeChunks(c.Request.Context(), nodeID, limit)
-    if err != nil {
-        c.JSON(500, dto.NewErrorResponse("ai_error", err.Error()))
-        return
-    }
-    c.JSON(200, dto.NewDataResponse(chunks))
+	nodeID, _ := strconv.ParseInt(c.Param("nodeId"), 10, 64)
+	limit := 50
+	chunks, err := h.aiClient.GetNodeChunks(c.Request.Context(), nodeID, limit)
+	if err != nil {
+		c.JSON(500, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+	c.JSON(200, dto.NewDataResponse(chunks))
 
 }
 
@@ -1146,8 +1183,10 @@ func (h *AIHandler) DeleteKnowledgeNode(c *gin.Context) {
 // GenerateConceptCheck godoc
 // @Summary      Quick Action Panel - Concept Check
 // @Description  Generates 1–2 ultra-short MCQ questions for the Quick
-//               Action Panel. The FE either passes the verbatim micro-lesson
-//               text or just a node_id; the AI service handles RAG retrieval.
+//
+//	Action Panel. The FE either passes the verbatim micro-lesson
+//	text or just a node_id; the AI service handles RAG retrieval.
+//
 // @Tags         AI - Quick Action Panel
 // @Accept       json
 // @Produce      json
@@ -1190,8 +1229,10 @@ func (h *AIHandler) GenerateConceptCheck(c *gin.Context) {
 // ParseQuizText godoc
 // @Summary      Parse Raw Text Into Quiz Questions
 // @Description  Uses AI to parse unformatted text (pasted by teacher) into structured quiz questions.
-//               Supports SINGLE_CHOICE, MULTIPLE_CHOICE, FILL_BLANK_TEXT, SHORT_ANSWER, ESSAY.
-//               The result is returned directly (synchronous, ~2-6s) for the teacher to review.
+//
+//	Supports SINGLE_CHOICE, MULTIPLE_CHOICE, FILL_BLANK_TEXT, SHORT_ANSWER, ESSAY.
+//	The result is returned directly (synchronous, ~2-6s) for the teacher to review.
+//
 // @Tags         AI - Quiz Smart Import
 // @Accept       json
 // @Produce      json

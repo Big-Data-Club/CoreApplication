@@ -407,15 +407,14 @@ class AutoIndexService:
                     orphaned_set = set(orphaned_ids)
                     all_node_ids = [nid for nid in all_node_ids if nid not in orphaned_set]
             
-            if settings.neo4j_enabled:
-                await self._sync_to_neo4j(
-                    node_ids=all_node_ids,
-                    nodes=nodes,
-                    node_embeddings=all_node_embeddings,
-                    course_id=course_id,
-                    content_id=content_id,
-                    llm_relations=relations,
-                )
+            await self._sync_to_neo4j_safely(
+                node_ids=all_node_ids,
+                nodes=nodes,
+                node_embeddings=all_node_embeddings,
+                course_id=course_id,
+                content_id=content_id,
+                llm_relations=relations,
+            )
 
             await self._update_content_status(content_id, "indexed")
             _progress("done", 100)
@@ -532,15 +531,14 @@ class AutoIndexService:
                     orphaned_set = set(orphaned_ids)
                     all_node_ids = [nid for nid in all_node_ids if nid not in orphaned_set]
 
-            if settings.neo4j_enabled:
-                await self._sync_to_neo4j(
-                    node_ids=all_node_ids,
-                    nodes=nodes,
-                    node_embeddings=all_node_embeddings,
-                    course_id=course_id,
-                    content_id=content_id,
-                    llm_relations=relations,
-                )
+            await self._sync_to_neo4j_safely(
+                node_ids=all_node_ids,
+                nodes=nodes,
+                node_embeddings=all_node_embeddings,
+                course_id=course_id,
+                content_id=content_id,
+                llm_relations=relations,
+            )
 
             await self._update_content_status(content_id, "indexed")
             _progress("done", 100)
@@ -1584,6 +1582,40 @@ class AutoIndexService:
         else:
             await self._build_graph_edges_pgvector(
                 new_node_ids, new_node_embeddings, course_id
+            )
+
+    async def _sync_to_neo4j_safely(
+        self,
+        *,
+        node_ids: list[int],
+        nodes: list,
+        node_embeddings: list[list[float]],
+        course_id: int,
+        content_id: int,
+        llm_relations: list,
+    ) -> None:
+        """Best-effort graph mirroring; never fail a completed document index."""
+        if not settings.neo4j_enabled:
+            return
+
+        try:
+            await self._sync_to_neo4j(
+                node_ids=node_ids,
+                nodes=nodes,
+                node_embeddings=node_embeddings,
+                course_id=course_id,
+                content_id=content_id,
+                llm_relations=llm_relations,
+            )
+        except Exception as exc:
+            # PostgreSQL and Qdrant are the source of truth for indexing. Neo4j
+            # is a derived graph and may be re-synchronised later, so an outage
+            # must not turn an otherwise successful index into a user-visible
+            # failure.
+            logger.warning(
+                "Neo4j sync skipped for content_id=%d; document remains indexed: %s",
+                content_id,
+                exc,
             )
 
     async def _sync_to_neo4j(

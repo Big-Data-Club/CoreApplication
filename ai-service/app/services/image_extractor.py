@@ -165,9 +165,9 @@ async def extract_docx_images(
     min_size_bytes: int = 4 * 1024,
 ) -> list[ExtractedImage]:
     """
-    Pull embedded images out of a .docx (zip archive). Uses python-docx to
-    walk inline_shapes for ordering metadata, falling back to a raw zip
-    scan when the document has loose images.
+    Pull embedded images out of Office zip archives. DOCX stores them in
+    `word/media`, while PPTX stores them in `ppt/media`; supporting both is
+    essential for image-only slide decks that have no selectable text.
     """
     images: list[ExtractedImage] = []
     try:
@@ -179,7 +179,7 @@ async def extract_docx_images(
         with zipfile.ZipFile(io.BytesIO(docx_bytes)) as zf:
             media_names = [
                 n for n in zf.namelist()
-                if n.startswith("word/media/")
+                if n.startswith(("word/media/", "ppt/media/"))
             ]
             for idx, name in enumerate(media_names):
                 try:
@@ -211,9 +211,9 @@ async def extract_docx_images(
                     placeholder=_placeholder_token(len(images)),
                 ))
     except Exception as exc:
-        logger.warning("DOCX image extract failed: %s", exc)
+        logger.warning("Office image extract failed: %s", exc)
 
-    logger.info("DOCX image extraction: %d images uploaded", len(images))
+    logger.info("Office image extraction: %d images uploaded", len(images))
     return images
 
 
@@ -232,7 +232,7 @@ async def render_pptx_slides(
     in slim Docker images) - the markdown converter still gets the inline
     images, just no whole-slide thumbnails.
     """
-    images = await extract_docx_images(pptx_bytes, storage_prefix)  # PPTX shares the zip layout
+    images = await extract_docx_images(pptx_bytes, storage_prefix)
     return images
 
 
