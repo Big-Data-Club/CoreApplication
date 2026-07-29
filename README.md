@@ -21,6 +21,7 @@
 - [Serverless Mode (Cloud DBs)](#serverless-mode-cloud-dbs)
 - [Environment Variables Reference](#environment-variables-reference)
 - [API Documentation](#api-documentation)
+- [DevOps Runbook](docs/DEVOPS_RUNBOOK.md)
 - [Developer Notes](#developer-notes)
 - [Contributing](#contributing)
 
