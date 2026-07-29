@@ -681,8 +681,6 @@ Rollback/stop owner: <name>
 - [Primary production workflow](../.github/workflows/production.yml)
 - [Quality CI workflow](../.github/workflows/ci.yml)
 - [Deployment script](../scripts/deploy-production.sh)
-- [Production CI/CD notes](PRODUCTION_CICD.md)
 - [K3s deployment guide](../k3s/DEPLOYMENT.md)
-- [Performance-test guide](performance-testing-guide.md)
 - [Performance test assets](../performance-tests/README.md)
 - [Observability manifests](../k3s/observability/kustomization.yaml)

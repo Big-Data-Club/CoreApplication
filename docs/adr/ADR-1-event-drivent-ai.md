@@ -93,4 +93,4 @@ Kafka was selected over the following alternatives:
 ## References
 - `ai-service/app/worker/kafka_worker.py` - consumer loop implementation
 - `ai-service/app/worker/kafka_producer.py` - producer functions
-- `docs/kafka-events.md` - full event schema reference
+- `docs/DATA_PLATFORM.md` - current Kafka and Lakehouse contract reference
