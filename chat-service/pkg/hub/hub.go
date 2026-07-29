@@ -2,22 +2,24 @@
 // Redis Pub/Sub. This design allows running multiple chat-service replicas
 // behind a load balancer without sticky sessions:
 //
-//   Client A (replica 1) ──send──► Redis channel "chat:ch:42" ──► all replicas
-//                                                                     │
-//   Client B (replica 1) ◄──recv──────────────────────────────────────┘
-//   Client C (replica 2) ◄──recv──────────────────────────────────────┘
+//	Client A (replica 1) ──send──► Redis channel "chat:ch:42" ──► all replicas
+//	                                                                  │
+//	Client B (replica 1) ◄──recv──────────────────────────────────────┘
+//	Client C (replica 2) ◄──recv──────────────────────────────────────┘
 //
 // Memory layout per replica:
-//   Hub.rooms: map[channelID int64] -> set[*Client]
-//   Each Client owns one goroutine for reading from WS and one for writing.
-//   The writePump drains a buffered channel - slow clients are dropped after
-//   ClientSendBuffer fills up, preventing any single slow client from blocking
-//   the broadcast loop.
+//
+//	Hub.rooms: map[channelID int64] -> set[*Client]
+//	Each Client owns one goroutine for reading from WS and one for writing.
+//	The writePump drains a buffered channel - slow clients are dropped after
+//	ClientSendBuffer fills up, preventing any single slow client from blocking
+//	the broadcast loop.
 package hub
 
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"sync"
 	"time"
 
@@ -46,6 +48,10 @@ const (
 	// PingPeriod sends pings at this interval (must be < PongWait).
 	PingPeriod = (PongWait * 9) / 10
 
+	// PresenceTTL allows one missed ping while making stale connections disappear
+	// promptly. It is stored in Redis, therefore works across replicas.
+	PresenceTTL = 90 * time.Second
+
 	// broadcastWorkers is the number of goroutines that relay Redis messages
 	// to local WebSocket clients. Tune to CPU count × 2.
 	broadcastWorkers = 8
@@ -55,14 +61,14 @@ const (
 type EventType string
 
 const (
-	EventMessage  EventType = "message"
-	EventDelete   EventType = "delete"
-	EventEdit     EventType = "edit"
-	EventTyping   EventType = "typing"
-	EventJoin     EventType = "join"
-	EventLeave    EventType = "leave"
-	EventPing     EventType = "ping"
-	EventAck      EventType = "ack"
+	EventMessage EventType = "message"
+	EventDelete  EventType = "delete"
+	EventEdit    EventType = "edit"
+	EventTyping  EventType = "typing"
+	EventJoin    EventType = "join"
+	EventLeave   EventType = "leave"
+	EventPing    EventType = "ping"
+	EventAck     EventType = "ack"
 )
 
 // WSEvent is the JSON envelope sent over WebSocket and through Redis Pub/Sub.
@@ -75,16 +81,16 @@ type WSEvent struct {
 
 // MessagePayload is the Payload for EventMessage / EventDelete / EventEdit.
 type MessagePayload struct {
-	ID               int64   `json:"id"`
-	SenderID         int64   `json:"sender_id"`
-	SenderName       string  `json:"sender_name"`
-	SenderAvatar     string  `json:"sender_avatar,omitempty"`
-	Body             string  `json:"body"`
-	IsDeleted        bool    `json:"is_deleted,omitempty"`
-	IsEdited         bool    `json:"is_edited,omitempty"`
-	ParentID         *int64  `json:"parent_id,omitempty"`
-	ParentSenderName string  `json:"parent_sender_name,omitempty"`
-	ParentBody       string  `json:"parent_body,omitempty"`
+	ID               int64               `json:"id"`
+	SenderID         int64               `json:"sender_id"`
+	SenderName       string              `json:"sender_name"`
+	SenderAvatar     string              `json:"sender_avatar,omitempty"`
+	Body             string              `json:"body"`
+	IsDeleted        bool                `json:"is_deleted,omitempty"`
+	IsEdited         bool                `json:"is_edited,omitempty"`
+	ParentID         *int64              `json:"parent_id,omitempty"`
+	ParentSenderName string              `json:"parent_sender_name,omitempty"`
+	ParentBody       string              `json:"parent_body,omitempty"`
 	Attachments      []AttachmentPayload `json:"attachments,omitempty"`
 }
 
@@ -222,6 +228,7 @@ func (h *Hub) Publish(ctx context.Context, channelID int64, event WSEvent) error
 
 // RegisterClient queues a client for registration.
 func (h *Hub) RegisterClient(c *Client) {
+	h.TouchPresence(c.UserID)
 	h.register <- c
 }
 
@@ -235,6 +242,27 @@ func (h *Hub) LocalCount(channelID int64) int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.rooms[channelID])
+}
+
+func presenceKey(userID int64) string { return "chat:presence:user:" + strconv.FormatInt(userID, 10) }
+
+// TouchPresence is deliberately best-effort: chat delivery must never be
+// blocked by a temporary Redis problem, and the existing pub/sub path will
+// surface such a problem independently.
+func (h *Hub) TouchPresence(userID int64) {
+	if userID <= 0 {
+		return
+	}
+	if err := h.rdb.Set(context.Background(), presenceKey(userID), "1", PresenceTTL).Err(); err != nil {
+		logger.Warnf("hub: touch presence user=%d: %v", userID, err)
+	}
+}
+
+func (h *Hub) IsOnline(ctx context.Context, userID int64) (bool, error) {
+	if userID <= 0 {
+		return false, nil
+	}
+	return h.rdb.Exists(ctx, presenceKey(userID)).Result()
 }
 
 // -------------------------------------------------------------------

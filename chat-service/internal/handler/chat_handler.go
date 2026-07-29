@@ -25,10 +25,10 @@ import (
 
 // ChatHandler handles REST and WebSocket chat endpoints.
 type ChatHandler struct {
-	chatRepo *repository.ChatRepository
-	userRepo *repository.UserRepository
-	hub      *hub.Hub
-	store    *storage.ObjectStore
+	chatRepo  *repository.ChatRepository
+	userRepo  *repository.UserRepository
+	hub       *hub.Hub
+	store     *storage.ObjectStore
 	jwtSecret string
 }
 
@@ -49,9 +49,9 @@ func NewChatHandler(
 }
 
 const (
-	maxAttachmentBytes        int64 = 20 * 1024 * 1024
+	maxAttachmentBytes       int64 = 20 * 1024 * 1024
 	maxAttachmentsPerMessage       = 10
-	maxTotalAttachmentBytes   int64 = 100 * 1024 * 1024
+	maxTotalAttachmentBytes  int64 = 100 * 1024 * 1024
 )
 
 var allowedAttachmentTypes = map[string]string{
@@ -149,6 +149,77 @@ func (h *ChatHandler) SearchUsers(c *gin.Context) {
 			FullName:       u.FullName,
 			ProfilePicture: u.ProfilePicture,
 		}
+	}
+	c.JSON(dto.OK(resp))
+}
+
+// SearchChannelMembers scopes @ suggestions to private-channel/DM members.
+// It also performs the normal channel access check so this endpoint cannot be
+// used as a member-directory side channel.
+func (h *ChatHandler) SearchChannelMembers(c *gin.Context) {
+	channelID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	userID := mustUserID(c)
+	canRead, _, err := h.chatRepo.CanUserAccess(c.Request.Context(), channelID, userID, mustRoles(c))
+	if err != nil {
+		logger.Errorf("mention access check channel=%d user=%d: %v", channelID, userID, err)
+		c.JSON(dto.ErrInternal("Access check failed"))
+		return
+	}
+	if !canRead {
+		c.JSON(dto.ErrForbidden("You do not have access to this channel"))
+		return
+	}
+
+	users, err := h.chatRepo.SearchMentionableUsers(c.Request.Context(), channelID, userID, c.Query("q"), 15)
+	if err != nil {
+		logger.Errorf("search mentions channel=%d user=%d: %v", channelID, userID, err)
+		c.JSON(dto.ErrInternal("Failed to search channel members"))
+		return
+	}
+	resp := make([]dto.UserResponse, len(users))
+	for i, u := range users {
+		resp[i] = dto.UserResponse{ID: u.ID, Email: u.Email, FullName: u.FullName, ProfilePicture: u.ProfilePicture}
+	}
+	c.JSON(dto.OK(resp))
+}
+
+// GetChannelPresence returns the short-lived WebSocket presence for the users
+// explicitly participating in a channel. Presence is shared through Redis, so
+// it remains correct with multiple chat-service replicas.
+func (h *ChatHandler) GetChannelPresence(c *gin.Context) {
+	channelID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	userID := mustUserID(c)
+	canRead, _, err := h.chatRepo.CanUserAccess(c.Request.Context(), channelID, userID, mustRoles(c))
+	if err != nil {
+		logger.Errorf("presence access check channel=%d user=%d: %v", channelID, userID, err)
+		c.JSON(dto.ErrInternal("Access check failed"))
+		return
+	}
+	if !canRead {
+		c.JSON(dto.ErrForbidden("You do not have access to this channel"))
+		return
+	}
+	users, err := h.chatRepo.GetChannelUsersWithDetails(c.Request.Context(), channelID)
+	if err != nil {
+		logger.Errorf("get channel presence channel=%d: %v", channelID, err)
+		c.JSON(dto.ErrInternal("Failed to load presence"))
+		return
+	}
+	resp := dto.ChannelPresenceResponse{Users: make([]dto.PresenceUserResponse, 0, len(users))}
+	for _, u := range users {
+		online, err := h.hub.IsOnline(c.Request.Context(), u.ID)
+		if err != nil {
+			logger.Errorf("check presence user=%d: %v", u.ID, err)
+			c.JSON(dto.ErrInternal("Failed to load presence"))
+			return
+		}
+		resp.Users = append(resp.Users, dto.PresenceUserResponse{UserID: u.ID, Online: online})
 	}
 	c.JSON(dto.OK(resp))
 }
@@ -351,9 +422,9 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 	}
 
 	var (
-		body     string
-		parentID *int64
-		stored   []repository.Attachment
+		body      string
+		parentID  *int64
+		stored    []repository.Attachment
 		totalSize int64
 	)
 	cleanupStored := func() {
@@ -385,7 +456,9 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 		case "parent_id":
 			value, readErr := io.ReadAll(io.LimitReader(part, 32))
 			_ = part.Close()
-			if readErr != nil || len(value) == 0 { continue }
+			if readErr != nil || len(value) == 0 {
+				continue
+			}
 			id, parseErr := strconv.ParseInt(string(value), 10, 64)
 			if parseErr != nil || id <= 0 {
 				cleanupStored()

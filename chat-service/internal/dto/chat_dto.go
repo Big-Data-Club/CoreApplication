@@ -24,6 +24,15 @@ type UserResponse struct {
 	ProfilePicture string `json:"profile_picture"`
 }
 
+type PresenceUserResponse struct {
+	UserID int64 `json:"user_id"`
+	Online bool  `json:"online"`
+}
+
+type ChannelPresenceResponse struct {
+	Users []PresenceUserResponse `json:"users"`
+}
+
 type CreateDMRequest struct {
 	UserID int64 `json:"user_id" binding:"required"`
 }
@@ -73,20 +82,20 @@ type EditMessageRequest struct {
 }
 
 type MessageResponse struct {
-	ID               int64     `json:"id"`
-	ChannelID        int64     `json:"channel_id"`
-	SenderID         int64     `json:"sender_id"`
-	SenderName       string    `json:"sender_name"`
-	SenderEmail      string    `json:"sender_email"`
-	SenderAvatar     string    `json:"sender_avatar"`
-	Body             string    `json:"body"`
-	IsDeleted        bool      `json:"is_deleted"`
-	IsEdited         bool      `json:"is_edited"`
-	ParentID         *int64    `json:"parent_id,omitempty"`
-	ParentSenderName string    `json:"parent_sender_name,omitempty"`
-	ParentBody       string    `json:"parent_body,omitempty"`
+	ID               int64                `json:"id"`
+	ChannelID        int64                `json:"channel_id"`
+	SenderID         int64                `json:"sender_id"`
+	SenderName       string               `json:"sender_name"`
+	SenderEmail      string               `json:"sender_email"`
+	SenderAvatar     string               `json:"sender_avatar"`
+	Body             string               `json:"body"`
+	IsDeleted        bool                 `json:"is_deleted"`
+	IsEdited         bool                 `json:"is_edited"`
+	ParentID         *int64               `json:"parent_id,omitempty"`
+	ParentSenderName string               `json:"parent_sender_name,omitempty"`
+	ParentBody       string               `json:"parent_body,omitempty"`
 	Attachments      []AttachmentResponse `json:"attachments,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
+	CreatedAt        time.Time            `json:"created_at"`
 }
 
 // AttachmentResponse intentionally exposes no storage key or public URL. Files

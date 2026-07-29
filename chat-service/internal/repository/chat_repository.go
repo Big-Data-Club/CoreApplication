@@ -459,6 +459,60 @@ func (r *ChatRepository) GetChannelUsersWithDetails(ctx context.Context, channel
 	return users, rows.Err()
 }
 
+// SearchMentionableUsers scopes mentions to the people who can participate in
+// a direct message or private channel. Public channels retain the existing
+// directory search behaviour, because their audience is role-based rather than
+// represented by an explicit member list.
+func (r *ChatRepository) SearchMentionableUsers(ctx context.Context, channelID, excludeUserID int64, query string, limit int) ([]User, error) {
+	if query == "" {
+		return []User{}, nil
+	}
+
+	var isPrivate, isDM bool
+	if err := r.db.QueryRowContext(ctx, `SELECT is_private, is_dm FROM chat_channels WHERE id = $1`, channelID).Scan(&isPrivate, &isDM); err != nil {
+		return nil, err
+	}
+
+	pattern := "%" + strings.ToLower(query) + "%"
+	var rows *sql.Rows
+	var err error
+	if isPrivate || isDM {
+		rows, err = r.db.QueryContext(ctx, `
+			SELECT u.id, u.email, u.full_name, u.profile_picture
+			FROM users u
+			JOIN chat_channel_users ccu ON ccu.user_id = u.id
+			WHERE ccu.channel_id = $1 AND u.id != $2
+			  AND (LOWER(u.email) LIKE $3 OR LOWER(u.full_name) LIKE $3)
+			ORDER BY u.full_name ASC
+			LIMIT $4
+		`, channelID, excludeUserID, pattern, limit)
+	} else {
+		rows, err = r.db.QueryContext(ctx, `
+			SELECT id, email, full_name, profile_picture
+			FROM users
+			WHERE id != $1 AND (LOWER(email) LIKE $2 OR LOWER(full_name) LIKE $2)
+			ORDER BY full_name ASC
+			LIMIT $3
+		`, excludeUserID, pattern, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := make([]User, 0)
+	for rows.Next() {
+		var u User
+		var pic sql.NullString
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &pic); err != nil {
+			return nil, err
+		}
+		u.ProfilePicture = pic.String
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
 // CanUserAccess returns (canRead, canWrite) for the given channel+user+roles combination.
 func (r *ChatRepository) CanUserAccess(
 	ctx context.Context,

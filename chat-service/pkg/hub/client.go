@@ -138,6 +138,7 @@ func (c *Client) ReadPump(onMessage func(client *Client, msg InboundMsg)) {
 	_ = c.conn.SetReadDeadline(time.Now().Add(PongWait))
 	c.conn.SetPongHandler(func(string) error {
 		_ = c.conn.SetReadDeadline(time.Now().Add(PongWait))
+		c.hub.TouchPresence(c.UserID)
 		return nil
 	})
 
@@ -160,6 +161,7 @@ func (c *Client) ReadPump(onMessage func(client *Client, msg InboundMsg)) {
 			// Malformed frame - skip, do not disconnect
 			continue
 		}
+		c.hub.TouchPresence(c.UserID)
 
 		// Validate the client is subscribed to the target channel
 		if !c.subscribedTo(msg.ChannelID) {

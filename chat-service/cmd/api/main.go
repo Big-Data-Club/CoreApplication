@@ -13,12 +13,12 @@ import (
 	"chat-service/internal/config"
 	"chat-service/internal/handler"
 	"chat-service/internal/middleware"
+	"chat-service/internal/repository"
 	"chat-service/pkg/cache"
 	"chat-service/pkg/database"
 	"chat-service/pkg/hub"
 	"chat-service/pkg/logger"
 	"chat-service/pkg/storage"
-	"chat-service/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -50,7 +50,6 @@ func main() {
 		os.Exit(1)
 	}
 
-
 	// ── 3. Redis ──────────────────────────────────────────────────────────────
 	rdb, err := cache.NewRedisClient(cfg.Redis)
 	if err != nil {
@@ -75,13 +74,13 @@ func main() {
 	}
 
 	// ── 6. Handlers ───────────────────────────────────────────────────────────
-	syncHandler  := handler.NewSyncHandler(userRepo, chatRepo)
+	syncHandler := handler.NewSyncHandler(userRepo, chatRepo)
 	attachmentStore, storageErr := storage.NewObjectStore(cfg.Storage)
 	if storageErr != nil {
 		// Chat text/realtime must remain available if object storage is degraded.
 		logger.Warnf("attachment storage disabled: %v", storageErr)
 	}
-	chatHandler  := handler.NewChatHandler(chatRepo, userRepo, wsHub, attachmentStore, cfg.JWT.Secret)
+	chatHandler := handler.NewChatHandler(chatRepo, userRepo, wsHub, attachmentStore, cfg.JWT.Secret)
 	adminHandler := handler.NewAdminHandler(chatRepo, userRepo)
 
 	// ── 7. Router ─────────────────────────────────────────────────────────────
@@ -124,6 +123,8 @@ func main() {
 		{
 			chat.GET("/channels", chatHandler.ListChannels)
 			chat.GET("/channels/:id/messages", chatHandler.ListMessages)
+			chat.GET("/channels/:id/members/search", chatHandler.SearchChannelMembers)
+			chat.GET("/channels/:id/presence", chatHandler.GetChannelPresence)
 			chat.POST("/channels/:id/messages", chatHandler.SendMessage)
 			chat.POST("/channels/:id/attachments", chatHandler.UploadAttachment)
 			chat.GET("/attachments/:attachmentId", chatHandler.DownloadAttachment)
@@ -155,8 +156,8 @@ func main() {
 		Addr:    ":" + cfg.App.Port,
 		Handler: r,
 		// No WriteTimeout - WebSocket connections are long-lived
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		IdleTimeout:  cfg.Server.IdleTimeout,
+		ReadTimeout: cfg.Server.ReadTimeout,
+		IdleTimeout: cfg.Server.IdleTimeout,
 	}
 
 	// Start server in background goroutine
@@ -192,4 +193,3 @@ func main() {
 
 	logger.Info("Chat service stopped cleanly")
 }
-
