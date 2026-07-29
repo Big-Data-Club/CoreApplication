@@ -65,8 +65,20 @@ class Settings(BaseSettings):
 
     # Groq LLM
     groq_api_key: str = ""
-    chat_model: str = "llama-3.3-70b-versatile"
-    quiz_model: str = "llama-3.3-70b-versatile"
+    # Initial bindings only. Runtime routing is always resolved by the LLM
+    # gateway and can be changed by an admin without a deploy.
+    chat_model: str = "openai/gpt-oss-120b"
+    quiz_model: str = "openai/gpt-oss-120b"
+
+    # OpenAI is a first-class gateway provider. This value is optional because
+    # an admin may instead add/rotate keys through the encrypted gateway UI.
+    openai_api_key: str = ""
+
+    # Never request more than this many input + output tokens in one upstream
+    # call. The default leaves headroom below the 12K TPM tier that previously
+    # rejected a 12,249-token section overview request.
+    llm_request_token_budget: int = 10000
+    llm_min_completion_tokens: int = 128
 
     # Google Gemini
     gemini_api_key: str = ""

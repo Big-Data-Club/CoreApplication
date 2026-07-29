@@ -30,11 +30,24 @@ import httpx
 from app.core.config import get_settings
 from app.core.llm import chat_complete_json
 from app.core.llm_gateway import TASK_SECTION_OVERVIEW_GEN
+from app.core.llm_gateway.token_budget import (
+    estimate_tokens,
+    pack_by_token_budget,
+    split_text_preserving_content,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-_LLM_SEMAPHORE = asyncio.Semaphore(4)
+# Two bounded calls can run concurrently without turning a 12K TPM key into a
+# burst of four large requests.  The source is reduced hierarchically below.
+_LLM_SEMAPHORE = asyncio.Semaphore(2)
+
+# These are input budgets, deliberately lower than the gateway's 10K total
+# request budget.  The remaining room is reserved for prompts and output.
+_SOURCE_BATCH_TOKENS = 2600
+_REDUCTION_BATCH_TOKENS = 2600
+_FINAL_SYNOPSIS_TOKENS = 3600
 
 BLOOM_LEVELS = ["remember", "understand", "apply", "analyze", "evaluate", "create"]
 
@@ -549,7 +562,12 @@ class SectionOverviewService:
             for r in references
         )
 
-        synopses_combined = "\n\n=== SECTION SYNOPSIS ===\n\n".join(synopses)
+        synopses_combined = await self._reduce_synopses(
+            synopses=synopses,
+            language=language,
+            section_id=section_id,
+            add_log=add_log,
+        )
 
         user_msg = (
             f"## TASK: Synthesize Final Section Overview Lesson\n\n"
@@ -580,7 +598,7 @@ class SectionOverviewService:
                 ],
                 model=settings.quiz_model,
                 temperature=0.4,
-                max_tokens=4000,
+                max_tokens=2200,
                 task=TASK_SECTION_OVERVIEW_GEN,
                 add_log=add_log,
             )
@@ -930,24 +948,67 @@ class SectionOverviewService:
         nodes: list[dict],
         max_nodes_per_agent: int = 8,
         max_agents: int = 5,
-        max_chars_per_agent: int = 16000,
+        max_chars_per_agent: int = 7200,
     ) -> list[list[dict]]:
         """
         Partition nodes topologically into groups, ensuring each group has:
           1. At most `max_nodes_per_agent` nodes.
           2. At most `max_chars_per_agent` characters of chunk text.
-          3. We limit the number of groups to at most `max_agents` (merging adjacent groups if needed).
+          3. Each LLM source batch stays below its token envelope.
+
+        `max_agents` is retained for backwards-compatible callers, but is not
+        used to merge oversized batches.  Merging is exactly what previously
+        created the 12,249-token request that Groq rejected.
         """
         n = len(nodes)
         if n == 0:
             return []
 
-        # Pack nodes sequentially based on limits
+        # Split an oversized node first.  This preserves every character while
+        # allowing a long PDF-derived node to take several map steps.
+        expanded_nodes: list[dict] = []
+        max_node_tokens = min(
+            _SOURCE_BATCH_TOKENS,
+            max(800, int(max_chars_per_agent / 2.4)),
+        )
+        for item in nodes:
+            chunks = item.get("chunks") or []
+            node_parts: list[list[str]] = []
+            current_part: list[str] = []
+            current_tokens = 0
+            for chunk in chunks:
+                for segment in split_text_preserving_content(str(chunk), max_node_tokens):
+                    cost = estimate_tokens(segment)
+                    if current_part and current_tokens + cost > max_node_tokens:
+                        node_parts.append(current_part)
+                        current_part, current_tokens = [], 0
+                    current_part.append(segment)
+                    current_tokens += cost
+            if current_part:
+                node_parts.append(current_part)
+
+            allocation = int(item.get("allocation", 0) or 0)
+            remaining = allocation
+            for index, part in enumerate(node_parts or [[]]):
+                clone = {"node": dict(item["node"]), "chunks": part}
+                if "allocation" in item:
+                    # Preserve the requested total question count across a
+                    # split source. Allocate proportionally by source size.
+                    if index == len(node_parts) - 1:
+                        clone["allocation"] = remaining
+                    else:
+                        share = round(allocation * len(part) / max(1, len(chunks)))
+                        share = min(remaining, max(0, share))
+                        clone["allocation"] = share
+                        remaining -= share
+                expanded_nodes.append(clone)
+
+        # Pack nodes sequentially based on limits.
         groups = []
         current_group = []
         current_chars = 0
         
-        for item in nodes:
+        for item in expanded_nodes:
             node_chars = sum(len(c) for c in item.get("chunks", []))
             if (len(current_group) >= max_nodes_per_agent) or (current_group and (current_chars + node_chars > max_chars_per_agent)):
                 groups.append(current_group)
@@ -959,21 +1020,71 @@ class SectionOverviewService:
         if current_group:
             groups.append(current_group)
             
-        # If the number of groups exceeds max_agents, we merge adjacent groups to fit
-        while len(groups) > max_agents:
-            best_idx = 0
-            min_cost = float('inf')
-            for i in range(len(groups) - 1):
-                # cost is the combined size of adjacent groups
-                cost = len(groups[i]) + len(groups[i+1])
-                if cost < min_cost:
-                    min_cost = cost
-                    best_idx = i
-            # Merge best_idx and best_idx + 1
-            groups[best_idx].extend(groups[best_idx + 1])
-            groups.pop(best_idx + 1)
-            
         return groups
+
+    async def _reduce_synopses(
+        self,
+        *,
+        synopses: list[str],
+        language: str,
+        section_id: int,
+        add_log,
+    ) -> str:
+        """Coverage-preserving hierarchical reduction for large sections.
+
+        Every source chunk is first represented in a local synopsis.  When the
+        set of synopses is too large for final synthesis, it is reduced in
+        bounded batches into evidence cards.  This avoids dropping material or
+        relying on a blind character truncate.
+        """
+        cards = [s for s in synopses if s and s.strip()]
+        if not cards:
+            raise ValueError("No lesson synopses were generated")
+
+        round_no = 0
+        lang_name = "Vietnamese" if language == "vi" else "English"
+        sys_msg = _LESSON_SYSTEM_VI if language == "vi" else _LESSON_SYSTEM_EN
+        while len(cards) > 1 or estimate_tokens(cards[0]) > _FINAL_SYNOPSIS_TOKENS:
+            round_no += 1
+            batches = pack_by_token_budget(cards, _REDUCTION_BATCH_TOKENS)
+            add_log(
+                f"Lesson Coordinator: Round {round_no} đang nén {len(cards)} evidence cards "
+                f"thành {len(batches)} nhóm có kiểm soát token."
+            )
+
+            async def reduce_batch(batch: list[str], batch_no: int) -> str:
+                source = "\n\n=== EVIDENCE CARD ===\n\n".join(batch)
+                prompt = (
+                    f"## TASK: Reduce Evidence Cards (Section {section_id})\n\n"
+                    f"Create one compact but coverage-preserving learning outline in **{lang_name}**. "
+                    "Retain every distinct topic, prerequisite, misconception, formula/example and any "
+                    "content_id reference that appears below. Do not invent facts and do not omit a topic; "
+                    "combine repeated wording only. Return JSON.\n\n"
+                    "## JSON SCHEMA\n{\"evidence_card\": \"Markdown outline\"}\n\n"
+                    f"## CARDS\n{source}"
+                )
+                async with _LLM_SEMAPHORE:
+                    result = await self._chat_complete_json_with_retry(
+                        messages=[
+                            {"role": "system", "content": sys_msg},
+                            {"role": "user", "content": prompt},
+                        ],
+                        model=settings.quiz_model,
+                        temperature=0.2,
+                        max_tokens=1200,
+                        task=TASK_SECTION_OVERVIEW_GEN,
+                        add_log=add_log,
+                    )
+                card = (result.get("evidence_card") if isinstance(result, dict) else "") or ""
+                if not card.strip():
+                    raise ValueError(f"Reducer batch {batch_no} returned an empty evidence card")
+                return card.strip()
+
+            cards = list(await asyncio.gather(*[
+                reduce_batch(batch, index + 1) for index, batch in enumerate(batches)
+            ]))
+
+        return cards[0]
 
     async def _generate_lesson_synopsis(
         self,
@@ -996,7 +1107,7 @@ class SectionOverviewService:
                 node_blocks = []
                 for item in nodes_group:
                     node = item["node"]
-                    node_text = f"### {node['name']}\n"
+                    node_text = f"### {node['name']} (content_id={node['source_content_id']})\n"
                     if node.get("description"):
                         node_text += f"_{node['description']}_\n\n"
                     chunk_excerpt = "\n".join(item["chunks"])
@@ -1038,7 +1149,7 @@ class SectionOverviewService:
                     ],
                     model=settings.quiz_model,
                     temperature=0.3,
-                    max_tokens=2500,
+                    max_tokens=1600,
                     task=TASK_SECTION_OVERVIEW_GEN,
                     add_log=add_log,
                 )

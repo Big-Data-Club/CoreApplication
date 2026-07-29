@@ -151,6 +151,7 @@ def _binding_dto(b) -> dict:
         "priority": b.priority,
         "temperature": b.temperature, "max_tokens": b.max_tokens,
         "json_mode": b.json_mode, "pinned": b.pinned, "enabled": b.enabled,
+        "notes": b.notes,
     }
 # ── Catalogue ───────────────────────────────────────────────────────────────
 @router.get("/catalogue")

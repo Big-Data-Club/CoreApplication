@@ -555,6 +555,7 @@ def _row_to_binding(row: Any) -> TaskBinding:
         json_mode=bool(row["json_mode"]),
         pinned=bool(row["pinned"]),
         enabled=bool(row["enabled"]) and bool(row["p_enabled"]),
+        notes=row["notes"],
     )
  
  

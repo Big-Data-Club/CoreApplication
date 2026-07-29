@@ -31,7 +31,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.core.config import get_settings
 from app.services.image_extractor import (
     ExtractedImage,
     extract_docx_images,
@@ -41,7 +40,6 @@ from app.services.image_extractor import (
 from app.services.minio_storage import upload_bytes
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 # Heuristic: a PDF page is "scanned" (no real text layer) when extracted
@@ -331,11 +329,7 @@ async def _vlm_ocr_pdf_page(
         return None
 
     try:
-        from groq import AsyncGroq
         import base64
-
-        if not settings.groq_api_key:
-            return None
 
         prompt = (
             "Bạn nhận được ảnh chụp một trang tài liệu học thuật bị scan (không có "
@@ -417,11 +411,7 @@ async def _vlm_ocr_pdf_page_from_bytes(
         return None
 
     try:
-        from groq import AsyncGroq
         import base64
-
-        if not settings.groq_api_key:
-            return None
 
         prompt = (
             "Bạn nhận được ảnh chụp một trang tài liệu học thuật bị scan (không có "

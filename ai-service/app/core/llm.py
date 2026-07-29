@@ -21,10 +21,8 @@ import logging
 import re
 from typing import Any, Type, TypeVar
 
-from groq import AsyncGroq
 from pydantic import BaseModel, ValidationError
 
-from app.core.config import get_settings
 from app.core.llm_gateway import (
     ChatRequest,
     TASK_CHAT,
@@ -56,34 +54,7 @@ from app.core.prompts import (             # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
-
 M = TypeVar("M", bound=BaseModel)
-
-
-# ── Legacy Groq client (still used by react_loop's streaming tool-calls) ────
-# Keeps the env-var path alive so existing streaming code doesn't break. New
-# code should prefer `gateway.chat(...)`.
-_groq: AsyncGroq | None = None
-_instructor_client = None
-
-
-def get_groq_client() -> AsyncGroq:
-    global _groq
-    if _groq is None:
-        _groq = AsyncGroq(api_key=settings.groq_api_key, max_retries=0)
-    return _groq
-
-
-def get_instructor_client():
-    """Instructor wrapper around the env Groq client (structured JSON path)."""
-    global _instructor_client
-    if _instructor_client is None:
-        import instructor
-        _instructor_client = instructor.from_groq(
-            get_groq_client(), mode=instructor.Mode.JSON,
-        )
-    return _instructor_client
 
 
 def reset_async_clients() -> None:
@@ -92,9 +63,6 @@ def reset_async_clients() -> None:
     MUST be called at the start of each Celery task before any LLM calls.
     Also resets the gateway singleton so its DB pool references rebind.
     """
-    global _groq, _instructor_client
-    _groq = None
-    _instructor_client = None
     reset_gateway()
     logger.debug("Async clients reset for new event loop")
 

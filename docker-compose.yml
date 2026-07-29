@@ -47,8 +47,10 @@ x-ai-env: &ai-env
 
   # LLM
   GROQ_API_KEY: ${GROQ_API_KEY:-}
-  CHAT_MODEL: ${AI_CHAT_MODEL:-llama-3.1-8b-instant}
-  QUIZ_MODEL: ${AI_QUIZ_MODEL:-llama-3.3-70b-versatile}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  CHAT_MODEL: ${AI_CHAT_MODEL:-openai/gpt-oss-120b}
+  QUIZ_MODEL: ${AI_QUIZ_MODEL:-openai/gpt-oss-120b}
+  LLM_REQUEST_TOKEN_BUDGET: ${LLM_REQUEST_TOKEN_BUDGET:-10000}
 
   # Embedding / Reranker
   EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}

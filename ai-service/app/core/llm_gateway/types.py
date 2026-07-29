@@ -96,6 +96,7 @@ class TaskBinding:
     json_mode: bool
     pinned: bool
     enabled: bool
+    notes: Optional[str] = None
  
  
 # ── Gateway request / response ──────────────────────────────────────────────

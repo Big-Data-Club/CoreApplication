@@ -20,6 +20,7 @@ import time
 from typing import Any, Optional
  
 from app.core.llm_gateway.adapters import get_adapter_class
+from app.core.config import get_settings
 from app.core.llm_gateway.errors import (
     AuthError,
     ContextLengthError,
@@ -32,9 +33,11 @@ from app.core.llm_gateway.errors import (
 from app.core.llm_gateway.key_pool import LeasedKey, get_key_pool
 from app.core.llm_gateway.registry import ModelRegistry, get_registry
 from app.core.llm_gateway.types import ChatRequest, ChatResponse, TaskBinding, Usage
+from app.core.llm_gateway.token_budget import estimate_messages_tokens
 from app.core.llm_gateway.usage import record_usage
  
 logger = logging.getLogger(__name__)
+settings = get_settings()
  
  
 # How many keys to try on the SAME model before moving to the next model.
@@ -94,9 +97,9 @@ class LLMGateway:
                     binding.model.model_name, req.task,
                 )
                 continue
-            except ContextLengthError:
+            except ContextLengthError as exc:
                 # A bigger model might have more context - try the next one.
-                last_error = ContextLengthError("Context window exceeded")
+                last_error = exc
                 continue
             except ProviderError as exc:
                 last_error = exc
@@ -181,9 +184,10 @@ class LLMGateway:
         temperature = _resolve(
             req.temperature, binding.temperature, model.default_temperature,
         )
-        max_tokens = int(_resolve(
+        requested_max_tokens = int(_resolve(
             req.max_tokens, binding.max_tokens, model.default_max_tokens,
         ))
+        max_tokens = self._fit_completion_budget(req, model.context_window, requested_max_tokens)
         json_mode = (
             req.json_mode if req.json_mode is not None
             else binding.json_mode
@@ -192,6 +196,9 @@ class LLMGateway:
         last_key_error: Exception | None = None
         for _ in range(MAX_KEYS_PER_MODEL):
             lease = await self.key_pool.lease(model.provider_id)
+            max_tokens = self._fit_completion_budget(
+                req, model.context_window, requested_max_tokens, key_tpm_limit=lease.record.tpm_limit,
+            )
             adapter = adapter_cls(
                 api_key=lease.plaintext,
                 base_url=model.base_url,
@@ -308,9 +315,10 @@ class LLMGateway:
         temperature = _resolve(
             req.temperature, binding.temperature, model.default_temperature,
         )
-        max_tokens = int(_resolve(
+        requested_max_tokens = int(_resolve(
             req.max_tokens, binding.max_tokens, model.default_max_tokens,
         ))
+        max_tokens = self._fit_completion_budget(req, model.context_window, requested_max_tokens)
         json_mode = (
             req.json_mode if req.json_mode is not None
             else binding.json_mode
@@ -319,6 +327,9 @@ class LLMGateway:
         last_key_error: Exception | None = None
         for _ in range(MAX_KEYS_PER_MODEL):
             lease = await self.key_pool.lease(model.provider_id)
+            max_tokens = self._fit_completion_budget(
+                req, model.context_window, requested_max_tokens, key_tpm_limit=lease.record.tpm_limit,
+            )
             adapter = adapter_cls(
                 api_key=lease.plaintext,
                 base_url=model.base_url,
@@ -392,6 +403,35 @@ class LLMGateway:
             request_id=req.request_id,
             **kwargs,
         )
+
+    @staticmethod
+    def _fit_completion_budget(
+        req: ChatRequest,
+        context_window: int,
+        requested: int,
+        *,
+        key_tpm_limit: int | None = None,
+    ) -> int:
+        """Keep every upstream request under a safe TPM-sized envelope.
+
+        Input is deliberately never sliced here.  Callers that handle large
+        documents must use a map/reduce workflow so every source is preserved.
+        Only unused completion headroom is trimmed.
+        """
+        prompt_tokens = estimate_messages_tokens(req.messages)
+        request_budget = min(settings.llm_request_token_budget, context_window)
+        if key_tpm_limit:
+            # Keep a small guard band for provider-side accounting/tokenizer
+            # differences. Admins manage this limit per key in the gateway UI.
+            request_budget = min(request_budget, max(256, int(key_tpm_limit * 0.9)))
+        available = request_budget - prompt_tokens
+        if available < settings.llm_min_completion_tokens:
+            raise ContextLengthError(
+                "Prompt preflight exceeds the safe request budget "
+                f"({prompt_tokens} estimated input tokens; budget={request_budget}). "
+                "Use a coverage-preserving hierarchical reduction instead of truncating source material."
+            )
+        return min(requested, available)
  
  
 def _resolve(*values: Any) -> Any:

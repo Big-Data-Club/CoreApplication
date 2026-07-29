@@ -82,9 +82,6 @@ async def describe_image_url(
     """
     if not settings.vlm_enabled:
         return alt_text or f"[Hình ảnh: {image_url}]"
-    if not settings.groq_api_key:
-        logger.warning("GROQ_API_KEY not set; skipping VLM for image description.")
-        return alt_text or f"[Hình ảnh: {image_url}]"
 
     cache_key = _cache_key("url", image_url)
     if cache_key in _vlm_cache:
@@ -117,8 +114,6 @@ async def describe_image_bytes(
     """
     if not settings.vlm_enabled:
         return "[Hình ảnh chưa được mô tả]"
-    if not settings.groq_api_key:
-        return "[Hình ảnh chưa được mô tả (thiếu API key)]"
 
     if len(image_bytes) > _MAX_IMAGE_BYTES:
         logger.warning("Image too large (%d bytes); skipping VLM.", len(image_bytes))

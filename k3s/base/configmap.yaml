@@ -73,8 +73,10 @@ data:
   DB_CONN_MAX_IDLE_TIME: "5m"
 
   # AI Settings
-  AI_CHAT_MODEL: "llama-3.1-8b-instant"
-  AI_QUIZ_MODEL: "llama-3.3-70b-versatile"
+  # These names are consumed directly by Pydantic Settings in ai-service.
+  CHAT_MODEL: "openai/gpt-oss-120b"
+  QUIZ_MODEL: "openai/gpt-oss-120b"
+  LLM_REQUEST_TOKEN_BUDGET: "10000"
   EMBEDDING_MODEL: "BAAI/bge-m3"
   EMBEDDING_DIMENSIONS: "1024"
   EMBEDDING_PREFIX_MODE: "bge"
