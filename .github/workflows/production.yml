@@ -60,6 +60,13 @@ jobs:
               - 'lms-service/**'
               - 'k3s/base/lms-service-deployment.yaml'
               - 'scripts/deploy-production.sh'
+            chat:
+              - 'chat-service/**'
+              - 'k3s/base/chat-service-deployment.yaml'
+              - 'scripts/deploy-production.sh'
+              # Keep a workflow fix deployable: this file controls the chat
+              # production selection itself.
+              - '.github/workflows/production.yml'
 
       - id: select
         env:
@@ -67,6 +74,7 @@ jobs:
           RECOMMENDER_CHANGED: ${{ steps.changes.outputs.recommender }}
           PERSONALIZE_CHANGED: ${{ steps.changes.outputs.personalize }}
           LMS_CHANGED: ${{ steps.changes.outputs.lms }}
+          CHAT_CHANGED: ${{ steps.changes.outputs.chat }}
           MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
           MANUAL_SERVICES: ${{ inputs.services }}
         shell: bash
@@ -101,6 +109,10 @@ jobs:
           if [[ "${LMS_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-lms","context":"lms-service"}')
             services+=(lms-service)
+          fi
+          if [[ "${CHAT_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-chat","context":"chat-service"}')
+            services+=(chat-service)
           fi
 
           if [[ ${#items[@]} -eq 0 ]]; then
