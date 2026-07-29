@@ -212,6 +212,13 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
 		return
 	}
+	// Chat attachments are private to a channel/DM. They are fetched through
+	// chat-service, which checks membership for every request, never through the
+	// LMS public file endpoint.
+	if strings.HasPrefix(filename, "chat/") {
+		c.JSON(http.StatusNotFound, dto.NewErrorResponse("file_not_found", "File not found"))
+		return
+	}
 
 	result, err := h.storage.GetObject(c.Request.Context(), filename)
 	if err != nil {
@@ -276,6 +283,10 @@ func (h *FileHandler) DownloadFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
 		return
 	}
+	if strings.HasPrefix(filename, "chat/") {
+		c.JSON(http.StatusNotFound, dto.NewErrorResponse("file_not_found", "File not found"))
+		return
+	}
 
 	result, err := h.storage.GetObject(c.Request.Context(), filename)
 	if err != nil {
@@ -332,6 +343,10 @@ func (h *FileHandler) GetPresignedURL(c *gin.Context) {
 	filename, ok := sanitizeFilePath(c.Param("filepath"))
 	if !ok {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
+		return
+	}
+	if strings.HasPrefix(filename, "chat/") {
+		c.JSON(http.StatusNotFound, dto.NewErrorResponse("file_not_found", "File not found"))
 		return
 	}
 

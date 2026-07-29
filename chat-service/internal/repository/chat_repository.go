@@ -44,7 +44,20 @@ type Message struct {
 	ParentID         *int64
 	ParentSenderName string
 	ParentBody       string
+	Attachments      []Attachment
 	CreatedAt        time.Time
+}
+
+// Attachment is metadata for a private object. ObjectKey is never returned to
+// browser clients; the handler resolves it only after a channel access check.
+type Attachment struct {
+	ID        string
+	MessageID int64
+	ObjectKey string
+	FileName  string
+	MimeType  string
+	SizeBytes int64
+	CreatedAt time.Time
 }
 
 // ChatRepository handles all chat-domain DB operations.
@@ -584,6 +597,9 @@ func (r *ChatRepository) ListMessages(
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if err := r.populateAttachments(ctx, msgs); err != nil {
+		return nil, err
+	}
 
 	// Reverse to chronological order
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
@@ -619,6 +635,43 @@ func (r *ChatRepository) CreateMessage(
 		return nil, err
 	}
 	return msgs, nil
+}
+
+// CreateMessageWithAttachment atomically creates a (possibly caption-less)
+// message and its attachment metadata after the object itself was streamed to
+// storage. If this transaction fails, the caller deletes the orphan object.
+func (r *ChatRepository) CreateMessageWithAttachment(
+	ctx context.Context,
+	channelID, senderID int64,
+	body string,
+	parentID *int64,
+	attachment Attachment,
+) (*Message, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var msgID int64
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO chat_messages (channel_id, sender_id, body, parent_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, channelID, senderID, body, nullInt64(parentID)).Scan(&msgID); err != nil {
+		return nil, fmt.Errorf("create attachment message: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO chat_attachments (id, message_id, object_key, file_name, mime_type, size_bytes)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, attachment.ID, msgID, attachment.ObjectKey, attachment.FileName, attachment.MimeType, attachment.SizeBytes); err != nil {
+		return nil, fmt.Errorf("create attachment metadata: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return r.getMessageByID(ctx, msgID)
 }
 
 func (r *ChatRepository) getMessageByID(ctx context.Context, msgID int64) (*Message, error) {
@@ -658,7 +711,74 @@ func (r *ChatRepository) getMessageByID(ctx context.Context, msgID int64) (*Mess
 		msg.ParentSenderName = parentSenderName.String
 		msg.ParentBody = parentBody.String
 	}
+	one := []Message{*msg}
+	if err := r.populateAttachments(ctx, one); err != nil {
+		return nil, err
+	}
+	msg.Attachments = one[0].Attachments
 	return msg, nil
+}
+
+func (r *ChatRepository) populateAttachments(ctx context.Context, messages []Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(messages))
+	args := make([]interface{}, len(messages))
+	for i, message := range messages {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = message.ID
+	}
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
+		SELECT id, message_id, object_key, file_name, mime_type, size_bytes, created_at
+		FROM chat_attachments
+		WHERE message_id IN (%s)
+		ORDER BY created_at ASC
+	`, strings.Join(placeholders, ",")), args...)
+	if err != nil {
+		return fmt.Errorf("list attachments: %w", err)
+	}
+	defer rows.Close()
+	byMessage := make(map[int64][]Attachment)
+	for rows.Next() {
+		var attachment Attachment
+		if err := rows.Scan(&attachment.ID, &attachment.MessageID, &attachment.ObjectKey,
+			&attachment.FileName, &attachment.MimeType, &attachment.SizeBytes, &attachment.CreatedAt); err != nil {
+			return err
+		}
+		byMessage[attachment.MessageID] = append(byMessage[attachment.MessageID], attachment)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range messages {
+		messages[i].Attachments = byMessage[messages[i].ID]
+	}
+	return nil
+}
+
+// GetAttachment returns metadata together with its owning channel and deletion
+// state. The handler must check membership before it opens the object.
+func (r *ChatRepository) GetAttachment(ctx context.Context, attachmentID string) (*Attachment, int64, bool, error) {
+	attachment := &Attachment{}
+	var channelID int64
+	var isDeleted bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT a.id, a.message_id, a.object_key, a.file_name, a.mime_type, a.size_bytes, a.created_at,
+		       m.channel_id, m.is_deleted
+		FROM chat_attachments a
+		JOIN chat_messages m ON m.id = a.message_id
+		WHERE a.id = $1
+	`, attachmentID).Scan(&attachment.ID, &attachment.MessageID, &attachment.ObjectKey,
+		&attachment.FileName, &attachment.MimeType, &attachment.SizeBytes, &attachment.CreatedAt,
+		&channelID, &isDeleted)
+	if err == sql.ErrNoRows {
+		return nil, 0, false, nil
+	}
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return attachment, channelID, isDeleted, nil
 }
 
 // UpdateMessageBody updates a message's body and sets is_edited=true.

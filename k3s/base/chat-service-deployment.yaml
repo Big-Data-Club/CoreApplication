@@ -54,6 +54,22 @@ spec:
               key: REDIS_PASSWORD
         - name: REDIS_DB
           value: "3"
+        # Chat attachments are streamed directly to the existing R2/S3 bucket.
+        # The chat API authorizes every download; objects use the chat/ prefix.
+        - name: MINIO_ENDPOINT
+          value: "$(R2_ENDPOINT)"
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_USER
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_PASSWORD
+        - name: MINIO_BUCKET
+          value: "lms-files"
         # Secret sync keys
         - name: JWT_SECRET
           valueFrom:

@@ -85,6 +85,15 @@ type MessagePayload struct {
 	ParentID         *int64  `json:"parent_id,omitempty"`
 	ParentSenderName string  `json:"parent_sender_name,omitempty"`
 	ParentBody       string  `json:"parent_body,omitempty"`
+	Attachments      []AttachmentPayload `json:"attachments,omitempty"`
+}
+
+type AttachmentPayload struct {
+	ID        string    `json:"id"`
+	FileName  string    `json:"file_name"`
+	MimeType  string    `json:"mime_type"`
+	SizeBytes int64     `json:"size_bytes"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // TypingPayload is the Payload for EventTyping.

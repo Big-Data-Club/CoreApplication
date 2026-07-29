@@ -17,6 +17,7 @@ import (
 	"chat-service/pkg/database"
 	"chat-service/pkg/hub"
 	"chat-service/pkg/logger"
+	"chat-service/pkg/storage"
 	"chat-service/internal/repository"
 
 	"github.com/gin-gonic/gin"
@@ -75,7 +76,12 @@ func main() {
 
 	// ── 6. Handlers ───────────────────────────────────────────────────────────
 	syncHandler  := handler.NewSyncHandler(userRepo, chatRepo)
-	chatHandler  := handler.NewChatHandler(chatRepo, userRepo, wsHub, cfg.JWT.Secret)
+	attachmentStore, storageErr := storage.NewObjectStore(cfg.Storage)
+	if storageErr != nil {
+		// Chat text/realtime must remain available if object storage is degraded.
+		logger.Warnf("attachment storage disabled: %v", storageErr)
+	}
+	chatHandler  := handler.NewChatHandler(chatRepo, userRepo, wsHub, attachmentStore, cfg.JWT.Secret)
 	adminHandler := handler.NewAdminHandler(chatRepo, userRepo)
 
 	// ── 7. Router ─────────────────────────────────────────────────────────────
@@ -119,6 +125,8 @@ func main() {
 			chat.GET("/channels", chatHandler.ListChannels)
 			chat.GET("/channels/:id/messages", chatHandler.ListMessages)
 			chat.POST("/channels/:id/messages", chatHandler.SendMessage)
+			chat.POST("/channels/:id/attachments", chatHandler.UploadAttachment)
+			chat.GET("/attachments/:attachmentId", chatHandler.DownloadAttachment)
 			chat.PUT("/channels/:id/messages/:msgId", chatHandler.EditMessage)
 			chat.DELETE("/channels/:id/messages/:msgId", chatHandler.DeleteMessage)
 			chat.GET("/users/search", chatHandler.SearchUsers)
@@ -184,5 +192,4 @@ func main() {
 
 	logger.Info("Chat service stopped cleanly")
 }
-
 

@@ -85,7 +85,18 @@ type MessageResponse struct {
 	ParentID         *int64    `json:"parent_id,omitempty"`
 	ParentSenderName string    `json:"parent_sender_name,omitempty"`
 	ParentBody       string    `json:"parent_body,omitempty"`
+	Attachments      []AttachmentResponse `json:"attachments,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
+}
+
+// AttachmentResponse intentionally exposes no storage key or public URL. Files
+// are fetched through a channel-authorized chat endpoint.
+type AttachmentResponse struct {
+	ID        string    `json:"id"`
+	FileName  string    `json:"file_name"`
+	MimeType  string    `json:"mime_type"`
+	SizeBytes int64     `json:"size_bytes"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type MessageListResponse struct {

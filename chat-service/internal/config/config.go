@@ -15,10 +15,22 @@ type Config struct {
 	App      AppConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
+	Storage  StorageConfig
 	JWT      JWTConfig
 	CORS     CORSConfig
 	Server   ServerConfig
 	Sync     SyncConfig
+}
+
+// StorageConfig holds the S3-compatible object storage used for private chat
+// attachments. Objects are deliberately served through chat-service, where
+// channel membership is checked, rather than by a public object URL.
+type StorageConfig struct {
+	Endpoint  string
+	AccessKey string
+	SecretKey string
+	Bucket    string
+	UseSSL    bool
 }
 
 type AppConfig struct {
@@ -114,6 +126,15 @@ func Load() (*Config, error) {
 			ReadTimeout:  getEnvDuration("REDIS_READ_TIMEOUT", 500*time.Millisecond),
 			WriteTimeout: getEnvDuration("REDIS_WRITE_TIMEOUT", 500*time.Millisecond),
 			PoolTimeout:  getEnvDuration("REDIS_POOL_TIMEOUT", 1*time.Second),
+		},
+		Storage: StorageConfig{
+			Endpoint:  getEnv("CHAT_STORAGE_ENDPOINT", getEnv("MINIO_ENDPOINT", "")),
+			AccessKey: getEnv("CHAT_STORAGE_ACCESS_KEY", getEnv("MINIO_ACCESS_KEY", "")),
+			SecretKey: getEnv("CHAT_STORAGE_SECRET_KEY", getEnv("MINIO_SECRET_KEY", "")),
+			// Keep a separate namespace within the existing LMS bucket. This
+			// avoids provisioning a new bucket while preserving a clean lifecycle.
+			Bucket: getEnv("CHAT_STORAGE_BUCKET", getEnv("MINIO_BUCKET", "lms-files")),
+			UseSSL: getEnv("CHAT_STORAGE_USE_SSL", getEnv("MINIO_USE_SSL", "false")) == "true",
 		},
 		JWT: JWTConfig{
 			Secret: requireEnv("JWT_SECRET"),

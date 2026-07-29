@@ -1,10 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"chat-service/internal/dto"
@@ -12,6 +18,7 @@ import (
 	"chat-service/internal/repository"
 	"chat-service/pkg/hub"
 	"chat-service/pkg/logger"
+	"chat-service/pkg/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +28,7 @@ type ChatHandler struct {
 	chatRepo *repository.ChatRepository
 	userRepo *repository.UserRepository
 	hub      *hub.Hub
+	store    *storage.ObjectStore
 	jwtSecret string
 }
 
@@ -28,14 +36,41 @@ func NewChatHandler(
 	chatRepo *repository.ChatRepository,
 	userRepo *repository.UserRepository,
 	h *hub.Hub,
+	store *storage.ObjectStore,
 	jwtSecret string,
 ) *ChatHandler {
 	return &ChatHandler{
 		chatRepo:  chatRepo,
 		userRepo:  userRepo,
 		hub:       h,
+		store:     store,
 		jwtSecret: jwtSecret,
 	}
+}
+
+const maxAttachmentBytes int64 = 20 * 1024 * 1024
+
+var allowedAttachmentTypes = map[string]string{
+	".pdf":  "application/pdf",
+	".doc":  "application/msword",
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".ppt":  "application/vnd.ms-powerpoint",
+	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".xls":  "application/vnd.ms-excel",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".csv":  "text/csv",
+	".txt":  "text/plain",
+	".zip":  "application/zip",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".m4a":  "audio/mp4",
+	".mp4":  "video/mp4",
+	".webm": "video/webm",
 }
 
 // ─── ListChannels GET /api/v1/chat/channels ───────────────────────────────────
@@ -281,6 +316,226 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	c.JSON(dto.Created(messageToDTO(*msg)))
 }
 
+// UploadAttachment streams one attachment (up to 20 MiB) into object storage,
+// creates its message atomically with metadata, and broadcasts the normal
+// message event. Files never pass through the frontend filesystem or a public
+// static URL.
+func (h *ChatHandler) UploadAttachment(c *gin.Context) {
+	channelID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	if h.store == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Success: false, Error: &dto.APIError{Code: "storage_unavailable", Message: "File attachments are temporarily unavailable"}})
+		return
+	}
+	userID := mustUserID(c)
+	roles := mustRoles(c)
+	_, canWrite, err := h.chatRepo.CanUserAccess(c.Request.Context(), channelID, userID, roles)
+	if err != nil || !canWrite {
+		c.JSON(dto.ErrForbidden("Cannot upload to this channel"))
+		return
+	}
+
+	// The extra KiB allows multipart boundaries while retaining a strict 20 MiB
+	// file cap. MaxBytesReader aborts a malicious oversized stream before it can
+	// consume pod memory or disk.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAttachmentBytes+1024*1024)
+	reader, err := c.Request.MultipartReader()
+	if err != nil {
+		c.JSON(dto.ErrBadRequest("Expected multipart/form-data"))
+		return
+	}
+
+	var (
+		body     string
+		parentID *int64
+		stored   *repository.Attachment
+	)
+	cleanupStored := func() {
+		if stored != nil {
+			_ = h.store.Delete(c.Request.Context(), stored.ObjectKey)
+		}
+	}
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			cleanupStored()
+			c.JSON(dto.ErrBadRequest("Could not read uploaded file"))
+			return
+		}
+		name := part.FormName()
+		switch name {
+		case "body":
+			value, readErr := io.ReadAll(io.LimitReader(part, 4001))
+			_ = part.Close()
+			if readErr != nil || len(value) > 4000 {
+				cleanupStored()
+				c.JSON(dto.ErrBadRequest("Attachment caption must be at most 4000 characters"))
+				return
+			}
+			body = strings.TrimSpace(string(value))
+		case "parent_id":
+			value, readErr := io.ReadAll(io.LimitReader(part, 32))
+			_ = part.Close()
+			if readErr != nil || len(value) == 0 { continue }
+			id, parseErr := strconv.ParseInt(string(value), 10, 64)
+			if parseErr != nil || id <= 0 {
+				cleanupStored()
+				c.JSON(dto.ErrBadRequest("Invalid parent_id"))
+				return
+			}
+			parentID = &id
+		case "file":
+			if stored != nil {
+				_ = part.Close()
+				cleanupStored()
+				c.JSON(dto.ErrBadRequest("Only one attachment is allowed per message"))
+				return
+			}
+			fileName := strings.TrimSpace(filepath.Base(part.FileName()))
+			ext := strings.ToLower(filepath.Ext(fileName))
+			contentType, allowed := allowedAttachmentTypes[ext]
+			if !allowed || fileName == "." || fileName == "" {
+				_ = part.Close()
+				cleanupStored()
+				c.JSON(dto.ErrBadRequest("Unsupported file type"))
+				return
+			}
+			prefix := make([]byte, 512)
+			n, readErr := io.ReadFull(part, prefix)
+			if readErr != nil && readErr != io.ErrUnexpectedEOF && readErr != io.EOF {
+				_ = part.Close()
+				cleanupStored()
+				c.JSON(dto.ErrBadRequest("Could not read uploaded file"))
+				return
+			}
+			prefix = prefix[:n]
+			if n == 0 {
+				_ = part.Close()
+				cleanupStored()
+				c.JSON(dto.ErrBadRequest("Empty files are not allowed"))
+				return
+			}
+			// The extension allowlist is authoritative. Sniffing rejects HTML
+			// disguised as a high-risk executable image/document upload.
+			sniffed := http.DetectContentType(prefix)
+			if strings.HasPrefix(sniffed, "text/html") || strings.HasPrefix(sniffed, "application/x-msdownload") {
+				_ = part.Close()
+				cleanupStored()
+				c.JSON(dto.ErrBadRequest("Unsafe file content"))
+				return
+			}
+			attachmentID, idErr := randomID()
+			if idErr != nil {
+				_ = part.Close()
+				cleanupStored()
+				c.JSON(dto.ErrInternal("Could not initialize attachment"))
+				return
+			}
+			objectKey := fmt.Sprintf("chat/%s%s", attachmentID, ext)
+			size, putErr := h.store.Put(c.Request.Context(), objectKey, io.MultiReader(bytes.NewReader(prefix), part), contentType)
+			_ = part.Close()
+			if putErr != nil || size <= 0 || size > maxAttachmentBytes {
+				_ = h.store.Delete(c.Request.Context(), objectKey)
+				if size > maxAttachmentBytes {
+					c.JSON(dto.ErrBadRequest("File exceeds the 20MB limit"))
+				} else {
+					logger.Warnf("attachment upload channel=%d user=%d: %v", channelID, userID, putErr)
+					c.JSON(dto.ErrInternal("Failed to store attachment"))
+				}
+				return
+			}
+			stored = &repository.Attachment{ID: attachmentID, ObjectKey: objectKey, FileName: fileName, MimeType: contentType, SizeBytes: size}
+		default:
+			_ = part.Close()
+		}
+	}
+
+	if stored == nil {
+		c.JSON(dto.ErrBadRequest("No attachment was provided"))
+		return
+	}
+	// Ensure a transient user can send attachments exactly as with text messages.
+	if err := h.userRepo.EnsureGuestUser(c.Request.Context(), userID, c.GetString("user_email")); err != nil {
+		logger.Warnf("ensure attachment sender user=%d: %v", userID, err)
+	}
+	msg, err := h.chatRepo.CreateMessageWithAttachment(c.Request.Context(), channelID, userID, body, parentID, *stored)
+	if err != nil {
+		_ = h.store.Delete(c.Request.Context(), stored.ObjectKey)
+		logger.Errorf("create attachment message channel=%d user=%d: %v", channelID, userID, err)
+		c.JSON(dto.ErrInternal("Failed to create attachment message"))
+		return
+	}
+	event := hub.WSEvent{Type: hub.EventMessage, ChannelID: channelID, Payload: messagepayload(msg), Timestamp: time.Now().UTC()}
+	if err := h.hub.Publish(c.Request.Context(), channelID, event); err != nil {
+		logger.Warnf("publish attachment message: %v", err)
+	}
+	c.JSON(dto.Created(messageToDTO(*msg)))
+}
+
+// DownloadAttachment serves an object only after verifying current channel
+// membership. This check also prevents an old copied URL from accessing a
+// deleted message.
+func (h *ChatHandler) DownloadAttachment(c *gin.Context) {
+	if h.store == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Success: false, Error: &dto.APIError{Code: "storage_unavailable", Message: "File attachments are temporarily unavailable"}})
+		return
+	}
+	attachmentID := c.Param("attachmentId")
+	if attachmentID == "" || len(attachmentID) > 64 {
+		c.JSON(dto.ErrBadRequest("Invalid attachment id"))
+		return
+	}
+	attachment, channelID, isDeleted, err := h.chatRepo.GetAttachment(c.Request.Context(), attachmentID)
+	if err != nil {
+		logger.Errorf("get attachment %s: %v", attachmentID, err)
+		c.JSON(dto.ErrInternal("Failed to load attachment"))
+		return
+	}
+	if attachment == nil || isDeleted {
+		c.JSON(dto.ErrNotFound("Attachment not found"))
+		return
+	}
+	canRead, _, err := h.chatRepo.CanUserAccess(c.Request.Context(), channelID, mustUserID(c), mustRoles(c))
+	if err != nil || !canRead {
+		c.JSON(dto.ErrForbidden("You do not have access to this attachment"))
+		return
+	}
+	object, err := h.store.Get(c.Request.Context(), attachment.ObjectKey)
+	if err != nil {
+		logger.Warnf("open attachment id=%s: %v", attachmentID, err)
+		c.JSON(dto.ErrNotFound("Attachment not found"))
+		return
+	}
+	defer object.Body.Close()
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "private, max-age=300")
+	c.Header("Content-Type", attachment.MimeType)
+	fileName := strings.ReplaceAll(attachment.FileName, `"`, "")
+	if c.Query("download") == "1" || !isInlineAttachment(attachment.MimeType) {
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
+	} else {
+		c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, fileName))
+	}
+	http.ServeContent(c.Writer, c.Request, fileName, object.ModifiedAt, object.Body)
+}
+
+func isInlineAttachment(contentType string) bool {
+	return strings.HasPrefix(contentType, "image/") || contentType == "application/pdf"
+}
+
+func randomID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
 // ─── DeleteMessage DELETE /api/v1/chat/channels/:id/messages/:msgId ──────────
 
 func (h *ChatHandler) DeleteMessage(c *gin.Context) {
@@ -518,7 +773,7 @@ func channelToDTO(ch repository.Channel) dto.ChannelResponse {
 }
 
 func messageToDTO(m repository.Message) dto.MessageResponse {
-	return dto.MessageResponse{
+	response := dto.MessageResponse{
 		ID:               m.ID,
 		ChannelID:        m.ChannelID,
 		SenderID:         m.SenderID,
@@ -533,6 +788,13 @@ func messageToDTO(m repository.Message) dto.MessageResponse {
 		ParentBody:       m.ParentBody,
 		CreatedAt:        m.CreatedAt,
 	}
+	if len(m.Attachments) > 0 {
+		response.Attachments = make([]dto.AttachmentResponse, len(m.Attachments))
+		for i, attachment := range m.Attachments {
+			response.Attachments[i] = dto.AttachmentResponse{ID: attachment.ID, FileName: attachment.FileName, MimeType: attachment.MimeType, SizeBytes: attachment.SizeBytes, CreatedAt: attachment.CreatedAt}
+		}
+	}
+	return response
 }
 
 // messagepayload builds a hub.MessagePayload from a repository.Message.
@@ -550,6 +812,12 @@ func messagepayload(m *repository.Message) hub.MessagePayload {
 		p.ParentID = m.ParentID
 		p.ParentSenderName = m.ParentSenderName
 		p.ParentBody = m.ParentBody
+	}
+	if len(m.Attachments) > 0 {
+		p.Attachments = make([]hub.AttachmentPayload, len(m.Attachments))
+		for i, attachment := range m.Attachments {
+			p.Attachments[i] = hub.AttachmentPayload{ID: attachment.ID, FileName: attachment.FileName, MimeType: attachment.MimeType, SizeBytes: attachment.SizeBytes, CreatedAt: attachment.CreatedAt}
+		}
 	}
 	return p
 }
