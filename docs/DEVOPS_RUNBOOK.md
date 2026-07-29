@@ -219,7 +219,144 @@ The normal `main` release path is `production.yml`:
    - If any wait fails, its trap resets every deployment changed by that run to
      the image recorded immediately before the update.
 
-### 5.2 What `scripts/deploy-production.sh` does
+### 5.2 No-change, skipped, success, and deployed: exact meanings
+
+"Green" does not always mean that an image was built or that production was
+changed. Read the outputs of **Select production workloads** before treating a
+workflow run as a release.
+
+#### `production.yml` — the normal `main` production path
+
+On every push to `main`, the `detect-changes` job always runs. It only selects
+these paths and workloads:
+
+| Changed path category | Selected image build | Selected deployment rollout |
+|---|---|---|
+| `ai-service/**`, AI manifest, shared ConfigMap, or deploy script | `bdc-ai` | `ai-service`, `ai-worker` |
+| `recommender-service/**`, recommender manifest, shared ConfigMap, or deploy script | `bdc-recommender` | `recommender-service` |
+| `personalize-service/**`, personalize manifest, shared ConfigMap, or deploy script | `bdc-personalize` | `personalize-service` |
+| `lms-service/**`, LMS manifest, or deploy script | `bdc-lms` | `lms-service` |
+| Anything outside the rows above | none | none |
+
+If a commit changes only documentation, performance-test assets, Chat, Lab,
+Auth, frontend, or another unlisted path, the detector writes:
+
+```text
+should_build=false
+matrix={"include":[]}
+services=
+```
+
+The **Build** job and **Roll out production** job then display **Skipped** in
+GitHub Actions. The overall workflow can still finish **Success** because this
+is an intentional no-op. In that case there is no Docker build, no Docker Hub
+push, no self-hosted runner use, no ConfigMap apply, no `kubectl set image`, and
+no restart. This is the expected status, not a CI/CD failure.
+
+If one or more selected paths change, only the matching images are built and
+pushed with the immutable commit SHA (and currently `latest`), and only the
+matching deployments are changed to the SHA. A multi-service commit produces a
+small matrix and deploys the combined explicit service list; unrelated
+workloads remain untouched.
+
+For **Run workflow** with both `image_tag` and `services`, a skipped Build job
+is also expected: the workflow deliberately does not rebuild and rolls out the
+already-published immutable tag to exactly the requested deployments. The
+Deploy job must run. If `image_tag` is provided without `services`, detection
+fails deliberately and production is not changed. Do not use `latest` as the
+manual tag.
+
+For a manual run without `image_tag`, the deploy input resolves to the current
+commit SHA, but deployment still depends on the change detector selecting
+services. Therefore it is not a safe "redeploy everything" control. Use a
+manual run with an existing immutable `image_tag` and an explicit `services`
+list when an intentional redeploy or rollback is needed.
+
+#### `ci.yml` — quality CI, not the normal main release
+
+This workflow runs for pull requests to `main`, `dev`, and `release/*`; pushes
+to `dev` and `release/*`; and manual dispatch. It does **not** run for a push
+to `main`, so it does not gate or trigger the primary `main` production path.
+
+Its `any_change` flag is true only for Auth/backend, frontend, LMS, AI, Chat,
+Lab, Personalize, Recommender, or `force_build_all=true`. A change only under
+`k3s/**`, `docker-compose*.yml`, or `.github/workflows/**` is detected in the
+separate `docker` output but is not included in `any_change`; it currently
+causes no application build or test.
+
+When `any_change=false`, `build-and-test` and `security-scan` are **Skipped**;
+`ci-summary` runs and records **No Changes — Skipped build**. No image is
+built or pushed. When `any_change=true`, the eight-entry matrix is created.
+Only changed services run checkout, tests, application build, and optional
+image push. Matrix entries for unchanged services run the initial "Skip if no
+changes" step and normally finish **Success** with their remaining steps
+skipped. Thus the matrix job can be green even though only one service was
+actually built; use the detector outputs and individual step logs to identify
+which one.
+
+An important current defect: this workflow triggers on `dev`, but its image
+push condition allows `main`, `develop`, and `release/*` (not `dev`). As a
+result, a normal push to `dev` can test and build an application but must show
+`should_push=false` and will not publish an image. Treat that as current
+configuration behavior, not as a registry outage; fix the branch-name mismatch
+before relying on `dev` images.
+
+#### `cd-production.yml` — legacy restart path
+
+This workflow does not set an image tag or build an image. It calls `kubectl
+rollout restart` for one deployment or all known deployments, then asks
+Kubernetes to wait up to 180 seconds per target. It also prunes unused Docker
+images/containerd images in its final cleanup step. A successful run never
+means a new commit reached production: it is only a restart of the image
+already configured in Kubernetes.
+
+More importantly, the restart and rollout-status commands are followed by
+`|| echo`, so their failures are logged as warnings rather than failing the
+job. A legacy-CD **Success** is therefore not proof that every target became
+ready. Operators must run `kubectl rollout status`, inspect pods/events, and
+check the application explicitly after this workflow. Do not run its manual
+`all` target casually, because it can restart every known workload and trigger
+the image-cache cleanup.
+
+Its automatic trigger waits for a successful `CI - Build, Test & Push` run on
+`main` or `develop`. Because `ci.yml` does not run on `main` and uses `dev`
+rather than `develop` for push triggers, this automatic legacy CD path is not
+the normal route for either current branch. Manual dispatch is a restart-only
+operation and must be treated as production-impacting: select one target where
+possible, check its current image first, and do not use it as a substitute for
+the SHA-based primary deployment workflow.
+
+| GitHub status or observation | Operational meaning | Required interpretation/action |
+|---|---|---|
+| **Skipped** Build and **Skipped** Deploy in `production.yml` | No selected production paths changed. | Expected no-op; no release happened. |
+| **Success** workflow, but Build is skipped | Detection/manual-tag policy intentionally avoided a build. | Confirm whether Deploy ran and inspect `services` output. |
+| **Success** Deploy in `production.yml` | Selected deployments passed rollout status after a SHA update. | Still run service smoke checks and inspect the deployed image. |
+| **Success** in legacy CD | The restart workflow completed; errors may only have been logged as warnings. | Do not call it a new release; independently inspect image, rollout, events, and logs. |
+| **Cancelled** | A newer run or an operator stopped it. | Inspect current image/pod state before retrying. |
+| **Failure** | A detector, build, registry, runner, rollout, or verification step failed. | Follow section 7; do not infer whether rollback fully completed without checking the cluster. |
+
+#### Required verification after every CI/CD run
+
+1. In Actions, open the run summary and record the commit SHA, detector output
+   (`should_build`, `services`, or `any_change`), and each selected matrix
+   entry.
+2. For a production run, confirm the Build job pushed the exact immutable SHA,
+   then confirm **Roll out production** ran on the self-hosted runner. A green
+   detector alone is not a deployment.
+3. From the approved VPN/SSH session, compare Kubernetes to the intended SHA:
+
+```bash
+kubectl -n default get deployment ai-service \
+  -o jsonpath='{.spec.template.spec.containers[*].image}{"\n"}'
+kubectl -n default rollout status deployment/ai-service --timeout=12m
+kubectl -n default get pods -l app=ai-service -o wide
+```
+
+4. Run the selected service's smoke check and record the result in the release
+   ticket. A ready pod is necessary but does not prove its API dependencies are
+   healthy.
+
+### 5.3 What `scripts/deploy-production.sh` does
 
 The deploy script is intentionally conservative:
 
@@ -237,7 +374,7 @@ It does **not** apply the full Kustomize base during each release, so a stale
 manifest cannot overwrite unrelated deployment images. It also does not
 delete persistent volumes.
 
-### 5.3 Manual deployment of a known immutable image
+### 5.4 Manual deployment of a known immutable image
 
 Use **Actions → Build and deploy production → Run workflow** only after the
 image exists in Docker Hub.
@@ -485,6 +622,16 @@ Priorities are ordered. Do not start a 20+ VU test until P0 is complete.
 
 - [ ] Consolidate the three workflow paths or clearly deprecate the legacy
       path. There must be one documented production release authority.
+- [ ] Resolve the `dev` versus `develop` branch mismatch in `ci.yml` and
+      `cd-production.yml`; decide which branch may publish non-production
+      images and make both trigger and `should_push` conditions match it.
+- [ ] Decide whether changes limited to Kubernetes manifests, Compose files,
+      workflow files, or deployment scripts must run validation. The current
+      `docker` detector does not make `any_change=true`, so those changes can
+      appear as a successful CI run with no build or test.
+- [ ] Add a per-service CI summary instead of repeating one matrix-job result
+      for every row; the current summary can look green even when most matrix
+      entries intentionally performed no build.
 - [ ] Extend `production.yml` detection/build/deploy matrix to cover Auth,
       Chat, and Lab, or document their approved independent deployment path.
 - [ ] Verify frontend deployment ownership: the primary production workflow
