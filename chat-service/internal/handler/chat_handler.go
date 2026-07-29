@@ -48,7 +48,11 @@ func NewChatHandler(
 	}
 }
 
-const maxAttachmentBytes int64 = 20 * 1024 * 1024
+const (
+	maxAttachmentBytes        int64 = 20 * 1024 * 1024
+	maxAttachmentsPerMessage       = 10
+	maxTotalAttachmentBytes   int64 = 100 * 1024 * 1024
+)
 
 var allowedAttachmentTypes = map[string]string{
 	".pdf":  "application/pdf",
@@ -316,10 +320,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	c.JSON(dto.Created(messageToDTO(*msg)))
 }
 
-// UploadAttachment streams one attachment (up to 20 MiB) into object storage,
-// creates its message atomically with metadata, and broadcasts the normal
-// message event. Files never pass through the frontend filesystem or a public
-// static URL.
+// UploadAttachment streams up to ten attachments (20 MiB each, 100 MiB total)
+// into object storage, creates one message with all metadata atomically, and
+// broadcasts the normal message event. Files never pass through frontend disk
+// or a public static URL.
 func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 	channelID, ok := parseID(c, "id")
 	if !ok {
@@ -337,10 +341,9 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 		return
 	}
 
-	// The extra KiB allows multipart boundaries while retaining a strict 20 MiB
-	// file cap. MaxBytesReader aborts a malicious oversized stream before it can
-	// consume pod memory or disk.
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAttachmentBytes+1024*1024)
+	// A total request cap protects bandwidth and object-storage cost. Each part
+	// is separately capped below; all data is streamed, never buffered in the pod.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxTotalAttachmentBytes+1024*1024)
 	reader, err := c.Request.MultipartReader()
 	if err != nil {
 		c.JSON(dto.ErrBadRequest("Expected multipart/form-data"))
@@ -350,11 +353,12 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 	var (
 		body     string
 		parentID *int64
-		stored   *repository.Attachment
+		stored   []repository.Attachment
+		totalSize int64
 	)
 	cleanupStored := func() {
-		if stored != nil {
-			_ = h.store.Delete(c.Request.Context(), stored.ObjectKey)
+		for _, attachment := range stored {
+			_ = h.store.Delete(c.Request.Context(), attachment.ObjectKey)
 		}
 	}
 	for {
@@ -390,10 +394,10 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 			}
 			parentID = &id
 		case "file":
-			if stored != nil {
+			if len(stored) >= maxAttachmentsPerMessage {
 				_ = part.Close()
 				cleanupStored()
-				c.JSON(dto.ErrBadRequest("Only one attachment is allowed per message"))
+				c.JSON(dto.ErrBadRequest("A message can contain at most 10 files"))
 				return
 			}
 			fileName := strings.TrimSpace(filepath.Base(part.FileName()))
@@ -449,13 +453,20 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 				}
 				return
 			}
-			stored = &repository.Attachment{ID: attachmentID, ObjectKey: objectKey, FileName: fileName, MimeType: contentType, SizeBytes: size}
+			if totalSize+size > maxTotalAttachmentBytes {
+				_ = h.store.Delete(c.Request.Context(), objectKey)
+				cleanupStored()
+				c.JSON(dto.ErrBadRequest("Total attachment size must not exceed 100MB"))
+				return
+			}
+			totalSize += size
+			stored = append(stored, repository.Attachment{ID: attachmentID, ObjectKey: objectKey, FileName: fileName, MimeType: contentType, SizeBytes: size})
 		default:
 			_ = part.Close()
 		}
 	}
 
-	if stored == nil {
+	if len(stored) == 0 {
 		c.JSON(dto.ErrBadRequest("No attachment was provided"))
 		return
 	}
@@ -463,9 +474,9 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 	if err := h.userRepo.EnsureGuestUser(c.Request.Context(), userID, c.GetString("user_email")); err != nil {
 		logger.Warnf("ensure attachment sender user=%d: %v", userID, err)
 	}
-	msg, err := h.chatRepo.CreateMessageWithAttachment(c.Request.Context(), channelID, userID, body, parentID, *stored)
+	msg, err := h.chatRepo.CreateMessageWithAttachments(c.Request.Context(), channelID, userID, body, parentID, stored)
 	if err != nil {
-		_ = h.store.Delete(c.Request.Context(), stored.ObjectKey)
+		cleanupStored()
 		logger.Errorf("create attachment message channel=%d user=%d: %v", channelID, userID, err)
 		c.JSON(dto.ErrInternal("Failed to create attachment message"))
 		return

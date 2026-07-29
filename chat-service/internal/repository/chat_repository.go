@@ -647,6 +647,22 @@ func (r *ChatRepository) CreateMessageWithAttachment(
 	parentID *int64,
 	attachment Attachment,
 ) (*Message, error) {
+	return r.CreateMessageWithAttachments(ctx, channelID, senderID, body, parentID, []Attachment{attachment})
+}
+
+// CreateMessageWithAttachments atomically creates one message and all of its
+// attachment metadata. The caller owns cleanup of already-uploaded objects if
+// this transaction fails.
+func (r *ChatRepository) CreateMessageWithAttachments(
+	ctx context.Context,
+	channelID, senderID int64,
+	body string,
+	parentID *int64,
+	attachments []Attachment,
+) (*Message, error) {
+	if len(attachments) == 0 {
+		return nil, fmt.Errorf("at least one attachment is required")
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -662,11 +678,18 @@ func (r *ChatRepository) CreateMessageWithAttachment(
 		return nil, fmt.Errorf("create attachment message: %w", err)
 	}
 
-	if _, err := tx.ExecContext(ctx, `
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO chat_attachments (id, message_id, object_key, file_name, mime_type, size_bytes)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, attachment.ID, msgID, attachment.ObjectKey, attachment.FileName, attachment.MimeType, attachment.SizeBytes); err != nil {
-		return nil, fmt.Errorf("create attachment metadata: %w", err)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("prepare attachment metadata: %w", err)
+	}
+	defer stmt.Close()
+	for _, attachment := range attachments {
+		if _, err := stmt.ExecContext(ctx, attachment.ID, msgID, attachment.ObjectKey, attachment.FileName, attachment.MimeType, attachment.SizeBytes); err != nil {
+			return nil, fmt.Errorf("create attachment metadata: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err

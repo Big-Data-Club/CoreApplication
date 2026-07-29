@@ -131,9 +131,9 @@ func Load() (*Config, error) {
 			Endpoint:  getEnv("CHAT_STORAGE_ENDPOINT", getEnv("MINIO_ENDPOINT", "")),
 			AccessKey: getEnv("CHAT_STORAGE_ACCESS_KEY", getEnv("MINIO_ACCESS_KEY", "")),
 			SecretKey: getEnv("CHAT_STORAGE_SECRET_KEY", getEnv("MINIO_SECRET_KEY", "")),
-			// Keep a separate namespace within the existing LMS bucket. This
-			// avoids provisioning a new bucket while preserving a clean lifecycle.
-			Bucket: getEnv("CHAT_STORAGE_BUCKET", getEnv("MINIO_BUCKET", "lms-files")),
+			// Chat uses its own bucket so private DM/channel retention, lifecycle
+			// rules and quotas never mix with course materials.
+			Bucket: getEnv("CHAT_STORAGE_BUCKET", "chat-files"),
 			UseSSL: getEnv("CHAT_STORAGE_USE_SSL", getEnv("MINIO_USE_SSL", "false")) == "true",
 		},
 		JWT: JWTConfig{

@@ -40,8 +40,14 @@ func NewObjectStore(cfg config.StorageConfig) (*ObjectStore, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	if _, err := client.BucketExists(ctx, cfg.Bucket); err != nil {
+	exists, err := client.BucketExists(ctx, cfg.Bucket)
+	if err != nil {
 		return nil, fmt.Errorf("check object bucket %q: %w", cfg.Bucket, err)
+	}
+	if !exists {
+		if err := client.MakeBucket(ctx, cfg.Bucket, minio.MakeBucketOptions{}); err != nil {
+			return nil, fmt.Errorf("create object bucket %q: %w", cfg.Bucket, err)
+		}
 	}
 	return &ObjectStore{client: client, bucket: cfg.Bucket}, nil
 }
