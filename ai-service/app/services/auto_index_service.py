@@ -371,9 +371,18 @@ class AutoIndexService:
 
             if not nodes:
                 logger.info("AutoIndex: no nodes extracted for content_id=%d (may be boilerplate-only)", content_id)
+                # No curriculum concept is not an indexing failure.  Keep the
+                # material searchable by RAG with node_id=NULL (e.g. a useful
+                # benchmark plot or a standalone reference image).
+                n_chunks = await self._chunk_and_store(
+                    file_bytes=file_bytes, file_type=file_type,
+                    structured_chunks=structured_chunks,
+                    content_id=content_id, course_id=course_id,
+                    node_ids=[], node_embeddings=[], language=language,
+                )
                 await self._update_content_status(content_id, "indexed")
                 return {"ok": True, "node_ids": [], "new_nodes_created": 0,
-                        "nodes_reused": 0, "chunks_created": 0,
+                        "nodes_reused": 0, "chunks_created": n_chunks,
                         "language": language, "file_type": file_type}
 
             _progress("embed_nodes", 40)
@@ -498,9 +507,15 @@ class AutoIndexService:
 
             if not nodes:
                 logger.info("AutoIndexText: no nodes for content_id=%d (may be boilerplate-only)", content_id)
+                n_chunks = await self._chunk_and_store(
+                    file_bytes=text_content.encode("utf-8"), file_type="text",
+                    structured_chunks=structured_chunks,
+                    content_id=content_id, course_id=course_id,
+                    node_ids=[], node_embeddings=[], language=language,
+                )
                 await self._update_content_status(content_id, "indexed")
                 return {"ok": True, "node_ids": [], "new_nodes_created": 0,
-                        "nodes_reused": 0, "chunks_created": 0,
+                        "nodes_reused": 0, "chunks_created": n_chunks,
                         "language": language, "file_type": "text"}
 
             _progress("embed_nodes", 40)
@@ -1389,22 +1404,24 @@ class AutoIndexService:
 
         # Vectorized chunk->node assignment.  A low-confidence match must not
         # attach an illustration or unrelated passage to a random graph node.
-        node_emb_matrix  = np.array(node_embeddings)
-        chunk_emb_matrix = np.array(chunk_embeddings)
-        node_norms  = np.linalg.norm(node_emb_matrix,  axis=1, keepdims=True) + 1e-8
-        chunk_norms = np.linalg.norm(chunk_emb_matrix, axis=1, keepdims=True) + 1e-8
-        sims = (chunk_emb_matrix / chunk_norms) @ (node_emb_matrix / node_norms).T
-        best_node_local = sims.argmax(axis=1)
-        best_scores = sims.max(axis=1)
-        evidence_assignments = evidence_assignments or {}
-        assigned_node_ids: list[Optional[int]] = []
-        for chunk, local_node, score in zip(structured_chunks, best_node_local.tolist(), best_scores.tolist()):
-            if chunk.index in evidence_assignments:
-                assigned_node_ids.append(evidence_assignments[chunk.index])
-            elif score >= MIN_CHUNK_TO_NODE_SIMILARITY and not self._is_artifact_chunk(chunk):
-                assigned_node_ids.append(node_ids[local_node])
-            else:
-                assigned_node_ids.append(None)
+        # Documents without an eligible concept still go to RAG unassigned.
+        assigned_node_ids: list[Optional[int]] = [None] * len(structured_chunks)
+        if node_ids and node_embeddings:
+            node_emb_matrix  = np.array(node_embeddings)
+            chunk_emb_matrix = np.array(chunk_embeddings)
+            node_norms  = np.linalg.norm(node_emb_matrix,  axis=1, keepdims=True) + 1e-8
+            chunk_norms = np.linalg.norm(chunk_emb_matrix, axis=1, keepdims=True) + 1e-8
+            sims = (chunk_emb_matrix / chunk_norms) @ (node_emb_matrix / node_norms).T
+            best_node_local = sims.argmax(axis=1)
+            best_scores = sims.max(axis=1)
+            evidence_assignments = evidence_assignments or {}
+            for i, (chunk, local_node, score) in enumerate(zip(
+                structured_chunks, best_node_local.tolist(), best_scores.tolist()
+            )):
+                if chunk.index in evidence_assignments:
+                    assigned_node_ids[i] = evidence_assignments[chunk.index]
+                elif score >= MIN_CHUNK_TO_NODE_SIMILARITY and not self._is_artifact_chunk(chunk):
+                    assigned_node_ids[i] = node_ids[local_node]
 
         stored = await self._batch_insert_chunks(
             content_id=content_id, course_id=course_id,
