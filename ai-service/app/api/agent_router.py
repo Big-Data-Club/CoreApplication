@@ -258,6 +258,12 @@ async def rename_session(
 
 # ── Notebook CRUD Proxy ───────────────────────────────────────────────────────
 
+class NotebookEntryRequest(BaseModel):
+    title: str
+    content: str
+    course_id: Optional[int] = None
+    node_id: Optional[int] = None
+
 @router.get("/notebook")
 async def list_notebook(
     user_id: int,
@@ -281,6 +287,37 @@ async def list_notebook(
         return {"notes": res.json()}
     except Exception as e:
         logger.error(f"Failed to proxy list_notebook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notebook")
+async def create_notebook_entry(
+    body: NotebookEntryRequest,
+    user_id: int,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
+):
+    """Save a student-authored or explicitly approved AI note."""
+    _verify_secret(x_ai_secret)
+    title, content = body.title.strip(), body.content.strip()
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="title and content are required")
+    if len(title) > 180 or len(content) > 100_000:
+        raise HTTPException(status_code=400, detail="notebook entry is too large")
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(
+                f"{settings.personalize_service_url}/personalize/notebook",
+                json={"user_id": user_id, "title": title, "content": content, "course_id": body.course_id, "node_id": body.node_id},
+                headers={"X-AI-Secret": settings.ai_service_secret},
+            )
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=res.text)
+        return res.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save notebook entry: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

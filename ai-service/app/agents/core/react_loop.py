@@ -1162,13 +1162,16 @@ async def run_react_loop(
                         })
 
             if tool_result.ui_instruction:
-                assistant_metadata["uiComponent"] = tool_result.ui_instruction
-                yield AgentEvent(
-                    type=AgentEventType.UI_COMPONENT,
-                    data=tool_result.ui_instruction,
-                    session_id=session_id,
-                    turn_id=iter_id,
-                )
+                # HITL owns rendering of its actionable widget. Emitting it a
+                # second time would duplicate that one component in the client.
+                if tool_result.status != "pending_human_approval":
+                    assistant_metadata.setdefault("uiComponents", []).append(tool_result.ui_instruction)
+                    yield AgentEvent(
+                        type=AgentEventType.UI_COMPONENT,
+                        data=tool_result.ui_instruction,
+                        session_id=session_id,
+                        turn_id=iter_id,
+                    )
 
             if tool_result.status == "pending_human_approval":
                 assistant_metadata["hitlRequest"] = {
