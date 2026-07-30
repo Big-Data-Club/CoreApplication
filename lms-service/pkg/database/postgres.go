@@ -69,8 +69,10 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*sql.DB, error) {
 // logging but must not take the LMS offline.
 func EnsureTeacherDashboardIndexes(ctx context.Context, db *sql.DB) error {
 	statements := []string{
-		`CREATE INDEX IF NOT EXISTS idx_courses_teacher_published ON courses(created_by, id) WHERE status = 'PUBLISHED'`,
+		`CREATE INDEX IF NOT EXISTS idx_courses_teacher_status ON courses(created_by, status)`,
+		`CREATE INDEX IF NOT EXISTS idx_courses_teacher_published_recent ON courses(created_by, updated_at DESC) INCLUDE (id, title, thumbnail_url) WHERE status = 'PUBLISHED'`,
 		`CREATE INDEX IF NOT EXISTS idx_enrollments_accepted_timeline ON enrollments(course_id, enrolled_at DESC, student_id) WHERE status = 'ACCEPTED'`,
+		`CREATE INDEX IF NOT EXISTS idx_enrollments_dashboard_students ON enrollments(course_id, student_id) WHERE status = 'ACCEPTED'`,
 		`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_dashboard_first ON quiz_attempts(quiz_id, student_id, attempt_number, id) INCLUDE (percentage) WHERE status IN ('SUBMITTED', 'GRADED')`,
 	}
 	for _, statement := range statements {

@@ -647,9 +647,14 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 	// 4. Get course statistics (progress and quiz scores)
 	statsRows, err := r.db.QueryContext(ctx, `
 		WITH teacher_courses AS (
+			-- A dashboard is a snapshot, not the complete course catalogue. Limiting
+			-- this expensive aggregation keeps its cost bounded for prolific teachers;
+			-- the course-management page remains the place to browse every course.
 			SELECT id, title, thumbnail_url
 			FROM courses
 			WHERE created_by = $1 AND status = 'PUBLISHED'
+			ORDER BY updated_at DESC
+			LIMIT 50
 		),
 		teacher_quizzes AS (
 			SELECT q.id AS quiz_id, cs.course_id
