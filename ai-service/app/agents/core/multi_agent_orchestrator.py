@@ -26,6 +26,12 @@ from app.agents.events import AgentEvent, AgentEventType
 from app.agents.core.sub_agents import (
     RetrievalSpecialist, DraftingSpecialist, CritiqueSpecialist, CritiqueReport,
 )
+from app.agents.core.agentic_protocol import (
+    AgentTask,
+    OrchestrationPlan,
+    build_orchestration_plan,
+    default_capability_registry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +44,8 @@ class MultiAgentOrchestrator:
         self.consolidation: Optional[Dict[str, Any]] = None
         self.spawning_score: float = 0.0
         self.spawning_breakdown: Dict[str, Any] = {}
+        self.orchestration_plan: dict[str, Any] | None = None
+        self._capabilities = default_capability_registry()
 
     def calculate_spawning_score(
         self,
@@ -219,32 +227,63 @@ class MultiAgentOrchestrator:
         system_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[AgentEvent | str]:
         """
-        Multi-agent pipeline: Retrieval -> Draft -> Critique -> (Revision) -> Final.
-        Add timing logs for each phase.
+        Run the capability-selected task DAG. The current specialists are
+        retrieval, drafting and critique, but the plan is dynamic: low-risk
+        requests can skip retrieval/critique and future capabilities can be
+        registered without replacing this execution interface.
         """
         t_start = time.monotonic()
 
         try:
-            # -- Phase 1: Retrieval --------------------------------------------
+            require_evidence = intent_type not in ("general_chat", "chitchat")
+            quality_gate = bool(
+                score_breakdown.get("v_need", 0) >= 1
+                or score_breakdown.get("depth_signal", 0) >= 0.8
+                or intent_type in ("content_creation", "interactive_exercise")
+            )
+            task = AgentTask(
+                objective=query,
+                intent=intent_type,
+                require_evidence=require_evidence,
+                quality_gate=quality_gate,
+            )
+            plan = build_orchestration_plan(task, self._capabilities)
+            self.orchestration_plan = plan.as_dict()
+            selected = {step.capability for step in plan.steps}
+            yield AgentEvent(
+                type=AgentEventType.THINKING,
+                data={
+                    "step": "orchestration_plan",
+                    "capabilities": [step.capability for step in plan.steps],
+                    "rationale": list(plan.rationale),
+                },
+                session_id=self.session_id,
+                turn_id=self.turn_id,
+            )
+
+            # -- Evidence phase -------------------------------------------------
             logger.info(
-                "[MultiAgent] Starting Retrieval | session=%s score=%.3f triggers=%s",
+                "[MultiAgent] plan=%s | session=%s score=%.3f triggers=%s",
+                [step.capability for step in plan.steps],
                 self.session_id[:8],
                 score_breakdown.get("score", 0),
                 score_breakdown.get("triggered_by", []),
             )
-            retrieval_agent = RetrievalSpecialist(self.session_id, self.turn_id)
-            consolidated_context = ""
-            async for ev in retrieval_agent.execute(
-                query=query,
-                course_id=course_id,
-                page_context=page_context,
-                system_context=system_context,
-            ):
-                if isinstance(ev, AgentEvent):
-                    self._record_event(ev)
-                    yield ev
-                else:
-                    consolidated_context = ev
+            consolidated_context = "No specific reference materials were found."
+            if "evidence_retrieval" in selected:
+                retrieval_agent = RetrievalSpecialist(self.session_id, self.turn_id)
+                consolidated_context = ""
+                async for ev in retrieval_agent.execute(
+                    query=query,
+                    course_id=course_id,
+                    page_context=page_context,
+                    system_context=system_context,
+                ):
+                    if isinstance(ev, AgentEvent):
+                        self._record_event(ev)
+                        yield ev
+                    else:
+                        consolidated_context = ev
 
             if not consolidated_context:
                 consolidated_context = "No specific reference materials were found."
@@ -255,7 +294,7 @@ class MultiAgentOrchestrator:
                 (t1 - t_start) * 1000, len(consolidated_context),
             )
 
-            # -- Phase 2: Initial Draft ----------------------------------------
+            # -- Draft phase ----------------------------------------------------
             logger.info("[MultiAgent] Starting Draft phase")
             draft_agent = DraftingSpecialist(self.session_id, self.turn_id)
             draft = ""
@@ -272,16 +311,18 @@ class MultiAgentOrchestrator:
                 (t2 - t1) * 1000, len(draft),
             )
 
-            # -- Phase 3: Critique ---------------------------------------------
-            logger.info("[MultiAgent] Starting Critique phase")
-            critique_agent = CritiqueSpecialist(self.session_id, self.turn_id)
+            # -- Optional quality gate -----------------------------------------
             critique_report: Optional[CritiqueReport] = None
-            async for ev in critique_agent.execute(query, draft, consolidated_context):
-                if isinstance(ev, AgentEvent):
-                    self._record_event(ev)
-                    yield ev
-                else:
-                    critique_report = ev
+            critique_agent: CritiqueSpecialist | None = None
+            if "quality_critique" in selected:
+                logger.info("[MultiAgent] Starting Critique phase")
+                critique_agent = CritiqueSpecialist(self.session_id, self.turn_id)
+                async for ev in critique_agent.execute(query, draft, consolidated_context):
+                    if isinstance(ev, AgentEvent):
+                        self._record_event(ev)
+                        yield ev
+                    else:
+                        critique_report = ev
 
             t3 = time.monotonic()
             logger.info(
@@ -291,7 +332,7 @@ class MultiAgentOrchestrator:
             )
 
             # -- Phase 4: Revision (max 1 cycle) -------------------------------
-            if critique_report and critique_report.verdict == "needs_revision":
+            if critique_agent and critique_report and critique_report.verdict == "needs_revision":
                 logger.info("[MultiAgent] Critique rejected draft, starting revision")
                 revised_draft = ""
                 async for ev in draft_agent.execute(

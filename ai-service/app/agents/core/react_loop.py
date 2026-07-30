@@ -726,6 +726,7 @@ async def run_react_loop(
                 "consolidation": orchestrator.consolidation,
                 "spawningScore": orchestrator.spawning_score,
                 "spawningBreakdown": orchestrator.spawning_breakdown,
+                "orchestrationPlan": orchestrator.orchestration_plan,
             }
             await message_store.save_message(
                 session_id, "assistant", final_answer, metadata

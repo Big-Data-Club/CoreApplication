@@ -46,6 +46,9 @@ RULES:
    the JSON values in Vietnamese.
 6. When merging with EXISTING CONTEXT, preserve still-relevant facts and
    only append/refine based on the new conversation. Don't duplicate.
+7. Also emit memory_items for facts worth recalling. Each item must be a
+   concise, attributable claim; never store raw lesson text, credentials, or
+   hidden reasoning. Use status='completed' when a pending action was done.
 
 Output JSON schema:
 {
@@ -62,7 +65,13 @@ Output JSON schema:
         "current_topic": "the topic actively being discussed, or empty",
         "preferred_language": "vi | en | ...",
         "level": "beginner | intermediate | advanced (if inferrable)"
-    }
+    },
+    "memory_items": [
+        {"kind": "anchor|preference|decision|pending_action|learning_signal|artifact",
+         "value": "compact fact", "scope": "session|course|user",
+         "status": "active|completed|superseded", "confidence": 0.0,
+         "source": "conversation_summary", "course_id": null}
+    ]
 }
 
 `key_facts` may contain other user-specific preferences observed in the
@@ -152,10 +161,14 @@ async def compress_conversation(
             "student_progress": {},
             "pending_actions": [],
             "key_facts": {},
+            "memory_items": [],
         }
         for key, default in defaults.items():
             if key not in result:
                 result[key] = default
+
+        from app.agents.memory.memory_policy import normalize_memory_items
+        result["memory_items"] = normalize_memory_items(result.get("memory_items"))
 
         logger.info(
             "Conversation compressed: gaps=%d, actions=%d, facts=%d",

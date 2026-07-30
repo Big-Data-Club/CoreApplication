@@ -95,6 +95,21 @@ class ContextBuilder:
         except Exception as exc:
             logger.warning("Failed to fetch MTM context: %s", exc)
 
+        # Durable memory is selected by lifecycle/scope/confidence before it
+        # reaches the prompt.  This prevents a completed action or an old
+        # course-specific preference from silently steering a new task.
+        from app.agents.memory.memory_policy import (
+            format_memory_items, migrate_legacy_memory, select_memory_for_prompt,
+        )
+        selected_memory = select_memory_for_prompt(
+            mtm_ctx.get("memory_items") or migrate_legacy_memory(mtm_ctx), course_id=course_id,
+        )
+        if selected_memory:
+            memory_section = "DURABLE MEMORY (scoped, attributable):\n" + format_memory_items(selected_memory)
+            sections.append(memory_section)
+            total_tokens += len(memory_section) // 4
+        raw["durable_memory"] = selected_memory
+
         # ── 1. STM: Recent conversation history ──────────────────────────────
         stm_messages: list[dict] = []
         if weights["stm"] >= 0.3:
