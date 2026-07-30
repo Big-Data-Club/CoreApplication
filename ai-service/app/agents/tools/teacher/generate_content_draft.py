@@ -164,12 +164,19 @@ class GenerateContentDraftTool(BaseTool):
             instruction = type_instructions.get(content_type, type_instructions["student_lesson"])
             lang_note = "Viết bằng tiếng Việt." if language == "vi" else "Write in English."
 
+            # A page/anchor-selected course is already ground truth; keeping
+            # only that catalog entry frees prompt budget for the learner's
+            # source material. Without an anchor, retain the full catalog so
+            # the model never selects a course that was silently omitted.
+            prompt_courses = (
+                [c for c in courses_info if c["id"] == course_id]
+                if course_id else courses_info
+            )
             courses_str = ""
-            for c in courses_info:
+            for c in prompt_courses:
                 courses_str += f"- Course ID {c['id']}: {c['title']}\n"
                 for s in c["sections"]:
                     courses_str += f"  + Section ID {s['id']}: {s['title']}\n"
-            courses_str = courses_str[:4000]
 
             def build_system_prompt(learning_context: str) -> str:
                 return (
