@@ -18,7 +18,7 @@ import hashlib
 import io
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 import numpy as np
@@ -44,16 +44,18 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
-RELATION_SIMILARITY_THRESHOLD = 0.62
+# Similarity alone is weak evidence of a pedagogical relationship.  Explicit
+# LLM relations remain available; automatic links require a much stronger
+# semantic signal to avoid a dense, unusable "related to everything" graph.
+RELATION_SIMILARITY_THRESHOLD = 0.78
 MAX_NODES_PER_BATCH = 5
-MIN_NODES_PER_BATCH = 2
 EMBED_BATCH_SIZE = 16
 MAX_EXCERPT_CHARS = 9000
 MAX_EXISTING_NODES_FOR_GRAPH = 200
 
 # Cross-document dedup: aggressively merge to prevent node explosion
-DEDUP_HARD_THRESHOLD = 0.88   # was 0.92 - reuse nodes more aggressively
-DEDUP_SOFT_THRESHOLD = 0.72   # was 0.80 - wider merge window
+DEDUP_HARD_THRESHOLD = 0.90
+DEDUP_SOFT_THRESHOLD = 0.82
 
 # Within the same indexing run, collapse near-duplicate nodes from different
 # batches before comparing against the DB. This is the #1 fix for node
@@ -63,6 +65,11 @@ INTRA_RUN_DEDUP_THRESHOLD = 0.85
 # Minimum characters of real content a chunk must have to be worth sending
 # to the LLM for node extraction. Prevents wasting calls on boilerplate.
 MIN_CHUNK_CONTENT_CHARS = 100
+# A graph node is a learning concept, not every retrievable artifact.  Chunks
+# below this semantic-match score remain in RAG (node_id=NULL) but do not
+# silently become evidence for an unrelated concept.
+MIN_CHUNK_TO_NODE_SIMILARITY = 0.52
+MIN_NODE_EVIDENCE_CHARS = 260
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -75,6 +82,10 @@ class ExtractedNode:
     description: str
     keywords: list[str]
     order_index: int
+    # Global DocumentChunk indexes cited by the extractor.  Grounding node
+    # creation in source evidence prevents figure/table descriptions from
+    # becoming standalone lessons.
+    evidence_chunk_indexes: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -101,6 +112,8 @@ Important principles for micro-learning optimization:
    - A node must contain enough substance to support a ~5-minute reading lesson (~700-1100 words) and allow for 3-5 distinct test questions.
 3. NO DUPLICATION: Ensure the extracted nodes do not overlap semantically with each other.
 4. FILTER BOILERPLATE & METADATA: Disregard copyright info (©), page numbers, publisher names, university logos, author names, etc. If the text only contains metadata or lacks academic substance, return an empty structure: {"nodes": [], "prerequisites": []}.
+5. FIGURES ARE EVIDENCE, NOT TOPICS: Never create a node for a plot, chart, table, screenshot, image caption, file name, page, or comparison result. A figure can support an underlying concept only when the surrounding material explains that concept. If the supplied evidence is only a visual/artifact description, return no nodes.
+6. SOURCE GROUNDING: Every proposed node must cite one or more supplied EVIDENCE CHUNK indexes containing a direct explanation of the concept. Return fewer nodes (including zero) whenever the evidence is insufficient; never invent topics to reach a quota.
 
 Return ONLY valid JSON according to the requested schema. No conversational text.\
 """
@@ -147,7 +160,8 @@ def build_node_extraction_prompt(
       "name_vi": "Vietnamese topic name (highly accurate, academic style)",
       "name_en": "English topic name (highly accurate, corresponding to name_vi)",
       "description": "A 2-3 sentence description of the specific knowledge concept covered in the document",
-      "keywords": ["keyword 1", "keyword 2", "keyword 3"]
+      "keywords": ["keyword 1", "keyword 2", "keyword 3"],
+      "evidence_chunk_indexes": [12, 13]
     }
   ],
   "prerequisites": [
@@ -163,7 +177,7 @@ def build_node_extraction_prompt(
     return f"""\
 Document Type: {file_hint}
 {title_context}{heading_context}
-TASK: Identify exactly {max_nodes} most important knowledge topics (nodes) from the source document.
+TASK: Identify AT MOST {max_nodes} important, reusable knowledge topics (nodes) from the source document. Returning [] is correct when there is no teachable concept.
 {lang_output_hint}
 
 DOCUMENT CONTENT:
@@ -383,6 +397,7 @@ class AutoIndexService:
             all_node_ids, all_node_embeddings = self._build_combined_node_list(
                 nodes, node_embeddings, idx_to_existing, truly_new_nodes, new_node_ids
             )
+            evidence_assignments = self._build_evidence_assignments(nodes, all_node_ids)
 
             await self._create_llm_relations(relations, all_node_ids, course_id)
 
@@ -392,7 +407,7 @@ class AutoIndexService:
                 structured_chunks=structured_chunks,
                 content_id=content_id, course_id=course_id,
                 node_ids=all_node_ids, node_embeddings=all_node_embeddings,
-                language=language,
+                language=language, evidence_assignments=evidence_assignments,
             )
 
             _progress("build_graph", 90)
@@ -509,6 +524,7 @@ class AutoIndexService:
             all_node_ids, all_node_embeddings = self._build_combined_node_list(
                 nodes, node_embeddings, idx_to_existing, truly_new_nodes, new_node_ids
             )
+            evidence_assignments = self._build_evidence_assignments(nodes, all_node_ids)
             await self._create_llm_relations(relations, all_node_ids, course_id)
 
             _progress("chunk_embed", 60)
@@ -518,7 +534,7 @@ class AutoIndexService:
                 structured_chunks=structured_chunks,
                 content_id=content_id, course_id=course_id,
                 node_ids=all_node_ids, node_embeddings=all_node_embeddings,
-                language=language,
+                language=language, evidence_assignments=evidence_assignments,
             )
 
             _progress("build_graph", 90)
@@ -739,7 +755,9 @@ class AutoIndexService:
         doc_title: Optional[str] = None,
     ) -> tuple[list[ExtractedNode], list[ExtractedRelation]]:
         if not structured_chunks:
-            return await self._extract_nodes_and_relations(raw_text, file_type, language, file_url, doc_title)
+            # Without chunk-level evidence we cannot safely ground a graph node.
+            # Keep indexing fail-safe: no graph is better than invented concepts.
+            return [], []
 
         # ── Pre-filter: discard boilerplate/thin chunks ────────────────
         from app.services.chunker import MarkdownChunker
@@ -765,12 +783,16 @@ class AutoIndexService:
         
         for i in range(0, len(quality_chunks), BATCH_SIZE):
             batch_chunks = quality_chunks[i:i+BATCH_SIZE]
-            batch_text = "\n\n".join(c.text for c in batch_chunks)
+            batch_text = "\n\n".join(
+                f"[EVIDENCE CHUNK {c.index}]\n{c.text}" for c in batch_chunks
+            )
             if not batch_text.strip():
                 continue
                 
             nodes, relations = await self._extract_nodes_and_relations(
-                batch_text, file_type, language, file_url, doc_title
+                batch_text, file_type, language, file_url, doc_title,
+                valid_evidence_indexes={c.index for c in batch_chunks},
+                evidence_chunks={c.index: c for c in batch_chunks},
             )
             
             for r in relations:
@@ -798,8 +820,10 @@ class AutoIndexService:
         language: str,
         file_url: str = "",
         doc_title: Optional[str] = None,
+        valid_evidence_indexes: Optional[set[int]] = None,
+        evidence_chunks: Optional[dict[int, DocumentChunk]] = None,
     ) -> tuple[list[ExtractedNode], list[ExtractedRelation]]:
-        n_nodes = min(MAX_NODES_PER_BATCH, max(MIN_NODES_PER_BATCH, len(raw_text) // 1500))
+        n_nodes = min(MAX_NODES_PER_BATCH, max(1, len(raw_text) // 1500))
         if doc_title is None:
             doc_title = _extract_doc_title(raw_text)
         headings = _extract_headings(raw_text)
@@ -822,25 +846,32 @@ class AutoIndexService:
             )
         except Exception as exc:
             logger.error("LLM node extraction failed: %s", exc, exc_info=True)
-            fallback_name = doc_title or "Nội dung tài liệu"
-            return ([ExtractedNode(
-                name=fallback_name, name_vi=fallback_name, name_en=fallback_name,
-                description="", keywords=[], order_index=0,
-            )], [])
+            # Never turn an LLM outage into a generic, ungrounded graph node.
+            return [], []
 
         raw_nodes = result.get("nodes", [])
         nodes: list[ExtractedNode] = []
-        for i, n in enumerate(raw_nodes[:MAX_NODES_PER_BATCH]):
+        raw_to_kept: dict[int, int] = {}
+        for raw_i, n in enumerate(raw_nodes[:MAX_NODES_PER_BATCH]):
             name_vi = n.get("name_vi") or n.get("name", "")
             name_en = n.get("name_en") or n.get("name", "")
             if not (name_vi or name_en):
                 continue
-            nodes.append(ExtractedNode(
+            evidence_indexes = [
+                idx for idx in n.get("evidence_chunk_indexes", [])
+                if isinstance(idx, int) and (valid_evidence_indexes is None or idx in valid_evidence_indexes)
+            ]
+            candidate = ExtractedNode(
                 name=name_vi or name_en, name_vi=name_vi, name_en=name_en,
                 description=n.get("description", "")[:500],
                 keywords=n.get("keywords", [])[:8],
-                order_index=i,
-            ))
+                order_index=len(nodes), evidence_chunk_indexes=evidence_indexes,
+            )
+            if not self._is_grounded_learning_node(candidate, evidence_chunks or {}):
+                logger.info("[eligibility:skip] rejected non-learning node '%s'", candidate.name)
+                continue
+            raw_to_kept[raw_i] = len(nodes)
+            nodes.append(candidate)
 
         raw_rels = result.get("prerequisites", [])
         relations: list[ExtractedRelation] = []
@@ -848,10 +879,10 @@ class AutoIndexService:
             src, tgt = r.get("source_index"), r.get("target_index")
             if not (isinstance(src, int) and isinstance(tgt, int)):
                 continue
-            if src == tgt or src >= len(nodes) or tgt >= len(nodes):
+            if src == tgt or src not in raw_to_kept or tgt not in raw_to_kept:
                 continue
             relations.append(ExtractedRelation(
-                source_index=src, target_index=tgt,
+                source_index=raw_to_kept[src], target_index=raw_to_kept[tgt],
                 relation_type=r.get("relation_type", "prerequisite"),
                 reason=r.get("reason", ""),
                 strength=float(r.get("strength", 0.85)),
@@ -859,6 +890,33 @@ class AutoIndexService:
 
         logger.info("LLM extracted %d nodes, %d relations", len(nodes), len(relations))
         return nodes, relations
+
+    @staticmethod
+    def _is_grounded_learning_node(
+        node: ExtractedNode, evidence_chunks: dict[int, DocumentChunk],
+    ) -> bool:
+        """Reject artifacts and claims that cannot be traced to explanatory text.
+
+        This is deliberately domain-neutral: an HPC plot, a medical scan, and
+        a marketing screenshot are useful retrieval evidence, but none becomes
+        a curriculum node without a substantive explanation of a concept.
+        """
+        import re
+
+        artifact = re.compile(r"\b(figure|fig\.?|plot|chart|graph|table|image|screenshot|caption|page|hình|biểu đồ|đồ thị|bảng)\b", re.I)
+        if artifact.search(node.name) or len(node.description.strip()) < 80:
+            return False
+        evidence = [evidence_chunks[i] for i in node.evidence_chunk_indexes if i in evidence_chunks]
+        if not evidence:
+            return False
+        substantive = [
+            c for c in evidence
+            if len(c.text.strip()) >= MIN_NODE_EVIDENCE_CHARS
+            and "[mô tả hình ảnh:" not in c.text.lower()
+            and "[hình ảnh:" not in c.text.lower()
+            and "[image:" not in c.text.lower()
+        ]
+        return bool(substantive)
 
     # ─ Step 4: Node deduplication (Qdrant-backed) ─────────────────────────────
 
@@ -984,7 +1042,9 @@ class AutoIndexService:
                 idx_to_existing[i] = exist_id
                 logger.info("[dedup:hard] '%s' -> reuse node %d (sim=%.3f)", node.name, exist_id, best_sim)
 
-            elif best_sim >= DEDUP_SOFT_THRESHOLD:
+            elif best_sim >= DEDUP_SOFT_THRESHOLD and self._names_are_canonical_match(
+                node.name, existing_names[best_j]
+            ):
                 asyncio.ensure_future(
                     self._merge_node_description(exist_id, node.description, node.keywords)
                 )
@@ -997,6 +1057,26 @@ class AutoIndexService:
                 logger.debug("[dedup:new] '%s' (best=%.3f with '%s')", node.name, best_sim, existing_names[best_j])
 
         return truly_new_nodes, truly_new_embs, idx_to_existing
+
+    @staticmethod
+    def _names_are_canonical_match(left: str, right: str) -> bool:
+        """Cheap precision guard before a destructive soft merge.
+
+        Embeddings are excellent at finding candidates but often consider a
+        result/visualization and the concept it illustrates as "similar".  A
+        merge changes the course ontology, so require lexical canonical
+        agreement unless the vector score is in the hard-reuse range.
+        """
+        import re
+        def tokens(value: str) -> set[str]:
+            return {
+                t for t in re.findall(r"[\wÀ-ỹ]+", value.lower())
+                if len(t) > 2 and t not in {"các", "cho", "với", "the", "and", "for", "of", "in"}
+            }
+        a, b = tokens(left), tokens(right)
+        if not a or not b:
+            return False
+        return a <= b or b <= a or len(a & b) / min(len(a), len(b)) >= 0.75
 
     async def _intra_run_dedup(
         self,
@@ -1080,6 +1160,9 @@ class AutoIndexService:
                     root_node.description = (
                         root_node.description + " | " + merged_node.description
                     ).strip(" |")[:800]
+                root_node.evidence_chunk_indexes = sorted(set(
+                    root_node.evidence_chunk_indexes + merged_node.evidence_chunk_indexes
+                ))
                 logger.info(
                     "[intra-dedup] merge '%s' -> '%s' (sim=%.3f)",
                     merged_node.name, root_node.name,
@@ -1167,6 +1250,19 @@ class AutoIndexService:
                     all_node_embeddings.append(emb)
                     new_cursor += 1
         return all_node_ids, all_node_embeddings
+
+    @staticmethod
+    def _build_evidence_assignments(
+        nodes: list[ExtractedNode], node_ids: list[int],
+    ) -> dict[int, int]:
+        """Map cited chunk indexes to a graph node before semantic fallback."""
+        assignments: dict[int, int] = {}
+        for node, node_id in zip(nodes, node_ids):
+            for chunk_index in node.evidence_chunk_indexes:
+                # First grounded claim wins; conflicting LLM citations are not
+                # allowed to make a chunk evidence for multiple micro-lessons.
+                assignments.setdefault(chunk_index, node_id)
+        return assignments
 
     # ─ Step 5: Create nodes in DB + Qdrant ───────────────────────────────────
 
@@ -1283,6 +1379,7 @@ class AutoIndexService:
         node_ids: list[int],
         node_embeddings: list[list[float]],
         language: str,
+        evidence_assignments: Optional[dict[int, int]] = None,
     ) -> int:
         if not structured_chunks:
             return 0
@@ -1290,14 +1387,24 @@ class AutoIndexService:
         chunk_texts       = [c.text for c in structured_chunks]
         chunk_embeddings  = await _batch_embed(chunk_texts)
 
-        # Vectorized chunk->node assignment
+        # Vectorized chunk->node assignment.  A low-confidence match must not
+        # attach an illustration or unrelated passage to a random graph node.
         node_emb_matrix  = np.array(node_embeddings)
         chunk_emb_matrix = np.array(chunk_embeddings)
         node_norms  = np.linalg.norm(node_emb_matrix,  axis=1, keepdims=True) + 1e-8
         chunk_norms = np.linalg.norm(chunk_emb_matrix, axis=1, keepdims=True) + 1e-8
         sims = (chunk_emb_matrix / chunk_norms) @ (node_emb_matrix / node_norms).T
-        best_node_local  = sims.argmax(axis=1)
-        assigned_node_ids = [node_ids[i] for i in best_node_local.tolist()]
+        best_node_local = sims.argmax(axis=1)
+        best_scores = sims.max(axis=1)
+        evidence_assignments = evidence_assignments or {}
+        assigned_node_ids: list[Optional[int]] = []
+        for chunk, local_node, score in zip(structured_chunks, best_node_local.tolist(), best_scores.tolist()):
+            if chunk.index in evidence_assignments:
+                assigned_node_ids.append(evidence_assignments[chunk.index])
+            elif score >= MIN_CHUNK_TO_NODE_SIMILARITY and not self._is_artifact_chunk(chunk):
+                assigned_node_ids.append(node_ids[local_node])
+            else:
+                assigned_node_ids.append(None)
 
         stored = await self._batch_insert_chunks(
             content_id=content_id, course_id=course_id,
@@ -1321,6 +1428,16 @@ class AutoIndexService:
                 logger.warning("Parent linking failed content=%d: %s", content_id, exc)
         
         return stored
+
+    @staticmethod
+    def _is_artifact_chunk(chunk: DocumentChunk) -> bool:
+        text = chunk.text.lower().strip()
+        return (
+            chunk.source_type == "image"
+            or "[mô tả hình ảnh:" in text
+            or "[hình ảnh:" in text
+            or "[image:" in text
+        )
 
     async def _build_and_link_parents(
         self,
@@ -1422,7 +1539,7 @@ class AutoIndexService:
         course_id: int,
         chunks: list[DocumentChunk],
         embeddings: list[list[float]],
-        assigned_node_ids: list[int],
+        assigned_node_ids: list[Optional[int]],
     ) -> int:
         from app.services.rag_service import _sanitize
 
@@ -1446,7 +1563,7 @@ class AutoIndexService:
         course_id: int,
         chunks: list[DocumentChunk],
         embeddings: list[list[float]],
-        assigned_node_ids: list[int],
+        assigned_node_ids: list[Optional[int]],
     ) -> int:
         from app.services.rag_service import _sanitize, RAGService
         from app.services.qdrant_service import qdrant_service
@@ -1512,7 +1629,7 @@ class AutoIndexService:
                     "chunk_hash":    h,
                     "content_id":    content_id,
                     "course_id":     course_id,
-                    "node_id":       node_id,
+                    **({"node_id": node_id} if node_id is not None else {}),
                     "source_type":   chunk.source_type,
                     "language":      chunk.language,
                     "status":        "ready",
@@ -1531,7 +1648,7 @@ class AutoIndexService:
         course_id: int,
         chunks: list[DocumentChunk],
         embeddings: list[list[float]],
-        assigned_node_ids: list[int],
+        assigned_node_ids: list[Optional[int]],
     ) -> int:
         from app.services.rag_service import _sanitize
         stored = 0

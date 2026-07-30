@@ -45,7 +45,10 @@ RELATIONSHIP_TYPES = {
 }
 
 # Similarity thresholds
-INTRA_COURSE_THRESHOLD  = 0.62   # Same course - more lenient
+# A graph edge is a navigation promise, not a nearest-neighbour result.
+# Course-local prerequisite/extends edges come from source-grounded extraction;
+# cosine-only edges are reserved for very strong relatedness.
+INTRA_COURSE_THRESHOLD  = 0.80
 CROSS_COURSE_THRESHOLD  = 0.82   # Different courses - tighter to avoid noise, but lowered for better recall
 EQUIVALENT_THRESHOLD    = 0.95   # Very high -> likely same concept
 
