@@ -75,7 +75,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		if err := database.EnsureTeacherDashboardIndexes(ctx, db); err != nil {
-			logger.Warnf("teacher dashboard indexes were not applied: %v", err)
+			logger.Warn(fmt.Sprintf("teacher dashboard indexes were not applied: %v", err))
 			return
 		}
 		logger.Info("teacher dashboard indexes are ready")
