@@ -213,7 +213,10 @@ class RetrievalSpecialist:
             yield raw_text
             return
 
-        # 3. Context Consolidation via LLM (70B model to ensure quality synthesis)
+        # 3. Context consolidation.  Never send a large raw context to a
+        # single model call and never fall back to a character slice: both
+        # create the exact TPM preflight failures and silent evidence loss this
+        # pipeline is meant to prevent.
         yield AgentEvent(
             type=AgentEventType.SUBAGENT_THINK,
             data={
@@ -224,42 +227,31 @@ class RetrievalSpecialist:
             turn_id=self.turn_id
         )
 
-        prompt = (
-            "You are a Context Consolidation Agent. Summarize the raw context below, "
-            "keeping ALL key facts, exercises, vocabulary items, and examples. "
-            "Remove only obvious duplicates and off-topic boilerplate. "
-            "Preserve the structure. Output at least 80% of the original content volume.\n\n"
-            f"Query: {query}\n\n"
-            f"Raw Context:\n{raw_text}\n\n"
-            "Consolidated Context:"
-        )
-
-        gateway = get_gateway()
-        req = ChatRequest(
-            task=TASK_CHAT,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=3600,
-            model_hint=settings.quiz_model
-        )
-
         consolidated = ""
         try:
-            async for delta_text, _, _ in gateway.stream(req):
-                if delta_text:
-                    consolidated += delta_text
-                    yield AgentEvent(
-                        type=AgentEventType.SUBAGENT_THINK,
-                        data={
-                            "subagent_id": self.subagent_id,
-                            "delta": delta_text
-                        },
-                        session_id=self.session_id,
-                        turn_id=self.turn_id
-                    )
+            from app.services.learning_content_reducer import LearningContentReducer
+
+            consolidated, _ = await LearningContentReducer().reduce(
+                raw_text,
+                topic=query,
+                language="vi",
+                force=True,
+            )
+            yield AgentEvent(
+                type=AgentEventType.SUBAGENT_THINK,
+                data={
+                    "subagent_id": self.subagent_id,
+                    "delta": "Đã tổng hợp ngữ cảnh theo từng phần, không cắt nguồn.\n",
+                },
+                session_id=self.session_id,
+                turn_id=self.turn_id,
+            )
         except Exception as exc:
-            logger.error("Consolidation streaming failed: %s", exc)
-            consolidated = raw_text[:4000] # Safe fallback
+            logger.error("Coverage-preserving consolidation failed: %s", exc)
+            # Do not silently drop the tail of a source. The parent flow may
+            # fall back to its normal RAG/tool path instead of hallucinating
+            # over a partial document.
+            consolidated = "[Source context could not be safely consolidated. Retrieve targeted evidence before answering.]"
 
         consolidated_token_est = len(consolidated) // 4
 

@@ -39,6 +39,42 @@ MAX_ITERATIONS = 5
 MAX_CLARIFICATIONS_PER_SESSION = 2
 
 
+def _is_teacher_authoring_request(message: str) -> bool:
+    """Fail-safe route for actions that must reach the HITL tool workflow.
+
+    Router confidence is intentionally probabilistic; publishing-oriented
+    teacher requests cannot be.  If the router misses a short Vietnamese or
+    English authoring request, sending it to prose-only multi-agent mode loses
+    the editable draft and can overload its retrieval context.
+    """
+    text = (message or "").lower()
+    action_markers = (
+        "tạo", "soạn", "thêm", "xuất bản", "generate", "create", "draft", "publish",
+    )
+    artifact_markers = (
+        "bài học", "lesson", "nội dung", "content", "quiz", "câu hỏi", "question",
+        "bài kiểm tra", "assessment", "slide", "tài liệu", "material",
+    )
+    return any(marker in text for marker in action_markers) and any(
+        marker in text for marker in artifact_markers
+    )
+
+
+def _format_compact_teacher_courses(active_courses: dict) -> str:
+    """Keep authoritative course IDs without injecting every graph node."""
+    courses = active_courses.get("courses") or []
+    if not courses:
+        return ""
+    lines = [
+        "ACTIVE COURSES FOR THIS USER",
+        "(Use only these course_ids. Knowledge nodes are fetched on demand.)",
+    ]
+    for course in courses:
+        if course.get("id") is not None:
+            lines.append(f'- course_id={course["id"]} "{course.get("title", "")}" (owner)')
+    return "\n".join(lines)
+
+
 # -----------------------------------------------------------------------------
 # [PATCH 1] Dynamic max_tokens
 # -----------------------------------------------------------------------------
@@ -657,6 +693,7 @@ async def run_react_loop(
     teacher_action_request = agent_type == "teacher" and (
         router_output.requires_tool
         or intent_type in ("content_creation", "interactive_exercise")
+        or _is_teacher_authoring_request(user_message)
     )
 
     if score >= 0.45 and not teacher_action_request:
@@ -816,7 +853,14 @@ async def run_react_loop(
             logger.warning("GraphRAG pre-fetch failed (non-fatal): %s", _exc)
 
     # -- Step 4: Build messages ------------------------------------------------
-    active_courses_section = format_active_courses_for_prompt(active_courses)
+    # Authoring requests need a compact, tool-routing prompt. Full node lists
+    # are only useful after the model has selected a quiz workflow and can be
+    # fetched on demand; sending them on every turn causes TPM preflight errors.
+    active_courses_section = (
+        _format_compact_teacher_courses(active_courses)
+        if teacher_action_request
+        else format_active_courses_for_prompt(active_courses)
+    )
 
     # Use ctx_decision.effective_* instead of raw page_context/system_context
     # When the user pivots, effective_page_context = None -> prevents context-lock
