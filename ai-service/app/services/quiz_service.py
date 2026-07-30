@@ -28,6 +28,8 @@ class QuizGenerationService:
         bloom_levels: list[str] | None = None,
         language: str = "vi",
         questions_per_level: int = 1,
+        assessment_purpose: str = "formative",
+        teacher_instructions: str = "",
     ) -> list[int]:
         levels = bloom_levels or BLOOM_LEVELS
         gen_ids: list[int] = []
@@ -56,6 +58,8 @@ class QuizGenerationService:
                         node_id=node_id, course_id=course_id, created_by=created_by,
                         bloom_level=bloom_level, node_name=node_name,
                         language=language, existing_questions=existing_texts,
+                        assessment_purpose=assessment_purpose,
+                        teacher_instructions=teacher_instructions,
                     )
                 )
 
@@ -82,6 +86,7 @@ class QuizGenerationService:
 
     async def _generate_single(
         self, node_id, course_id, created_by, bloom_level, node_name, language, existing_questions,
+        assessment_purpose="formative", teacher_instructions="",
     ) -> int:
         chunks = await rag_service.search_multilingual(
             query=node_name, course_id=course_id, node_id=node_id, top_k=4,
@@ -103,6 +108,8 @@ class QuizGenerationService:
             node_name=node_name,
             language=language,
             existing_questions=existing_questions[:5],
+            assessment_purpose=assessment_purpose,
+            teacher_instructions=teacher_instructions,
         )
         result = await chat_complete_json(
             messages=messages, model=settings.quiz_model, temperature=0.5,

@@ -213,6 +213,8 @@ def build_quiz_generation_prompt(
     node_name: str,
     language: str = "vi",
     existing_questions: list[str] | None = None,
+    assessment_purpose: str = "formative",
+    teacher_instructions: str = "",
 ) -> list[dict]:
     lang_name = "Vietnamese" if language == "vi" else "English"
     context = "\n---\n".join(f"[Source {i+1}] {c}" for i, c in enumerate(context_chunks))
@@ -246,6 +248,8 @@ def build_quiz_generation_prompt(
         f"2. Use Markdown (**bold**, `code`, $math$, $$math block$$) smartly for a professional feel.\n"
         f"3. ANTI-BIAS: Ensure distractors are plausible and relevant. Question must be objective.\n"
         f"4. INTELLIGENCE: The question must require reasoning based on the provided source material from the Knowledge Base."
+        f"\n5. ASSESSMENT INTENT: This is a {assessment_purpose} assessment. Adapt feedback, cognitive demand, and the "
+        f"scenario accordingly. Teacher constraints: {teacher_instructions or '(none)'}."
     )
     
     user_msg = (

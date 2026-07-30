@@ -66,7 +66,20 @@ class GenerateQuizDraftTool(BaseTool):
             "preferred_title": {
                 "type": "string",
                 "description": "Optional specific title the user wants for the quiz.",
-            }
+            },
+            "assessment_purpose": {
+                "type": "string",
+                "enum": ["diagnostic", "formative", "practice", "mastery"],
+                "default": "formative",
+                "description": (
+                    "Why learners take this quiz. diagnostic finds prior gaps; formative gives feedback; "
+                    "practice reinforces; mastery checks readiness."
+                ),
+            },
+            "instructions": {
+                "type": "string",
+                "description": "Optional constraints such as scenario style, common misconceptions, or outcomes to assess.",
+            },
         },
         "required": ["course_id", "node_id"],
     }
@@ -83,6 +96,8 @@ class GenerateQuizDraftTool(BaseTool):
         language = kwargs.get("language", "vi")
         created_by = kwargs.get("_user_id", 0)
         preferred_title = kwargs.get("preferred_title")
+        assessment_purpose = str(kwargs.get("assessment_purpose") or "formative")
+        teacher_instructions = str(kwargs.get("instructions") or "").strip()
 
         try:
             # 0. Pre-validate node_id exists - catch hallucinated IDs early
@@ -113,6 +128,8 @@ class GenerateQuizDraftTool(BaseTool):
                 bloom_levels=bloom_levels,
                 language=language,
                 questions_per_level=num_per_level,
+                assessment_purpose=assessment_purpose,
+                teacher_instructions=teacher_instructions,
             )
 
             # Fetch the generated drafts
@@ -144,6 +161,8 @@ class GenerateQuizDraftTool(BaseTool):
                 f"Input:\n"
                 f"- Số lượng câu hỏi: {len(new_drafts)}\n"
                 f"- Độ khó: {', '.join(bloom_levels) if bloom_levels else 'Đa dạng'}\n"
+                f"- Mục đích đánh giá: {assessment_purpose}\n"
+                f"- Yêu cầu của giảng viên: {teacher_instructions or '(không có)'}\n"
                 f"- Các chương hiện có:\n{section_list_str if sections else '(Trống)'}\n\n"
                 f"Hãy trả về JSON với các key:\n"
                 f"- 'quiz_title': Tiêu đề phù hợp (Gợi ý: {preferred_title if preferred_title else topic_name})\n"
@@ -175,6 +194,7 @@ class GenerateQuizDraftTool(BaseTool):
                 data={
                     **suggestion,
                     "drafts": preview_data,
+                    "assessment_purpose": assessment_purpose,
                 },
                 message=f"Đã tạo {len(gen_ids)} câu hỏi nháp về '{topic_name}'. Vui lòng cấu hình và xuất bản quiz.",
                 ui_instruction={
@@ -195,4 +215,3 @@ class GenerateQuizDraftTool(BaseTool):
                 data={"error": str(e)},
                 message=f"Lỗi khi tạo quiz: {e}",
             )
-
