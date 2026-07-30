@@ -69,6 +69,18 @@ func main() {
 	}
 	defer db.Close()
 
+	// Dashboard indexes are non-critical and idempotent. Build them in the
+	// background so a rollout remains available even on a large existing DB.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		if err := database.EnsureTeacherDashboardIndexes(ctx, db); err != nil {
+			logger.Warnf("teacher dashboard indexes were not applied: %v", err)
+			return
+		}
+		logger.Info("teacher dashboard indexes are ready")
+	}()
+
 	// Initialize Redis cache
 	redisClient, err := cache.NewRedisClient(cfg.Redis)
 	if err != nil {
@@ -127,7 +139,7 @@ func main() {
 
 	go kafka.StartAIJobStatusConsumer(context.Background(), func(ctx context.Context, event kafka.AIJobStatusEvent) error {
 		logger.Info(fmt.Sprintf("Received AI job status for %s: %s", event.JobID, event.Status))
-		
+
 		// Enrich suggested documents if completed
 		if event.Status == "completed" && event.Result != nil {
 			if resultFields, ok := event.Result.(map[string]interface{}); ok {
@@ -409,7 +421,6 @@ func main() {
 				analytics.GET("/teacher-dashboard", analyticsHandler.GetTeacherDashboardSummary)
 			}
 
-
 			// COURSE MANAGEMENT
 			courses := auth.Group("/courses")
 			{
@@ -603,11 +614,11 @@ func main() {
 				// POST /api/v1/ai/attempts/:attemptId/questions/:questionId/diagnose
 				aiGroup.POST("/attempts/:attemptId/questions/:questionId/diagnose",
 					aiHandler.DiagnoseWrongAnswer)
-				aiGroup.GET("/knowledge-graph/global", 
+				aiGroup.GET("/knowledge-graph/global",
 					aiHandler.GetGlobalKnowledgeGraph)
 				aiGroup.POST("/knowledge-graph/link-global",
 					aiHandler.TriggerGlobalLinking)
-				
+
 				// System-wide Polling Endpoint for AI Jobs
 				aiGroup.GET("/jobs/:jobId/status",
 					aiHandler.GetJobStatus())

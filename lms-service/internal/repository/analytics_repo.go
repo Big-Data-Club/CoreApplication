@@ -519,7 +519,7 @@ func (r *AnalyticsRepository) GetStudentLessonProgressSummary(ctx context.Contex
 		GROUP BY cs.id, cs.title, cs.order_index
 		ORDER BY cs.order_index ASC
 	`, courseID, studentID)
-	
+
 	var bySection []dto.SectionProgressCount
 	if err == nil {
 		defer rowsSec.Close()
@@ -576,8 +576,8 @@ type TeacherCourseStatsRow struct {
 }
 
 type RegistrationTimelineRow struct {
-	EnrollDate   time.Time
-	NewLearners  int
+	EnrollDate  time.Time
+	NewLearners int
 }
 
 type TeacherDashboardSummary struct {
@@ -630,6 +630,7 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 		JOIN courses c ON c.id = e.course_id
 		WHERE c.created_by = $1 AND c.status = 'PUBLISHED' AND e.status = 'ACCEPTED'
 		  AND e.enrolled_at IS NOT NULL
+		  AND e.enrolled_at >= CURRENT_DATE - INTERVAL '9 days'
 		GROUP BY DATE(e.enrolled_at)
 		ORDER BY enroll_date ASC
 	`, teacherID)
@@ -650,6 +651,13 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 			FROM courses
 			WHERE created_by = $1 AND status = 'PUBLISHED'
 		),
+		teacher_quizzes AS (
+			SELECT q.id AS quiz_id, cs.course_id
+			FROM teacher_courses tc
+			JOIN course_sections cs ON cs.course_id = tc.id
+			JOIN section_content sc ON sc.section_id = cs.id
+			JOIN quizzes q ON q.content_id = sc.id
+		),
 		mandatory_counts AS (
 			SELECT cs.course_id, COUNT(sc.id) AS total_mandatory
 			FROM section_content sc
@@ -664,9 +672,9 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 			JOIN content_progress cp ON cp.student_id = e.student_id
 			JOIN section_content sc ON sc.id = cp.content_id
 			JOIN course_sections cs ON cs.id = sc.section_id AND cs.course_id = e.course_id
+			JOIN teacher_courses tc ON tc.id = e.course_id
 			WHERE e.status = 'ACCEPTED'
 			  AND sc.is_mandatory = true
-			  AND e.course_id IN (SELECT id FROM teacher_courses)
 			GROUP BY e.course_id, e.student_id
 		),
 		student_progress AS (
@@ -678,53 +686,29 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 					ELSE COALESCE(sc.completed_content, 0)::FLOAT / mc.total_mandatory * 100.0
 				END AS progress_percent
 			FROM enrollments e
+			JOIN teacher_courses tc ON tc.id = e.course_id
 			LEFT JOIN mandatory_counts mc ON mc.course_id = e.course_id
 			LEFT JOIN student_completed sc ON sc.course_id = e.course_id AND sc.student_id = e.student_id
 			WHERE e.status = 'ACCEPTED'
-			  AND e.course_id IN (SELECT id FROM teacher_courses)
 		),
 		valid_attempts AS (
-			SELECT qa.student_id, qa.quiz_id, qa.percentage
-			FROM (
-				SELECT 
-					qa.student_id, qa.quiz_id, qa.percentage,
-					ROW_NUMBER() OVER (
-						PARTITION BY qa.student_id, qa.quiz_id
-						ORDER BY 
-							CASE 
-								WHEN COALESCE(ans_count.cnt, 0) < COALESCE(q_count.cnt, 0) AND qa.attempt_number = 1 THEN 2 
-								ELSE 1 
-							END ASC,
-							qa.attempt_number ASC
-					) as rn
-				FROM quiz_attempts qa
-				LEFT JOIN (
-					SELECT attempt_id, COUNT(*) as cnt 
-					FROM quiz_student_answers 
-					GROUP BY attempt_id
-				) ans_count ON ans_count.attempt_id = qa.id
-				LEFT JOIN (
-					SELECT quiz_id, COUNT(*) as cnt 
-					FROM quiz_questions 
-					GROUP BY quiz_id
-				) q_count ON q_count.quiz_id = qa.quiz_id
-				WHERE qa.status IN ('SUBMITTED', 'GRADED')
-			) qa
-			WHERE qa.rn = 1
+			SELECT DISTINCT ON (qa.student_id, qa.quiz_id)
+				qa.student_id, qa.quiz_id, qa.percentage
+			FROM quiz_attempts qa
+			JOIN teacher_quizzes tq ON tq.quiz_id = qa.quiz_id
+			WHERE qa.status IN ('SUBMITTED', 'GRADED')
+			ORDER BY qa.student_id, qa.quiz_id, qa.attempt_number ASC, qa.id ASC
 		),
 		student_quizzes AS (
 			SELECT 
-				e.course_id,
+				tq.course_id,
 				va.student_id,
 				AVG(va.percentage) AS quiz_avg_score
-			FROM enrollments e
-			JOIN course_sections cs ON cs.course_id = e.course_id
-			JOIN section_content sc ON sc.section_id = cs.id
-			JOIN quizzes q ON q.content_id = sc.id
-			JOIN valid_attempts va ON va.quiz_id = q.id AND va.student_id = e.student_id
+			FROM teacher_quizzes tq
+			JOIN valid_attempts va ON va.quiz_id = tq.quiz_id
+			JOIN enrollments e ON e.course_id = tq.course_id AND e.student_id = va.student_id
 			WHERE e.status = 'ACCEPTED'
-			  AND e.course_id IN (SELECT id FROM teacher_courses)
-			GROUP BY e.course_id, va.student_id
+			GROUP BY tq.course_id, va.student_id
 		),
 		course_aggregates AS (
 			SELECT 
@@ -770,6 +754,5 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 
 	return summary, nil
 }
-
 
 var _ = time.Time{}

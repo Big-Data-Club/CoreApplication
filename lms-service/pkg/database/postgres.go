@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"example/hello/internal/config"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // NewPostgresDB creates a new PostgreSQL database connection
@@ -58,6 +58,27 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// EnsureTeacherDashboardIndexes applies the small, idempotent index set needed
+// by the teacher dashboard. It runs asynchronously at service startup so a
+// first-time index build never blocks readiness or a deployment rollout.
+//
+// The statements deliberately use IF NOT EXISTS; after the first successful
+// run they are effectively no-ops. Errors are returned to the caller for
+// logging but must not take the LMS offline.
+func EnsureTeacherDashboardIndexes(ctx context.Context, db *sql.DB) error {
+	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_courses_teacher_published ON courses(created_by, id) WHERE status = 'PUBLISHED'`,
+		`CREATE INDEX IF NOT EXISTS idx_enrollments_accepted_timeline ON enrollments(course_id, enrolled_at DESC, student_id) WHERE status = 'ACCEPTED'`,
+		`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_dashboard_first ON quiz_attempts(quiz_id, student_id, attempt_number, id) INCLUDE (percentage) WHERE status IN ('SUBMITTED', 'GRADED')`,
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // HealthCheck checks if database is healthy
