@@ -929,6 +929,9 @@ func (c *Client) ApproveCourseBlueprint(ctx context.Context, id string, ownerID 
 	if err := c.post(ctx, "/ai/course-blueprints/"+id+"/approve", map[string]int64{"owner_id": ownerID}, &resp); err != nil { return nil, err }
 	return resp, nil
 }
+func (c *Client) CancelCourseBlueprint(ctx context.Context, id string, ownerID int64, result interface{}) error {
+	return c.post(ctx, "/ai/course-blueprints/"+id+"/cancel", map[string]int64{"owner_id": ownerID}, result)
+}
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 

@@ -253,7 +253,7 @@ func main() {
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 	permHandler := handler.NewPermissionHandler(permService)
 	orgHandler := handler.NewOrganizationHandler(orgService)
-	courseBlueprintHandler := handler.NewCourseBlueprintHandler(aiClient, orgRepo)
+	courseBlueprintHandler := handler.NewCourseBlueprintHandler(aiClient, orgRepo, courseService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -426,6 +426,8 @@ func main() {
 			auth.POST("/course-blueprints", courseBlueprintHandler.Create)
 			auth.PUT("/course-blueprints/:blueprintId", courseBlueprintHandler.Update)
 			auth.POST("/course-blueprints/:blueprintId/approve", courseBlueprintHandler.Approve)
+			auth.POST("/course-blueprints/:blueprintId/apply", courseBlueprintHandler.Apply)
+			auth.POST("/course-blueprints/:blueprintId/cancel", courseBlueprintHandler.Cancel)
 			courses := auth.Group("/courses")
 			{
 				// Public course routes (anyone authenticated can view published courses)
