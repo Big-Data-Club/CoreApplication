@@ -27,6 +27,7 @@ from app.api.endpoints.concept_check import router as concept_check_router
 from app.api.endpoints.admin      import router as admin_router
 from app.api.endpoints.admin_llm  import router as admin_llm_router
 from app.api.endpoints.health     import router as health_router
+from app.api.endpoints.course_blueprints import router as course_blueprints_router
 from app.core.llm_gateway.bootstrap import bootstrap_llm_registry
 from app.api.agent_router         import router as agent_router
 
@@ -176,3 +177,4 @@ app.include_router(concept_check_router, prefix="/ai")
 app.include_router(admin_router,      prefix="/ai")
 app.include_router(admin_llm_router,  prefix="/ai")
 app.include_router(agent_router,      prefix="/ai")
+app.include_router(course_blueprints_router, prefix="/ai")

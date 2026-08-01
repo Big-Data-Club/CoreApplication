@@ -45,6 +45,7 @@ from app.core.llm_gateway.types import (
     TASK_QUIZ_GEN,
     TASK_VLM_DESCRIBE,
     TASK_SECTION_OVERVIEW_GEN,
+    TASK_COURSE_BLUEPRINT,
     TaskBinding,
     Usage,
 )
@@ -64,6 +65,7 @@ __all__ = [
     "TASK_GRAPH_LINK", "TASK_MEMORY_COMPRESS", "TASK_LANGUAGE_DETECT",
     "TASK_NODE_EXTRACT", "TASK_MICRO_LESSON_GEN", "TASK_MICRO_QUIZ_GEN", "TASK_VLM_DESCRIBE",
     "TASK_SECTION_OVERVIEW_GEN",
+    "TASK_COURSE_BLUEPRINT",
     # errors
     "LLMGatewayError", "NoModelAvailableError", "NoKeyAvailableError",
     "ProviderError", "RateLimitedError", "AuthError", "ContextLengthError",

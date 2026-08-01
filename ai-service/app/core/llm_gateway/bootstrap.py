@@ -34,6 +34,7 @@ from app.core.llm_gateway.types import (
     TASK_MICRO_QUIZ_GEN,
     TASK_VLM_DESCRIBE,
     TASK_SECTION_OVERVIEW_GEN,
+    TASK_COURSE_BLUEPRINT,
 )
  
 logger = logging.getLogger(__name__)

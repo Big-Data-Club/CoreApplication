@@ -910,6 +910,26 @@ func (c *Client) GenerateSectionOverview(ctx context.Context, req GenerateSectio
 	return &resp, nil
 }
 
+// CourseBlueprint calls are intentionally proxied through LMS. The browser
+// never receives the AI service secret or gets to choose an owner id.
+func (c *Client) CreateCourseBlueprint(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	if err := c.post(ctx, "/ai/course-blueprints", payload, &resp); err != nil { return nil, err }
+	return resp, nil
+}
+
+func (c *Client) UpdateCourseBlueprint(ctx context.Context, id string, payload map[string]interface{}) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	if err := c.put(ctx, "/ai/course-blueprints/"+id, payload, &resp); err != nil { return nil, err }
+	return resp, nil
+}
+
+func (c *Client) ApproveCourseBlueprint(ctx context.Context, id string, ownerID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	if err := c.post(ctx, "/ai/course-blueprints/"+id+"/approve", map[string]int64{"owner_id": ownerID}, &resp); err != nil { return nil, err }
+	return resp, nil
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 func (c *Client) post(ctx context.Context, path string, body, result interface{}) error {
@@ -932,6 +952,14 @@ func (c *Client) post(ctx context.Context, path string, body, result interface{}
 	defer resp.Body.Close()
 
 	return c.decodeResponse(resp, path, result)
+}
+
+func (c *Client) put(ctx context.Context, path string, body, result interface{}) error {
+	b, err := json.Marshal(body); if err != nil { return err }
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, bytes.NewReader(b)); if err != nil { return err }
+	req.Header.Set("Content-Type", "application/json"); req.Header.Set("X-AI-Secret", c.secret)
+	resp, err := c.httpClient.Do(req); if err != nil { return fmt.Errorf("ai-service PUT %s: %w", path, err) }
+	defer resp.Body.Close(); return c.decodeResponse(resp, path, result)
 }
 
 func (c *Client) get(ctx context.Context, path string, result interface{}) error {

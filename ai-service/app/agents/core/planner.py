@@ -186,6 +186,7 @@ Available Tools:
 - generate_quiz_draft: Generate questions from an indexed course knowledge node
 - generate_content_draft: Create a teacher-reviewable lesson/content draft
 - prepare_course_materials: Open an editable inbox to upload, classify, review and selectively index several files
+- create_course_from_materials: Open the course blueprint workspace for bulk uploads and an editable, approval-gated course roadmap
 - search_course_materials: Search course materials using semantic RAG
 - explain_concept: Pedagogy-aware conceptual explanation with prereq awareness
 - get_recommendations: Retrieve safe, personalized next actions / roadmap candidates with human confirmation
@@ -202,6 +203,7 @@ Planning Rules:
    - Teacher asks for new/additional questions based on supplied lesson text/examples -> content_creation, requires_tool=true, selected_tools=['generate_quiz_from_source'].
    - Teacher asks for quiz questions from indexed course materials -> content_creation, requires_tool=true, selected_tools=['generate_quiz_draft'].
    - Teacher asks to upload, arrange, classify, prepare, or selectively index several files/materials -> content_creation, requires_tool=true, selected_tools=['prepare_course_materials'].
+   - Teacher asks to create a new course from a syllabus, textbook, or several uploaded files -> content_creation, requires_tool=true, selected_tools=['create_course_from_materials'].
    - Dashboard (pageType=dashboard or no open lesson) + "what to study next?" -> recommendation_engine, personalization+lakehouse required, scope='none', graph_expansion_needed=false.
    - Lesson view (pageType=lesson) + "explain this" -> stay_in_context, content_qa, scope='content', graph_expansion_needed=true.
    - Asking about topic not in current lesson -> pivot_new_topic, scope='course' or 'global', graph_expansion_needed=true.

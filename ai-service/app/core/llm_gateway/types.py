@@ -23,6 +23,10 @@ TASK_LANGUAGE_DETECT  = "language_detect"
 TASK_NODE_EXTRACT     = "node_extract"
 TASK_VLM_DESCRIBE     = "vlm_describe"      # vision model image description
 TASK_SECTION_OVERVIEW_GEN = "section_overview_gen" # section-level overview generation
+# Builds a reviewed course structure from teacher-supplied materials.  This is
+# deliberately separate from chat: it needs a long-context/map-reduce chain
+# and a stricter structured-output contract.
+TASK_COURSE_BLUEPRINT   = "course_blueprint"
  
 ALL_TASK_CODES: tuple[str, ...] = (
     TASK_CHAT, TASK_QUIZ_GEN, TASK_MICRO_LESSON_GEN, TASK_MICRO_QUIZ_GEN,
@@ -30,6 +34,7 @@ ALL_TASK_CODES: tuple[str, ...] = (
     TASK_AGENT_REACT, TASK_AGENT_ROUTER, TASK_CLARIFICATION,
     TASK_GRAPH_LINK, TASK_MEMORY_COMPRESS, TASK_LANGUAGE_DETECT,
     TASK_NODE_EXTRACT, TASK_VLM_DESCRIBE, TASK_SECTION_OVERVIEW_GEN,
+    TASK_COURSE_BLUEPRINT,
 )
  
  

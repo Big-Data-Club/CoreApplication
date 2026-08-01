@@ -26,6 +26,7 @@ from app.agents.tools.teacher.list_knowledge_nodes import ListKnowledgeNodesTool
 from app.agents.tools.teacher.create_section import CreateSectionTool
 from app.agents.tools.teacher.parse_quiz_questions import ParseQuizQuestionsTool
 from app.agents.tools.teacher.prepare_course_materials import PrepareCourseMaterialsTool
+from app.agents.tools.teacher.create_course_from_materials import CreateCourseFromMaterialsTool
 
 # ── Mentor Tools ──────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     RecommendReviewTool(),
     CreateSectionTool(),
     PrepareCourseMaterialsTool(),
+    CreateCourseFromMaterialsTool(),
 ]
 
 _MENTOR_ONLY_TOOLS: list[BaseTool] = [

@@ -44,6 +44,14 @@ type FileUploadResponse struct {
 	FileType string `json:"file_type"`
 }
 
+// FileUploadBatchResponse is returned when a multipart request contains more
+// than one `file` part.  Single-file callers retain the original response
+// shape, while the course-blueprint workspace can upload a whole syllabus in
+// one request without losing all but the last file.
+type FileUploadBatchResponse struct {
+	Files []FileUploadResponse `json:"files"`
+}
+
 // UploadFile godoc
 // @Summary Upload a file
 // @Description Upload a file to storage (video, document, or image)
@@ -66,6 +74,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 
 	var fileType string = "document"
 	var uploadedResponse *FileUploadResponse
+	uploadedFiles := make([]FileUploadResponse, 0)
 
 	for {
 		part, err := reader.NextPart()
@@ -187,6 +196,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 			FileSize: fileSize,
 			FileType: fileType,
 		}
+		uploadedFiles = append(uploadedFiles, *uploadedResponse)
 	}
 
 	if uploadedResponse == nil {
@@ -194,7 +204,11 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.NewDataResponse(uploadedResponse))
+	if len(uploadedFiles) == 1 {
+		c.JSON(http.StatusOK, dto.NewDataResponse(uploadedResponse))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewDataResponse(FileUploadBatchResponse{Files: uploadedFiles}))
 }
 
 // ServeFile godoc
