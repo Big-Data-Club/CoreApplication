@@ -159,6 +159,12 @@ class CourseBlueprintService:
             response = await client.get(url)
             response.raise_for_status()
         file_type = _detect_file_type(document.filename, document.content_type)
+        if file_type == "binary":
+            # Keep it in the manifest and course, but never fabricate a lesson
+            # from bytes we cannot interpret (archives, executables, CAD, ...).
+            return ""
+        if file_type == "text":
+            return _normalise_textual_source(response.content, document.filename)
         converted = await convert_to_markdown(
             response.content, file_type, f"course-blueprints/{document.id}", language="vi",
         )
@@ -171,6 +177,8 @@ class CourseBlueprintService:
         ledger: list[Evidence] = []
         for document in documents:
             source_text = await self._source_text(document)
+            if not source_text.strip():
+                continue
             batches = pack_by_token_budget([source_text], self.MAP_SOURCE_BUDGET)
             for batch_index, batch in enumerate(batches):
                 excerpt = "".join(batch)
@@ -200,6 +208,7 @@ class CourseBlueprintService:
                     "You are a curriculum modeller. Build a course plan ONLY from the evidence ledger. "
                     "Every chapter must reference one or more source ids. Model prerequisite relationships "
                     "between chapter ids; do not use chapter numbers as a substitute for dependencies. "
+                    "A source with no evidence is an attachment only; do not infer its contents or create a chapter from its filename. "
                     "Return the requested JSON only."
                 )},
                 {"role": "user", "content": json.dumps({
@@ -220,6 +229,31 @@ class CourseBlueprintService:
         plan.chapters.sort(key=lambda chapter: order[chapter.id])
         plan.evidence_ledger = ledger
         return plan, report
+
+
+def _normalise_textual_source(data: bytes, filename: str) -> str:
+    """Turn code/data/notebooks into faithful, model-readable source text."""
+    text = data.decode("utf-8", errors="replace")
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if extension == "ipynb":
+        try:
+            notebook = json.loads(text)
+            parts: list[str] = [f"# Notebook: {filename}"]
+            for index, cell in enumerate(notebook.get("cells", []), 1):
+                source = "".join(cell.get("source", []))
+                if not source.strip():
+                    continue
+                parts.append(f"## Code cell {index}\n```python\n{source}\n```" if cell.get("cell_type") == "code" else source)
+            return "\n\n".join(parts)
+        except (ValueError, TypeError):
+            pass
+    if extension == "json":
+        try:
+            return "# JSON: " + filename + "\n\n```json\n" + json.dumps(json.loads(text), ensure_ascii=False, indent=2) + "\n```"
+        except ValueError:
+            pass
+    language = {"py": "python", "cpp": "cpp", "c": "c", "h": "c", "hpp": "cpp", "sh": "bash", "sbatch": "bash", "js": "javascript", "ts": "typescript", "tsx": "tsx", "go": "go", "rs": "rust", "sql": "sql"}.get(extension, "text")
+    return f"# Source file: {filename}\n\n```{language}\n{text}\n```"
 
 
 course_blueprint_service = CourseBlueprintService()

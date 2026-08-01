@@ -261,10 +261,12 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
 
 	ext := strings.ToLower(filepath.Ext(filename))
-	if isImage(ext) || isVideo(ext) || ext == ".pdf" {
+	// Uploaded source code, HTML/SVG and unknown binaries must download rather
+	// than execute/render in the LMS origin. Preview only passive media.
+	if (isImage(ext) && ext != ".svg") || isVideo(ext) || ext == ".pdf" {
 		c.Header("Content-Disposition", "inline")
 	} else {
-		c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filepath.Base(filename)))
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(filename)))
 	}
 
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
@@ -499,31 +501,14 @@ func detectFileTypeFromExt(ext string) string {
 }
 
 func isValidFileType(fileType, filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	allowedTypes := map[string][]string{
-		"video":    {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"},
-		"document": {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".csv", ".zip", ".rar", ".7z", ".tar", ".gz", ".ipynb", ".py", ".cpp", ".sh", ".json", ".sql"},
-		"image":    {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp"},
-	}
-	if allowed, ok := allowedTypes[fileType]; ok {
-		for _, a := range allowed {
-			if ext == a {
-				return true
-			}
-		}
+	// Storage is format-agnostic: a course may legitimately contain source
+	// code, notebooks, datasets, cluster scripts or a specialist binary. The
+	// safety boundary is filename/path sanitisation and forced download for
+	// unrenderable formats, not an ever-growing extension allow-list.
+	if fileType != "document" && fileType != "video" && fileType != "image" {
 		return false
 	}
-	all := []string{
-		".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v",
-		".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".csv", ".zip", ".rar", ".7z", ".tar", ".gz", ".ipynb", ".py", ".cpp", ".sh", ".json", ".sql",
-		".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp",
-	}
-	for _, a := range all {
-		if ext == a {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(filepath.Base(filename)) != ""
 }
 
 func getContentType(filename string) string {
@@ -543,6 +528,13 @@ func getContentType(filename string) string {
 		".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		".txt":  "text/plain",
 		".csv":  "text/csv",
+		".json": "application/json", ".ipynb": "application/x-ipynb+json",
+		".py": "text/x-python", ".cpp": "text/x-c++src", ".c": "text/x-csrc",
+		".h": "text/x-chdr", ".hpp": "text/x-c++hdr", ".java": "text/x-java-source",
+		".js": "text/javascript", ".ts": "text/typescript", ".tsx": "text/tsx",
+		".go": "text/x-go", ".rs": "text/x-rust", ".sh": "text/x-shellscript",
+		".sbatch": "text/x-shellscript", ".sql": "application/sql", ".yaml": "application/yaml", ".yml": "application/yaml",
+		".zip": "application/zip", ".tar": "application/x-tar", ".gz": "application/gzip", ".7z": "application/x-7z-compressed", ".rar": "application/vnd.rar",
 	}
 	if ct, ok := contentTypes[ext]; ok {
 		return ct

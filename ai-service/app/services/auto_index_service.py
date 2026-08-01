@@ -222,11 +222,16 @@ def _detect_file_type(file_url: str, content_type: str) -> str:
         return "xlsx"
     if "video" in ct_lower:
         return "video"
-    if "text" in ct_lower or "markdown" in ct_lower:
+    code_or_data_exts = (".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".jsonl", ".ipynb", ".py", ".cpp", ".c", ".h", ".hpp", ".java", ".js", ".ts", ".tsx", ".go", ".rs", ".sh", ".sbatch", ".sql", ".yaml", ".yml", ".toml", ".ini", ".xml")
+    if url_lower.endswith(code_or_data_exts):
+        return "text"
+    if "text" in ct_lower or "markdown" in ct_lower or "json" in ct_lower or "xml" in ct_lower:
         return "text"
     if "image" in ct_lower:
         return "image"
-    return "txt"
+    # Unknown objects remain attachable in a course, but must not be decoded
+    # as UTF-8 and hallucinated into an AI syllabus/index.
+    return "binary"
 
 
 def _get_image_mime(file_url: str, content_type: str) -> str:
