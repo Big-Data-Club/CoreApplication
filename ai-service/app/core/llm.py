@@ -136,6 +136,7 @@ async def chat_complete_structured(
     max_tokens: int = 2048,
     max_retries: int = 2,
     native_json_mode: bool = True,
+    provider_extra: dict[str, Any] | None = None,
     *,
     task: str = TASK_QUIZ_GEN,
     request_id: str | None = None,
@@ -173,6 +174,7 @@ async def chat_complete_structured(
             json_mode=native_json_mode,
             task=task,
             request_id=request_id,
+            **(provider_extra or {}),
         )
         try:
             data = _extract_json(raw)
