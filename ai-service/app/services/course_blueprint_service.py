@@ -31,8 +31,12 @@ class SourceDocument(BaseModel):
 
 
 class Evidence(BaseModel):
-    source_id: str
+    # The caller binds provenance after validation. Models commonly omit this
+    # redundant field during map extraction, so it must not reject good source
+    # evidence and trigger expensive retries.
+    source_id: str = ""
     excerpt: str = Field(min_length=1, max_length=1200)
+    topic: str = Field(default="", max_length=255)
     topics: list[str] = Field(default_factory=list, max_length=8)
 
 
@@ -186,7 +190,8 @@ class CourseBlueprintService:
                     messages=[
                         {"role": "system", "content": (
                             "Extract only curriculum evidence explicitly present in the supplied source. "
-                            "Do not infer missing topics. Return concise excerpts and topic labels in the source language."
+                            "Do not infer missing topics. For every evidence item return excerpt and either one topic "
+                            "or a topics array in the source language. Do not return source_id; provenance is assigned by the system."
                         )},
                         {"role": "user", "content": json.dumps({
                             "source_id": document.id, "filename": document.filename,
@@ -199,7 +204,8 @@ class CourseBlueprintService:
                 )
                 # Do not trust a model-generated source id; provenance is bound
                 # by the request scope.
-                ledger.extend(Evidence(source_id=document.id, excerpt=item.excerpt, topics=item.topics)
+                ledger.extend(Evidence(source_id=document.id, excerpt=item.excerpt,
+                                       topics=item.topics or ([item.topic] if item.topic else []))
                               for item in result.evidence)
 
         plan = await chat_complete_structured(

@@ -426,6 +426,7 @@ async def bootstrap_llm_registry() -> None:
         (TASK_AGENT_REACT,      default_model_id, 10),
         (TASK_VLM_DESCRIBE,     vlm_model_id, 10),
         (TASK_SECTION_OVERVIEW_GEN, default_model_id, 10),
+        (TASK_COURSE_BLUEPRINT, default_model_id, 10),
     ]
 
     for task_code, model_id, priority in default_bindings:
