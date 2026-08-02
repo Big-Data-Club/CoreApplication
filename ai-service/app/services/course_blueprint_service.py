@@ -203,7 +203,6 @@ class CourseBlueprintService:
                     response_model=EvidenceLedger,
                     task=TASK_COURSE_BLUEPRINT,
                     max_tokens=1200,
-                    native_json_mode=False,
                 )
                 # Do not trust a model-generated source id; provenance is bound
                 # by the request scope.
@@ -229,7 +228,6 @@ class CourseBlueprintService:
             response_model=CoursePlan,
             task=TASK_COURSE_BLUEPRINT,
             max_tokens=4000,
-            native_json_mode=False,
         )
         report = validate_plan(plan, source_ids)
         if not report["valid"]:
