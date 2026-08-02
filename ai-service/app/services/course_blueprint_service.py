@@ -35,13 +35,13 @@ class Evidence(BaseModel):
     # redundant field during map extraction, so it must not reject good source
     # evidence and trigger expensive retries.
     source_id: str = ""
-    excerpt: str = Field(min_length=1, max_length=1200)
+    excerpt: str = Field(min_length=1, max_length=360)
     topic: str = Field(default="", max_length=255)
-    topics: list[str] = Field(default_factory=list, max_length=8)
+    topics: list[str] = Field(default_factory=list, max_length=3)
 
 
 class EvidenceLedger(BaseModel):
-    evidence: list[Evidence] = Field(default_factory=list, max_length=16)
+    evidence: list[Evidence] = Field(default_factory=list, max_length=4)
 
 
 class BlueprintMaterial(BaseModel):
@@ -191,7 +191,9 @@ class CourseBlueprintService:
                         {"role": "system", "content": (
                             "Extract only curriculum evidence explicitly present in the supplied source. "
                             "Do not infer missing topics. For every evidence item return excerpt and either one topic "
-                            "or a topics array in the source language. Do not return source_id; provenance is assigned by the system."
+                            "or a topics array in the source language. Return at most 4 items; each excerpt must be <= 360 characters "
+                            "and each topics array <= 3 strings. Do not return source_id; provenance is assigned by the system. "
+                            "Return exactly one JSON object with an evidence array; no Markdown or prose."
                         )},
                         {"role": "user", "content": json.dumps({
                             "source_id": document.id, "filename": document.filename,
@@ -200,7 +202,8 @@ class CourseBlueprintService:
                     ],
                     response_model=EvidenceLedger,
                     task=TASK_COURSE_BLUEPRINT,
-                    max_tokens=1400,
+                    max_tokens=1200,
+                    native_json_mode=False,
                 )
                 # Do not trust a model-generated source id; provenance is bound
                 # by the request scope.
@@ -226,6 +229,7 @@ class CourseBlueprintService:
             response_model=CoursePlan,
             task=TASK_COURSE_BLUEPRINT,
             max_tokens=4000,
+            native_json_mode=False,
         )
         report = validate_plan(plan, source_ids)
         if not report["valid"]:

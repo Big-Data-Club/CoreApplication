@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.core.database import get_ai_conn
-from app.core.llm_gateway.errors import NoModelAvailableError, NoKeyAvailableError
+from app.core.llm_gateway.errors import LLMGatewayError, NoModelAvailableError, NoKeyAvailableError
 from app.services.course_blueprint_service import (
     CourseGovernance, CoursePlan, SourceDocument, course_blueprint_service, validate_plan,
 )
@@ -86,6 +86,12 @@ async def create_draft(body: CreateDraftRequest, request: Request):
         raise HTTPException(503, detail={
             "code": "course_blueprint_model_unavailable",
             "message": "LLM Gateway chưa có model/key khả dụng cho course_blueprint.",
+            "reason": str(exc),
+        })
+    except LLMGatewayError as exc:
+        raise HTTPException(503, detail={
+            "code": "course_blueprint_llm_unavailable",
+            "message": "LLM tạm thời không thể tạo roadmap; hãy thử lại sau.",
             "reason": str(exc),
         })
     # Governance is an explicit teacher-controlled selection.  Default to the

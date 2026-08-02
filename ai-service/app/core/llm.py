@@ -135,6 +135,7 @@ async def chat_complete_structured(
     temperature: float = 0.2,
     max_tokens: int = 2048,
     max_retries: int = 2,
+    native_json_mode: bool = True,
     *,
     task: str = TASK_QUIZ_GEN,
     request_id: str | None = None,
@@ -166,7 +167,10 @@ async def chat_complete_structured(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            json_mode=True,
+            # Some providers reject a valid-in-progress completion at their
+            # own JSON validator before we can repair it. Workflows can opt
+            # out and rely on our defensive parser + Pydantic retries.
+            json_mode=native_json_mode,
             task=task,
             request_id=request_id,
         )
