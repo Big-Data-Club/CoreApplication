@@ -53,8 +53,6 @@ class GroqAdapter(LLMAdapter):
         for k in ("tools", "tool_choice", "stream", "stop", "top_p"):
             if k in extra:
                 kwargs[k] = extra[k]
-        if "reasoning_effort" in extra and model.family == "gpt-oss":
-            kwargs["reasoning_effort"] = extra["reasoning_effort"]
  
         try:
             response = await client.chat.completions.create(**kwargs)
