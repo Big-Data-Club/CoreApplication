@@ -25,6 +25,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.llm_gateway import (
     ChatRequest,
+    ProviderError,
     TASK_CHAT,
     TASK_QUIZ_GEN,
     get_gateway,
@@ -111,16 +112,40 @@ async def chat_complete_json(
     task: str = TASK_CHAT,
     request_id: str | None = None,
 ) -> dict | list:
-    """JSON-returning completion with defensive parsing."""
-    raw = await chat_complete(
-        messages=messages,
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        json_mode=True,
-        task=task,
-        request_id=request_id,
-    )
+    """JSON-returning completion with provider-independent recovery.
+
+    Native JSON mode is useful where a provider supports it reliably.  Some
+    OpenAI-compatible reasoning models reject an unfinished JSON response at
+    the provider boundary, however, so the application never receives text it
+    could repair.  Retry that narrow failure once without native enforcement;
+    prompts still require JSON and ``_extract_json`` remains the authority.
+    """
+    try:
+        raw = await chat_complete(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=True,
+            task=task,
+            request_id=request_id,
+        )
+    except ProviderError as exc:
+        if not _is_native_json_rejection(exc):
+            raise
+        logger.warning(
+            "Native JSON rejected by provider for task=%s; retrying with application parsing: %s",
+            task, exc,
+        )
+        raw = await chat_complete(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=False,
+            task=task,
+            request_id=request_id,
+        )
     try:
         return _extract_json(raw)
     except ValueError as exc:
@@ -135,7 +160,7 @@ async def chat_complete_structured(
     temperature: float = 0.2,
     max_tokens: int = 2048,
     max_retries: int = 2,
-    native_json_mode: bool = True,
+    native_json_mode: bool | None = None,
     provider_extra: dict[str, Any] | None = None,
     *,
     task: str = TASK_QUIZ_GEN,
@@ -145,13 +170,16 @@ async def chat_complete_structured(
     Structured-output call that returns a validated Pydantic model.
 
     Routes through the gateway (full multi-model support) and validates the
-    JSON payload. Retries up to `max_retries` with a corrective reminder if
-    validation fails.
+    JSON payload. ``native_json_mode=None`` honours the admin-managed task
+    binding; callers may explicitly opt in or out. Retries up to
+    ``max_retries`` with a corrective reminder if validation fails.
     """
     schema_hint = _compact_schema_hint(response_model)
     attempts: list[str] = []
 
-    for attempt in range(max_retries + 1):
+    retry_without_native_json = False
+    attempt = 0
+    while attempt <= max_retries:
         local_messages = list(messages)
         if attempts:
             local_messages.append({
@@ -163,19 +191,31 @@ async def chat_complete_structured(
                 ),
             })
 
-        raw = await chat_complete(
-            messages=local_messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            # Some providers reject a valid-in-progress completion at their
-            # own JSON validator before we can repair it. Workflows can opt
-            # out and rely on our defensive parser + Pydantic retries.
-            json_mode=native_json_mode,
-            task=task,
-            request_id=request_id,
-            **(provider_extra or {}),
-        )
+        try:
+            raw = await chat_complete(
+                messages=local_messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                # A binding can select native JSON for providers that support
+                # it.  If that provider rejects an in-progress JSON document,
+                # force plain output on the next attempt so our own parser can
+                # validate/repair rather than fail the user request.
+                json_mode=False if retry_without_native_json else native_json_mode,
+                task=task,
+                request_id=request_id,
+                **(provider_extra or {}),
+            )
+        except ProviderError as exc:
+            if not retry_without_native_json and _is_native_json_rejection(exc):
+                retry_without_native_json = True
+                attempts.append("provider rejected native JSON; return compact JSON only")
+                logger.warning(
+                    "Native JSON rejected by provider for task=%s; retrying with application parsing: %s",
+                    task, exc,
+                )
+                continue
+            raise
         try:
             data = _extract_json(raw)
             return response_model.model_validate(data)
@@ -188,6 +228,7 @@ async def chat_complete_structured(
                 )
                 raise
             await asyncio.sleep(0.2)
+            attempt += 1
     raise RuntimeError("unreachable")   # pragma: no cover
 
 
@@ -214,6 +255,19 @@ def _extract_json(raw: str) -> dict | list:
             except json.JSONDecodeError:
                 continue
     raise ValueError(f"LLM returned non-JSON output:\n{raw[:400]}")
+
+
+def _is_native_json_rejection(exc: ProviderError) -> bool:
+    """Whether a provider rejected its own JSON response-format contract."""
+    if exc.status_code != 400:
+        return False
+    message = str(exc).lower()
+    return any(marker in message for marker in (
+        "json_validate_failed",
+        "failed to generate json",
+        "failed to validate json",
+        "before generating a valid document",
+    ))
 
 
 def _compact_schema_hint(model_cls: type[BaseModel]) -> str:

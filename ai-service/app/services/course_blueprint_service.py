@@ -17,7 +17,7 @@ from app.core.llm import chat_complete_structured
 from app.core.llm_gateway import TASK_COURSE_BLUEPRINT
 from app.core.llm_gateway.token_budget import pack_by_token_budget
 from app.core.config import get_settings
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SourceDocument(BaseModel):
@@ -39,9 +39,61 @@ class Evidence(BaseModel):
     topic: str = Field(default="", max_length=255)
     topics: list[str] = Field(default_factory=list, max_length=3)
 
+    @field_validator("excerpt", mode="before")
+    @classmethod
+    def normalise_excerpt(cls, value: Any) -> Any:
+        """Bound provider output without losing the evidence record.
+
+        The map stage asks for a short quotation, but JSON-capable models can
+        still overshoot a character limit by a few words.  This is presentation
+        metadata, not a curriculum invariant: rejecting an otherwise grounded
+        ledger and re-running the whole request wastes capacity and makes the
+        workflow fragile.  Collapse whitespace and truncate at a word boundary
+        before Pydantic applies the hard storage limit.
+        """
+        if not isinstance(value, str):
+            return value
+        text = " ".join(value.split())
+        limit = 360
+        if len(text) <= limit:
+            return text
+        # Reserve one character for the ellipsis.  If no word boundary exists
+        # (for example a formula/token), a direct slice still stays valid.
+        prefix = text[: limit - 1]
+        boundary = prefix.rfind(" ")
+        if boundary > 0:
+            prefix = prefix[:boundary].rstrip()
+        return prefix + "…"
+
+    @field_validator("topic", mode="before")
+    @classmethod
+    def normalise_topic(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        return " ".join(value.split())[:255]
+
+    @field_validator("topics", mode="before")
+    @classmethod
+    def normalise_topics(cls, value: Any) -> Any:
+        # Some OpenAI-compatible models return a single topic instead of a
+        # one-item array.  Both forms carry the same safe evidence meaning.
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            return value
+        return [" ".join(item.split())[:255] if isinstance(item, str) else item for item in value[:3]]
+
 
 class EvidenceLedger(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list, max_length=4)
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def cap_evidence(cls, value: Any) -> Any:
+        # A map batch intentionally keeps only a compact, bounded ledger.  A
+        # provider returning a fifth item is harmless; discard the overflow
+        # deterministically rather than failing the whole course draft.
+        return value[:4] if isinstance(value, list) else value
 
 
 class BlueprintMaterial(BaseModel):

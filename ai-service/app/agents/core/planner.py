@@ -34,6 +34,7 @@ settings = get_settings()
 
 class RetrievalStrategy(BaseModel):
     scope: str = Field(
+        default="global",
         description="One of: 'content', 'section', 'course', 'cross_course', 'global', 'none'"
     )
     depth: int = Field(
@@ -57,6 +58,7 @@ class RetrievalStrategy(BaseModel):
 class ExecutionPlan(BaseModel):
     # ── Learning intent (v1 fields) ────────────────────────────────────────
     user_intent: str = Field(
+        default="other",
         description=(
             "Learner's learning goal. One of: "
             "'explanation' (explain concept/lesson), "
@@ -75,6 +77,7 @@ class ExecutionPlan(BaseModel):
         )
     )
     operational_intent: str = Field(
+        default="global_search",
         description=(
             "The app context mapping. One of: "
             "'stay_in_context' (asking about the currently open lesson/content), "
@@ -84,6 +87,7 @@ class ExecutionPlan(BaseModel):
         )
     )
     operation: str = Field(
+        default="content_qa",
         description=(
             "The engine operation to execute. One of: "
             "'content_qa' (QA over course materials), "
@@ -93,8 +97,9 @@ class ExecutionPlan(BaseModel):
             "'general_chat' (greetings/chitchat)"
         )
     )
-    retrieval_strategy: RetrievalStrategy
+    retrieval_strategy: RetrievalStrategy = Field(default_factory=RetrievalStrategy)
     selected_tools: List[str] = Field(
+        default_factory=list,
         description=(
             "List of tool names selected to execute this plan. "
             "Available tools include ['generate_quiz_from_source', 'parse_quiz_questions', "
@@ -104,13 +109,16 @@ class ExecutionPlan(BaseModel):
         )
     )
     personalization_enabled: bool = Field(
+        default=False,
         description="True if student-specific history/mastery from the Lakehouse should be used to tailor the response."
     )
     lakehouse_required: bool = Field(
+        default=False,
         description="True if DuckDB Lakehouse analytics/logs must be fetched (via personalize-service) to fulfill the request."
     )
     reasoning: str = Field(
-        description="Chain-of-thought explanation for why this plan was selected."
+        default="Compact planner output.",
+        description="One-sentence decision summary. Never include hidden chain-of-thought."
     )
 
     # ── Router fields (v2 - merged from RouterOutput) ─────────────────────
@@ -228,7 +236,8 @@ Planning Rules:
    - Start narrow (content if in a lesson, course if viewing course), enable expansion to global as fallback.
    - For recommendation or general chitchat, set scope='none'.
 
-Return valid JSON matching the schema.
+Return compact valid JSON matching the schema. ``reasoning`` must be one short
+decision summary; never reveal chain-of-thought.
 """
 
 
@@ -321,7 +330,7 @@ async def generate_plan(
             response_model=ExecutionPlan,
             model=settings.quiz_model,  # use accurate model for planning
             temperature=0.0,
-            max_tokens=600,
+            max_tokens=900,
             task=TASK_AGENT_ROUTER,
         )
         logger.info(

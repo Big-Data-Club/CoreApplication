@@ -43,6 +43,7 @@ class IntentWeightOutput(BaseModel):
 
     # The user's true intent - separated from the current topic
     explicit_intent: str = Field(
+        default="ask_concept",
         description=(
             "The user's explicit learning action. One of: "
             "'review_current_lesson' (wants to study/do exercises ON the active lesson), "
@@ -59,6 +60,7 @@ class IntentWeightOutput(BaseModel):
 
     # Pivot signal strength - key decision signal
     pivot_strength: float = Field(
+        default=0.0,
         ge=0.0, le=1.0,
         description=(
             "How strongly the user is pivoting AWAY from the currently active lesson context. "
@@ -85,11 +87,13 @@ class IntentWeightOutput(BaseModel):
 
     # Confidence score
     confidence: float = Field(
+        default=0.5,
         ge=0.0, le=1.0,
         description="Confidence in this classification."
     )
 
     reasoning: str = Field(
+        default="Conservative context decision.",
         description="Brief explanation of why this classification was chosen."
     )
 
