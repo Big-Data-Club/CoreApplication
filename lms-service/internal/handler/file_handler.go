@@ -149,7 +149,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 
 		if h.config.MaxSize > 0 && fileSize > h.config.MaxSize {
 			os.Remove(tmpPath)
-			c.JSON(http.StatusBadRequest, dto.NewErrorResponse(
+			c.JSON(http.StatusRequestEntityTooLarge, dto.NewErrorResponse(
 				"file_too_large",
 				fmt.Sprintf("File exceeds maximum size of %d MB", h.config.MaxSize/1024/1024),
 			))

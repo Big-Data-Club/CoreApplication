@@ -84,6 +84,7 @@ data:
   REINDEX_BATCH_SIZE: "5"
   RERANK_FETCH_K: "15"
   STORAGE_TYPE: "minio"
+  UPLOAD_MAX_SIZE: "104857600"
   USE_QDRANT: "true"
   USE_RERANKER: "true"
   # No vision model is currently available for the configured provider.
