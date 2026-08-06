@@ -1,24 +1,44 @@
 """Groq adapter.
- 
+
 Uses `groq.AsyncGroq` directly (already a project dependency) rather than
 sharing the legacy singleton in `app.core.llm`, so each call can use an
 admin-configurable key.
 """
 from __future__ import annotations
- 
+
 from typing import Any, AsyncIterator, Optional
 import logging
- 
+
 from groq import AsyncGroq
-from groq._exceptions import APIStatusError, AuthenticationError, RateLimitError
- 
+from groq._exceptions import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    RateLimitError,
+)
+
 from app.core.llm_gateway.adapters.base import LLMAdapter
 from app.core.llm_gateway.errors import AuthError, ContextLengthError, ProviderError, RateLimitedError
 from app.core.llm_gateway.types import Model, Usage
- 
+
 logger = logging.getLogger(__name__)
- 
- 
+
+# Extra keys forwarded verbatim to the Groq API.
+# reasoning_effort / include_reasoning control GPT-OSS 120B chain-of-thought
+# budget; seed provides deterministic sampling where supported.
+_PASSTHROUGH_KEYS = (
+    "tools",
+    "tool_choice",
+    "stream",
+    "stop",
+    "top_p",
+    "seed",
+    "reasoning_effort",
+    "include_reasoning",
+)
+
+
 class GroqAdapter(LLMAdapter):
     async def chat(
         self,
@@ -32,13 +52,15 @@ class GroqAdapter(LLMAdapter):
     ) -> tuple[str, Usage, Any]:
         client = AsyncGroq(api_key=self.api_key, base_url=self.base_url, max_retries=0) if self.base_url \
             else AsyncGroq(api_key=self.api_key, max_retries=0)
- 
+
         messages_copy = [dict(m) for m in messages]
         kwargs: dict[str, Any] = {
             "model": model.model_name,
             "messages": messages_copy,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            # Groq deprecated `max_tokens`; `max_completion_tokens` is the
+            # current field and correctly scopes only the output budget.
+            "max_completion_tokens": max_tokens,
         }
         if json_mode and model.supports_json:
             kwargs["response_format"] = {"type": "json_object"}
@@ -49,17 +71,23 @@ class GroqAdapter(LLMAdapter):
                     system_msg["content"] = (system_msg.get("content") or "") + " [Output must be in JSON format]"
                 elif messages_copy:
                     messages_copy[0]["content"] = (messages_copy[0].get("content") or "") + " [Output must be in JSON format]"
-        # Pass-through for tool calling / streaming etc.
-        for k in ("tools", "tool_choice", "stream", "stop", "top_p"):
+
+        for k in _PASSTHROUGH_KEYS:
             if k in extra:
                 kwargs[k] = extra[k]
- 
+
         try:
             response = await client.chat.completions.create(**kwargs)
         except RateLimitError as exc:
             raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
         except AuthenticationError as exc:
             raise AuthError(str(exc)) from exc
+        except (APIConnectionError, APITimeoutError) as exc:
+            # Transient network failure; a different key or model may succeed.
+            raise ProviderError(
+                f"Groq network error: {exc}",
+                retryable=True,
+            ) from exc
         except APIStatusError as exc:
             status = getattr(exc, "status_code", None)
             try:
@@ -78,7 +106,9 @@ class GroqAdapter(LLMAdapter):
                     raise ContextLengthError(msg) from exc
                 if "organization_restricted" in msg_lower:
                     raise AuthError(msg, status_code=status) from exc
-            raise ProviderError(msg, status_code=status) from exc
+            # 5xx and transient 4xx (408/409/425) are safe to retry.
+            retryable = status in (408, 409, 425) or (status is not None and status >= 500)
+            raise ProviderError(msg, status_code=status, retryable=retryable) from exc
         finally:
             try:
                 await client.close()
@@ -93,6 +123,20 @@ class GroqAdapter(LLMAdapter):
             completion_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
             total_tokens=getattr(usage_obj, "total_tokens", 0) or 0,
         )
+
+        # Diagnostic metadata useful for debugging empty completions on
+        # reasoning models (e.g. GPT-OSS 120B where reasoning tokens consume
+        # the output budget before any visible content is produced).
+        finish_reason = getattr(choice, "finish_reason", None)
+        reasoning = getattr(choice.message, "reasoning", None)
+        reasoning_len = len(reasoning) if isinstance(reasoning, str) else 0
+        logger.debug(
+            "Groq chat complete: model=%s finish_reason=%s content_len=%d "
+            "reasoning_len=%d completion_tokens=%d",
+            model.model_name, finish_reason, len(content),
+            reasoning_len, usage.completion_tokens,
+        )
+
         return content, usage, response
 
     async def stream(
@@ -113,7 +157,7 @@ class GroqAdapter(LLMAdapter):
             "model": model.model_name,
             "messages": messages_copy,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_tokens,
             "stream": True,
         }
         if json_mode and model.supports_json:
@@ -125,8 +169,9 @@ class GroqAdapter(LLMAdapter):
                     system_msg["content"] = (system_msg.get("content") or "") + " [Output must be in JSON format]"
                 elif messages_copy:
                     messages_copy[0]["content"] = (messages_copy[0].get("content") or "") + " [Output must be in JSON format]"
-        for k in ("tools", "tool_choice", "stop", "top_p"):
-            if k in extra:
+
+        for k in _PASSTHROUGH_KEYS:
+            if k in extra and k != "stream":
                 kwargs[k] = extra[k]
 
         try:
@@ -146,6 +191,8 @@ class GroqAdapter(LLMAdapter):
             raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
         except AuthenticationError as exc:
             raise AuthError(str(exc)) from exc
+        except (APIConnectionError, APITimeoutError) as exc:
+            raise ProviderError(f"Groq network error: {exc}", retryable=True) from exc
         except APIStatusError as exc:
             status = getattr(exc, "status_code", None)
             try:
@@ -155,7 +202,8 @@ class GroqAdapter(LLMAdapter):
                 pass
             if status == 429:
                 raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
-            raise ProviderError(str(exc), status_code=status) from exc
+            retryable = status in (408, 409, 425) or (status is not None and status >= 500)
+            raise ProviderError(str(exc), status_code=status, retryable=retryable) from exc
         finally:
             try:
                 await client.close()

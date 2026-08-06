@@ -31,6 +31,7 @@ from app.core.llm_gateway import (
     get_gateway,
     reset_gateway,
 )
+from app.core.llm_gateway.errors import StructuredOutputError
 
 # Re-export embedding API (backward compat)
 from app.core.embeddings import ( 
@@ -226,7 +227,10 @@ async def chat_complete_structured(
                     "chat_complete_structured gave up after %d retries: %s",
                     max_retries, exc,
                 )
-                raise
+                raise StructuredOutputError(
+                    f"Model failed structured-output validation after "
+                    f"{max_retries + 1} attempt(s): {exc}"
+                ) from exc
             await asyncio.sleep(0.2)
             attempt += 1
     raise RuntimeError("unreachable")   # pragma: no cover

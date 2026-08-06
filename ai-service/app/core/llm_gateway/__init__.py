@@ -14,11 +14,13 @@ The `get_gateway()` singleton holds the repository + key pool; call
 from app.core.llm_gateway.errors import (
     AuthError,
     ContextLengthError,
+    EmptyCompletionError,
     LLMGatewayError,
     NoKeyAvailableError,
     NoModelAvailableError,
     ProviderError,
     RateLimitedError,
+    StructuredOutputError,
 )
 from app.core.llm_gateway.gateway import LLMGateway, get_gateway, reset_gateway
 from app.core.llm_gateway.key_pool import KeyPool, get_key_pool
@@ -69,4 +71,5 @@ __all__ = [
     # errors
     "LLMGatewayError", "NoModelAvailableError", "NoKeyAvailableError",
     "ProviderError", "RateLimitedError", "AuthError", "ContextLengthError",
+    "EmptyCompletionError", "StructuredOutputError",
 ]

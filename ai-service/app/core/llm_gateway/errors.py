@@ -43,3 +43,31 @@ class ContextLengthError(ProviderError):
  
     def __init__(self, message: str):
         super().__init__(message, status_code=400, retryable=False)
+ 
+ 
+class EmptyCompletionError(ProviderError):
+    """Provider returned a successful HTTP response but empty content.
+ 
+    This is distinct from a network or key failure: the API key is healthy,
+    so the gateway must NOT penalise it.  The most common cause on reasoning
+    models is the completion budget being exhausted by chain-of-thought tokens
+    before any visible output is produced.
+ 
+    The gateway raises this instead of treating an empty response as success
+    so the fallback chain can try the next model, and so upstream callers can
+    surface a 502 rather than a misleading 422.
+    """
+ 
+    def __init__(self, message: str, *, finish_reason: str | None = None):
+        super().__init__(message, status_code=502, retryable=False)
+        self.finish_reason = finish_reason
+ 
+ 
+class StructuredOutputError(LLMGatewayError):
+    """Model failed to produce valid structured output after all retries.
+ 
+    Raised by ``chat_complete_structured`` when every attempt yields a
+    response that cannot be parsed or validated against the target Pydantic
+    model.  Callers should surface this as a 502 upstream error, not 422,
+    because the client request was well-formed.
+    """

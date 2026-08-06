@@ -15,7 +15,13 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.core.database import get_ai_conn
-from app.core.llm_gateway.errors import LLMGatewayError, NoModelAvailableError, NoKeyAvailableError
+from app.core.llm_gateway.errors import (
+    EmptyCompletionError,
+    LLMGatewayError,
+    NoModelAvailableError,
+    NoKeyAvailableError,
+    StructuredOutputError,
+)
 from app.services.course_blueprint_service import (
     CourseGovernance, CoursePlan, SourceDocument, course_blueprint_service, validate_plan,
 )
@@ -81,6 +87,18 @@ async def create_draft(body: CreateDraftRequest, request: Request):
         plan, report = await course_blueprint_service.draft(body.documents, body.language)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
+    except EmptyCompletionError as exc:
+        raise HTTPException(502, detail={
+            "code": "empty_llm_completion",
+            "message": "Model trả về kết quả rỗng. Có thể do output budget bị reasoning chiếm hết; hãy thử lại sau.",
+            "reason": str(exc),
+        })
+    except StructuredOutputError as exc:
+        raise HTTPException(502, detail={
+            "code": "invalid_llm_response",
+            "message": "Model không tạo được kết quả hợp lệ sau nhiều lần thử. Hãy thử lại sau.",
+            "reason": str(exc),
+        })
     except (NoModelAvailableError, NoKeyAvailableError) as exc:
         # This is an operational configuration issue, not a malformed upload.
         raise HTTPException(503, detail={

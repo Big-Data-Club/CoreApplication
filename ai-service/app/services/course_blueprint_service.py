@@ -254,14 +254,31 @@ class CourseBlueprintService:
                     ],
                     response_model=EvidenceLedger,
                     task=TASK_COURSE_BLUEPRINT,
-                    max_tokens=1200,
+                    # 2048 output tokens avoids reasoning models exhausting
+                    # the budget on chain-of-thought before producing JSON.
+                    max_tokens=2048,
                     native_json_mode=False,
+                    provider_extra={
+                        # Keep reasoning cheap: the map stage only needs
+                        # extraction, not deep reasoning.
+                        "reasoning_effort": "low",
+                        # Do not return reasoning text in the response;
+                        # only the final JSON answer is needed.
+                        "include_reasoning": False,
+                    },
                 )
                 # Do not trust a model-generated source id; provenance is bound
                 # by the request scope.
                 ledger.extend(Evidence(source_id=document.id, excerpt=item.excerpt,
                                        topics=item.topics or ([item.topic] if item.topic else []))
                               for item in result.evidence)
+
+        if not ledger:
+            raise ValueError(
+                "Không thể trích xuất nội dung từ tài liệu. "
+                "Kiểm tra lại file đầu vào (PDF scan không có text layer, "
+                "file lỗi, hoặc nội dung không phải tài liệu giảng dạy)."
+            )
 
         plan = await chat_complete_structured(
             messages=[
@@ -282,6 +299,10 @@ class CourseBlueprintService:
             task=TASK_COURSE_BLUEPRINT,
             max_tokens=4000,
             native_json_mode=False,
+            provider_extra={
+                "reasoning_effort": "low",
+                "include_reasoning": False,
+            },
         )
         report = validate_plan(plan, source_ids)
         if not report["valid"]:

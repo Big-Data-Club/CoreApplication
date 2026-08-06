@@ -24,6 +24,7 @@ from app.core.config import get_settings
 from app.core.llm_gateway.errors import (
     AuthError,
     ContextLengthError,
+    EmptyCompletionError,
     LLMGatewayError,
     NoKeyAvailableError,
     NoModelAvailableError,
@@ -100,6 +101,16 @@ class LLMGateway:
             except ContextLengthError as exc:
                 # A bigger model might have more context - try the next one.
                 last_error = exc
+                continue
+            except EmptyCompletionError as exc:
+                # The model returned HTTP 200 but empty content (e.g. reasoning
+                # exhausted the output budget). The API key is healthy; try
+                # the next model in the chain.
+                last_error = exc
+                logger.warning(
+                    "Empty completion from model=%s task=%s (finish_reason=%s). Falling back.",
+                    binding.model.model_name, req.task, exc.finish_reason,
+                )
                 continue
             except ProviderError as exc:
                 last_error = exc
@@ -272,6 +283,49 @@ class LLMGateway:
                 )
                 raise
  
+            # Guard: reject empty completions before treating the call as
+            # a success.  Reasoning models (e.g. GPT-OSS 120B on Groq) may
+            # return HTTP 200 but an empty message.content when the output
+            # budget is exhausted by chain-of-thought tokens.  We must NOT
+            # record this as success or penalise the API key - the key is
+            # healthy.  Raise EmptyCompletionError so the outer loop can
+            # fall back to the next model in the chain.
+            finish_reason = _extract_finish_reason(raw)
+            has_tool_calls = _has_tool_calls(raw)
+            valid_tool_response = bool(req.extra.get("tools")) and has_tool_calls
+
+            if not (content or "").strip() and not valid_tool_response:
+                elapsed = int((time.monotonic() - start) * 1000)
+                reasoning_len = len(getattr(
+                    getattr(getattr(raw, "choices", [None])[0] if getattr(raw, "choices", None) else None,
+                            "message", None),
+                    "reasoning", None) or ""
+                )
+                logger.warning(
+                    "Empty completion from provider: task=%s model=%s "
+                    "finish_reason=%s completion_tokens=%d reasoning_len=%d",
+                    req.task, model.model_name,
+                    finish_reason, usage.completion_tokens, reasoning_len,
+                )
+                await self._log(
+                    req=req, model=model, lease=lease, usage=usage,
+                    latency_ms=elapsed, success=False,
+                    fallback_used=fallback_used, attempt_no=attempt_no,
+                    error_code="empty_completion",
+                    error_message=(
+                        f"Provider returned empty content; "
+                        f"finish_reason={finish_reason}; "
+                        f"completion_tokens={usage.completion_tokens}"
+                    ),
+                )
+                # Do not call record_generic_failure: the key is healthy.
+                raise EmptyCompletionError(
+                    f"Provider returned an empty completion "
+                    f"(finish_reason={finish_reason}, "
+                    f"completion_tokens={usage.completion_tokens})",
+                    finish_reason=finish_reason,
+                )
+
             # Success path
             elapsed = int((time.monotonic() - start) * 1000)
             await self.key_pool.record_success(
@@ -440,6 +494,30 @@ def _resolve(*values: Any) -> Any:
         if v is not None:
             return v
     return None
+
+
+def _extract_finish_reason(raw: Any) -> str | None:
+    """Best-effort extraction of finish_reason from any provider response."""
+    try:
+        choices = getattr(raw, "choices", None)
+        if choices:
+            return getattr(choices[0], "finish_reason", None)
+    except Exception:
+        pass
+    return None
+
+
+def _has_tool_calls(raw: Any) -> bool:
+    """Return True when the response contains at least one tool call."""
+    try:
+        choices = getattr(raw, "choices", None)
+        if not choices:
+            return False
+        message = getattr(choices[0], "message", None)
+        tool_calls = getattr(message, "tool_calls", None)
+        return bool(tool_calls)
+    except Exception:
+        return False
  
  
 # ── Singleton ──────────────────────────────────────────────────────────────
