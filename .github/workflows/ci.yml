@@ -216,18 +216,18 @@ jobs:
 
     steps:
       - name: Skip if no changes
-        if: matrix.should_build != 'true'
+        if: matrix.should_build != true
         run: |
           echo "⏭️ Skipping ${{ matrix.service }} - no changes detected"
           exit 0
 
       - name: Checkout code
-        if: matrix.should_build == 'true'
+        if: matrix.should_build == true
         uses: actions/checkout@v4
 
       # Setup build environments
       - name: Setup Java 21
-        if: matrix.should_build == 'true' && matrix.setup == 'java'
+        if: matrix.should_build == true && matrix.setup == 'java'
         uses: actions/setup-java@v4
         with:
           java-version: '21'
@@ -235,13 +235,13 @@ jobs:
           cache: 'maven'
 
       - name: Install pnpm
-        if: matrix.should_build == 'true' && matrix.setup == 'node'
+        if: matrix.should_build == true && matrix.setup == 'node'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Setup Node.js 20
-        if: matrix.should_build == 'true' && matrix.setup == 'node'
+        if: matrix.should_build == true && matrix.setup == 'node'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -249,14 +249,14 @@ jobs:
           cache-dependency-path: 'frontend/pnpm-lock.yaml'
 
       - name: Setup Go 1.21
-        if: matrix.should_build == 'true' && matrix.setup == 'go'
+        if: matrix.should_build == true && matrix.setup == 'go'
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version-file: '${{ matrix.context }}/go.mod'
           cache-dependency-path: '${{ matrix.context }}/go.sum'
 
       - name: Setup Python 3.12
-        if: matrix.should_build == 'true' && matrix.setup == 'python'
+        if: matrix.should_build == true && matrix.setup == 'python'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -265,18 +265,18 @@ jobs:
 
       # Install dependencies
       - name: Install dependencies (Node)
-        if: matrix.should_build == 'true' && matrix.setup == 'node'
+        if: matrix.should_build == true && matrix.setup == 'node'
         working-directory: ${{ matrix.context }}
         run: pnpm install --frozen-lockfile
 
       - name: Download Go modules
-        if: matrix.should_build == 'true' && matrix.setup == 'go'
+        if: matrix.should_build == true && matrix.setup == 'go'
         working-directory: ${{ matrix.context }}
         run: go mod download
 
       # Run tests
       - name: Run tests
-        if: matrix.should_build == 'true'
+        if: matrix.should_build == true
         working-directory: ${{ matrix.context }}
         run: |
           echo "🧪 Running tests for ${{ matrix.service }}..."
@@ -286,7 +286,7 @@ jobs:
 
       # Build application
       - name: Build ${{ matrix.service }}
-        if: matrix.should_build == 'true'
+        if: matrix.should_build == true
         working-directory: ${{ matrix.context }}
         run: |
           echo "🔨 Building ${{ matrix.service }}..."
@@ -295,7 +295,7 @@ jobs:
 
       # Upload test coverage (optional)
       - name: Upload coverage to Codecov
-        if: matrix.should_build == 'true' && matrix.setup == 'go'
+        if: matrix.should_build == true && matrix.setup == 'go'
         uses: codecov/codecov-action@v4
         with:
           file: ${{ matrix.context }}/coverage.out
@@ -305,7 +305,7 @@ jobs:
 
       # Docker Build & Push
       - name: Set up Docker Buildx
-        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true'
+        if: matrix.should_build == true && needs.detect-changes.outputs.should_push == 'true'
         uses: docker/setup-buildx-action@v3
         with:
           driver-opts: |
@@ -313,14 +313,14 @@ jobs:
             image=moby/buildkit:latest
 
       - name: Login to Docker Hub
-        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true' && env.DOCKER_USERNAME != ''
+        if: matrix.should_build == true && needs.detect-changes.outputs.should_push == 'true' && env.DOCKER_USERNAME != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD || secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract Docker metadata
-        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true' && env.DOCKER_USERNAME != ''
+        if: matrix.should_build == true && needs.detect-changes.outputs.should_push == 'true' && env.DOCKER_USERNAME != ''
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -332,7 +332,7 @@ jobs:
             type=sha,prefix=,format=short
 
       - name: Build and push Docker image
-        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true' && env.DOCKER_USERNAME != ''
+        if: matrix.should_build == true && needs.detect-changes.outputs.should_push == 'true' && env.DOCKER_USERNAME != ''
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
@@ -353,7 +353,7 @@ jobs:
           provenance: false
 
       - name: Image digest
-        if: matrix.should_build == 'true' && needs.detect-changes.outputs.should_push == 'true'
+        if: matrix.should_build == true && needs.detect-changes.outputs.should_push == 'true'
         run: |
           echo "### 🐳 ${{ matrix.service }} Image Published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
