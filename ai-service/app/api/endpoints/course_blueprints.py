@@ -162,6 +162,12 @@ async def approve_draft(blueprint_id: UUID, body: StatusRequest, request: Reques
     row = await _row_or_404(blueprint_id)
     if row["owner_id"] != body.owner_id:
         raise HTTPException(403, "Blueprint belongs to another teacher")
+    # Approval is a state transition, but callers may retry after a dropped
+    # response or a BFF/frontend race.  Returning the already-approved draft
+    # makes the operation idempotent and prevents a harmless retry becoming a
+    # misleading 502 during course materialisation.
+    if row["status"] == "APPROVED":
+        return _dto(row)
     if row["status"] != "DRAFT":
         raise HTTPException(409, "Blueprint is no longer awaiting approval")
     manifest = json.loads(row["source_manifest"]) if isinstance(row["source_manifest"], str) else row["source_manifest"]
