@@ -13,3 +13,11 @@ The same component is requested from chatbot tool event `create_course_from_mate
 ## Operational model routing
 
 Bind the `course_blueprint` task in Admin → LLM Registry. Use a capable structured-output model as primary and at least one lower-cost compatible fallback. The workflow maps every source into small bounded calls, then reduces the evidence ledger, so it does not depend on putting a whole textbook in one model context. Gateway key pools, TPM limits, usage logging, and fallback policy apply exactly as they do to existing tasks.
+
+## Durable execution
+
+`POST /course-blueprints` persists a `PROCESSING` row then emits a Kafka wake-up
+event. The dedicated `course-blueprint-worker` owns OCR and LLM stages; it uses
+a database lease and recovery sweep so a browser disconnect, pod restart, or
+Kafka delivery retry cannot discard a job. It is deployed separately from the
+general AI worker and can scale independently.
