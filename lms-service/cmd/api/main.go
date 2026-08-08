@@ -424,6 +424,7 @@ func main() {
 
 			// COURSE MANAGEMENT
 			auth.POST("/course-blueprints", courseBlueprintHandler.Create)
+			auth.GET("/course-blueprints/:blueprintId", courseBlueprintHandler.Get)
 			auth.PUT("/course-blueprints/:blueprintId", courseBlueprintHandler.Update)
 			auth.POST("/course-blueprints/:blueprintId/approve", courseBlueprintHandler.Approve)
 			auth.POST("/course-blueprints/:blueprintId/apply", courseBlueprintHandler.Apply)

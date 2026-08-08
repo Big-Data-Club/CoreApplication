@@ -37,7 +37,13 @@ func (h *CourseBlueprintHandler) Create(c *gin.Context) {
 	if len(orgs) == 0 { c.JSON(403, dto.NewErrorResponse("forbidden", "Bạn chưa thuộc organization nào có thể tạo course")); return }
 	body["owner_id"] = c.GetInt64("user_id"); body["allowed_organization_ids"] = orgs; body["origin"] = "course_create"
 	result, err := h.ai.CreateCourseBlueprint(c.Request.Context(), body); if err != nil { c.JSON(502, dto.NewErrorResponse("ai_error", err.Error())); return }
-	c.JSON(201, dto.NewDataResponse(result))
+	c.JSON(http.StatusAccepted, dto.NewDataResponse(result))
+}
+
+func (h *CourseBlueprintHandler) Get(c *gin.Context) {
+	result, err := h.ai.GetCourseBlueprint(c.Request.Context(), c.Param("blueprintId"), c.GetInt64("user_id"))
+	if err != nil { c.JSON(502, dto.NewErrorResponse("ai_error", err.Error())); return }
+	c.JSON(http.StatusOK, dto.NewDataResponse(result))
 }
 
 func (h *CourseBlueprintHandler) Update(c *gin.Context) {

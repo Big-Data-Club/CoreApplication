@@ -918,6 +918,12 @@ func (c *Client) CreateCourseBlueprint(ctx context.Context, payload map[string]i
 	return resp, nil
 }
 
+func (c *Client) GetCourseBlueprint(ctx context.Context, id string, ownerID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	if err := c.get(ctx, fmt.Sprintf("/ai/course-blueprints/%s?owner_id=%d", id, ownerID), &resp); err != nil { return nil, err }
+	return resp, nil
+}
+
 func (c *Client) UpdateCourseBlueprint(ctx context.Context, id string, payload map[string]interface{}) (map[string]interface{}, error) {
 	var resp map[string]interface{}
 	if err := c.put(ctx, "/ai/course-blueprints/"+id, payload, &resp); err != nil { return nil, err }

@@ -7,7 +7,9 @@ identical while avoiding duplicate file pipelines.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
@@ -15,19 +17,17 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.core.database import get_ai_conn
-from app.core.llm_gateway.errors import (
-    EmptyCompletionError,
-    LLMGatewayError,
-    NoModelAvailableError,
-    NoKeyAvailableError,
-    StructuredOutputError,
-)
 from app.services.course_blueprint_service import (
     CourseGovernance, CoursePlan, SourceDocument, course_blueprint_service, validate_plan,
 )
 
 router = APIRouter(prefix="/course-blueprints", tags=["Course blueprints"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
+# One blueprint run can perform OCR plus many map/reduce completions.  The
+# deployed AI pod is deliberately small; queue runs instead of allowing a
+# burst of teachers to starve every request and exhaust the key pool.
+_generation_slots = asyncio.Semaphore(1)
 
 
 class CreateDraftRequest(BaseModel):
@@ -74,70 +74,64 @@ def _dto(row) -> dict:
         "governance_options": decoded(row["governance_manifest"]),
         "validation": decoded(row["validation_report"]), "version": row["version"],
         "applied_course_id": row["applied_course_id"], "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "updated_at": row["updated_at"], "error_message": row.get("error_message") if hasattr(row, "get") else row["error_message"],
     }
 
 
-@router.post("", status_code=201)
+async def _generate_draft_in_background(blueprint_id: UUID, body: CreateDraftRequest) -> None:
+    """Build a draft independently of the browser/proxy connection."""
+    async with _generation_slots:
+        try:
+            plan, report = await course_blueprint_service.draft(body.documents, body.language)
+            plan.governance = body.governance
+            if plan.governance.organization_id is None and len(body.allowed_organization_ids) == 1:
+                plan.governance.organization_id = body.allowed_organization_ids[0]
+            report = validate_plan(
+                plan, {doc.id for doc in body.documents}, set(body.allowed_organization_ids),
+                set(body.allowed_co_teacher_ids),
+            )
+            if not report["valid"] and any(error["code"] != "organization_required" for error in report["errors"]):
+                raise ValueError("Generated blueprint violates curriculum invariants")
+            async with get_ai_conn() as conn:
+                # Do not resurrect a draft that the teacher cancelled while
+                # the model was working.
+                await conn.execute(
+                    """UPDATE course_blueprints
+                       SET status='DRAFT', plan=$1::jsonb, validation_report=$2::jsonb,
+                           error_message=NULL
+                       WHERE id=$3 AND status='PROCESSING'""",
+                    plan.model_dump_json(), json.dumps(report), blueprint_id,
+                )
+        except Exception:
+            logger.exception("Course blueprint generation failed id=%s", blueprint_id)
+            async with get_ai_conn() as conn:
+                await conn.execute(
+                    """UPDATE course_blueprints
+                       SET status='FAILED', validation_report=$1::jsonb, error_message=$2
+                       WHERE id=$3 AND status='PROCESSING'""",
+                    json.dumps({"valid": False, "errors": [{"code": "generation_failed", "message": "Không thể tạo đề xuất AI."}]}),
+                    "AI không thể hoàn tất phân tích tài liệu. Hãy thử lại hoặc giảm số lượng tài liệu trong một lần.", blueprint_id,
+                )
+
+
+@router.post("", status_code=202)
 async def create_draft(body: CreateDraftRequest, request: Request):
     _verify(request)
     if len({document.id for document in body.documents}) != len(body.documents):
         raise HTTPException(422, "Each uploaded document requires a unique id")
-    try:
-        plan, report = await course_blueprint_service.draft(body.documents, body.language)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc))
-    except EmptyCompletionError as exc:
-        raise HTTPException(502, detail={
-            "code": "empty_llm_completion",
-            "message": "Model trả về kết quả rỗng. Có thể do output budget bị reasoning chiếm hết; hãy thử lại sau.",
-            "reason": str(exc),
-        })
-    except StructuredOutputError as exc:
-        raise HTTPException(502, detail={
-            "code": "invalid_llm_response",
-            "message": "Model không tạo được kết quả hợp lệ sau nhiều lần thử. Hãy thử lại sau.",
-            "reason": str(exc),
-        })
-    except (NoModelAvailableError, NoKeyAvailableError) as exc:
-        # This is an operational configuration issue, not a malformed upload.
-        raise HTTPException(503, detail={
-            "code": "course_blueprint_model_unavailable",
-            "message": "LLM Gateway chưa có model/key khả dụng cho course_blueprint.",
-            "reason": str(exc),
-        })
-    except LLMGatewayError as exc:
-        raise HTTPException(503, detail={
-            "code": "course_blueprint_llm_unavailable",
-            "message": "LLM tạm thời không thể tạo roadmap; hãy thử lại sau.",
-            "reason": str(exc),
-        })
-    # Governance is an explicit teacher-controlled selection.  Default to the
-    # sole eligible organization only; otherwise make the UI ask the teacher.
-    plan.governance = body.governance
-    if plan.governance.organization_id is None and len(body.allowed_organization_ids) == 1:
-        plan.governance.organization_id = body.allowed_organization_ids[0]
-    report = validate_plan(
-        plan, {doc.id for doc in body.documents}, set(body.allowed_organization_ids),
-        set(body.allowed_co_teacher_ids),
-    )
-    # A teacher with several organizations may choose ownership after seeing
-    # the proposal.  Keep that draft editable, but never permit approval until
-    # the required selection has been made.
-    if not report["valid"] and any(error["code"] != "organization_required" for error in report["errors"]):
-        raise HTTPException(422, {"message": "Select valid course ownership", "validation": report})
     blueprint_id = uuid4()
     manifest = [document.model_dump(exclude={"text"}) for document in body.documents]
     async with get_ai_conn() as conn:
         row = await conn.fetchrow(
             """INSERT INTO course_blueprints
-               (id, owner_id, origin, source_manifest, governance_manifest, plan, validation_report)
-               VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb) RETURNING *""",
+               (id, owner_id, origin, status, source_manifest, governance_manifest, plan, validation_report)
+               VALUES ($1,$2,$3,'PROCESSING',$4::jsonb,$5::jsonb,'{}'::jsonb,$6::jsonb) RETURNING *""",
             blueprint_id, body.owner_id, body.origin, json.dumps(manifest),
             json.dumps({"allowed_organization_ids": body.allowed_organization_ids,
                         "allowed_co_teacher_ids": body.allowed_co_teacher_ids}),
-            plan.model_dump_json(), json.dumps(report),
+            json.dumps({"valid": False, "errors": [], "state": "PROCESSING"}),
         )
+    asyncio.create_task(_generate_draft_in_background(blueprint_id, body), name=f"course-blueprint:{blueprint_id}")
     return _dto(row)
 
 
@@ -210,8 +204,8 @@ async def cancel_draft(blueprint_id: UUID, body: StatusRequest, request: Request
     row = await _row_or_404(blueprint_id)
     if row["owner_id"] != body.owner_id:
         raise HTTPException(403, "Blueprint belongs to another teacher")
-    if row["status"] != "DRAFT":
-        raise HTTPException(409, "Only a draft can be cancelled")
+    if row["status"] not in {"PROCESSING", "DRAFT"}:
+        raise HTTPException(409, "Only a processing or draft blueprint can be cancelled")
     async with get_ai_conn() as conn:
         updated = await conn.fetchrow(
             "UPDATE course_blueprints SET status='CANCELLED' WHERE id=$1 RETURNING *", blueprint_id)
