@@ -210,6 +210,43 @@ jobs:
           kubectl patch serviceaccount default --namespace "$DEPLOY_NAMESPACE" \
             --type merge -p '{"imagePullSecrets":[{"name":"dockerhub-registry"}]}'
 
+      - name: Apply AI schema migrations before rollout
+        # The current ai-service pod already has the DB credentials and
+        # asyncpg installed.  Applying additive migrations before replacing
+        # it prevents a new API/worker from ever observing a half-upgraded
+        # course_blueprints table.  V010 is idempotent by design.
+        if: contains(needs.detect-changes.outputs.services, 'ai-service')
+        env:
+          DEPLOY_NAMESPACE: default
+        shell: bash
+        run: |
+          set -euo pipefail
+          POD="$(kubectl get pod -n "$DEPLOY_NAMESPACE" -l app=ai-service \
+            -o jsonpath='{.items[0].metadata.name}')"
+          test -n "$POD"
+          kubectl exec -n "$DEPLOY_NAMESPACE" "$POD" -- python -c '
+          import asyncio, os, asyncpg
+          SQL = """
+          ALTER TABLE course_blueprints
+              ADD COLUMN IF NOT EXISTS processing_stage VARCHAR(32) NOT NULL DEFAULT '\''QUEUED'\'',
+              ADD COLUMN IF NOT EXISTS progress_pct SMALLINT NOT NULL DEFAULT 0
+                  CHECK (progress_pct >= 0 AND progress_pct <= 100),
+              ADD COLUMN IF NOT EXISTS lease_owner VARCHAR(255),
+              ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+              ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+          CREATE INDEX IF NOT EXISTS idx_course_blueprints_recovery
+              ON course_blueprints (status, lease_until, updated_at)
+              WHERE status = '\''PROCESSING'\'';
+          """
+          async def main():
+              conn = await asyncpg.connect(host=os.environ["AI_DB_HOST"], port=int(os.environ["AI_DB_PORT"]), user=os.environ["AI_DB_USER"], password=os.environ["AI_DB_PASSWORD"], database=os.environ["AI_DB_NAME"])
+              try:
+                  await conn.execute(SQL)
+              finally:
+                  await conn.close()
+          asyncio.run(main())
+          '
+
       - name: Deploy immutable images and verify rollouts
         env:
           REGISTRY_NAMESPACE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
