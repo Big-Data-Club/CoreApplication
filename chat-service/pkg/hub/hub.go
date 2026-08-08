@@ -262,7 +262,8 @@ func (h *Hub) IsOnline(ctx context.Context, userID int64) (bool, error) {
 	if userID <= 0 {
 		return false, nil
 	}
-	return h.rdb.Exists(ctx, presenceKey(userID)).Result()
+	count, err := h.rdb.Exists(ctx, presenceKey(userID)).Result()
+	return count > 0, err
 }
 
 // -------------------------------------------------------------------
