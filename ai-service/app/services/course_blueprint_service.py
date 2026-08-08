@@ -15,7 +15,7 @@ from typing import Any
 
 from app.core.llm import chat_complete_structured
 from app.core.llm_gateway import TASK_COURSE_BLUEPRINT
-from app.core.llm_gateway.token_budget import pack_by_token_budget
+from app.core.llm_gateway.token_budget import estimate_tokens, pack_by_token_budget
 from app.core.config import get_settings
 from pydantic import BaseModel, Field, field_validator
 
@@ -196,6 +196,78 @@ class CourseBlueprintService:
     # room for instructions and structured output.  All content is represented
     # in the ledger, so no source is silently dropped when documents are large.
     MAP_SOURCE_BUDGET = 1800
+    # The final planner also needs room to emit a complete CoursePlan.  Reduce
+    # evidence first instead of letting a large set of otherwise-valid map
+    # results overflow the gateway's request budget.
+    REDUCTION_BATCH_BUDGET = 3200
+    PLAN_LEDGER_BUDGET = 3600
+
+    async def _reduce_evidence(
+        self,
+        evidence: list[Evidence],
+        *,
+        target_tokens: int,
+        scope: str,
+    ) -> list[Evidence]:
+        """Hierarchically compact a ledger without ever resending source files.
+
+        Map extraction is intentionally exhaustive, so a long textbook can
+        produce hundreds of small evidence records.  A single final planner
+        call must not receive that entire ledger.  This reduction is a real
+        multi-hop stage: each bounded batch is distilled, then the distillates
+        are repeatedly combined until the next call is safe.  ``source_id`` is
+        re-bound by the service after every hop, never trusted from the model.
+        """
+        current = evidence
+        rounds = 0
+        while estimate_tokens([item.model_dump() for item in current]) > target_tokens:
+            rounds += 1
+            if rounds > 8:
+                # This should be unreachable with bounded batch outputs.  It
+                # prevents a pathological provider response from making an
+                # in-memory job spin forever.
+                raise ValueError("Evidence ledger could not be compacted safely")
+            batches = pack_by_token_budget(
+                [item.model_dump_json() for item in current], self.REDUCTION_BATCH_BUDGET,
+            )
+            reduced: list[Evidence] = []
+            for batch_index, batch in enumerate(batches, 1):
+                payload = [json.loads(item) for item in batch]
+                result = await chat_complete_structured(
+                    messages=[
+                        {"role": "system", "content": (
+                            "Compress this evidence ledger for a curriculum modeller. Preserve only facts "
+                            "explicitly supported by the supplied excerpts, keep coverage across the batch, "
+                            "and retain the exact source_id on every item. Return at most 4 concise evidence "
+                            "items. Return exactly one JSON object with an evidence array; no Markdown or prose."
+                        )},
+                        {"role": "user", "content": json.dumps(
+                            {"scope": scope, "batch": batch_index, "evidence": payload}, ensure_ascii=False,
+                        )},
+                    ],
+                    response_model=EvidenceLedger,
+                    task=TASK_COURSE_BLUEPRINT,
+                    max_tokens=1200,
+                    native_json_mode=False,
+                )
+                # A model is only allowed to select provenance that was in its
+                # own batch.  This blocks invented/cross-tenant source ids.
+                allowed = {item.source_id for item in current if item.model_dump_json() in batch}
+                for item in result.evidence:
+                    # In a per-source reduction it is safe (and useful with
+                    # smaller models) to restore omitted provenance
+                    # deterministically.  Across sources, accept only an id
+                    # that was actually supplied to this batch.
+                    if not item.source_id and len(allowed) == 1:
+                        item.source_id = next(iter(allowed))
+                    if item.source_id in allowed:
+                        reduced.append(item)
+            if not reduced:
+                raise ValueError("Evidence reduction returned no grounded records")
+            if len(reduced) >= len(current):
+                raise ValueError("Evidence reduction did not make progress")
+            current = reduced
+        return current
 
     async def _source_text(self, document: SourceDocument) -> str:
         if document.text.strip():
@@ -271,6 +343,22 @@ class CourseBlueprintService:
                 "Kiểm tra lại file đầu vào (PDF scan không có text layer, "
                 "file lỗi, hoặc nội dung không phải tài liệu giảng dạy)."
             )
+
+        # First preserve the important coverage of each individual teaching
+        # source, then (only if needed) compact the cross-document ledger.
+        # This avoids the 42k-token final prompt observed with multi-chapter
+        # textbooks while retaining the audit trail used by the UI.
+        by_source: dict[str, list[Evidence]] = defaultdict(list)
+        for item in ledger:
+            by_source[item.source_id].append(item)
+        source_ledger: list[Evidence] = []
+        for source_id, source_items in by_source.items():
+            source_ledger.extend(await self._reduce_evidence(
+                source_items, target_tokens=900, scope=f"source:{source_id}",
+            ))
+        ledger = await self._reduce_evidence(
+            source_ledger, target_tokens=self.PLAN_LEDGER_BUDGET, scope="course",
+        )
 
         plan = await chat_complete_structured(
             messages=[
