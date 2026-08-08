@@ -62,6 +62,7 @@ declare -A manifests=(
 )
 
 updated=()
+created=()
 declare -A previous_images=()
 rollback_on_error() {
   exit_code=$?
@@ -70,9 +71,15 @@ rollback_on_error() {
   fi
   echo "Deployment failed; rolling back workloads changed by this run." >&2
   for deployment in "${updated[@]}"; do
+    # A newly-created workload has no meaningful previous image.  It is
+    # removed below instead of being pointed back at the manifest placeholder.
+    [[ " ${created[*]} " == *" ${deployment} "* ]] && continue
     kubectl set image "deployment/${deployment}" \
       "${containers[$deployment]}=${previous_images[$deployment]}" \
       --namespace "$DEPLOY_NAMESPACE" || true
+  done
+  for deployment in "${created[@]}"; do
+    kubectl delete deployment "${deployment}" --namespace "$DEPLOY_NAMESPACE" --ignore-not-found || true
   done
   exit "$exit_code"
 }
@@ -87,10 +94,14 @@ kubectl apply -f k3s/base/configmap.yaml --namespace "$DEPLOY_NAMESPACE"
 # even though the base manifest uses a `latest` placeholder.
 for deployment in "${deployments[@]}"; do
   if [[ -n "${manifests[$deployment]:-}" ]]; then
-    previous_images[$deployment]="$(
-      kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
-        -o "jsonpath={.spec.template.spec.containers[?(@.name=='${containers[$deployment]}')].image}"
-    )"
+    if kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" >/dev/null 2>&1; then
+      previous_images[$deployment]="$(
+        kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
+          -o "jsonpath={.spec.template.spec.containers[?(@.name=='${containers[$deployment]}')].image}"
+      )"
+    else
+      created+=("$deployment")
+    fi
     kubectl apply -f "${manifests[$deployment]}" --namespace "$DEPLOY_NAMESPACE"
   elif [[ "$deployment" == "recommender-service" ]]; then
     kubectl apply -f k3s/base/recommender-service-deployment.yaml --namespace "$DEPLOY_NAMESPACE"
