@@ -24,9 +24,10 @@ from app.core.llm_gateway.types import Model, Usage
 
 logger = logging.getLogger(__name__)
 
-# Extra keys forwarded verbatim to the Groq API.
-# reasoning_effort / include_reasoning control GPT-OSS 120B chain-of-thought
-# budget; seed provides deterministic sampling where supported.
+# Extra keys supported by the pinned Groq SDK (0.13.0).  Keep this list
+# intentionally conservative: forwarding a field supported only by a newer
+# SDK raises TypeError locally and turns a recoverable model configuration
+# mistake into a 500 before any provider request is made.
 _PASSTHROUGH_KEYS = (
     "tools",
     "tool_choice",
@@ -34,8 +35,6 @@ _PASSTHROUGH_KEYS = (
     "stop",
     "top_p",
     "seed",
-    "reasoning_effort",
-    "include_reasoning",
 )
 
 
@@ -58,9 +57,8 @@ class GroqAdapter(LLMAdapter):
             "model": model.model_name,
             "messages": messages_copy,
             "temperature": temperature,
-            # Groq deprecated `max_tokens`; `max_completion_tokens` is the
-            # current field and correctly scopes only the output budget.
-            "max_completion_tokens": max_tokens,
+            # The deployed Groq SDK (0.13.0) accepts ``max_tokens``.
+            "max_tokens": max_tokens,
         }
         if json_mode and model.supports_json:
             kwargs["response_format"] = {"type": "json_object"}
@@ -87,6 +85,15 @@ class GroqAdapter(LLMAdapter):
             raise ProviderError(
                 f"Groq network error: {exc}",
                 retryable=True,
+            ) from exc
+        except TypeError as exc:
+            # Protect endpoint callers from an SDK/request-shape mismatch.
+            # This must be an LLMGatewayError so API routes return a useful
+            # 503 rather than leaking a Python 500 traceback.
+            logger.error("Groq SDK rejected completion arguments: %s", exc)
+            raise ProviderError(
+                f"Groq SDK rejected completion arguments: {exc}",
+                status_code=500,
             ) from exc
         except APIStatusError as exc:
             status = getattr(exc, "status_code", None)
@@ -157,7 +164,7 @@ class GroqAdapter(LLMAdapter):
             "model": model.model_name,
             "messages": messages_copy,
             "temperature": temperature,
-            "max_completion_tokens": max_tokens,
+            "max_tokens": max_tokens,
             "stream": True,
         }
         if json_mode and model.supports_json:
@@ -193,6 +200,11 @@ class GroqAdapter(LLMAdapter):
             raise AuthError(str(exc)) from exc
         except (APIConnectionError, APITimeoutError) as exc:
             raise ProviderError(f"Groq network error: {exc}", retryable=True) from exc
+        except TypeError as exc:
+            logger.error("Groq SDK rejected stream arguments: %s", exc)
+            raise ProviderError(
+                f"Groq SDK rejected stream arguments: {exc}", status_code=500,
+            ) from exc
         except APIStatusError as exc:
             status = getattr(exc, "status_code", None)
             try:
