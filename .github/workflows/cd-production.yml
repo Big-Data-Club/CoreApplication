@@ -51,7 +51,7 @@ jobs:
             restart_deployment "${TARGET}"
           else
             echo "🔄 Rolling out all active Kubernetes deployments..."
-            for dep in auth-service frontend lms-service ai-service ai-worker recommender-service chat-service lab-service personalize-service; do
+            for dep in auth-service frontend lms-service ai-service ai-worker course-blueprint-worker recommender-service chat-service lab-service personalize-service; do
               if ${KUBECTL} get deployment ${dep} &> /dev/null; then
                 restart_deployment "${dep}"
               fi

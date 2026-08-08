@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: course-blueprint-worker
+  labels:
+    app: course-blueprint-worker
+spec:
+  # Kafka has three partitions.  Two replicas isolate this heavy workload
+  # while retaining one partition of headroom for a later scale-out.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: course-blueprint-worker
+  template:
+    metadata:
+      labels:
+        app: course-blueprint-worker
+    spec:
+      containers:
+      - name: course-blueprint-worker
+        image: phucnhan2809/bdc-ai:latest
+        imagePullPolicy: Always
+        command: ["python", "-m", "app.worker.course_blueprint_worker"]
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        - name: AI_DB_HOST
+          value: "$(AI_POSTGRES_HOST)"
+        - name: AI_DB_PORT
+          value: "5432"
+        - name: AI_DB_USER
+          valueFrom:
+            secretKeyRef: { name: bdc-secrets, key: AI_POSTGRES_USER }
+        - name: AI_DB_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: bdc-secrets, key: AI_POSTGRES_PASSWORD }
+        - name: AI_DB_NAME
+          valueFrom:
+            secretKeyRef: { name: bdc-secrets, key: AI_POSTGRES_DB }
+        - name: AI_DB_SSL
+          value: "$(AI_DB_SSL)"
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: { name: bdc-secrets, key: MINIO_ROOT_USER }
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef: { name: bdc-secrets, key: MINIO_ROOT_PASSWORD }
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef: { name: bdc-secrets, key: AI_SERVICE_SECRET }
+        - name: AI_KEY_ENCRYPTION_SECRET
+          valueFrom:
+            secretKeyRef: { name: bdc-secrets, key: AI_KEY_ENCRYPTION_SECRET }
+        resources:
+          limits: { cpu: "1", memory: 1280Mi }
+          requests: { cpu: "500m", memory: 768Mi }
+        securityContext:
+          runAsUser: 1001
+          runAsGroup: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+        - name: ai-model-cache
+          mountPath: /app/.cache/models
+      volumes:
+      - name: dshm
+        emptyDir: { medium: Memory, sizeLimit: "1Gi" }
+      - name: ai-model-cache
+        persistentVolumeClaim:
+          claimName: ai-model-cache

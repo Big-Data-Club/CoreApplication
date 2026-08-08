@@ -44,6 +44,7 @@ jobs:
             ai:
               - 'ai-service/**'
               - 'k3s/base/ai-service-deployment.yaml'
+              - 'k3s/base/course-blueprint-worker-deployment.yaml'
               - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
             recommender:
@@ -96,7 +97,7 @@ jobs:
 
           if [[ "${AI_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-ai","context":"ai-service"}')
-            services+=(ai-service ai-worker)
+            services+=(ai-service ai-worker course-blueprint-worker)
           fi
           if [[ "${RECOMMENDER_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-recommender","context":"recommender-service"}')

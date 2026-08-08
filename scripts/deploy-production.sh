@@ -14,6 +14,7 @@ deployments=(
   chat-service
   ai-service
   ai-worker
+  course-blueprint-worker
   personalize-service
   recommender-service
 )
@@ -33,6 +34,7 @@ declare -A containers=(
   [chat-service]=chat-service
   [ai-service]=ai-service
   [ai-worker]=ai-worker
+  [course-blueprint-worker]=course-blueprint-worker
   [personalize-service]=personalize-service
   [recommender-service]=recommender-service
   [frontend]=frontend
@@ -45,6 +47,7 @@ declare -A images=(
   [chat-service]=bdc-chat
   [ai-service]=bdc-ai
   [ai-worker]=bdc-ai
+  [course-blueprint-worker]=bdc-ai
   [personalize-service]=bdc-personalize
   [recommender-service]=bdc-recommender
   [frontend]=bdc-frontend
@@ -55,6 +58,7 @@ declare -A images=(
 # the immutable image immediately below; unrelated deployments are untouched.
 declare -A manifests=(
   [chat-service]=k3s/base/chat-service-deployment.yaml
+  [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml
 )
 
 updated=()
