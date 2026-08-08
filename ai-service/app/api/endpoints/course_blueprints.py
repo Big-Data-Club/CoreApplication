@@ -121,15 +121,24 @@ async def create_draft(body: CreateDraftRequest, request: Request):
         raise HTTPException(422, "Each uploaded document requires a unique id")
     blueprint_id = uuid4()
     manifest = [document.model_dump(exclude={"text"}) for document in body.documents]
+    # Keep the response backward-compatible with an older frontend during a
+    # rolling deployment.  New clients branch on PROCESSING; old clients can
+    # still render this harmless empty plan instead of dereferencing an empty
+    # JSON object and crashing.
+    processing_plan = {
+        "title": "Đang phân tích tài liệu…", "description": "", "category": "",
+        "level": "ALL_LEVELS", "tags": [], "chapters": [],
+        "governance": body.governance.model_dump(), "evidence_ledger": [],
+    }
     async with get_ai_conn() as conn:
         row = await conn.fetchrow(
             """INSERT INTO course_blueprints
                (id, owner_id, origin, status, source_manifest, governance_manifest, plan, validation_report)
-               VALUES ($1,$2,$3,'PROCESSING',$4::jsonb,$5::jsonb,'{}'::jsonb,$6::jsonb) RETURNING *""",
+               VALUES ($1,$2,$3,'PROCESSING',$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb) RETURNING *""",
             blueprint_id, body.owner_id, body.origin, json.dumps(manifest),
             json.dumps({"allowed_organization_ids": body.allowed_organization_ids,
                         "allowed_co_teacher_ids": body.allowed_co_teacher_ids}),
-            json.dumps({"valid": False, "errors": [], "state": "PROCESSING"}),
+            json.dumps(processing_plan), json.dumps({"valid": False, "errors": [], "state": "PROCESSING"}),
         )
     asyncio.create_task(_generate_draft_in_background(blueprint_id, body), name=f"course-blueprint:{blueprint_id}")
     return _dto(row)
