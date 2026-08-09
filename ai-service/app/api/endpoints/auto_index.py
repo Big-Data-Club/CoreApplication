@@ -109,6 +109,18 @@ async def _upsert_content_status(content_id: int, course_id: int, status: str, t
 
 async def _get_content_status(content_id: int) -> dict | None:
     async with get_ai_conn() as conn:
+        await conn.execute(
+            """
+            UPDATE content_index_status
+               SET status = 'failed',
+                   error = 'Indexing was interrupted; retry is available',
+                   updated_at = NOW()
+             WHERE content_id = $1
+               AND status IN ('pending', 'processing')
+               AND updated_at < NOW() - INTERVAL '2 hours'
+            """,
+            content_id,
+        )
         row = await conn.fetchrow(
             "SELECT status, error FROM content_index_status WHERE content_id=$1",
             content_id,
@@ -229,6 +241,20 @@ async def batch_get_auto_index_status(body: BatchStatusRequest, request: Request
         return {}
 
     async with get_ai_conn() as conn:
+        # Surface abandoned work as retryable instead of leaving the UI in an
+        # endless "processing" state after a Kafka/worker restart.
+        await conn.execute(
+            """
+            UPDATE content_index_status
+               SET status = 'failed',
+                   error = 'Indexing was interrupted; retry is available',
+                   updated_at = NOW()
+             WHERE content_id = ANY($1)
+               AND status IN ('pending', 'processing')
+               AND updated_at < NOW() - INTERVAL '2 hours'
+            """,
+            ids,
+        )
         # 1. Batch-fetch statuses
         status_rows = await conn.fetch(
             "SELECT content_id, status, error FROM content_index_status WHERE content_id = ANY($1)",

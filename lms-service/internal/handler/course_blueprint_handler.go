@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"example/hello/internal/dto"
 	"example/hello/internal/repository"
@@ -99,4 +100,38 @@ func (h *CourseBlueprintHandler) Cancel(c *gin.Context) {
 	var ignored map[string]interface{}
 	if err := h.ai.CancelCourseBlueprint(c.Request.Context(), c.Param("blueprintId"), c.GetInt64("user_id"), &ignored); err != nil { c.JSON(502, dto.NewErrorResponse("ai_error", err.Error())); return }
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Đã hủy đề xuất khóa học"))
+}
+
+func (h *CourseBlueprintHandler) CreateMaterialRouting(c *gin.Context) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64); if err != nil { c.JSON(400, dto.NewErrorResponse("invalid_id", "Course ID không hợp lệ")); return }
+	userID, role := c.GetInt64("user_id"), getRoleFromContext(c)
+	if role != "TEACHER" && role != "ADMIN" { c.JSON(403, dto.NewErrorResponse("forbidden", "Chỉ giảng viên có thể phân loại tài liệu")); return }
+	sections, err := h.courses.ListSections(c.Request.Context(), courseID, userID, role); if err != nil { c.JSON(403, dto.NewErrorResponse("forbidden", err.Error())); return }
+	if len(sections) == 0 { c.JSON(422, dto.NewErrorResponse("validation_error", "Khóa học chưa có chương")); return }
+	var body struct { Documents []map[string]interface{} `json:"documents"` }
+	if err := c.ShouldBindJSON(&body); err != nil || len(body.Documents) == 0 { c.JSON(400, dto.NewErrorResponse("validation_error", "Cần ít nhất một tài liệu")); return }
+	sectionPayload := make([]map[string]interface{}, 0, len(sections)); for _, item := range sections { sectionPayload = append(sectionPayload, map[string]interface{}{"id": item.ID, "title": item.Title, "description": item.Description}) }
+	result, err := h.ai.CreateMaterialRouting(c.Request.Context(), map[string]interface{}{"owner_id": userID, "course_id": courseID, "documents": body.Documents, "sections": sectionPayload})
+	if err != nil { c.JSON(502, dto.NewErrorResponse("ai_error", err.Error())); return }; c.JSON(202, dto.NewDataResponse(result))
+}
+
+func (h *CourseBlueprintHandler) GetMaterialRouting(c *gin.Context) {
+	result, err := h.ai.GetMaterialRouting(c.Request.Context(), c.Param("routingId"), c.GetInt64("user_id")); if err != nil { c.JSON(502, dto.NewErrorResponse("ai_error", err.Error())); return }
+	c.JSON(200, dto.NewDataResponse(result))
+}
+
+func (h *CourseBlueprintHandler) ApplyMaterialRouting(c *gin.Context) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64); if err != nil { c.JSON(400, dto.NewErrorResponse("invalid_id", "Course ID không hợp lệ")); return }
+	userID, role := c.GetInt64("user_id"), getRoleFromContext(c)
+	var body struct { RoutingID string `json:"routing_id"`; Assignments []struct { DocumentID string `json:"document_id"`; SectionID int64 `json:"section_id"`; Title string `json:"title"`; Description string `json:"description"`; IsMandatory bool `json:"is_mandatory"` } `json:"assignments"` }
+	if err := c.ShouldBindJSON(&body); err != nil { c.JSON(400, dto.NewErrorResponse("validation_error", err.Error())); return }
+	jobRaw, err := h.ai.GetMaterialRouting(c.Request.Context(), body.RoutingID, userID); if err != nil { c.JSON(502, dto.NewErrorResponse("ai_error", err.Error())); return }
+	var job struct { Status string `json:"status"`; CourseID int64 `json:"course_id"`; Documents []struct { ID string `json:"id"`; Filename string `json:"filename"`; FilePath string `json:"file_path"`; ContentType string `json:"content_type"` } `json:"documents"` }; encoded, _ := json.Marshal(jobRaw); if err := json.Unmarshal(encoded, &job); err != nil { c.JSON(502, dto.NewErrorResponse("ai_error", "Routing response không hợp lệ")); return }
+	if job.Status != "READY" || job.CourseID != courseID { c.JSON(409, dto.NewErrorResponse("invalid_state", "Đề xuất chưa sẵn sàng hoặc không thuộc khóa học")); return }
+	sections, err := h.courses.ListSections(c.Request.Context(), courseID, userID, role); if err != nil { c.JSON(403, dto.NewErrorResponse("forbidden", err.Error())); return }
+	allowed := map[int64]bool{}; nextOrder := map[int64]int{}; for _, s := range sections { allowed[s.ID] = true; items, _ := h.courses.ListContent(c.Request.Context(), s.ID, userID, role); nextOrder[s.ID] = len(items) }
+	documents := map[string]struct { Filename, FilePath, ContentType string }{}; for _, item := range job.Documents { documents[item.ID] = struct { Filename, FilePath, ContentType string }{item.Filename,item.FilePath,item.ContentType} }
+	created := 0
+	for _, assignment := range body.Assignments { doc, ok := documents[assignment.DocumentID]; if !ok || !allowed[assignment.SectionID] { c.JSON(422, dto.NewErrorResponse("validation_error", "Tài liệu hoặc chương không hợp lệ")); return }; title := assignment.Title; if title == "" { title = doc.Filename }; _, err = h.courses.CreateContent(c.Request.Context(), assignment.SectionID, &dto.CreateContentRequest{Type:"DOCUMENT", Title:title, Description:assignment.Description, OrderIndex:nextOrder[assignment.SectionID], IsMandatory:assignment.IsMandatory, Metadata:map[string]interface{}{"file_path":doc.FilePath,"file_name":doc.Filename,"file_type":doc.ContentType,"routing_id":body.RoutingID}}, userID, role); if err != nil { c.JSON(500, dto.NewErrorResponse("materialize_error", err.Error())); return }; nextOrder[assignment.SectionID]++; created++ }
+	c.JSON(201, dto.NewDataResponse(map[string]interface{}{"created":created}))
 }

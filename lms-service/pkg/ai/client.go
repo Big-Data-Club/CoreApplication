@@ -939,6 +939,18 @@ func (c *Client) CancelCourseBlueprint(ctx context.Context, id string, ownerID i
 	return c.post(ctx, "/ai/course-blueprints/"+id+"/cancel", map[string]int64{"owner_id": ownerID}, result)
 }
 
+func (c *Client) CreateMaterialRouting(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	if err := c.post(ctx, "/ai/course-material-routing", payload, &resp); err != nil { return nil, err }
+	return resp, nil
+}
+
+func (c *Client) GetMaterialRouting(ctx context.Context, id string, ownerID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	if err := c.get(ctx, fmt.Sprintf("/ai/course-material-routing/%s?owner_id=%d", id, ownerID), &resp); err != nil { return nil, err }
+	return resp, nil
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 func (c *Client) post(ctx context.Context, path string, body, result interface{}) error {

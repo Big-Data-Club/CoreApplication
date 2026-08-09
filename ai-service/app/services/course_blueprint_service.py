@@ -300,42 +300,37 @@ class CourseBlueprintService:
             raise ValueError(f"Could not extract teaching text from {document.filename}")
         return converted.markdown
 
+    async def evidence_for_document(self, document: SourceDocument) -> list[Evidence]:
+        """Extract and compact grounded evidence for one uploaded document."""
+        source_text = await self._source_text(document)
+        if not source_text.strip():
+            return []
+        ledger: list[Evidence] = []
+        for batch_index, batch in enumerate(pack_by_token_budget([source_text], self.MAP_SOURCE_BUDGET)):
+            result = await chat_complete_structured(
+                messages=[
+                    {"role": "system", "content": (
+                        "Extract only curriculum evidence explicitly present in the supplied source. "
+                        "Do not infer missing topics. Return at most 4 evidence items with excerpt and topics; "
+                        "each excerpt <= 360 characters and topics <= 3 strings. Return JSON only."
+                    )},
+                    {"role": "user", "content": json.dumps({
+                        "source_id": document.id, "filename": document.filename,
+                        "part": batch_index + 1, "content": "".join(batch),
+                    }, ensure_ascii=False)},
+                ], response_model=EvidenceLedger, task=TASK_COURSE_BLUEPRINT,
+                max_tokens=1600, native_json_mode=False,
+            )
+            ledger.extend(Evidence(source_id=document.id, excerpt=item.excerpt,
+                                   topics=item.topics or ([item.topic] if item.topic else []))
+                          for item in result.evidence)
+        return await self._reduce_evidence(ledger, target_tokens=900, scope=f"source:{document.id}") if ledger else []
+
     async def draft(self, documents: list[SourceDocument], language: str = "vi") -> tuple[CoursePlan, dict[str, Any]]:
         source_ids = {doc.id for doc in documents}
         ledger: list[Evidence] = []
         for document in documents:
-            source_text = await self._source_text(document)
-            if not source_text.strip():
-                continue
-            batches = pack_by_token_budget([source_text], self.MAP_SOURCE_BUDGET)
-            for batch_index, batch in enumerate(batches):
-                excerpt = "".join(batch)
-                result = await chat_complete_structured(
-                    messages=[
-                        {"role": "system", "content": (
-                            "Extract only curriculum evidence explicitly present in the supplied source. "
-                            "Do not infer missing topics. For every evidence item return excerpt and either one topic "
-                            "or a topics array in the source language. Return at most 4 items; each excerpt must be <= 360 characters "
-                            "and each topics array <= 3 strings. Do not return source_id; provenance is assigned by the system. "
-                            "Return exactly one JSON object with an evidence array; no Markdown or prose."
-                        )},
-                        {"role": "user", "content": json.dumps({
-                            "source_id": document.id, "filename": document.filename,
-                            "part": batch_index + 1, "content": excerpt,
-                        }, ensure_ascii=False)},
-                    ],
-                    response_model=EvidenceLedger,
-                    task=TASK_COURSE_BLUEPRINT,
-                    # 2048 output tokens avoids reasoning models exhausting
-                    # the budget on chain-of-thought before producing JSON.
-                    max_tokens=2048,
-                    native_json_mode=False,
-                )
-                # Do not trust a model-generated source id; provenance is bound
-                # by the request scope.
-                ledger.extend(Evidence(source_id=document.id, excerpt=item.excerpt,
-                                       topics=item.topics or ([item.topic] if item.topic else []))
-                              for item in result.evidence)
+            ledger.extend(await self.evidence_for_document(document))
 
         if not ledger:
             raise ValueError(

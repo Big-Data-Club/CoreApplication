@@ -12,6 +12,7 @@ from aiokafka import AIOKafkaConsumer
 from app.core.database import close_ai_pool, init_ai_pool
 from app.core.logging_config import configure_logging
 from app.services.course_blueprint_job_service import recoverable_blueprint_ids, run_course_blueprint_job
+from app.services.course_material_routing_job_service import recoverable_material_routing_ids, run_material_routing_job
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ async def _run_exclusively(blueprint_id: UUID, worker_id: str, execution_lock: a
 async def _recover(worker_id: str, execution_lock: asyncio.Lock) -> None:
     for blueprint_id in await recoverable_blueprint_ids():
         await _run_exclusively(blueprint_id, worker_id, execution_lock)
+    for routing_id in await recoverable_material_routing_ids():
+        async with execution_lock:
+            await run_material_routing_job(routing_id, worker_id)
 
 
 async def _reconcile_forever(worker_id: str, execution_lock: asyncio.Lock) -> None:
@@ -58,8 +62,12 @@ async def main() -> None:
     try:
         async for message in consumer:
             try:
-                blueprint_id = UUID(str(message.value.get("blueprint_id")))
-                await _run_exclusively(blueprint_id, worker_id, execution_lock)
+                if message.value.get("routing_id"):
+                    async with execution_lock:
+                        await run_material_routing_job(UUID(str(message.value["routing_id"])), worker_id)
+                else:
+                    blueprint_id = UUID(str(message.value.get("blueprint_id")))
+                    await _run_exclusively(blueprint_id, worker_id, execution_lock)
                 await consumer.commit()
             except Exception:
                 logger.exception("Course blueprint command failed before completion")

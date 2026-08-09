@@ -614,7 +614,7 @@ func (r *CourseRepository) UpdateContentAIIndexStatus(
 	contentID int64,
 	status string,
 ) error {
-	query := `UPDATE section_content SET ai_index_status = $1 WHERE id = $2`
+	query := `UPDATE section_content SET ai_index_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`
 	_, err := r.db.ExecContext(ctx, query, status, contentID)
 	return err
 }

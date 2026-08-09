@@ -34,6 +34,17 @@ async def process_document_event(payload: dict):
     from app.services.auto_index_service import auto_index_service
     await auto_index_service._update_content_status(content_id, "processing")
 
+    async def _heartbeat() -> None:
+        # Long documents may legitimately run for well over an hour. Refresh
+        # both AI and LMS status so stale-job recovery never races a live job.
+        while True:
+            await asyncio.sleep(300)
+            await auto_index_service._update_content_status(content_id, "processing")
+
+    heartbeat_task = asyncio.create_task(
+        _heartbeat(), name=f"index-heartbeat:{content_id}"
+    )
+
     try:
         if content_type in ("text/markdown", "TEXT"):
             await auto_index_service.auto_index_text(
@@ -61,6 +72,9 @@ async def process_document_event(payload: dict):
                      extra={"content_id": content_id, "error": str(exc),
                             "traceback": traceback.format_exc()})
         await auto_index_service._update_content_status(content_id, "failed", str(exc))
+    finally:
+        heartbeat_task.cancel()
+        await asyncio.gather(heartbeat_task, return_exceptions=True)
 
 
 # ── Graph maintenance ─────────────────────────────────────────────────────────
@@ -330,11 +344,15 @@ async def main():
         group_id="ai-worker-group",
         value_deserializer=lambda x: json.loads(x.decode("utf-8")),
         auto_offset_reset="earliest",
+        # A document can take many minutes to extract, embed and persist.  Auto
+        # commit used to acknowledge the record while that work was still in
+        # flight, so a worker/broker restart could permanently lose the job.
+        # Commit only after the handler has reached a terminal state.
+        enable_auto_commit=False,
         # ── Tuned for long-running document processing (95+ image PDFs) ───
         # Default max_poll_interval_ms=300s is too tight: heavy PDFs can
-        # take 5+ min for image extraction + VLM calls. Raising to 10 min
-        # prevents Kafka from ejecting the worker mid-job.
-        max_poll_interval_ms=600_000,    # 10 minutes
+        # take much longer when they contain many images/VLM calls.
+        max_poll_interval_ms=1_800_000,  # 30 minutes
         session_timeout_ms=60_000,       # 60 seconds (default 10s)
         heartbeat_interval_ms=10_000,    # 10 seconds (default 3s)
         request_timeout_ms=70_000,       # must be > session_timeout_ms
@@ -347,6 +365,7 @@ async def main():
     try:
         async for msg in consumer:
             if not msg.value:
+                await consumer.commit()
                 continue
             logger.debug("Kafka message received",
                          extra={"topic": msg.topic, "partition": msg.partition,
@@ -364,6 +383,12 @@ async def main():
                 await process_maintenance_command(payload)
             elif msg.topic == "personalize.profile.updated":
                 await process_personalize_profile_update(payload)
+
+            # The loop processes one record at a time, so committing the
+            # consumer position here acknowledges exactly the record whose
+            # handler just completed.  An unexpected exception before this
+            # point leaves the offset uncommitted and Kafka replays it.
+            await consumer.commit()
 
     except asyncio.CancelledError:
         logger.info("Worker cancelled", extra={"event": "shutdown"})

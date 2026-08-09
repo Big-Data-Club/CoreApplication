@@ -89,6 +89,15 @@ kubectl cluster-info >/dev/null
 # Config changes are safe to apply in place; only deployments selected below
 # are restarted, so unrelated workloads keep their current pods.
 kubectl apply -f k3s/base/configmap.yaml --namespace "$DEPLOY_NAMESPACE"
+# Kafka is shared infrastructure for the AI workers. Applying an unchanged
+# StatefulSet is a no-op; applying a changed one performs the controlled
+# one-broker rollout required for heap/probe/resource fixes.
+if [[ ",${SERVICES:-}," == *",ai-worker,"* ]]; then
+  kubectl apply -f k3s/base/kafka-statefulset.yaml --namespace "$DEPLOY_NAMESPACE"
+  kubectl rollout status statefulset/kafka \
+    --namespace "$DEPLOY_NAMESPACE" \
+    --timeout "$ROLLOUT_TIMEOUT"
+fi
 # Apply manifests only for selected workloads that require spec-level changes.
 # Capture the previous immutable image before apply so rollback remains correct
 # even though the base manifest uses a `latest` placeholder.

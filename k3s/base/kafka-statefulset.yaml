@@ -48,6 +48,7 @@ spec:
       labels:
         app: kafka
     spec:
+      terminationGracePeriodSeconds: 120
       containers:
       - name: kafka
         image: bitnamilegacy/kafka:3.7.0
@@ -81,13 +82,23 @@ spec:
         # Bitnami image needs to know the directory to store data
         - name: KAFKA_CFG_LOG_DIRS
           value: "/bitnami/kafka/data"
+        # Keep the JVM comfortably below the container limit. Without an
+        # explicit heap cap Java may grow until Kubernetes OOM-kills Kafka.
+        - name: KAFKA_HEAP_OPTS
+          value: "-Xms512m -Xmx1024m"
+        - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
+          value: "1"
         resources:
           limits:
-            cpu: "1.0"
-            memory: 1Gi
+            cpu: "2.0"
+            memory: 2Gi
           requests:
-            cpu: "0.25"
-            memory: 512Mi
+            cpu: "0.5"
+            memory: 1Gi
         volumeMounts:
         - name: kafka-data
           mountPath: /bitnami/kafka
@@ -106,13 +117,15 @@ spec:
             port: 9092
           initialDelaySeconds: 10
           periodSeconds: 15
-          timeoutSeconds: 3
+          timeoutSeconds: 10
+          failureThreshold: 6
         readinessProbe:
           tcpSocket:
             port: 9092
           initialDelaySeconds: 5
           periodSeconds: 10
-          timeoutSeconds: 3
+          timeoutSeconds: 10
+          failureThreshold: 6
   volumeClaimTemplates:
   - metadata:
       name: kafka-data

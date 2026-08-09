@@ -710,18 +710,6 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 		return
 	}
 
-	// Idempotency guard: reject if already processing to prevent double-indexing.
-	// GetContentByID uses COALESCE so AIIndexStatus.String is always populated.
-	if content.AIIndexStatus.String == "processing" {
-		logger.Warn(fmt.Sprintf("Auto-index: Content %d is already processing - rejecting duplicate request", contentID))
-		c.JSON(http.StatusConflict, dto.NewDataResponse(map[string]interface{}{
-			"content_id": contentID,
-			"status":     "processing",
-			"message":    "Document is already being indexed",
-		}))
-		return
-	}
-
 	// Log content details for debugging
 	logger.Info(fmt.Sprintf("Auto-index debug: ContentID=%d, Type=%s, FilePath.Valid=%v, FilePath.String='%s'",
 		contentID, content.Type, content.FilePath.Valid, content.FilePath.String))
@@ -746,6 +734,23 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Only course owner can index documents"))
 			return
 		}
+	}
+
+	// Reject genuine duplicates, but let a record abandoned by a broker or
+	// worker restart be queued again. UpdateContentAIIndexStatus refreshes
+	// UpdatedAt on every transition, so two hours without a heartbeat/status
+	// change is a safe indication that this attempt is no longer alive.
+	if content.AIIndexStatus.String == "processing" && time.Since(content.UpdatedAt) < 2*time.Hour {
+		logger.Warn(fmt.Sprintf("Auto-index: Content %d is already processing - rejecting duplicate request", contentID))
+		c.JSON(http.StatusConflict, dto.NewDataResponse(map[string]interface{}{
+			"content_id": contentID,
+			"status":     "processing",
+			"message":    "Document is already being indexed",
+		}))
+		return
+	}
+	if content.AIIndexStatus.String == "processing" {
+		logger.Warn(fmt.Sprintf("Auto-index: Recovering stale processing job for content %d (last update %s)", contentID, content.UpdatedAt.Format(time.RFC3339)))
 	}
 
 	// Kiểm tra content có file hoặc text không

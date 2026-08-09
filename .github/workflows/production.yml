@@ -45,6 +45,7 @@ jobs:
               - 'ai-service/**'
               - 'k3s/base/ai-service-deployment.yaml'
               - 'k3s/base/course-blueprint-worker-deployment.yaml'
+              - 'k3s/base/kafka-statefulset.yaml'
               - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
             recommender:
@@ -237,6 +238,19 @@ jobs:
           CREATE INDEX IF NOT EXISTS idx_course_blueprints_recovery
               ON course_blueprints (status, lease_until, updated_at)
               WHERE status = '\''PROCESSING'\'';
+          CREATE TABLE IF NOT EXISTS course_material_routing_jobs (
+              id UUID PRIMARY KEY, owner_id BIGINT NOT NULL, course_id BIGINT NOT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT '\''PROCESSING'\''
+                  CHECK (status IN ('\''PROCESSING'\'','\''READY'\'','\''FAILED'\'','\''CANCELLED'\'')),
+              documents JSONB NOT NULL, sections JSONB NOT NULL,
+              suggestions JSONB NOT NULL DEFAULT '\''[]'\''::jsonb, error_message TEXT,
+              lease_owner VARCHAR(255), lease_until TIMESTAMPTZ,
+              attempts INTEGER NOT NULL DEFAULT 0,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_material_routing_recovery
+              ON course_material_routing_jobs(status, lease_until, updated_at)
+              WHERE status='\''PROCESSING'\'';
           """
           async def main():
               conn = await asyncpg.connect(host=os.environ["AI_DB_HOST"], port=int(os.environ["AI_DB_PORT"]), user=os.environ["AI_DB_USER"], password=os.environ["AI_DB_PASSWORD"], database=os.environ["AI_DB_NAME"])

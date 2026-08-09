@@ -431,6 +431,9 @@ func main() {
 			auth.POST("/course-blueprints/:blueprintId/cancel", courseBlueprintHandler.Cancel)
 			courses := auth.Group("/courses")
 			{
+				courses.POST("/:courseId/material-routing", courseBlueprintHandler.CreateMaterialRouting)
+				courses.GET("/:courseId/material-routing/:routingId", courseBlueprintHandler.GetMaterialRouting)
+				courses.POST("/:courseId/material-routing/apply", courseBlueprintHandler.ApplyMaterialRouting)
 				// Public course routes (anyone authenticated can view published courses)
 				courses.GET("", courseHandler.ListPublishedCourses)
 				courses.GET("/:courseId", courseHandler.GetCourse)
