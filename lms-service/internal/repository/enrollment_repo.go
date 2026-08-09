@@ -107,7 +107,8 @@ func (r *EnrollmentRepository) GetByStudentAndCourse(ctx context.Context, studen
 func (r *EnrollmentRepository) ListByStudent(ctx context.Context, studentID int64, status string) ([]*models.EnrollmentWithCourse, error) {
 	query := `
 		SELECT e.id, e.course_id, e.student_id, e.status, e.enrolled_at, e.accepted_at, e.rejected_at, e.created_at, e.updated_at,
-		       c.title, u.full_name, u.email
+		       c.title, c.description, c.category, c.level, c.updated_at, c.published_at,
+		       u.full_name, u.email
 		FROM enrollments e
 		JOIN courses c ON e.course_id = c.id
 		JOIN users u ON c.created_by = u.id
@@ -133,7 +134,8 @@ func (r *EnrollmentRepository) ListByStudent(ctx context.Context, studentID int6
 		var e models.EnrollmentWithCourse
 		err := rows.Scan(
 			&e.ID, &e.CourseID, &e.StudentID, &e.Status, &e.EnrolledAt, &e.AcceptedAt, &e.RejectedAt, &e.CreatedAt, &e.UpdatedAt,
-			&e.CourseTitle, &e.TeacherName, &e.TeacherEmail,
+			&e.CourseTitle, &e.CourseDescription, &e.CourseCategory, &e.CourseLevel,
+			&e.CourseUpdatedAt, &e.CoursePublishedAt, &e.TeacherName, &e.TeacherEmail,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan enrollment: %w", err)

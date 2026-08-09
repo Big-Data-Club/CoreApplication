@@ -297,6 +297,10 @@ class LakehouseService:
             try:
                 user_id = event["user_id"]
                 interested_categories = event.get("interested_categories", "")
+                if isinstance(interested_categories, list):
+                    interested_categories = ",".join(
+                        str(value).strip() for value in interested_categories if str(value).strip()
+                    )
                 target_career = event.get("target_career", "")
                 experience_level = event.get("experience_level", "")
                 created_at = datetime.now()
@@ -314,6 +318,32 @@ class LakehouseService:
             except Exception as e:
                 logger.error(f"Failed to ingest onboarding survey to DuckDB: {str(e)}")
 
+    def get_user_onboarding(self, user_id: int) -> Dict[str, Any]:
+        """Return explicit cold-start preferences without inventing defaults."""
+        with self.lock:
+            row = self.conn.execute("""
+                SELECT interested_categories, target_career, experience_level, created_at
+                FROM bronze_user_onboarding
+                WHERE user_id = ?
+            """, (user_id,)).fetchone()
+            if not row:
+                return {
+                    "user_id": user_id,
+                    "interested_categories": [],
+                    "target_career": None,
+                    "experience_level": None,
+                    "profile_available": False,
+                }
+            categories = [value.strip() for value in (row[0] or "").split(",") if value.strip()]
+            return {
+                "user_id": user_id,
+                "interested_categories": categories,
+                "target_career": row[1] or None,
+                "experience_level": row[2] or None,
+                "created_at": row[3],
+                "profile_available": bool(categories or row[1] or row[2]),
+            }
+
     def seed_existing_users(self, users_list: List[Dict[str, Any]]) -> int:
         """Bulk seed existing users from Auth/LMS DB into bronze_user_onboarding."""
         with self.lock:
@@ -321,23 +351,23 @@ class LakehouseService:
             for u in users_list:
                 try:
                     user_id = u["user_id"]
-                    team = u.get("team", "ENGINEER")
-                    role = u.get("role", "STUDENT")
                     interested_categories = u.get("interested_categories", "")
+                    if isinstance(interested_categories, list):
+                        interested_categories = ",".join(
+                            str(value).strip() for value in interested_categories if str(value).strip()
+                        )
                     target_career = u.get("target_career", "")
                     experience_level = u.get("experience_level", "")
                     
                     self.conn.execute("""
                         INSERT INTO bronze_user_onboarding
-                        (user_id, team, role, interested_categories, target_career, experience_level)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        (user_id, interested_categories, target_career, experience_level)
+                        VALUES (?, ?, ?, ?)
                         ON CONFLICT (user_id) DO UPDATE SET
-                            team = EXCLUDED.team,
-                            role = EXCLUDED.role,
                             interested_categories = EXCLUDED.interested_categories,
                             target_career = EXCLUDED.target_career,
                             experience_level = EXCLUDED.experience_level
-                    """, (user_id, team, role, interested_categories, target_career, experience_level))
+                    """, (user_id, interested_categories, target_career, experience_level))
                     count += 1
                 except Exception as e:
                     logger.error(f"Failed to seed user {u}: {e}")
@@ -925,9 +955,9 @@ class LakehouseService:
                     user_base AS (
                         SELECT 
                             m.user_id,
-                            COALESCE(o.team, 'ENGINEER') as team,
-                            COALESCE(o.role, 'STUDENT') as role,
-                            COALESCE(o.target_career, 'Data Engineer') as target_career,
+                            'UNSPECIFIED' as team,
+                            'STUDENT' as role,
+                            COALESCE(o.target_career, 'UNSPECIFIED') as target_career,
                             COALESCE(m.check_accuracy, 0.0) as check_accuracy,
                             COALESCE(m.completed_lessons_count, 0) as completed_lessons_count,
                             COALESCE(m.ask_ai_count, 0) as ask_ai_count,

@@ -42,6 +42,13 @@ group, `personalize-worker-group`, and runs an hourly archive scheduler.
 | Gold | profile, course metrics, concept struggles, alerts, interaction matrix and study recommendations | Product/analyst-ready aggregates | Derived; never manually edited |
 | Export | Parquet Gold files and archived Bronze partitions | Offline analysis and reproducible extracts | Snapshot/append according to export job |
 
+`bronze_user_onboarding` is the explicit cold-start source. It stores interested
+categories, target career and experience level without assigning a fabricated
+default persona. Internal clients read/write it through
+`/personalize/student/{user_id}/onboarding` and `/personalize/onboarding`.
+Recommender `hybrid-rules-v2` uses these fields before falling back to level,
+quality-adjusted popularity, freshness and stable exploration.
+
 Existing DA/ML notebooks live in the `da-analytics/` submodule. They should read
 approved Parquet snapshots or a read-only DuckDB copy through `BDC_GOLD_DIR` or
 `BDC_DUCKDB_PATH`; they must not write the live production database.

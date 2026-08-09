@@ -15,6 +15,8 @@ type CourseProgressResult struct {
 	CompletedCount      int
 	ProgressPercent     float64
 	CompletedContentIDs []int64
+	LastActivityAt      *time.Time
+	NewContentCount     int
 }
 
 type ProgressDetailRow struct {
@@ -128,20 +130,44 @@ func (r *ProgressRepository) GetBatchCourseProgress(
 		return result, nil
 	}
 
-	// Single query: aggregate mandatory counts + completion counts per course
+	// Single query: aggregate progress plus source-grounded freshness signals.
+	// "New content" means published content created after the learner's latest
+	// completion in that course (or after enrollment when nothing is complete).
 	rows, err := r.db.QueryContext(ctx, `
+		WITH activity_anchor AS (
+			SELECT
+				e.course_id,
+				COALESCE(MAX(cp.completed_at), MAX(e.accepted_at), MAX(e.enrolled_at)) AS activity_at
+			FROM enrollments e
+			LEFT JOIN course_sections anchor_cs ON anchor_cs.course_id = e.course_id
+			LEFT JOIN section_content anchor_sc ON anchor_sc.section_id = anchor_cs.id
+			LEFT JOIN content_progress cp
+				ON cp.content_id = anchor_sc.id
+				AND cp.student_id = e.student_id
+			WHERE e.student_id = $1
+			  AND e.course_id = ANY($2)
+			GROUP BY e.course_id
+		)
 		SELECT
 			cs.course_id,
 			COUNT(sc.id)        FILTER (WHERE sc.is_mandatory)              AS total_mandatory,
 			COUNT(cp.content_id) FILTER (WHERE sc.is_mandatory
-			                               AND cp.id IS NOT NULL)           AS completed_count
+			                               AND cp.id IS NOT NULL)           AS completed_count,
+			aa.activity_at,
+			COUNT(sc.id) FILTER (
+				WHERE cs.is_published
+				  AND sc.is_published
+				  AND aa.activity_at IS NOT NULL
+				  AND sc.created_at > aa.activity_at
+			) AS new_content_count
 		FROM course_sections  cs
 		JOIN section_content  sc ON sc.section_id = cs.id
+		LEFT JOIN activity_anchor aa ON aa.course_id = cs.course_id
 		LEFT JOIN content_progress cp
 			ON  cp.content_id = sc.id
 			AND cp.student_id = $1
 		WHERE cs.course_id = ANY($2)
-		GROUP BY cs.course_id
+		GROUP BY cs.course_id, aa.activity_at
 	`, studentID, pq.Array(courseIDs))
 	if err != nil {
 		return nil, err
@@ -153,8 +179,10 @@ func (r *ProgressRepository) GetBatchCourseProgress(
 			courseID       int64
 			totalMandatory int
 			completedCount int
+			lastActivity   sql.NullTime
+			newContent     int
 		)
-		if err := rows.Scan(&courseID, &totalMandatory, &completedCount); err != nil {
+		if err := rows.Scan(&courseID, &totalMandatory, &completedCount, &lastActivity, &newContent); err != nil {
 			return nil, err
 		}
 
@@ -162,12 +190,18 @@ func (r *ProgressRepository) GetBatchCourseProgress(
 		if totalMandatory > 0 {
 			pct = float64(completedCount) / float64(totalMandatory) * 100
 		}
-		result[courseID] = &CourseProgressResult{
+		progress := &CourseProgressResult{
 			TotalMandatory:      totalMandatory,
 			CompletedCount:      completedCount,
 			ProgressPercent:     pct,
 			CompletedContentIDs: nil,
+			NewContentCount:     newContent,
 		}
+		if lastActivity.Valid {
+			activityAt := lastActivity.Time
+			progress.LastActivityAt = &activityAt
+		}
+		result[courseID] = progress
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

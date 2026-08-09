@@ -27,3 +27,28 @@ the user identity server-side. Browsers never receive the internal secret.
 
 If profile retrieval fails, the service returns an explicit `fallback: true`
 rules slate rather than delaying the user-facing action.
+
+## Hybrid course ranking
+
+`hybrid-rules-v2` supports course ranking on `dashboard` and
+`course_discovery`. The authenticated surface supplies an eligibility-safe
+`candidates` array; LMS remains the authority for course visibility and
+enrollment. The recommender never grants access to a candidate.
+
+Discovery combines explicit goal/category match, level fit, quality-adjusted
+popularity, freshness and stable exploration. With no explicit profile it uses
+the latter four signals as a deterministic cold-start policy and marks the
+response as `fallback: true`.
+
+When the request does not carry explicit preferences, the service reads the
+learner onboarding profile from `personalize-service`. Explicit request context
+wins, which lets a learner's just-saved preferences affect the next slate
+without waiting for the short profile cache to expire. Discovery slates also
+apply a category repetition penalty after base scoring.
+
+Dashboard ranking excludes completed/unenrolled candidates and combines
+continuity, completion momentum, verified new-content counts, goal match and
+freshness. LMS computes `new_content_count` from published content created
+after the learner's latest completion (or enrollment when no content has been
+completed). Badges such as `new_content` are only emitted for that
+source-grounded count; the recommender does not infer or generate this claim.

@@ -16,6 +16,33 @@ class RecommendationContext(BaseModel):
     session_id: str | None = None
     time_budget_minutes: int | None = Field(default=None, ge=5, le=240)
     goal: str | None = Field(default=None, max_length=80)
+    interested_categories: list[str] = Field(default_factory=list, max_length=20)
+    experience_level: str | None = Field(default=None, max_length=40)
+    profile_resolved: bool = False
+
+
+class RecommendationCandidate(BaseModel):
+    """An eligibility-safe candidate supplied by the surface owner.
+
+    LMS remains responsible for visibility and enrollment authorization. The
+    recommender only ranks the candidates the authenticated surface can show.
+    """
+
+    entity_type: Literal["course"] = "course"
+    entity_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    category: str | None = None
+    level: str | None = None
+    href: str | None = None
+    enrolled: bool = False
+    progress_percent: float | None = Field(default=None, ge=0, le=100)
+    enrollment_count: int = Field(default=0, ge=0)
+    published_at: datetime | None = None
+    updated_at: datetime | None = None
+    last_activity_at: datetime | None = None
+    new_content_count: int = Field(default=0, ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConversationContext(BaseModel):
@@ -29,15 +56,22 @@ class RecommendationRequest(BaseModel):
     user_id: int = Field(gt=0)
     surface: Literal["chat", "lesson_sidebar", "dashboard", "course_discovery"] = "chat"
     candidate_types: list[str] = Field(default_factory=lambda: ["next_action"])
-    limit: int = Field(default=3, ge=1, le=5)
+    limit: int = Field(default=3, ge=1, le=50)
     context: RecommendationContext = Field(default_factory=RecommendationContext)
     conversation: ConversationContext = Field(default_factory=ConversationContext)
+    candidates: list[RecommendationCandidate] = Field(default_factory=list, max_length=500)
 
 
 class ReasonFact(BaseModel):
     code: str
     value: Any | None = None
     node_id: int | None = None
+
+
+class RecommendationBadge(BaseModel):
+    type: Literal["new_content", "goal_match", "continue_learning", "almost_done", "popular", "new_course"]
+    text: str
+    value: Any | None = None
 
 
 class RecommendationItem(BaseModel):
@@ -52,6 +86,7 @@ class RecommendationItem(BaseModel):
     estimated_minutes: int | None = None
     confidence: Literal["low", "medium", "high"] = "medium"
     why_facts: list[ReasonFact] = Field(default_factory=list)
+    badges: list[RecommendationBadge] = Field(default_factory=list)
     expected_outcome: str
     tracking_token: str
 
@@ -80,7 +115,7 @@ class RecommendationInteraction(BaseModel):
     course_id: int | None = None
     entity_type: str | None = None
     entity_id: str | None = None
-    rank: int | None = Field(default=None, ge=1, le=20)
+    rank: int | None = Field(default=None, ge=1, le=50)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("event_time", mode="before")

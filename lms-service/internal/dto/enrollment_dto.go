@@ -22,14 +22,21 @@ type EnrollmentResponse struct {
 
 // StudentEnrollmentResponse for student's view
 type StudentEnrollmentResponse struct {
-	ID          int64      `json:"id"`
-	CourseID    int64      `json:"course_id"`
-	CourseTitle string     `json:"course_title"`
-	Status      string     `json:"status"`
-	TeacherName string     `json:"teacher_name"`
-	EnrolledAt  time.Time  `json:"enrolled_at"`
-	AcceptedAt  *time.Time `json:"accepted_at,omitempty"`
-	ProgressPercent  float64 `json:"progress_percent"`
+	ID                int64      `json:"id"`
+	CourseID          int64      `json:"course_id"`
+	CourseTitle       string     `json:"course_title"`
+	CourseDescription string     `json:"course_description,omitempty"`
+	CourseCategory    string     `json:"course_category,omitempty"`
+	CourseLevel       string     `json:"course_level,omitempty"`
+	CourseUpdatedAt   time.Time  `json:"course_updated_at"`
+	CoursePublishedAt *time.Time `json:"course_published_at,omitempty"`
+	LastActivityAt    *time.Time `json:"last_activity_at,omitempty"`
+	NewContentCount   int        `json:"new_content_count"`
+	Status            string     `json:"status"`
+	TeacherName       string     `json:"teacher_name"`
+	EnrolledAt        time.Time  `json:"enrolled_at"`
+	AcceptedAt        *time.Time `json:"accepted_at,omitempty"`
+	ProgressPercent   float64    `json:"progress_percent"`
 }
 
 // LearnerResponse for teacher's view of learners

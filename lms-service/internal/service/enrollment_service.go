@@ -207,19 +207,30 @@ func (s *EnrollmentService) GetMyEnrollments(ctx context.Context, studentID int6
 	responses := make([]*dto.StudentEnrollmentResponse, 0, len(enrollments))
 	for _, e := range enrollments {
 		pct := 0.0
+		var lastActivityAt *time.Time
+		newContentCount := 0
 		if p, ok := progressMap[e.CourseID]; ok && p != nil {
 			pct = p.ProgressPercent
+			lastActivityAt = p.LastActivityAt
+			newContentCount = p.NewContentCount
 		}
 
 		responses = append(responses, &dto.StudentEnrollmentResponse{
-			ID:              e.ID,
-			CourseID:        e.CourseID,
-			CourseTitle:     e.CourseTitle,
-			Status:          e.Status,
-			TeacherName:     e.TeacherName,
-			EnrolledAt:      e.EnrolledAt,
-			AcceptedAt:      extractTime(e.AcceptedAt),
-			ProgressPercent: pct,
+			ID:                e.ID,
+			CourseID:          e.CourseID,
+			CourseTitle:       e.CourseTitle,
+			CourseDescription: e.CourseDescription.String,
+			CourseCategory:    e.CourseCategory.String,
+			CourseLevel:       e.CourseLevel.String,
+			CourseUpdatedAt:   e.CourseUpdatedAt,
+			CoursePublishedAt: extractTime(e.CoursePublishedAt),
+			LastActivityAt:    lastActivityAt,
+			NewContentCount:   newContentCount,
+			Status:            e.Status,
+			TeacherName:       e.TeacherName,
+			EnrolledAt:        e.EnrolledAt,
+			AcceptedAt:        extractTime(e.AcceptedAt),
+			ProgressPercent:   pct,
 		})
 	}
 

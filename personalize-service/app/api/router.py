@@ -1,7 +1,7 @@
-from typing import Optional
+from typing import Literal, Optional
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.services.lakehouse import lakehouse_service
@@ -30,6 +30,13 @@ class NotebookSaveRequest(BaseModel):
     node_id: Optional[int] = None
 
 
+class OnboardingProfileRequest(BaseModel):
+    user_id: int
+    interested_categories: list[str] = Field(default_factory=list, max_length=20)
+    target_career: Optional[str] = Field(default=None, max_length=120)
+    experience_level: Optional[Literal["BEGINNER", "INTERMEDIATE", "ADVANCED"]] = None
+
+
 def verify_secret(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
     """Ensure internal calls are securely authenticated."""
     if not x_ai_secret or x_ai_secret != settings.ai_service_secret:
@@ -43,6 +50,24 @@ async def get_student_profile(user_id: int, course_id: int, x_ai_secret: Optiona
     verify_secret(x_ai_secret)
     profile = lakehouse_service.get_student_profile(user_id, course_id)
     return profile
+
+
+@router.get("/personalize/student/{user_id}/onboarding")
+async def get_onboarding_profile(user_id: int, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_user_onboarding(user_id)
+
+
+@router.post("/personalize/onboarding")
+async def save_onboarding_profile(body: OnboardingProfileRequest, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    lakehouse_service.ingest_user_onboarding({
+        "user_id": body.user_id,
+        "interested_categories": ",".join(value.strip() for value in body.interested_categories if value.strip()),
+        "target_career": body.target_career or "",
+        "experience_level": body.experience_level or "",
+    })
+    return lakehouse_service.get_user_onboarding(body.user_id)
 
 
 # ── Notebook CRUD Endpoints ───────────────────────────────────────────
@@ -198,4 +223,3 @@ async def export_gold_tables(x_ai_secret: Optional[str] = Header(None, alias="X-
         return {"status": "success", "message": "Gold views successfully exported to Parquet", "files": exported_files}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-

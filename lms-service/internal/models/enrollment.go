@@ -21,9 +21,14 @@ type Enrollment struct {
 // EnrollmentWithCourse includes course information
 type EnrollmentWithCourse struct {
 	Enrollment
-	CourseTitle   string `json:"course_title" db:"course_title"`
-	TeacherName   string `json:"teacher_name" db:"teacher_name"`
-	TeacherEmail  string `json:"teacher_email" db:"teacher_email"`
+	CourseTitle       string         `json:"course_title" db:"course_title"`
+	CourseDescription sql.NullString `json:"course_description" db:"course_description"`
+	CourseCategory    sql.NullString `json:"course_category" db:"course_category"`
+	CourseLevel       sql.NullString `json:"course_level" db:"course_level"`
+	CourseUpdatedAt   time.Time      `json:"course_updated_at" db:"course_updated_at"`
+	CoursePublishedAt sql.NullTime   `json:"course_published_at" db:"course_published_at"`
+	TeacherName       string         `json:"teacher_name" db:"teacher_name"`
+	TeacherEmail      string         `json:"teacher_email" db:"teacher_email"`
 }
 
 // EnrollmentWithStudent includes student information
