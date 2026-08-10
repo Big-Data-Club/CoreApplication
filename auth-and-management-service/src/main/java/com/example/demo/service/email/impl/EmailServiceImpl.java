@@ -46,6 +46,12 @@ public class EmailServiceImpl implements EmailService {
              emailTemplateProvider.buildForgotPasswordHtml(name, token));
     }
 
+    @Override
+    public void sendRecruitmentConfirmationEmail(String to, String name, String department) {
+        emailSender.send(to, "BDC Recruitment 2026 — Đã nhận hồ sơ của bạn",
+                emailTemplateProvider.buildRecruitmentConfirmationHtml(name, department));
+    }
+
     @Async("emailExecutor")
     public CompletableFuture<Void> sendWelcomeEmailAsync(String to, String name, String tempPassword) {
         return CompletableFuture.runAsync(() -> sendWelcomeEmail(to, name, tempPassword));
@@ -83,6 +89,12 @@ public class EmailServiceImpl implements EmailService {
     @Async("emailExecutor")
     public CompletableFuture<Void> sendForgotPasswordEmailAsync(String to, String name, String token) {
         return CompletableFuture.runAsync(() -> sendForgotPasswordEmail(to, name, token));
+    }
+
+    @Async("emailExecutor")
+    @Override
+    public CompletableFuture<Void> sendRecruitmentConfirmationAsync(String to, String name, String department) {
+        return CompletableFuture.runAsync(() -> sendRecruitmentConfirmationEmail(to, name, department));
     }
 
     @Async("virtualThreadExecutor")

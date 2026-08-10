@@ -5,4 +5,5 @@ public interface EmailTemplateProvider {
     String buildPasswordConfirmHtml(String name, String token);
     String buildPasswordChangedHtml(String name);
     String buildForgotPasswordHtml(String name, String token);
+    String buildRecruitmentConfirmationHtml(String name, String department);
 }

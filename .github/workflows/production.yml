@@ -41,6 +41,11 @@ jobs:
         id: changes
         with:
           filters: |
+            auth:
+              - 'auth-and-management-service/**'
+              - 'k3s/base/auth-service-deployment.yaml'
+              - 'k3s/base/configmap.yaml'
+              - 'scripts/deploy-production.sh'
             ai:
               - 'ai-service/**'
               - 'k3s/base/ai-service-deployment.yaml'
@@ -73,6 +78,7 @@ jobs:
       - id: select
         env:
           AI_CHANGED: ${{ steps.changes.outputs.ai }}
+          AUTH_CHANGED: ${{ steps.changes.outputs.auth }}
           RECOMMENDER_CHANGED: ${{ steps.changes.outputs.recommender }}
           PERSONALIZE_CHANGED: ${{ steps.changes.outputs.personalize }}
           LMS_CHANGED: ${{ steps.changes.outputs.lms }}
@@ -84,6 +90,11 @@ jobs:
           set -euo pipefail
           items=()
           services=()
+
+          if [[ "${AUTH_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-backend","context":"auth-and-management-service"}')
+            services+=(auth-service)
+          fi
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${MANUAL_IMAGE_TAG}" ]]; then
             if [[ -z "${MANUAL_SERVICES}" ]]; then

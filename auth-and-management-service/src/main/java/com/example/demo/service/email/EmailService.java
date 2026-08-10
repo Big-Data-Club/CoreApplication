@@ -13,6 +13,8 @@ public interface EmailService {
 
     void sendForgotPasswordEmail(String to, String name, String token);
 
+    void sendRecruitmentConfirmationEmail(String to, String name, String department);
+
     CompletableFuture<Void> sendWelcomeEmailAsync(String to, String name, String tempPassword);
 
     CompletableFuture<Void> sendWelcomeBatch(Map<String, String> emailToPassword, Map<String, String> emailToName);
@@ -22,6 +24,8 @@ public interface EmailService {
     CompletableFuture<Void> sendPasswordChangedNotificationAsync(String to, String name);
 
     CompletableFuture<Void> sendForgotPasswordEmailAsync(String to, String name, String token);
+
+    CompletableFuture<Void> sendRecruitmentConfirmationAsync(String to, String name, String department);
 
     CompletableFuture<Void> sendAdminMailAsync(String to, List<String> cc, List<String> bcc, String subject, String body, String signatureType, String templateType);
 }

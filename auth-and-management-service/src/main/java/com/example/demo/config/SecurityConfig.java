@@ -35,6 +35,7 @@ public class SecurityConfig {
         "/api/auth/**",
         "/uploads/profiles/**",
         "/api/organizations",
+        "/api/internal/recruitment/**",
         "/hub/**",
         // Compatibility for callers that reach the service without the API gateway.
         "/api/v1/hub/**"

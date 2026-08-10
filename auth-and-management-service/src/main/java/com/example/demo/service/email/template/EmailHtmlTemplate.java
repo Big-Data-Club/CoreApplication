@@ -5,6 +5,7 @@ import java.time.format.DateTimeFormatter;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.HtmlUtils;
 
 import com.example.demo.service.email.EmailTemplateProvider;
 
@@ -290,5 +291,43 @@ public class EmailHtmlTemplate implements EmailTemplateProvider{
             </body>
             </html>
             """.formatted(name, resetUrl);
+    }
+
+    @Override
+    public String buildRecruitmentConfirmationHtml(String name, String department) {
+        String safeName = HtmlUtils.htmlEscape(name);
+        String safeDepartment = department == null || department.isBlank()
+                ? "Big Data Club"
+                : HtmlUtils.htmlEscape(department);
+
+        return """
+            <!DOCTYPE html>
+            <html lang="vi">
+            <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+            <body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;color:#1e293b;">
+              <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="padding:32px 12px;background:#f8fafc;">
+                <tr><td align="center">
+                  <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+                    <tr><td style="height:6px;background:linear-gradient(90deg,#2563eb,#7c3aed,#ec4899);"></td></tr>
+                    <tr><td style="padding:36px 32px 16px;text-align:center;">
+                      <div style="font-size:24px;font-weight:800;letter-spacing:1px;color:#2563eb;">BDC</div>
+                      <h1 style="margin:18px 0 0;font-size:24px;color:#0f172a;">Đã nhận hồ sơ ứng tuyển</h1>
+                    </td></tr>
+                    <tr><td style="padding:12px 32px 34px;font-size:16px;line-height:1.65;color:#334155;">
+                      <p>Chào <strong>%s</strong>,</p>
+                      <p>Big Data Club đã nhận được hồ sơ ứng tuyển BDC Recruitment 2026 của bạn cho ban <strong>%s</strong>.</p>
+                      <p>Ban Nhân sự sẽ xem xét hồ sơ và liên hệ với bạn qua email này nếu có thông tin hoặc vòng tuyển tiếp theo.</p>
+                      <p style="margin-bottom:0;">Cảm ơn bạn đã quan tâm đến Big Data Club!</p>
+                    </td></tr>
+                    <tr><td style="padding:22px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;line-height:1.5;color:#64748b;">
+                      Big Data Club · Trường Đại học Bách Khoa, ĐHQG-HCM<br>
+                      Đây là email tự động, vui lòng không phản hồi trực tiếp.
+                    </td></tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body>
+            </html>
+            """.formatted(safeName, safeDepartment);
     }
 }
