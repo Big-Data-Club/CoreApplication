@@ -127,3 +127,18 @@ func TestDocumentContentType(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeETag(t *testing.T) {
+	tests := map[string]string{
+		"abc123":     `"abc123"`,
+		`"abc123"`:   `"abc123"`,
+		`W/"abc123"`: `W/"abc123"`,
+		"":           "",
+	}
+
+	for input, want := range tests {
+		if got := normalizeETag(input); got != want {
+			t.Errorf("normalizeETag(%q) = %q; want %q", input, got, want)
+		}
+	}
+}

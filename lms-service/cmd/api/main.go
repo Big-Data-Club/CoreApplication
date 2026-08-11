@@ -319,7 +319,9 @@ func main() {
 		{
 			// Public file serving endpoint
 			files.GET("/serve/*filepath", fileHandler.ServeFile)
+			files.HEAD("/serve/*filepath", fileHandler.ServeFile)
 			files.GET("/download/*filepath", fileHandler.DownloadFile)
+			files.HEAD("/download/*filepath", fileHandler.DownloadFile)
 
 			// Protected endpoints - require authentication
 			// 1. Flexible endpoints (Internal Service Secret OR JWT)

@@ -259,6 +259,7 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+	c.Header("Accept-Ranges", "bytes")
 
 	ext := strings.ToLower(filepath.Ext(filename))
 	// Uploaded source code, HTML/SVG and unknown binaries must download rather
@@ -271,7 +272,7 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	if result.ETag != "" {
-		c.Header("ETag", result.ETag)
+		c.Header("ETag", normalizeETag(result.ETag))
 	}
 
 	contentType := result.ContentType
@@ -540,6 +541,17 @@ func getContentType(filename string) string {
 		return ct
 	}
 	return "application/octet-stream"
+}
+
+func normalizeETag(etag string) string {
+	etag = strings.TrimSpace(etag)
+	if etag == "" || strings.HasPrefix(etag, `W/"`) {
+		return etag
+	}
+	if strings.HasPrefix(etag, `"`) && strings.HasSuffix(etag, `"`) {
+		return etag
+	}
+	return `"` + strings.Trim(etag, `"`) + `"`
 }
 
 func isImage(ext string) bool {
