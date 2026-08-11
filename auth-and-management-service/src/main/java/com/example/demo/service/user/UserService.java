@@ -3,6 +3,7 @@ package com.example.demo.service.user;
 import com.example.demo.dto.auth.PasswordChangeRequest;
 import com.example.demo.dto.user.UpdateUserRequest;
 import com.example.demo.dto.user.UserResponse;
+import com.example.demo.dto.common.PageResponse;
 import com.example.demo.model.User;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -10,7 +11,9 @@ import java.util.List;
 
 public interface UserService {
 
-    List<UserResponse> getAllUsers();
+    PageResponse<UserResponse> getUsers(
+            int page, int pageSize, String query, String team, String type,
+            String role, String sortBy, String sortDirection);
 
     UserResponse getUserById(Long id);
 

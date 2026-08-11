@@ -51,6 +51,8 @@ class ListMyCoursesTool(BaseTool):
                 data = resp.json()
                 
                 courses = data.get("data", []) if isinstance(data, dict) and "data" in data else data
+                if isinstance(courses, dict):
+                    courses = courses.get("items", [])
                 if not isinstance(courses, list):
                     courses = []
 

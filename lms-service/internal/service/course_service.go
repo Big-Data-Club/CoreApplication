@@ -23,12 +23,12 @@ import (
 // TTLs are longer because individual courses change rarely once published,
 // and writes invalidate the entry explicitly.
 const (
-	courseListCacheTTL     = 2 * time.Minute
-	courseCacheTTL         = 5 * time.Minute
-	sectionListCacheTTL    = 2 * time.Minute
-	sectionCacheTTL        = 5 * time.Minute
-	contentListCacheTTL    = 2 * time.Minute
-	contentCacheTTL        = 5 * time.Minute
+	courseListCacheTTL  = 2 * time.Minute
+	courseCacheTTL      = 5 * time.Minute
+	sectionListCacheTTL = 2 * time.Minute
+	sectionCacheTTL     = 5 * time.Minute
+	contentListCacheTTL = 2 * time.Minute
+	contentCacheTTL     = 5 * time.Minute
 )
 
 type CourseService struct {
@@ -280,7 +280,6 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		}
 	}
 
-
 	return s.toCourseResponseWithCreator(course), nil
 }
 
@@ -416,10 +415,13 @@ func (s *CourseService) PublishCourse(ctx context.Context, courseID int64, userI
 }
 
 // ListMyCourses lists courses created by the user.
-func (s *CourseService) ListMyCourses(ctx context.Context, userID int64) ([]*dto.CourseResponse, error) {
-	courses, err := s.courseRepo.ListByCreator(ctx, userID)
+func (s *CourseService) ListMyCourses(ctx context.Context, userID int64, filter dto.FilterRequest, limit, offset int) ([]*dto.CourseResponse, int, error) {
+	repoFilter := repository.CourseListFilter{
+		Status: filter.Status, Category: filter.Category, Level: filter.Level, Search: filter.Search,
+	}
+	courses, total, err := s.courseRepo.ListByCreator(ctx, userID, repoFilter, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list courses: %w", err)
+		return nil, 0, fmt.Errorf("failed to list courses: %w", err)
 	}
 
 	result := make([]*dto.CourseResponse, 0, len(courses))
@@ -427,28 +429,31 @@ func (s *CourseService) ListMyCourses(ctx context.Context, userID int64) ([]*dto
 		result = append(result, s.toCourseResponseWithCreator(course))
 	}
 
-	return result, nil
+	return result, total, nil
 }
 
 // ListPublishedCourses lists published courses visible to the user.
-func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, role string) ([]*dto.CourseResponse, error) {
+func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, role string, filter dto.FilterRequest, limit, offset int) ([]*dto.CourseResponse, int, error) {
+	repoListFilter := repository.CourseListFilter{
+		Category: filter.Category, Level: filter.Level, Search: filter.Search,
+	}
 	// Super admins see all published courses
 	if role == models.RoleAdmin {
-		courses, err := s.courseRepo.ListPublished(ctx)
+		courses, total, err := s.courseRepo.ListPublished(ctx, repoListFilter, limit, offset)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list published courses: %w", err)
+			return nil, 0, fmt.Errorf("failed to list published courses: %w", err)
 		}
 		result := make([]*dto.CourseResponse, len(courses))
 		for i, course := range courses {
 			result[i] = s.toCourseResponseWithCreator(course)
 		}
-		return result, nil
+		return result, total, nil
 	}
 
 	// Fetch user's organizations
 	orgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list published courses: %w", err)
+		return nil, 0, fmt.Errorf("failed to list published courses: %w", err)
 	}
 
 	orgIDs := make([]int64, 0, len(orgs))
@@ -483,15 +488,17 @@ func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, 
 		includePublic = true
 	}
 
-	filter := repository.CourseVisibilityFilter{
+	visibilityFilter := repository.CourseVisibilityFilter{
 		UserOrgIDs:    orgIDs,
 		IncludePublic: includePublic,
+		Category:      filter.Category,
+		Level:         filter.Level,
+		Search:        filter.Search,
 	}
 
-
-	courses, _, err := s.courseRepo.ListVisibleForUser(ctx, filter, 1000, 0)
+	courses, total, err := s.courseRepo.ListVisibleForUser(ctx, visibilityFilter, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list published courses: %w", err)
+		return nil, 0, fmt.Errorf("failed to list published courses: %w", err)
 	}
 
 	result := make([]*dto.CourseResponse, len(courses))
@@ -499,7 +506,7 @@ func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, 
 		result[i] = s.toCourseResponseWithCreator(course)
 	}
 
-	return result, nil
+	return result, total, nil
 }
 
 func (s *CourseService) CreateSection(ctx context.Context, courseID int64, req *dto.CreateSectionRequest, userID int64, role string) (*dto.SectionResponse, error) {
@@ -1295,5 +1302,3 @@ func (s *CourseService) ReorderContents(ctx context.Context, sectionID int64, re
 
 	return nil
 }
-
-

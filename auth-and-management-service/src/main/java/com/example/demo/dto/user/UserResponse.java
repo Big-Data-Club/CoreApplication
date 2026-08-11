@@ -34,6 +34,14 @@ public class UserResponse {
                     .toList();
         }
 
+        return fromEntity(user, orgList);
+    }
+
+    /**
+     * Maps a user without touching lazy organization relationships. List APIs
+     * batch-load organization names and use this overload to avoid N+1 queries.
+     */
+    public static UserResponse fromEntity(User user, java.util.List<String> organizations) {
         return UserResponse.builder()
                 .id(user.getId())
                 .name(user.getName())
@@ -48,7 +56,7 @@ public class UserResponse {
                 .authProvider(user.getAuthProvider())
                 .pendingApproval(user.getPendingApproval())
                 .organization(user.getOrganization())
-                .organizations(orgList)
+                .organizations(organizations)
                 .build();
     }
 }

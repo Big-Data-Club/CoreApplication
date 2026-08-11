@@ -3,12 +3,14 @@ package com.example.demo.service.user.impl;
 import com.example.demo.dto.auth.PasswordChangeRequest;
 import com.example.demo.dto.user.UpdateUserRequest;
 import com.example.demo.dto.user.UserResponse;
+import com.example.demo.dto.common.PageResponse;
 import com.example.demo.exception.BadRequestException;
 import com.example.demo.exception.InvalidPasswordException;
 import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.RoleRepository;
+import com.example.demo.repository.OrganizationMemberRepository;
 import com.example.demo.service.email.EmailService;
 import com.example.demo.service.user.PasswordResetService;
 import com.example.demo.service.user.UserService;
@@ -19,12 +21,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -34,6 +43,7 @@ import java.util.UUID;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository     userRepository;
+    private final OrganizationMemberRepository organizationMemberRepository;
     private final RoleRepository     roleRepository;
     private final PasswordEncoder    passwordEncoder;
     private final EmailService       emailService;
@@ -49,10 +59,44 @@ public class UserServiceImpl implements UserService {
     // Reads
 
     @Override
-    public List<UserResponse> getAllUsers() {
-        return userRepository.findAll().stream()
-                .map(UserResponse::fromEntity)
+    public PageResponse<UserResponse> getUsers(
+            int page, int pageSize, String query, String team, String type,
+            String role, String sortBy, String sortDirection) {
+        int safePage = Math.max(0, page);
+        int safePageSize = Math.min(100, Math.max(1, pageSize));
+        Set<String> sortableFields = Set.of(
+                "id", "name", "role", "team", "organization", "totalScore", "active");
+        String safeSortBy = sortableFields.contains(sortBy) ? sortBy : "id";
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDirection)
+                ? Sort.Direction.ASC : Sort.Direction.DESC;
+        var pageable = PageRequest.of(safePage, safePageSize, Sort.by(direction, safeSortBy));
+
+        String normalizedQuery = query == null ? "" : query.trim();
+        Page<User> userPage = userRepository.searchPage(
+                normalizedQuery,
+                team == null ? "" : team.trim(),
+                type == null ? "" : type.trim(),
+                role == null ? "" : role.trim(),
+                pageable);
+
+        List<Long> userIds = userPage.getContent().stream().map(User::getId).toList();
+        Map<Long, List<String>> organizationsByUser = new HashMap<>();
+        if (!userIds.isEmpty()) {
+            for (var row : organizationMemberRepository.findOrganizationNamesByUserIds(userIds)) {
+                organizationsByUser
+                        .computeIfAbsent(row.getUserId(), ignored -> new ArrayList<>())
+                        .add(row.getOrganizationName());
+            }
+        }
+
+        List<UserResponse> items = userPage.getContent().stream()
+                .map(user -> UserResponse.fromEntity(
+                        user,
+                        organizationsByUser.getOrDefault(user.getId(), List.of())))
                 .toList();
+
+        return new PageResponse<>(items, safePage, safePageSize,
+                userPage.getTotalElements(), userPage.getTotalPages(), userPage.hasNext());
     }
 
     @Override

@@ -346,6 +346,8 @@ async def _fetch_teacher_courses(user_id: int) -> list[dict]:
 
     if isinstance(payload, dict):
         payload = payload.get("data", [])
+    if isinstance(payload, dict):
+        payload = payload.get("items", [])
     if not isinstance(payload, list):
         return []
 

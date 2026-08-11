@@ -176,24 +176,58 @@ func (r *CourseRepository) Publish(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ListByCreator lists all courses created by a user
-func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64) ([]*models.CourseWithCreator, error) {
-	query := `
-		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
-		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
-		       c.org_id, c.visibility,
-		       u.full_name as creator_name, u.email as creator_email,
-		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
+// ListByCreator lists one page of courses owned or co-taught by a user.
+// The page is selected before enrollment counts are aggregated, keeping work
+// bounded even when a prolific teacher owns thousands of courses.
+func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, filter CourseListFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
+	countQuery := `
+		SELECT COUNT(*)
 		FROM courses c
-		LEFT JOIN users u ON c.created_by = u.id
-		WHERE c.created_by = $1
-		   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1)
-		ORDER BY c.created_at DESC
+		WHERE (c.created_by = $1
+		   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1))
+		  AND ($2 = '' OR c.status = $2)
+		  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
+		  AND ($4 = '' OR c.level = $4)
+		  AND ($5 = '' OR c.title ILIKE '%' || $5 || '%' OR COALESCE(c.description, '') ILIKE '%' || $5 || '%')
+	`
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, creatorID, filter.Status, filter.Category, filter.Level, filter.Search).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		WITH page AS (
+			SELECT c.*
+			FROM courses c
+			WHERE (c.created_by = $1
+			   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1))
+			  AND ($2 = '' OR c.status = $2)
+			  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
+			  AND ($4 = '' OR c.level = $4)
+			  AND ($5 = '' OR c.title ILIKE '%' || $5 || '%' OR COALESCE(c.description, '') ILIKE '%' || $5 || '%')
+			ORDER BY c.created_at DESC, c.id DESC
+			LIMIT $6 OFFSET $7
+		), enrollment_counts AS (
+			SELECT e.course_id, COUNT(*) AS enrollment_count
+			FROM enrollments e
+			JOIN page p ON p.id = e.course_id
+			WHERE e.status = 'ACCEPTED'
+			GROUP BY e.course_id
+		)
+		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
+		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
+		       p.org_id, p.visibility,
+		       u.full_name as creator_name, u.email as creator_email,
+		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
+		FROM page p
+		LEFT JOIN users u ON p.created_by = u.id
+		LEFT JOIN enrollment_counts ec ON ec.course_id = p.id
+		ORDER BY p.created_at DESC, p.id DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, creatorID)
+	rows, err := r.db.QueryContext(ctx, query, creatorID, filter.Status, filter.Category, filter.Level, filter.Search, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -219,31 +253,59 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64) (
 			&course.EnrollmentCount,
 		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		courses = append(courses, &course)
 	}
 
-	return courses, rows.Err()
+	return courses, total, rows.Err()
 }
 
-// ListPublished lists all published courses
-func (r *CourseRepository) ListPublished(ctx context.Context) ([]*models.CourseWithCreator, error) {
-	query := `
-		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
-		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
-		       c.org_id, c.visibility,
-		       u.full_name as creator_name, u.email as creator_email,
-		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
-		FROM courses c
-		LEFT JOIN users u ON c.created_by = u.id
+// ListPublished lists one page of published courses for administrators.
+func (r *CourseRepository) ListPublished(ctx context.Context, filter CourseListFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
+	var total int
+	countQuery := `
+		SELECT COUNT(*) FROM courses c
 		WHERE c.status = $1
-		ORDER BY c.published_at DESC
+		  AND ($2 = '' OR c.category ILIKE '%' || $2 || '%')
+		  AND ($3 = '' OR c.level = $3)
+		  AND ($4 = '' OR c.title ILIKE '%' || $4 || '%' OR COALESCE(c.description, '') ILIKE '%' || $4 || '%')
+	`
+	if err := r.db.QueryRowContext(ctx, countQuery, models.CourseStatusPublished, filter.Category, filter.Level, filter.Search).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		WITH page AS (
+			SELECT c.*
+			FROM courses c
+			WHERE c.status = $1
+			  AND ($2 = '' OR c.category ILIKE '%' || $2 || '%')
+			  AND ($3 = '' OR c.level = $3)
+			  AND ($4 = '' OR c.title ILIKE '%' || $4 || '%' OR COALESCE(c.description, '') ILIKE '%' || $4 || '%')
+			ORDER BY c.published_at DESC, c.id DESC
+			LIMIT $5 OFFSET $6
+		), enrollment_counts AS (
+			SELECT e.course_id, COUNT(*) AS enrollment_count
+			FROM enrollments e
+			JOIN page p ON p.id = e.course_id
+			WHERE e.status = 'ACCEPTED'
+			GROUP BY e.course_id
+		)
+		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
+		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
+		       p.org_id, p.visibility,
+		       u.full_name as creator_name, u.email as creator_email,
+		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
+		FROM page p
+		LEFT JOIN users u ON p.created_by = u.id
+		LEFT JOIN enrollment_counts ec ON ec.course_id = p.id
+		ORDER BY p.published_at DESC, p.id DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, models.CourseStatusPublished)
+	rows, err := r.db.QueryContext(ctx, query, models.CourseStatusPublished, filter.Category, filter.Level, filter.Search, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -269,12 +331,12 @@ func (r *CourseRepository) ListPublished(ctx context.Context) ([]*models.CourseW
 			&course.EnrollmentCount,
 		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		courses = append(courses, &course)
 	}
 
-	return courses, rows.Err()
+	return courses, total, rows.Err()
 }
 
 // ===== SECTION METHODS =====
@@ -618,7 +680,7 @@ func (r *CourseRepository) UpdateContentAIIndexStatus(
 	_, err := r.db.ExecContext(ctx, query, status, contentID)
 	return err
 }
- 
+
 // GetContentAIIndexStatus lấy trạng thái index và file_path của content.
 func (r *CourseRepository) GetContentAIIndexStatus(
 	ctx context.Context,
@@ -637,6 +699,16 @@ func (r *CourseRepository) GetContentAIIndexStatus(
 type CourseVisibilityFilter struct {
 	UserOrgIDs    []int64
 	IncludePublic bool
+	Category      string
+	Level         string
+	Search        string
+}
+
+type CourseListFilter struct {
+	Status   string
+	Category string
+	Level    string
+	Search   string
 }
 
 // ListVisibleForUser lists courses visible to a user based on org isolation rules
@@ -651,31 +723,49 @@ func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter Course
 		    c.org_id = ANY($1::bigint[])
 		    OR ($2 AND c.visibility = 'PUBLIC')
 		  )
+		  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
+		  AND ($4 = '' OR c.level = $4)
+		  AND ($5 = '' OR c.title ILIKE '%' || $5 || '%' OR COALESCE(c.description, '') ILIKE '%' || $5 || '%')
 	`
 	var total int
-	err := r.db.QueryRowContext(ctx, countQuery, pq.Array(filter.UserOrgIDs), filter.IncludePublic).Scan(&total)
+	err := r.db.QueryRowContext(ctx, countQuery, pq.Array(filter.UserOrgIDs), filter.IncludePublic, filter.Category, filter.Level, filter.Search).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	query := `
-		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
-		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
-		       c.org_id, c.visibility,
+		WITH page AS (
+			SELECT c.*
+			FROM courses c
+			WHERE c.status = 'PUBLISHED'
+			  AND (
+			    c.org_id = ANY($1::bigint[])
+			    OR ($2 AND c.visibility = 'PUBLIC')
+			  )
+			  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
+			  AND ($4 = '' OR c.level = $4)
+			  AND ($5 = '' OR c.title ILIKE '%' || $5 || '%' OR COALESCE(c.description, '') ILIKE '%' || $5 || '%')
+			ORDER BY c.published_at DESC, c.id DESC
+			LIMIT $6 OFFSET $7
+		), enrollment_counts AS (
+			SELECT e.course_id, COUNT(*) AS enrollment_count
+			FROM enrollments e
+			JOIN page p ON p.id = e.course_id
+			WHERE e.status = 'ACCEPTED'
+			GROUP BY e.course_id
+		)
+		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
+		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
+		       p.org_id, p.visibility,
 		       u.full_name as creator_name, u.email as creator_email,
-		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
-		FROM courses c
-		LEFT JOIN users u ON c.created_by = u.id
-		WHERE c.status = 'PUBLISHED'
-		  AND (
-		    c.org_id = ANY($1::bigint[])
-		    OR ($2 AND c.visibility = 'PUBLIC')
-		  )
-		ORDER BY c.published_at DESC
-		LIMIT $3 OFFSET $4
+		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
+		FROM page p
+		LEFT JOIN users u ON p.created_by = u.id
+		LEFT JOIN enrollment_counts ec ON ec.course_id = p.id
+		ORDER BY p.published_at DESC, p.id DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, pq.Array(filter.UserOrgIDs), filter.IncludePublic, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(filter.UserOrgIDs), filter.IncludePublic, filter.Category, filter.Level, filter.Search, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

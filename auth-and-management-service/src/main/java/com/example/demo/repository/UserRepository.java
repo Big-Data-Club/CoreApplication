@@ -6,6 +6,8 @@ import org.springframework.stereotype.Repository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import jakarta.persistence.LockModeType;
 
@@ -31,6 +33,22 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByGoogleId(String googleId);
 
     List<User> findByPendingApprovalTrue();
+
+    @Query("""
+        select u from User u
+        where (:query = '' or lower(u.name) like lower(concat('%', :query, '%'))
+               or lower(u.email) like lower(concat('%', :query, '%'))
+               or lower(u.code) like lower(concat('%', :query, '%')))
+          and (:team = '' or u.team = :team)
+          and (:type = '' or u.type = :type)
+          and (:role = '' or u.role = :role)
+        """)
+    Page<User> searchPage(
+            @Param("query") String query,
+            @Param("team") String team,
+            @Param("type") String type,
+            @Param("role") String role,
+            Pageable pageable);
 
     /**
      * Batch lookup: returns the codes from the input set that already exist in the DB.

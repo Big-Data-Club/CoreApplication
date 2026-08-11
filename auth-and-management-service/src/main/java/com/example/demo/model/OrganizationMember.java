@@ -9,6 +9,10 @@ import java.time.LocalDateTime;
     name = "organization_members",
     uniqueConstraints = {
         @UniqueConstraint(columnNames = {"org_id", "user_id"})
+    },
+    indexes = {
+        @Index(name = "idx_org_members_user", columnList = "user_id"),
+        @Index(name = "idx_org_members_org", columnList = "org_id")
     }
 )
 @Getter

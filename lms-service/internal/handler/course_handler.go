@@ -259,25 +259,46 @@ func (h *CourseHandler) PublishCourse(c *gin.Context) {
 
 // ListMyCourses lists courses created by the authenticated user
 // @Summary List my courses
-// @Description List all courses created by the authenticated user
+// @Description List a filtered page of courses owned or co-taught by the authenticated user
 // @Tags courses
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {array} dto.CourseResponse
+// @Param page query int false "Page number (1-based)"
+// @Param page_size query int false "Items per page (max 100)"
+// @Param status query string false "Course status"
+// @Param category query string false "Category filter"
+// @Param level query string false "Level filter"
+// @Param search query string false "Title or description search"
+// @Success 200 {object} dto.ListResponse
 // @Failure 500 {object} dto.ErrorResponse
 // @Router /courses/my [get]
 func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 	userID := c.GetInt64("user_id")
+	var pagination dto.PaginationRequest
+	if err := c.ShouldBindQuery(&pagination); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+	limit, offset := pagination.GetPagination()
+	page := pagination.Page
+	if page < 1 {
+		page = 1
+	}
+	var filter dto.FilterRequest
+	if err := c.ShouldBindQuery(&filter); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
 
-	courses, err := h.courseService.ListMyCourses(c.Request.Context(), userID)
+	courses, total, err := h.courseService.ListMyCourses(c.Request.Context(), userID, filter, limit, offset)
 	if err != nil {
 		logger.Error("Failed to list courses", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to retrieve courses"))
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.NewDataResponse(courses))
+	c.JSON(http.StatusOK, dto.NewDataResponse(dto.NewListResponse(courses, page, limit, total)))
 }
 
 // ListPublishedCourses lists published courses visible to the authenticated user
@@ -287,21 +308,41 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {array} dto.CourseResponse
+// @Param page query int false "Page number (1-based)"
+// @Param page_size query int false "Items per page (max 100)"
+// @Param category query string false "Category filter"
+// @Param level query string false "Level filter"
+// @Param search query string false "Title or description search"
+// @Success 200 {object} dto.ListResponse
 // @Failure 500 {object} dto.ErrorResponse
 // @Router /courses [get]
 func (h *CourseHandler) ListPublishedCourses(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 	role := getRoleFromContext(c)
+	var pagination dto.PaginationRequest
+	if err := c.ShouldBindQuery(&pagination); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+	limit, offset := pagination.GetPagination()
+	page := pagination.Page
+	if page < 1 {
+		page = 1
+	}
+	var filter dto.FilterRequest
+	if err := c.ShouldBindQuery(&filter); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
 
-	courses, err := h.courseService.ListPublishedCourses(c.Request.Context(), userID, role)
+	courses, total, err := h.courseService.ListPublishedCourses(c.Request.Context(), userID, role, filter, limit, offset)
 	if err != nil {
 		logger.Error("Failed to list published courses", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to retrieve courses"))
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.NewDataResponse(courses))
+	c.JSON(http.StatusOK, dto.NewDataResponse(dto.NewListResponse(courses, page, limit, total)))
 }
 
 // ===== SECTION HANDLERS =====
@@ -846,4 +887,3 @@ func (h *CourseHandler) ReorderContents(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Contents reordered successfully"))
 }
-

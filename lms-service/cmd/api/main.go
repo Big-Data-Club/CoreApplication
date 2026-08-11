@@ -69,16 +69,16 @@ func main() {
 	}
 	defer db.Close()
 
-	// Dashboard indexes are non-critical and idempotent. Build them in the
+	// Read-path indexes are non-critical and idempotent. Build them in the
 	// background so a rollout remains available even on a large existing DB.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		if err := database.EnsureTeacherDashboardIndexes(ctx, db); err != nil {
-			logger.Warn(fmt.Sprintf("teacher dashboard indexes were not applied: %v", err))
+		if err := database.EnsureReadPathIndexes(ctx, db); err != nil {
+			logger.Warn(fmt.Sprintf("read-path indexes were not applied: %v", err))
 			return
 		}
-		logger.Info("teacher dashboard indexes are ready")
+		logger.Info("read-path indexes are ready")
 	}()
 
 	// Initialize Redis cache

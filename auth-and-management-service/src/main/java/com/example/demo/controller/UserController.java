@@ -4,6 +4,7 @@ import com.example.demo.dto.user.ChangePasswordRequest;
 import com.example.demo.dto.user.UpdateUserRequest;
 import com.example.demo.dto.user.UpdateUserRoleRequest;
 import com.example.demo.dto.user.UserResponse;
+import com.example.demo.dto.common.PageResponse;
 import com.example.demo.service.user.UserService;
 
 import jakarta.validation.Valid;
@@ -33,8 +34,17 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping
-    public ResponseEntity<List<UserResponse>> getAll() {
-        return ResponseEntity.ok(userService.getAllUsers());
+    public ResponseEntity<PageResponse<UserResponse>> getAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(name = "page_size", defaultValue = "50") int pageSize,
+            @RequestParam(defaultValue = "") String query,
+            @RequestParam(defaultValue = "") String team,
+            @RequestParam(defaultValue = "") String type,
+            @RequestParam(defaultValue = "") String role,
+            @RequestParam(name = "sort_by", defaultValue = "id") String sortBy,
+            @RequestParam(name = "sort_dir", defaultValue = "desc") String sortDirection) {
+        return ResponseEntity.ok(userService.getUsers(
+                page, pageSize, query, team, type, role, sortBy, sortDirection));
     }
 
     @GetMapping("/{id}")

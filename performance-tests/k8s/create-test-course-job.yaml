@@ -30,6 +30,8 @@ data:
 
     _, mine = request("GET", f"{BASE}/courses/my", headers=headers)
     courses = mine.get("data", mine)
+    if isinstance(courses, dict):
+        courses = courses.get("items", [])
     course = next((item for item in courses if item.get("title") == TITLE), None)
     if course is None:
         _, created = request(

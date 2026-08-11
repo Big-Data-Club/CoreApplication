@@ -142,6 +142,8 @@ class GenerateContentDraftTool(BaseTool):
                     if resp.status_code == 200:
                         data = resp.json()
                         courses = data.get("data", []) if isinstance(data, dict) and "data" in data else data
+                        if isinstance(courses, dict):
+                            courses = courses.get("items", [])
                         if isinstance(courses, list):
                             for c in courses:
                                 c_id = c.get("id")
