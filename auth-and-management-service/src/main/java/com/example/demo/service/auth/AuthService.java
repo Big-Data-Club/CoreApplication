@@ -2,13 +2,18 @@ package com.example.demo.service.auth;
 
 import com.example.demo.dto.auth.BulkRegisterRequest;
 import com.example.demo.dto.auth.LoginRequest;
+import com.example.demo.dto.auth.OrganizationAssignmentRequest;
+import com.example.demo.dto.auth.RegisterRequest;
 import com.example.demo.exception.BadRequestException;
-import com.example.demo.exception.DuplicateResourceException;
-import com.example.demo.enums.UserRole;
 import com.example.demo.model.User;
+import com.example.demo.model.Organization;
+import com.example.demo.model.OrganizationMember;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.RoleRepository;
+import com.example.demo.repository.OrganizationRepository;
+import com.example.demo.repository.OrganizationMemberRepository;
 import com.example.demo.service.email.EmailService;
+import com.example.demo.service.org.OrganizationSyncService;
 import com.example.demo.service.user.UserSyncService;
 import com.example.demo.strategy.RoleResolutionStrategy;
 import com.example.demo.utils.PasswordGenerator;
@@ -20,7 +25,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -35,6 +43,9 @@ public class AuthService {
     private final EmailService emailService;
     private final UserSyncService userSyncService;
     private final RoleResolutionStrategy roleStrategy;
+    private final OrganizationRepository organizationRepository;
+    private final OrganizationMemberRepository organizationMemberRepository;
+    private final OrganizationSyncService organizationSyncService;
 
     @Value("${app.default-role:ROLE_USER}")
     private String defaultRole;
@@ -59,7 +70,7 @@ public class AuthService {
 
     public String generateToken(User user) {
         return jwtService.generateToken(user.getId(), user.getEmail(),
-                                        roleStrategy.resolve(user.getRole()));
+                                        roleStrategy.resolveAll(user.effectiveRoles()));
     }
 
     public String generateRefreshToken(User user) {
@@ -76,90 +87,101 @@ public class AuthService {
 
     @Transactional
     public List<User> bulkRegister(BulkRegisterRequest request) {
-        var registrations = request.getUsers();
-
-        // 1. Collect all emails & codes from the incoming batch
-        var emails = registrations.stream().map(r -> r.getEmail()).toList();
-        var codes  = registrations.stream().map(r -> r.getCode()).filter(c -> c != null && !c.isBlank()).toList();
-
-        // 2. Batch-validate: find duplicates that already exist in DB
-        var duplicateEmails = userRepository.findExistingEmails(emails);
-        var duplicateCodes  = codes.isEmpty() ? java.util.Set.<String>of() : userRepository.findExistingCodes(codes);
-
-        // 3. Also check for duplicates within the batch itself
-        var seenEmails = new java.util.HashSet<String>();
-        var inBatchDupEmails = emails.stream().filter(e -> !seenEmails.add(e)).toList();
-        var seenCodes = new java.util.HashSet<String>();
-        var inBatchDupCodes = codes.stream().filter(c -> !seenCodes.add(c)).toList();
-
-        // 4. Build error message
-        List<String> errors = new java.util.ArrayList<>();
-        if (!duplicateEmails.isEmpty()) {
-            errors.add("Duplicate email(s) already in DB: " + String.join(", ", duplicateEmails));
+        var registrations = request == null ? null : request.getUsers();
+        if (registrations == null || registrations.isEmpty()) {
+            throw new BadRequestException("Import batch must contain at least one user");
         }
-        if (!inBatchDupEmails.isEmpty()) {
-            errors.add("Duplicate email(s) within batch: " + String.join(", ", inBatchDupEmails));
-        }
-        if (!duplicateCodes.isEmpty()) {
-            errors.add("Duplicate code(s) already in DB: " + String.join(", ", duplicateCodes));
-        }
-        if (!inBatchDupCodes.isEmpty()) {
-            errors.add("Duplicate code(s) within batch: " + String.join(", ", inBatchDupCodes));
+        if (registrations.size() > 2000) {
+            throw new BadRequestException("A single import is limited to 2000 users");
         }
 
-        // 5. Validate roles exist in DB
         var existingRoles = roleRepository.findAll().stream()
-                .map(r -> r.getName().toUpperCase())
+                .map(role -> role.getName().toUpperCase(Locale.ROOT))
                 .collect(Collectors.toSet());
+        var organizations = organizationRepository.findAll();
+        Map<String, Organization> organizationsByIdentifier = new java.util.HashMap<>();
+        organizations.forEach(org -> {
+            organizationsByIdentifier.put(org.getSlug().toLowerCase(Locale.ROOT), org);
+            organizationsByIdentifier.put(org.getName().toLowerCase(Locale.ROOT), org);
+        });
 
-        List<String> invalidRoles = new java.util.ArrayList<>();
-        for (var reg : registrations) {
-            String roleStr = reg.getRole() != null && !reg.getRole().trim().isEmpty() ? reg.getRole().trim() : defaultRole;
-            if (!roleStr.toUpperCase().startsWith("ROLE_")) {
-                roleStr = "ROLE_" + roleStr.toUpperCase();
-            } else {
-                roleStr = roleStr.toUpperCase();
+        List<String> errors = new java.util.ArrayList<>();
+        List<PreparedRegistration> prepared = new java.util.ArrayList<>();
+        Set<String> seenEmails = new java.util.HashSet<>();
+        Set<String> seenCodes = new java.util.HashSet<>();
+
+        for (int index = 0; index < registrations.size(); index++) {
+            RegisterRequest reg = registrations.get(index);
+            int row = index + 2; // spreadsheet header is row 1
+            String name = clean(reg.getName());
+            String email = clean(reg.getEmail()).toLowerCase(Locale.ROOT);
+            String code = clean(reg.getCode());
+            if (name.isBlank()) errors.add("Row " + row + ": name is required");
+            if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) errors.add("Row " + row + ": invalid email");
+            if (code.isBlank()) errors.add("Row " + row + ": code is required");
+            if (!seenEmails.add(email)) errors.add("Row " + row + ": duplicate email in file: " + email);
+            if (!seenCodes.add(code)) errors.add("Row " + row + ": duplicate code in file: " + code);
+
+            LinkedHashSet<String> roles = new LinkedHashSet<>();
+            if (reg.getRoles() != null) reg.getRoles().stream().map(this::normalizeRole).forEach(roles::add);
+            if (roles.isEmpty()) roles.add(normalizeRole(reg.getRole()));
+            for (String role : roles) {
+                if (!existingRoles.contains(role)) errors.add("Row " + row + ": unknown role " + role);
             }
-            if (!existingRoles.contains(roleStr)) {
-                invalidRoles.add(roleStr);
+
+            List<ResolvedOrganization> resolvedOrganizations = new java.util.ArrayList<>();
+            List<OrganizationAssignmentRequest> requestedOrganizations = reg.getOrganizations();
+            if ((requestedOrganizations == null || requestedOrganizations.isEmpty()) && !clean(reg.getOrganization()).isBlank()) {
+                requestedOrganizations = parseLegacyOrganizations(reg.getOrganization());
             }
+            if (requestedOrganizations != null) {
+                Set<Long> seenOrgIds = new java.util.HashSet<>();
+                for (OrganizationAssignmentRequest assignment : requestedOrganizations) {
+                    String identifier = clean(assignment.getIdentifier()).toLowerCase(Locale.ROOT);
+                    Organization org = organizationsByIdentifier.get(identifier);
+                    String orgRole = clean(assignment.getOrgRole()).toUpperCase(Locale.ROOT);
+                    if (orgRole.isBlank()) orgRole = "MEMBER";
+                    if (org == null) {
+                        errors.add("Row " + row + ": unknown organization " + assignment.getIdentifier());
+                    } else if (!Set.of("OWNER", "ADMIN", "MEMBER").contains(orgRole)) {
+                        errors.add("Row " + row + ": invalid organization role " + orgRole);
+                    } else if (seenOrgIds.add(org.getId())) {
+                        resolvedOrganizations.add(new ResolvedOrganization(org, orgRole));
+                    }
+                }
+            }
+            prepared.add(new PreparedRegistration(reg, name, email, code, roles, resolvedOrganizations));
         }
 
-        if (!invalidRoles.isEmpty()) {
-            errors.add("Invalid role(s): " + String.join(", ", invalidRoles.stream().distinct().toList()));
-        }
-
-        if (!errors.isEmpty()) {
-            if (!invalidRoles.isEmpty()) {
-                throw new BadRequestException(String.join("; ", errors));
-            }
-            throw new DuplicateResourceException("User", "email/code", String.join("; ", errors));
-        }
+        var emails = prepared.stream().map(PreparedRegistration::email).toList();
+        var codes = prepared.stream().map(PreparedRegistration::code).toList();
+        var duplicateEmails = userRepository.findExistingEmails(emails);
+        var duplicateCodes = userRepository.findExistingCodes(codes);
+        if (!duplicateEmails.isEmpty()) errors.add("Emails already in database: " + String.join(", ", duplicateEmails));
+        if (!duplicateCodes.isEmpty()) errors.add("Codes already in database: " + String.join(", ", duplicateCodes));
+        if (!errors.isEmpty()) throw new BadRequestException(String.join("; ", errors));
 
         Map<String, String> emailToPassword = new java.util.LinkedHashMap<>();
         Map<String, String> emailToName    = new java.util.LinkedHashMap<>();
 
-        List<User> users = registrations.stream()
-                .map(reg -> {
+        List<User> users = prepared.stream()
+                .map(item -> {
+                    RegisterRequest reg = item.source();
                     String pwd = PasswordGenerator.generateStrongPassword();
-                    emailToPassword.put(reg.getEmail(), pwd);
-                    emailToName.put(reg.getEmail(), reg.getName());
-                    String roleStr = reg.getRole() != null && !reg.getRole().trim().isEmpty() ? reg.getRole().trim() : defaultRole;
-                    if (!roleStr.toUpperCase().startsWith("ROLE_")) {
-                        roleStr = "ROLE_" + roleStr.toUpperCase();
-                    } else {
-                        roleStr = roleStr.toUpperCase();
-                    }
+                    emailToPassword.put(item.email(), pwd);
+                    emailToName.put(item.email(), item.name());
+                    String primaryRole = item.roles().iterator().next();
 
                     return User.builder()
-                            .name(reg.getName())
-                            .email(reg.getEmail())
+                            .name(item.name())
+                            .email(item.email())
                             .password(passwordEncoder.encode(pwd))
-                            .role(roleStr)
-                            .team(reg.getTeam())
-                            .code(reg.getCode())
-                            .type(reg.getType())
-                            .organization(reg.getOrganization())
+                            .role(primaryRole)
+                            .roles(new LinkedHashSet<>(item.roles()))
+                            .team(clean(reg.getTeam()).isBlank() ? "RESEARCH" : clean(reg.getTeam()).toUpperCase(Locale.ROOT))
+                            .code(item.code())
+                            .type(clean(reg.getType()).isBlank() ? "CLC" : clean(reg.getType()).toUpperCase(Locale.ROOT))
+                            .organization(item.organizations().stream().map(resolved -> resolved.organization().getName()).collect(Collectors.joining(", ")))
                             .active(true)
                             .totalScore(0)
                             .build();
@@ -167,14 +189,62 @@ public class AuthService {
                 .collect(Collectors.toList());
 
         List<User> saved = userRepository.saveAll(users);
+        List<OrganizationMember> memberships = new java.util.ArrayList<>();
+        for (int index = 0; index < saved.size(); index++) {
+            User user = saved.get(index);
+            for (ResolvedOrganization resolved : prepared.get(index).organizations()) {
+                memberships.add(OrganizationMember.builder()
+                        .organization(resolved.organization())
+                        .user(user)
+                        .orgRole(resolved.orgRole())
+                        .build());
+            }
+        }
+        memberships = organizationMemberRepository.saveAll(memberships);
+        List<OrganizationMember> savedMemberships = List.copyOf(memberships);
         log.info("Bulk registered {} users", saved.size());
 
         emailService.sendWelcomeBatch(emailToPassword, emailToName)
                     .exceptionally(ex -> { log.error("Batch email error: {}", ex.getMessage()); return null; });
 
         userSyncService.syncUsers(saved)
+                       .thenRun(() -> savedMemberships.forEach(organizationSyncService::syncMember))
                        .exceptionally(ex -> { log.error("LMS sync error: {}", ex.getMessage()); return null; });
 
         return saved;
     }
+
+    private String clean(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private String normalizeRole(String role) {
+        String normalized = clean(role);
+        if (normalized.isBlank()) normalized = defaultRole;
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        return normalized.startsWith("ROLE_") ? normalized : "ROLE_" + normalized;
+    }
+
+    private List<OrganizationAssignmentRequest> parseLegacyOrganizations(String value) {
+        List<OrganizationAssignmentRequest> result = new java.util.ArrayList<>();
+        for (String token : value.split(";")) {
+            String[] parts = token.trim().split(":", 2);
+            if (!parts[0].isBlank()) {
+                result.add(OrganizationAssignmentRequest.builder()
+                        .identifier(parts[0].trim())
+                        .orgRole(parts.length > 1 ? parts[1].trim() : "MEMBER")
+                        .build());
+            }
+        }
+        return result;
+    }
+
+    private record ResolvedOrganization(Organization organization, String orgRole) {}
+    private record PreparedRegistration(
+            RegisterRequest source,
+            String name,
+            String email,
+            String code,
+            LinkedHashSet<String> roles,
+            List<ResolvedOrganization> organizations) {}
 }

@@ -146,6 +146,8 @@ public class UserServiceImpl implements UserService {
         }
 
         user.setRole(normalizedRole);
+        user.getRoles().clear();
+        user.getRoles().add(normalizedRole);
         var saved = userRepository.save(user);
         userSyncService.syncUser(saved);
         return UserResponse.fromEntity(saved);
@@ -284,6 +286,11 @@ public class UserServiceImpl implements UserService {
         var user = findUserEntity(id);
         deleteOldPicture(user.getProfilePicture());
         userRepository.deleteById(id);
+        userSyncService.deleteUser(id)
+                .exceptionally(ex -> {
+                    log.warn("Cross-service cleanup failed for deleted user {}: {}", id, ex.getMessage());
+                    return null;
+                });
     }
 
     @Override

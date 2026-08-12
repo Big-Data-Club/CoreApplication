@@ -7,6 +7,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
@@ -34,6 +36,13 @@ public class User {
 
     @Column(nullable = false, length = 50)
     private String role;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"),
+            uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "role_name"}))
+    @Column(name = "role_name", nullable = false, length = 50)
+    @Builder.Default
+    private Set<String> roles = new LinkedHashSet<>();
 
     @Column(nullable = false, length = 50)
     private String team;
@@ -80,4 +89,11 @@ public class User {
     @JsonIgnore
     @Builder.Default
     private List<OrganizationMember> organizationMembers = new ArrayList<>();
+
+    public Set<String> effectiveRoles() {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        if (role != null && !role.isBlank()) result.add(role);
+        if (roles != null) result.addAll(roles);
+        return result;
+    }
 }

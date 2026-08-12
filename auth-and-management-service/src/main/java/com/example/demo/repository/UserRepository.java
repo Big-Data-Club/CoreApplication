@@ -41,7 +41,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
                or lower(u.code) like lower(concat('%', :query, '%')))
           and (:team = '' or u.team = :team)
           and (:type = '' or u.type = :type)
-          and (:role = '' or u.role = :role)
+          and (:role = '' or u.role = :role or :role member of u.roles)
         """)
     Page<User> searchPage(
             @Param("query") String query,
