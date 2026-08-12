@@ -10,7 +10,7 @@ Git submodule and has its own contribution rules.
 | Audience | Read first | Primary assets |
 |---|---|---|
 | Business analyst / product | [BA handbook](docs/teams/BA_HANDBOOK.md) | journeys, acceptance criteria, event impacts |
-| Application developer | [Developer guide](docs/DEVELOPER_GUIDE.md) | service map, local run, test and change workflow |
+| Application developer | [Developer guide](docs/DEVELOPER_GUIDE.md) and [Kubernetes quick start](docs/KUBERNETES_DEVELOPER_GUIDE.md) | service map, local workflow, infrastructure layers, K3s inspection and sandbox start |
 | Data analyst / data engineer | [Data platform guide](docs/DATA_PLATFORM.md) | Lakehouse layers, Kafka catalog, data quality |
 | DevOps / SRE | [DevOps runbook](docs/DEVOPS_RUNBOOK.md) | K3s, CI/CD, rollback and performance operations |
 | QA / performance | [Performance tests](performance-tests/README.md) | k6 scripts, safety gates and dashboard flow |

@@ -28,6 +28,10 @@ the production deploy script deliberately changes selected immutable images and
 rolls them back on failure. See the runbook for the current CI/CD matrix,
 rollout diagnostics, monitoring, and performance-test guardrails.
 
+Application developers who need a layer map, manifest orientation, read-only
+cluster inspection, or an authorised sandbox start should use the
+[Kubernetes developer guide](../docs/KUBERNETES_DEVELOPER_GUIDE.md).
+
 ## Change rules
 
 - Keep Secrets out of Git; reference approved secret names only.

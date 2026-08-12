@@ -8,6 +8,7 @@ boundary.
 |---|---|---|---|
 | BA/Product | BA handbook | [teams/BA_HANDBOOK.md](teams/BA_HANDBOOK.md) | journeys, acceptance criteria, scope decisions |
 | Developers | Developer guide | [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) | service map, local development, test workflow |
+| Developers | Kubernetes developer guide | [KUBERNETES_DEVELOPER_GUIDE.md](KUBERNETES_DEVELOPER_GUIDE.md) | infrastructure/application layer map, K3s inspection, sandbox quick start |
 | Data/ML | Data platform guide | [DATA_PLATFORM.md](DATA_PLATFORM.md) | Kafka contracts, Lakehouse, quality and access rules |
 | Data/ML | Offline analytics workspace | `da-analytics/` submodule | notebooks, reproducible model experiments, Gold inputs |
 | AI | Agent/AI implementation | `ai-service/app/agents/`, `ai-service/app/worker/` | runtime agent and asynchronous job behaviour |
