@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"example/hello/internal/dto"
 	"example/hello/internal/service"
@@ -45,6 +46,10 @@ func (h *EnrollmentHandler) EnrollCourse(c *gin.Context) {
 	enrollment, err := h.enrollmentService.EnrollCourse(c.Request.Context(), req.CourseID, userID.(int64))
 	if err != nil {
 		logger.Error("Failed to enroll course", err)
+		if strings.Contains(err.Error(), "unauthorized") {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
+			return
+		}
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("enrollment_failed", err.Error()))
 		return
 	}

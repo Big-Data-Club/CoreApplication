@@ -118,52 +118,34 @@ func (s *EnrollmentService) EnrollCourse(ctx context.Context, courseID, studentI
 		return nil, fmt.Errorf("failed to verify student organization: %w", err)
 	}
 
-	hasPrivateOrg := false
-	for _, uo := range userOrgs {
-		var settings models.OrgSettings
-		if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
-			hasPrivateOrg = true
-			break
-		}
+	// ORG_ONLY always means membership in this exact organization. A public
+	// organization or an allow-cross-org setting cannot override the course's
+	// explicit visibility choice.
+	isMemberOfCourseOrg, _, err := s.orgRepo.IsMember(ctx, course.OrgID, studentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify organization membership: %w", err)
 	}
+	if !isMemberOfCourseOrg {
+		if course.Visibility == models.VisibilityOrgOnly {
+			return nil, fmt.Errorf("unauthorized to enroll in this organization-only course")
+		}
 
-	if hasPrivateOrg {
-		isMemberOfCoursePrivateOrg := false
+		// Only a PUBLIC course can reach cross-organization policy checks.
+		// Membership in any private organization disables outside enrollment;
+		// otherwise at least one membership must allow it (users with no orgs
+		// retain access to public courses).
+		allowCross := len(userOrgs) == 0
 		for _, uo := range userOrgs {
 			var settings models.OrgSettings
-			if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
-				if uo.ID == course.OrgID {
-					isMemberOfCoursePrivateOrg = true
-					break
+			if err := json.Unmarshal(uo.Settings, &settings); err == nil {
+				if !settings.AllowCrossOrgCourses {
+					return nil, fmt.Errorf("unauthorized to enroll in cross-organization courses")
 				}
+				allowCross = true
 			}
 		}
-		if !isMemberOfCoursePrivateOrg {
+		if !allowCross {
 			return nil, fmt.Errorf("unauthorized to enroll in cross-organization courses")
-		}
-	} else {
-		isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, studentID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
-		}
-
-		if !isMember {
-			if course.Visibility != models.VisibilityPublic {
-				return nil, fmt.Errorf("unauthorized to enroll in this course")
-			}
-
-			allowCross := len(userOrgs) == 0
-			for _, uo := range userOrgs {
-				var settings models.OrgSettings
-				if err := json.Unmarshal(uo.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {
-					allowCross = true
-					break
-				}
-			}
-
-			if !allowCross {
-				return nil, fmt.Errorf("unauthorized to enroll in cross-organization courses")
-			}
 		}
 	}
 

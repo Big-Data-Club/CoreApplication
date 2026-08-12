@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"example/hello/internal/models"
-	"github.com/lib/pq"
 )
 
 type CourseRepository struct {
@@ -697,6 +696,7 @@ func (r *CourseRepository) GetContentAIIndexStatus(
 
 // CourseVisibilityFilter defines filters for course listing based on organization visibility rules
 type CourseVisibilityFilter struct {
+	UserID        int64
 	UserOrgIDs    []int64
 	IncludePublic bool
 	Category      string
@@ -713,14 +713,17 @@ type CourseListFilter struct {
 
 // ListVisibleForUser lists courses visible to a user based on org isolation rules
 func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter CourseVisibilityFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
-	// If no orgs are associated, pq.Array will output an empty array '{}', which is fine.
-	// We count the total courses matching the criteria.
+	// Resolve membership in SQL instead of trusting a caller-provided org list.
+	// This keeps ORG_ONLY visibility tied to the current membership row.
 	countQuery := `
 		SELECT COUNT(*)
 		FROM courses c
 		WHERE c.status = 'PUBLISHED'
 		  AND (
-		    c.org_id = ANY($1::bigint[])
+		    EXISTS (
+		      SELECT 1 FROM organization_members om
+		      WHERE om.org_id = c.org_id AND om.user_id = $1
+		    )
 		    OR ($2 AND c.visibility = 'PUBLIC')
 		  )
 		  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
@@ -728,7 +731,7 @@ func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter Course
 		  AND ($5 = '' OR c.title ILIKE '%' || $5 || '%' OR COALESCE(c.description, '') ILIKE '%' || $5 || '%')
 	`
 	var total int
-	err := r.db.QueryRowContext(ctx, countQuery, pq.Array(filter.UserOrgIDs), filter.IncludePublic, filter.Category, filter.Level, filter.Search).Scan(&total)
+	err := r.db.QueryRowContext(ctx, countQuery, filter.UserID, filter.IncludePublic, filter.Category, filter.Level, filter.Search).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -739,7 +742,10 @@ func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter Course
 			FROM courses c
 			WHERE c.status = 'PUBLISHED'
 			  AND (
-			    c.org_id = ANY($1::bigint[])
+			    EXISTS (
+			      SELECT 1 FROM organization_members om
+			      WHERE om.org_id = c.org_id AND om.user_id = $1
+			    )
 			    OR ($2 AND c.visibility = 'PUBLIC')
 			  )
 			  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
@@ -765,7 +771,7 @@ func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter Course
 		ORDER BY p.published_at DESC, p.id DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, pq.Array(filter.UserOrgIDs), filter.IncludePublic, filter.Category, filter.Level, filter.Search, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, filter.UserID, filter.IncludePublic, filter.Category, filter.Level, filter.Search, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

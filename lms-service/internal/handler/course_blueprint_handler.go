@@ -81,7 +81,7 @@ func (h *CourseBlueprintHandler) Apply(c *gin.Context) {
 	userID, role := c.GetInt64("user_id"), getRoleFromContext(c)
 	created, err := h.courses.CreateCourse(c.Request.Context(), &dto.CreateCourseRequest{Title: blueprint.Plan.Title, Description: blueprint.Plan.Description, Category: blueprint.Plan.Category, Level: blueprint.Plan.Level, ThumbnailURL: blueprint.Plan.Governance.ThumbnailURL, OrgID: blueprint.Plan.Governance.OrganizationID, Visibility: blueprint.Plan.Governance.Visibility}, userID)
 	if err != nil { c.JSON(422, dto.NewErrorResponse("materialize_error", err.Error())); return }
-	rollback := func(cause error) { _ = h.courses.DeleteCourse(c.Request.Context(), created.ID, userID, role); c.JSON(500, dto.NewErrorResponse("materialize_error", fmt.Sprintf("Không thể tạo đầy đủ course: %v", cause))) }
+	rollback := func(cause error) { _ = h.courses.DeleteCourse(c.Request.Context(), created.ID, userID, "SYSTEM_ROLLBACK", ""); c.JSON(500, dto.NewErrorResponse("materialize_error", fmt.Sprintf("Không thể tạo đầy đủ course: %v", cause))) }
 	files := map[string]document{}
 	for _, file := range blueprint.Documents { files[file.ID] = file }
 	for sectionIndex, chapter := range blueprint.Plan.Chapters {

@@ -392,6 +392,7 @@ func (s *OrganizationService) GetVisibleCourseFilter(ctx context.Context, userID
 		var cached CachedUserOrgs
 		if err := json.Unmarshal([]byte(cachedVal), &cached); err == nil {
 			return repository.CourseVisibilityFilter{
+				UserID:        userID,
 				UserOrgIDs:    cached.OrgIDs,
 				IncludePublic: cached.IncludePublic,
 			}, nil
@@ -438,6 +439,7 @@ func (s *OrganizationService) GetVisibleCourseFilter(ctx context.Context, userID
 	}
 
 	return repository.CourseVisibilityFilter{
+		UserID:        userID,
 		UserOrgIDs:    orgIDs,
 		IncludePublic: includePublic,
 	}, nil

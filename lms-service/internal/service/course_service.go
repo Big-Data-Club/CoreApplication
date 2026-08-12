@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"example/hello/internal/dto"
@@ -13,6 +14,8 @@ import (
 	"example/hello/pkg/cache"
 	"example/hello/pkg/kafka"
 	"example/hello/pkg/logger"
+
+	"github.com/google/uuid"
 )
 
 // TTLs for course-related cache entries.
@@ -225,6 +228,19 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		isEnrolled = s.isStudentEnrolled(ctx, userID, courseID)
 	}
 
+	// Course visibility is authoritative. Organization-level cross-course
+	// settings may expose PUBLIC courses, but must never expose ORG_ONLY courses
+	// to users who are not members of the owning organization.
+	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher && !isEnrolled && course.Visibility == models.VisibilityOrgOnly {
+		isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
+		}
+		if !isMember {
+			return nil, fmt.Errorf("unauthorized to view this organization-only course")
+		}
+	}
+
 	// Org isolation checks
 	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher && !isEnrolled {
 		userOrgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
@@ -358,7 +374,7 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 }
 
 // DeleteCourse deletes a course and invalidates related cache entries.
-func (s *CourseService) DeleteCourse(ctx context.Context, courseID int64, userID int64, role string) error {
+func (s *CourseService) DeleteCourse(ctx context.Context, courseID int64, userID int64, role string, reason string) error {
 	course, err := s.getCourseCached(ctx, courseID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -369,6 +385,34 @@ func (s *CourseService) DeleteCourse(ctx context.Context, courseID int64, userID
 
 	if role != models.RoleAdmin && course.CreatedBy != userID {
 		return fmt.Errorf("unauthorized to delete this course")
+	}
+	if role == models.RoleAdmin && len([]rune(reason)) < 5 {
+		return fmt.Errorf("deletion reason is required for administrators")
+	}
+
+	// Capture recipients before the delete cascades into course_co_teachers.
+	instructors := []kafka.CourseInstructor{{
+		UserID: course.CreatedBy, FullName: course.CreatorName,
+		Email: course.CreatorEmail, Role: "CREATOR",
+	}}
+	coTeachers, err := s.courseRepo.ListCoTeachers(ctx, courseID)
+	if err != nil {
+		return fmt.Errorf("failed to list course instructors: %w", err)
+	}
+	seenEmails := map[string]bool{}
+	if course.CreatorEmail != "" {
+		seenEmails[strings.ToLower(course.CreatorEmail)] = true
+	}
+	for _, teacher := range coTeachers {
+		normalizedEmail := strings.ToLower(teacher.Email)
+		if normalizedEmail == "" || seenEmails[normalizedEmail] {
+			continue
+		}
+		seenEmails[normalizedEmail] = true
+		instructors = append(instructors, kafka.CourseInstructor{
+			UserID: teacher.UserID, FullName: teacher.FullName,
+			Email: teacher.Email, Role: "CO_TEACHER",
+		})
 	}
 
 	if err := s.courseRepo.Delete(ctx, courseID); err != nil {
@@ -384,6 +428,16 @@ func (s *CourseService) DeleteCourse(ctx context.Context, courseID int64, userID
 	}
 	if err := kafka.PublishEvent(ctx, "lms.maintenance.command", []byte(fmt.Sprintf("course-%d", courseID)), deletePayload); err != nil {
 		logger.Error(fmt.Sprintf("Failed to publish course deletion event for course %d", courseID), err)
+	}
+
+	if role == models.RoleAdmin {
+		event := kafka.CourseDeletedEvent{
+			EventID: uuid.NewString(), CourseID: courseID, CourseTitle: course.Title,
+			Reason: reason, DeletedBy: userID, Instructors: instructors, DeletedAt: time.Now().UTC(),
+		}
+		if err := kafka.PublishEvent(ctx, kafka.TopicCourseDeleted, []byte(fmt.Sprintf("course-%d", courseID)), event); err != nil {
+			logger.Error(fmt.Sprintf("Failed to publish instructor notification for deleted course %d", courseID), err)
+		}
 	}
 
 	return nil
@@ -489,6 +543,7 @@ func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, 
 	}
 
 	visibilityFilter := repository.CourseVisibilityFilter{
+		UserID:        userID,
 		UserOrgIDs:    orgIDs,
 		IncludePublic: includePublic,
 		Category:      filter.Category,

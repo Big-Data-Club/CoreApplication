@@ -2,6 +2,28 @@ package kafka
 
 import "time"
 
+const TopicCourseDeleted = "lms.course.deleted"
+
+type CourseInstructor struct {
+	UserID   int64  `json:"user_id"`
+	FullName string `json:"full_name"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+}
+
+// CourseDeletedEvent is consumed by auth-and-management-service to notify all
+// instructors. Recipients are captured before the course and its co-teachers
+// are deleted from the LMS database.
+type CourseDeletedEvent struct {
+	EventID     string             `json:"event_id"`
+	CourseID    int64              `json:"course_id"`
+	CourseTitle string             `json:"course_title"`
+	Reason      string             `json:"reason"`
+	DeletedBy   int64              `json:"deleted_by"`
+	Instructors []CourseInstructor `json:"instructors"`
+	DeletedAt   time.Time          `json:"deleted_at"`
+}
+
 // ProcessDocumentEvent represents the payload sent from LMS to AI Service
 type ProcessDocumentEvent struct {
 	EventID        string    `json:"event_id"`
