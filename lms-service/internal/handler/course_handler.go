@@ -345,7 +345,7 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(dto.NewListResponse(courses, page, limit, total)))
 }
 
-// ListPublishedCourses lists published courses visible to the authenticated user
+// ListPublishedCourses lists published courses visible to users, or every course for administrators.
 // @Summary List published courses
 // @Description List published courses based on org membership visibility rules
 // @Tags courses
@@ -354,6 +354,7 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 // @Security BearerAuth
 // @Param page query int false "Page number (1-based)"
 // @Param page_size query int false "Items per page (max 100)"
+// @Param status query string false "Course status (administrators only)"
 // @Param category query string false "Category filter"
 // @Param level query string false "Level filter"
 // @Param search query string false "Title or description search"

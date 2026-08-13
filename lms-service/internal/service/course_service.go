@@ -526,9 +526,11 @@ func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, 
 	repoListFilter := repository.CourseListFilter{
 		Category: filter.Category, Level: filter.Level, Search: filter.Search,
 	}
-	// Super admins see all published courses
+	// Administrators moderate the complete catalogue. In particular, archived
+	// courses must be visible here so an admin can restore them.
 	if role == models.RoleAdmin {
-		courses, total, err := s.courseRepo.ListPublished(ctx, repoListFilter, limit, offset)
+		repoListFilter.Status = filter.Status
+		courses, total, err := s.courseRepo.ListAll(ctx, repoListFilter, limit, offset)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to list published courses: %w", err)
 		}

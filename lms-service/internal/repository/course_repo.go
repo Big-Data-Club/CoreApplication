@@ -306,6 +306,69 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, f
 	return courses, total, rows.Err()
 }
 
+// ListAll lists one page of courses across every owner. It is intended for
+// administrative moderation, where archived and draft courses must remain
+// discoverable so they can be restored or removed.
+func (r *CourseRepository) ListAll(ctx context.Context, filter CourseListFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
+	countQuery := `
+		SELECT COUNT(*) FROM courses c
+		WHERE ($1 = '' OR c.status = $1)
+		  AND ($2 = '' OR c.category ILIKE '%' || $2 || '%')
+		  AND ($3 = '' OR c.level = $3)
+		  AND ($4 = '' OR c.title ILIKE '%' || $4 || '%' OR COALESCE(c.description, '') ILIKE '%' || $4 || '%')
+	`
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, filter.Status, filter.Category, filter.Level, filter.Search).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		WITH page AS (
+			SELECT c.* FROM courses c
+			WHERE ($1 = '' OR c.status = $1)
+			  AND ($2 = '' OR c.category ILIKE '%' || $2 || '%')
+			  AND ($3 = '' OR c.level = $3)
+			  AND ($4 = '' OR c.title ILIKE '%' || $4 || '%' OR COALESCE(c.description, '') ILIKE '%' || $4 || '%')
+			ORDER BY c.created_at DESC, c.id DESC
+			LIMIT $5 OFFSET $6
+		), enrollment_counts AS (
+			SELECT e.course_id, COUNT(*) AS enrollment_count
+			FROM enrollments e JOIN page p ON p.id = e.course_id
+			WHERE e.status = 'ACCEPTED'
+			GROUP BY e.course_id
+		)
+		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
+		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
+		       p.org_id, p.visibility,
+		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
+		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
+		FROM page p
+		LEFT JOIN users u ON p.created_by = u.id
+		LEFT JOIN enrollment_counts ec ON ec.course_id = p.id
+		ORDER BY p.created_at DESC, p.id DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, filter.Status, filter.Category, filter.Level, filter.Search, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	courses := make([]*models.CourseWithCreator, 0)
+	for rows.Next() {
+		course := &models.CourseWithCreator{}
+		if err := rows.Scan(&course.ID, &course.Title, &course.Description, &course.Category, &course.Level, &course.ThumbnailURL,
+			&course.Status, &course.CreatedBy, &course.CreatedAt, &course.UpdatedAt, &course.PublishedAt,
+			&course.OrgID, &course.Visibility, &course.CreatorName, &course.CreatorEmail, &course.CreatorAvatarURL,
+			&course.EnrollmentCount); err != nil {
+			return nil, 0, err
+		}
+		courses = append(courses, course)
+	}
+
+	return courses, total, rows.Err()
+}
+
 // ListPublished lists one page of published courses for administrators.
 func (r *CourseRepository) ListPublished(ctx context.Context, filter CourseListFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
 	var total int
