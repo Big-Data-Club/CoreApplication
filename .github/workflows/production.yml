@@ -67,6 +67,12 @@ jobs:
               - 'lms-service/**'
               - 'k3s/base/lms-service-deployment.yaml'
               - 'scripts/deploy-production.sh'
+            lab:
+              - 'lab-service/**'
+              - 'k3s/base/lab-service-deployment.yaml'
+              - 'scripts/deploy-production.sh'
+              # Keep the lab production selector itself deployable.
+              - '.github/workflows/production.yml'
             chat:
               - 'chat-service/**'
               - 'k3s/base/chat-service-deployment.yaml'
@@ -82,6 +88,7 @@ jobs:
           RECOMMENDER_CHANGED: ${{ steps.changes.outputs.recommender }}
           PERSONALIZE_CHANGED: ${{ steps.changes.outputs.personalize }}
           LMS_CHANGED: ${{ steps.changes.outputs.lms }}
+          LAB_CHANGED: ${{ steps.changes.outputs.lab }}
           CHAT_CHANGED: ${{ steps.changes.outputs.chat }}
           MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
           MANUAL_SERVICES: ${{ inputs.services }}
@@ -122,6 +129,10 @@ jobs:
           if [[ "${LMS_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-lms","context":"lms-service"}')
             services+=(lms-service)
+          fi
+          if [[ "${LAB_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-lab","context":"lab-service"}')
+            services+=(lab-service)
           fi
           if [[ "${CHAT_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-chat","context":"chat-service"}')

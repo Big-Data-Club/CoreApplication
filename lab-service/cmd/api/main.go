@@ -106,13 +106,18 @@ func main() {
 	// ── Health Check ────────────────────────────────────────────
 	healthHandler := func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"service": cfg.App.Name,
-			"version": cfg.App.Version,
+			"status":              "healthy",
+			"service":             cfg.App.Name,
+			"version":             cfg.App.Version,
+			"supported_lab_types": []string{"CODING", "HPC", "JUPYTER", "WORKSPACE", "DATABASE", "CUSTOM", "PLANT", "ROBOT"},
 		})
 	}
 	r.GET("/health", healthHandler)
 	r.HEAD("/health", healthHandler)
+	// Traefik rewrites /labapiv1/* to /api/v1/*; expose the same probe there
+	// so operators can verify which binary public traffic reaches.
+	r.GET("/api/v1/health", healthHandler)
+	r.HEAD("/api/v1/health", healthHandler)
 
 	// ── Sync Routes (service secret) ────────────────────────────
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
