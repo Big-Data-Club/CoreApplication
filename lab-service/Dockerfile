@@ -14,6 +14,14 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 # ── Stage 2: Runtime ─────────────────────────────────────────────
 FROM alpine:3.20
 
+ARG BUILD_DATE=unknown
+ARG VERSION=dev
+
+LABEL org.opencontainers.image.title="BDC Lab Service" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/Big-Data-Club/CoreApplication"
+
 RUN apk add --no-cache ca-certificates wget tzdata python3 bash \
     && cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
     && echo "Asia/Ho_Chi_Minh" > /etc/timezone
