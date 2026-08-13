@@ -202,6 +202,27 @@ func (r *ExperimentRepository) ListVersionsByLab(ctx context.Context, labID int6
 	return versions, nil
 }
 
+func (r *ExperimentRepository) GetPublishedVersionByLab(ctx context.Context, labID int64) (*dto.LabVersionResponse, error) {
+	var resp dto.LabVersionResponse
+	var definitionRaw []byte
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, lab_id, version_number, status, definition_hash,
+			definition_snapshot, created_by, validated_at, published_at, created_at, updated_at
+		FROM lab_versions WHERE lab_id = $1 AND status = 'PUBLISHED'`, labID,
+	).Scan(
+		&resp.ID, &resp.LabID, &resp.VersionNumber, &resp.Status, &resp.DefinitionHash,
+		&definitionRaw, &resp.CreatedBy, &resp.ValidatedAt, &resp.PublishedAt,
+		&resp.CreatedAt, &resp.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(definitionRaw, &resp.Definition); err != nil {
+		return nil, fmt.Errorf("decode published experiment definition: %w", err)
+	}
+	return &resp, nil
+}
+
 func (r *ExperimentRepository) MarkValidated(ctx context.Context, versionID int64) error {
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE lab_versions
@@ -312,6 +333,25 @@ func (r *ExperimentRepository) GetRun(ctx context.Context, runID int64) (*dto.Ru
 		return nil, err
 	}
 	return &resp, nil
+}
+
+func (r *ExperimentRepository) CompleteRun(ctx context.Context, runID, userID int64) (*dto.RunResponse, error) {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE lab_runs
+		SET status = 'COMPLETED', ended_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND user_id = $2 AND status = 'ACTIVE'`, runID, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rows == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return r.GetRun(ctx, runID)
 }
 
 func (r *ExperimentRepository) ListRunsByLab(

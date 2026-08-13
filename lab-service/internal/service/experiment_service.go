@@ -143,6 +143,28 @@ func (s *ExperimentService) ListVersions(
 	return versions, http.StatusOK, nil
 }
 
+func (s *ExperimentService) GetPublishedVersion(
+	ctx context.Context,
+	labID, userID int64,
+	userRole string,
+) (*dto.LabVersionResponse, int, error) {
+	version, err := s.experimentRepo.GetPublishedVersionByLab(ctx, labID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, http.StatusNotFound, fmt.Errorf("this lab has no published experiment version")
+		}
+		return nil, http.StatusInternalServerError, fmt.Errorf("get published lab version: %w", err)
+	}
+	allowed, err := s.canAccessVersion(ctx, version, userID, userRole)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	if !allowed {
+		return nil, http.StatusForbidden, fmt.Errorf("you must enroll before opening this experiment")
+	}
+	return version, http.StatusOK, nil
+}
+
 func (s *ExperimentService) ValidateVersion(
 	ctx context.Context,
 	versionID, userID int64,
@@ -237,6 +259,68 @@ func (s *ExperimentService) GetRun(
 ) (*dto.RunResponse, int, error) {
 	run, status, err := s.getAccessibleRun(ctx, runID, userID, userRole)
 	return run, status, err
+}
+
+func (s *ExperimentService) CompleteRun(
+	ctx context.Context,
+	runID, userID int64,
+) (*dto.RunResponse, int, error) {
+	run, err := s.experimentRepo.GetRun(ctx, runID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, http.StatusNotFound, fmt.Errorf("lab run not found")
+		}
+		return nil, http.StatusInternalServerError, err
+	}
+	if run.UserID != userID {
+		return nil, http.StatusForbidden, fmt.Errorf("only the run owner can complete it")
+	}
+	if run.Status == "COMPLETED" {
+		return run, http.StatusOK, nil
+	}
+	version, err := s.experimentRepo.GetVersion(ctx, run.LabVersionID)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	events, err := s.experimentRepo.ListEvidence(ctx, runID, 0, 500)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	evidence := make(map[string]map[string]bool)
+	trialIDs := make(map[int64]bool)
+	for _, event := range events {
+		node, _ := event.Context["workflow_node"].(string)
+		if evidence[node] == nil {
+			evidence[node] = make(map[string]bool)
+		}
+		evidence[node][event.Object.Type] = true
+		if event.Object.Type == "simulation_run" && event.TrialID != nil {
+			trialIDs[*event.TrialID] = true
+		}
+	}
+	missing := make([]string, 0)
+	hasIterationStep := false
+	for _, node := range version.Definition.Nodes {
+		if node.Type == "ITERATE" {
+			hasIterationStep = true
+		}
+		for _, required := range node.RequiredEvidence {
+			if !evidence[node.Key][required] {
+				missing = append(missing, node.Key+":"+required)
+			}
+		}
+	}
+	if hasIterationStep && len(trialIDs) < 2 {
+		missing = append(missing, "iterate:second_trial")
+	}
+	if len(missing) > 0 {
+		return nil, http.StatusUnprocessableEntity, fmt.Errorf("required evidence is missing: %s", strings.Join(missing, ", "))
+	}
+	completed, err := s.experimentRepo.CompleteRun(ctx, runID, userID)
+	if err != nil {
+		return nil, http.StatusConflict, fmt.Errorf("complete lab run: %w", err)
+	}
+	return completed, http.StatusOK, nil
 }
 
 func (s *ExperimentService) ListLabRuns(
@@ -679,7 +763,9 @@ func experimentSeed(requested *int64) (int64, error) {
 	if requested != nil {
 		return *requested, nil
 	}
-	value, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 63))
+	// Keep generated seeds inside JavaScript's exact integer range because the
+	// browser concept engine receives them through JSON and must replay exactly.
+	value, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 53))
 	if err != nil {
 		return 0, fmt.Errorf("generate experiment seed: %w", err)
 	}

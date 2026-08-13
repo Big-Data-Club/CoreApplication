@@ -84,10 +84,12 @@ Publish validation requires:
 | Method | Path | Access | Result |
 |---|---|---|---|
 | `POST` | `/lab-versions/{versionId}/runs` | Enrolled learner or owner preview | Create/retrieve a run by idempotency key |
+| `GET` | `/labs/{labId}/published-version` | Enrolled learner or owner preview | Resolve the pinned published definition used by the workspace |
 | `GET` | `/runs/{runId}` | Run owner, lab owner, Admin | Read current run state |
 | `POST` | `/runs/{runId}/trials` | Run owner | Create next numbered trial with fixed/random seed |
 | `POST` | `/runs/{runId}/evidence` | Run owner | Append an idempotent, ordered event |
 | `GET` | `/runs/{runId}/events?after_seq=0&limit=200` | Run owner, lab owner, Admin | Read timeline for replay |
+| `POST` | `/runs/{runId}/complete` | Run owner | Complete only after every required evidence object exists |
 | `GET` | `/labs/{labId}/runs?status=ACTIVE&page=1&page_size=20` | Lab owner/Admin | List learners, current steps and trial counts |
 
 Create a run:
@@ -110,7 +112,7 @@ Create a deterministic trial:
 }
 ```
 
-Omit `seed` for a cryptographically generated non-negative 63-bit seed. The response always returns the chosen seed and pinned model version.
+Omit `seed` for a cryptographically generated non-negative 53-bit seed. The JSON-safe response always returns the chosen seed and pinned model version.
 
 Append evidence:
 
