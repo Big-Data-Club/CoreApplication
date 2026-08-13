@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from app.agents.core.course_matching import find_course_by_title
+
 
 ResolutionStatus = Literal[
     "current_page", "single_course", "named_course", "global",
@@ -110,13 +112,7 @@ def _course_bound_request(message: str) -> bool:
 
 
 def _find_named_course(message: str, courses: list[dict[str, Any]]) -> dict[str, Any] | None:
-    text = message.casefold()
-    matches = []
-    for course in courses:
-        title = str(course.get("title") or "").strip()
-        if len(title) >= 3 and title.casefold() in text:
-            matches.append(course)
-    return matches[0] if len(matches) == 1 else None
+    return find_course_by_title({"courses": courses}, message, min_len=3)
 
 
 def _course_index_path(agent_type: str) -> str:
@@ -134,13 +130,22 @@ def resolve_turn_context(
 ) -> ContextResolution:
     """Resolve the safest course context without calling a model.
 
-    A page course wins only when it is in the user's active course list. For
-    actions outside a course, we stop before planning and ask the user to pick
-    a course (or navigate to their course list) instead of guessing.
+    A course named by the user wins after verification. Browser and panel
+    hints are accepted only when they exist in the user's active course list.
+    For actions outside a course, stop and ask instead of guessing.
     """
     snapshot = normalize_page_context(page_context, user_context)
     courses = _courses(active_courses)
     by_id = {int(c["id"]): c for c in courses}
+
+    # An explicit reference in the user's message is verified against the
+    # catalogue and should beat incidental browser/panel context.
+    named = _find_named_course(message, courses)
+    if named:
+        return ContextResolution(
+            status="named_course", snapshot=snapshot, course_id=int(named["id"]),
+            confidence=0.93, reason="unique active-course reference named by user",
+        )
 
     trusted_explicit_id = _as_positive_int(explicit_course_id)
     if trusted_explicit_id and trusted_explicit_id in by_id:
@@ -153,13 +158,6 @@ def resolve_turn_context(
         return ContextResolution(
             status="current_page", snapshot=snapshot, course_id=snapshot.course_id,
             confidence=0.99, reason="verified course from active page",
-        )
-
-    named = _find_named_course(message, courses)
-    if named:
-        return ContextResolution(
-            status="named_course", snapshot=snapshot, course_id=int(named["id"]),
-            confidence=0.93, reason="unique active-course title named by user",
         )
 
     needs_course = _course_bound_request(message)

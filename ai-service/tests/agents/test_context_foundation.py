@@ -14,6 +14,7 @@ COURSES = {
     "courses": [
         {"id": 11, "title": "Lập trình Python"},
         {"id": 12, "title": "Cấu trúc dữ liệu"},
+        {"id": 31, "title": "LLM Serving, Multi‑Agent Systems, and AI Infrastructure"},
     ]
 }
 
@@ -42,7 +43,7 @@ class ContextFoundationTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "needs_course_choice")
         self.assertIsNone(result.course_id)
-        self.assertEqual(len(result.clarification_options), 2)
+        self.assertEqual(len(result.clarification_options), len(COURSES["courses"]))
 
     def test_named_course_is_resolved_without_llm(self):
         result = resolve_turn_context(
@@ -51,6 +52,73 @@ class ContextFoundationTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "named_course")
         self.assertEqual(result.course_id, 12)
+
+    def test_named_course_normalises_unicode_punctuation(self):
+        result = resolve_turn_context(
+            message="LLM Serving, Multi-Agent Systems, and AI Infrastructure",
+            page_context=None, user_context=None, active_courses=COURSES,
+            agent_type="teacher",
+        )
+        self.assertEqual(result.status, "named_course")
+        self.assertEqual(result.course_id, 31)
+
+    def test_course_can_be_selected_by_standalone_id(self):
+        result = resolve_turn_context(
+            message="31", page_context=None, user_context=None,
+            active_courses=COURSES, agent_type="teacher",
+        )
+        self.assertEqual(result.status, "named_course")
+        self.assertEqual(result.course_id, 31)
+
+    def test_partial_title_uses_catalogue_discrimination(self):
+        result = resolve_turn_context(
+            message="hãy dùng khóa LLM Serving", page_context=None,
+            user_context=None, active_courses=COURSES, agent_type="teacher",
+        )
+        self.assertEqual(result.status, "named_course")
+        self.assertEqual(result.course_id, 31)
+
+    def test_short_acronym_can_contribute_to_partial_title(self):
+        courses = {"courses": [
+            *COURSES["courses"],
+            {"id": 38, "title": "HPC+AI on LANTA"},
+            {"id": 29, "title": "AI Workloads on HPC: Resource-Aware GPU Request"},
+        ]}
+        result = resolve_turn_context(
+            message="AI Infrastructure", page_context=None,
+            user_context=None, active_courses=courses, agent_type="teacher",
+        )
+        self.assertEqual(result.status, "named_course")
+        self.assertEqual(result.course_id, 31)
+
+    def test_named_course_overrides_incidental_page_course(self):
+        result = resolve_turn_context(
+            message="Tạo bài học cho LLM Serving", page_context={"courseId": 11},
+            user_context=None, active_courses=COURSES, agent_type="teacher",
+        )
+        self.assertEqual(result.status, "named_course")
+        self.assertEqual(result.course_id, 31)
+
+    def test_named_course_overrides_frontend_course_hint(self):
+        result = resolve_turn_context(
+            message="Tạo bài học cho LLM Serving", page_context=None,
+            user_context=None, active_courses=COURSES, agent_type="teacher",
+            explicit_course_id=11,
+        )
+        self.assertEqual(result.status, "named_course")
+        self.assertEqual(result.course_id, 31)
+
+    def test_shared_partial_title_remains_ambiguous(self):
+        courses = {"courses": [
+            {"id": 1, "title": "HPC on LANTA"},
+            {"id": 2, "title": "AI on LANTA"},
+        ]}
+        result = resolve_turn_context(
+            message="LANTA", page_context=None, user_context=None,
+            active_courses=courses, agent_type="teacher",
+        )
+        self.assertEqual(result.status, "global")
+        self.assertIsNone(result.course_id)
 
     def test_explicit_scope_is_verified_before_use(self):
         result = resolve_turn_context(

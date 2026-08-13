@@ -47,6 +47,7 @@ from typing import Any, Optional
 
 import httpx
 
+from app.agents.core.course_matching import find_course_by_title
 from app.core.config import get_settings
 from app.core.database import get_ai_conn
 
@@ -243,66 +244,6 @@ def list_course_titles(anchor: dict) -> list[str]:
         for c in (anchor.get("courses") or [])
         if c.get("id") is not None
     ]
-
-
-def find_course_by_title(
-    anchor: dict,
-    message: str,
-    *,
-    min_len: int = 3,
-) -> Optional[dict]:
-    """
-    Best-effort fuzzy match: does a course's title (or a meaningful token
-    of it) appear in the user's message?
-
-    Returns the course dict only if EXACTLY ONE course matches; ambiguous
-    multi-matches return None so the caller can fall back to clarification.
-
-    The matcher does two passes against the lowercase message:
-      1. Strong: whole title appears literally in the message.
-      2. Weak:   a token of the title (≥ `min_len` chars, alphanum) appears
-                 as a word in the message. Acronyms in parentheses
-                 ("(MAS)") are stripped to tokens too.
-
-    Strong matches win over weak; ties at the same level return None.
-    """
-    if not message or len(message.strip()) < min_len:
-        return None
-    msg_lc = message.lower()
-
-    import re as _re
-
-    strong: list[dict] = []
-    weak: list[dict] = []
-    for c in (anchor.get("courses") or []):
-        title = (c.get("title") or "").strip()
-        if not title:
-            continue
-        title_lc = title.lower()
-
-        # Strong: whole title literally in the message.
-        if title_lc in msg_lc:
-            strong.append(c)
-            continue
-
-        # Weak: any meaningful title token appears as a word in the message.
-        tokens = {
-            t.lower() for t in _re.findall(r"[A-Za-zÀ-ỹ0-9]+", title)
-            if len(t) >= min_len
-        }
-        if not tokens:
-            continue
-        msg_tokens = {
-            t.lower() for t in _re.findall(r"[A-Za-zÀ-ỹ0-9]+", message)
-        }
-        if tokens & msg_tokens:
-            weak.append(c)
-
-    if len(strong) == 1:
-        return strong[0]
-    if not strong and len(weak) == 1:
-        return weak[0]
-    return None
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
