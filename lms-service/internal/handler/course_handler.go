@@ -183,7 +183,7 @@ func (h *CourseHandler) UpdateCourse(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param courseId path int true "Course ID"
-// @Param request body dto.DeleteCourseRequest false "Deletion reason (required for administrators)"
+// @Param request body dto.DeleteCourseRequest false "Optional deletion reason"
 // @Security BearerAuth
 // @Success 200 {object} dto.MessageResponse
 // @Failure 403 {object} dto.ErrorResponse
@@ -200,16 +200,10 @@ func (h *CourseHandler) DeleteCourse(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 	role := getRoleFromContext(c)
 	var req dto.DeleteCourseRequest
-	if role == models.RoleAdmin {
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", "Admin must provide a deletion reason between 5 and 1000 characters"))
-			return
-		}
+	// A reason is useful for audit notifications but must not make a normal
+	// owner/admin deletion impossible when the UI has no reason field.
+	if err := c.ShouldBindJSON(&req); err == nil {
 		req.Reason = strings.TrimSpace(req.Reason)
-		if len([]rune(req.Reason)) < 5 {
-			c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", "Deletion reason must contain at least 5 non-space characters"))
-			return
-		}
 	}
 
 	err = h.courseService.DeleteCourse(c.Request.Context(), courseID, userID, role, req.Reason)

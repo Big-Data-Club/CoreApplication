@@ -389,10 +389,6 @@ func (s *CourseService) DeleteCourse(ctx context.Context, courseID int64, userID
 	if role != models.RoleAdmin && course.CreatedBy != userID {
 		return fmt.Errorf("unauthorized to delete this course")
 	}
-	if role == models.RoleAdmin && len([]rune(reason)) < 5 {
-		return fmt.Errorf("deletion reason is required for administrators")
-	}
-
 	// Capture recipients before the delete cascades into course_co_teachers.
 	instructors := []kafka.CourseInstructor{{
 		UserID: course.CreatedBy, FullName: course.CreatorName,

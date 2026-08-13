@@ -24,10 +24,10 @@ type UpdateCourseRequest struct {
 	Visibility   *string `json:"visibility" binding:"omitempty,oneof=PUBLIC ORG_ONLY"`
 }
 
-// DeleteCourseRequest records the administrative reason shown to every
-// instructor affected by a course deletion.
+// DeleteCourseRequest optionally records a reason for course-deletion audit
+// notifications.
 type DeleteCourseRequest struct {
-	Reason string `json:"reason" binding:"required,min=5,max=1000"`
+	Reason string `json:"reason" binding:"omitempty,max=1000"`
 }
 
 // CourseResponse represents the response for a course
