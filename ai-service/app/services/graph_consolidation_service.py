@@ -90,11 +90,13 @@ class ConsolidationPlan:
     course_id:  int
     groups:     list[MergeGroup]
     total_nodes_before: int
+    orphaned_ids: list[int] = field(default_factory=list)
+    orphaned_names: dict[int, str] = field(default_factory=dict)
 
     @property
     def total_nodes_after(self) -> int:
         absorbed = sum(len(g.absorbed_ids) for g in self.groups)
-        return max(0, self.total_nodes_before - absorbed)
+        return max(0, self.total_nodes_before - absorbed - len(self.orphaned_ids))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +107,9 @@ class ConsolidationPlan:
                 round(100.0 * (self.total_nodes_before - self.total_nodes_after)
                       / max(1, self.total_nodes_before), 1)
             ),
+            "orphaned_ids":         self.orphaned_ids,
+            "orphaned_names":       {str(k): v for k, v in self.orphaned_names.items()},
+            "orphaned_count":       len(self.orphaned_ids),
             "groups": [
                 {
                     "survivor_id":     g.survivor_id,
@@ -164,9 +169,14 @@ class GraphConsolidationService:
 
     async def analyze_graph(self, course_id: int) -> ConsolidationPlan:
         """Phase 1 + 2 - returns a dry-run plan; nothing is mutated."""
-        nodes = await self._load_nodes(course_id)
+        total_nodes, orphaned_names = await self._load_inventory(course_id)
+        orphaned_ids = list(orphaned_names)
+        nodes = await self._load_nodes(course_id, exclude_ids=set(orphaned_ids))
         if len(nodes) < 2:
-            return ConsolidationPlan(course_id=course_id, groups=[], total_nodes_before=len(nodes))
+            return ConsolidationPlan(
+                course_id=course_id, groups=[], total_nodes_before=total_nodes,
+                orphaned_ids=orphaned_ids, orphaned_names=orphaned_names,
+            )
 
         raw_groups = self._discover_merge_candidates(nodes)
         groups     = await self._llm_validate_merges(raw_groups, nodes)
@@ -174,7 +184,9 @@ class GraphConsolidationService:
         return ConsolidationPlan(
             course_id=course_id,
             groups=groups,
-            total_nodes_before=len(nodes),
+            total_nodes_before=total_nodes,
+            orphaned_ids=orphaned_ids,
+            orphaned_names=orphaned_names,
         )
 
     async def execute_consolidation(
@@ -184,8 +196,16 @@ class GraphConsolidationService:
         triggered_by: Optional[int] = None,
     ) -> dict[str, Any]:
         """Phase 3 - execute every approved group atomically (per group)."""
+        from app.services.auto_index_service import auto_index_service
+        removed_orphans = await auto_index_service.cleanup_orphan_candidates(
+            course_id, plan.orphaned_ids,
+        )
+
         if not plan.groups:
-            return {"course_id": course_id, "merged_groups": 0, "absorbed_nodes": 0}
+            return {
+                "course_id": course_id, "merged_groups": 0, "absorbed_nodes": 0,
+                "orphaned_nodes_removed": len(removed_orphans),
+            }
 
         absorbed_total = 0
         chunks_moved_total = 0
@@ -209,12 +229,37 @@ class GraphConsolidationService:
             "merged_groups":  executed_groups,
             "absorbed_nodes": absorbed_total,
             "chunks_moved":   chunks_moved_total,
+            "orphaned_nodes_removed": len(removed_orphans),
         }
 
     # ── Phase 1: candidate discovery ──────────────────────────────────────────
 
-    async def _load_nodes(self, course_id: int) -> list[_Node]:
+    async def _load_inventory(self, course_id: int) -> tuple[int, dict[int, str]]:
+        """Return PG node count and safe-to-delete historical graph orphans."""
+        async with get_ai_conn() as conn:
+            total = await conn.fetchval(
+                "SELECT COUNT(*) FROM knowledge_nodes WHERE course_id = $1", course_id,
+            ) or 0
+            rows = await conn.fetch(
+                """
+                SELECT kn.id, COALESCE(NULLIF(kn.name_vi, ''), kn.name) AS display_name
+                  FROM knowledge_nodes kn
+                 WHERE kn.course_id = $1
+                   AND kn.auto_generated IS TRUE
+                   AND NOT EXISTS (
+                       SELECT 1 FROM document_chunks dc WHERE dc.node_id = kn.id
+                   )
+                 ORDER BY kn.id
+                """,
+                course_id,
+            )
+        return int(total), {r["id"]: r["display_name"] for r in rows}
+
+    async def _load_nodes(
+        self, course_id: int, exclude_ids: Optional[set[int]] = None,
+    ) -> list[_Node]:
         """Fetch every node for the course with vector + chunk count."""
+        exclude_ids = exclude_ids or set()
         chunk_counts: dict[int, int] = {}
         async with get_ai_conn() as conn:
             rows = await conn.fetch(
@@ -241,6 +286,10 @@ class GraphConsolidationService:
                     continue
                 payload = r.payload or {}
                 nid = int(r.id)
+                # Ignore stale Qdrant points and planned PG orphans. PostgreSQL
+                # is the source of truth for graph inventory.
+                if nid not in chunk_counts or nid in exclude_ids:
+                    continue
                 out.append(_Node(
                     id=nid,
                     name=payload.get("name", "") or "",
@@ -851,9 +900,22 @@ class GraphConsolidationService:
 graph_consolidation_service = GraphConsolidationService()
 
 
-async def consolidate_graph(course_id: int, triggered_by: Optional[int] = None) -> dict[str, Any]:
+async def consolidate_graph(
+    course_id: int,
+    triggered_by: Optional[int] = None,
+    selected_survivor_ids: Optional[list[int]] = None,
+) -> dict[str, Any]:
     """Convenience entrypoint used by the Kafka worker."""
     plan = await graph_consolidation_service.analyze_graph(course_id)
+    if selected_survivor_ids is not None:
+        selected = set(selected_survivor_ids)
+        # LLM validation may choose a different survivor than the preview did.
+        # Match against every member so the teacher's selected concept group is
+        # still honoured without accepting an unrelated group.
+        plan.groups = [
+            g for g in plan.groups
+            if selected.intersection({g.survivor_id, *g.absorbed_ids})
+        ]
     result = await graph_consolidation_service.execute_consolidation(course_id, plan, triggered_by)
     result["plan"] = plan.to_dict()
     return result

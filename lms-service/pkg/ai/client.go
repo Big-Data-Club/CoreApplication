@@ -709,8 +709,11 @@ func (c *Client) PreviewGraphConsolidation(ctx context.Context, courseID int64) 
 }
 
 // TriggerGraphConsolidation enqueues a "Compact Graph" Kafka command for a course.
-func (c *Client) TriggerGraphConsolidation(ctx context.Context, courseID int64, triggeredBy int64) (map[string]interface{}, error) {
-	body := map[string]interface{}{"triggered_by": triggeredBy}
+func (c *Client) TriggerGraphConsolidation(ctx context.Context, courseID int64, triggeredBy int64, selectedSurvivorIDs []int64) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"triggered_by": triggeredBy,
+		"selected_survivor_ids": selectedSurvivorIDs,
+	}
 	var resp map[string]interface{}
 	path := fmt.Sprintf("/ai/knowledge-graph/%d/consolidate", courseID)
 	if err := c.post(ctx, path, body, &resp); err != nil {

@@ -95,20 +95,27 @@ async def process_graph_command(payload: dict):
             from app.services.graph_consolidation_service import consolidate_graph
             course_id    = payload.get("course_id")
             triggered_by = payload.get("triggered_by")
+            selected_survivor_ids = payload.get("selected_survivor_ids")
             if course_id is None:
                 await publish_graph_event(command, "failed", error="missing course_id")
                 return
             await publish_graph_event(command, "processing")
-            result = await consolidate_graph(int(course_id), triggered_by)
+            result = await consolidate_graph(
+                int(course_id), triggered_by, selected_survivor_ids,
+            )
             await publish_graph_event(
                 command, "completed",
-                result_count=result.get("absorbed_nodes", 0),
+                result_count=(
+                    result.get("absorbed_nodes", 0)
+                    + result.get("orphaned_nodes_removed", 0)
+                ),
             )
             logger.info(
                 "Graph consolidation complete",
                 extra={"course_id": course_id,
                        "merged_groups": result.get("merged_groups", 0),
-                       "absorbed_nodes": result.get("absorbed_nodes", 0)},
+                       "absorbed_nodes": result.get("absorbed_nodes", 0),
+                       "orphaned_nodes_removed": result.get("orphaned_nodes_removed", 0)},
             )
         else:
             logger.warning("Unknown graph command", extra={"command": command})

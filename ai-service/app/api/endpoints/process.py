@@ -41,9 +41,15 @@ class ProcessDocumentResponse(BaseModel):
 async def trigger_processing(body: ProcessDocumentRequest, request: Request):
     _verify(request)
 
-    # Clear existing chunks so re-index starts fresh
+    # Clear existing chunks so re-index starts fresh, then remove only the
+    # auto-generated nodes that became ungrounded. Manual curriculum nodes and
+    # nodes still backed by chunks from another content item are preserved.
     from app.services.rag_service import rag_service
     await rag_service.delete_chunks_for_content(body.content_id)
+    from app.services.auto_index_service import auto_index_service
+    await auto_index_service.cleanup_course_orphans(
+        body.course_id, source_content_id=body.content_id,
+    )
 
     # Track status in AI DB
     async with get_ai_conn() as conn:

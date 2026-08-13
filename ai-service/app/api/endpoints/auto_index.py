@@ -357,6 +357,7 @@ async def trigger_global_link(request: Request):
 
 class ConsolidateRequest(BaseModel):
     triggered_by: Optional[int] = None
+    selected_survivor_ids: Optional[list[int]] = None
 
 
 @graph_router.get("/{course_id}/consolidate/preview")
@@ -384,6 +385,7 @@ async def trigger_graph_consolidation(
         "command":      "CONSOLIDATE_GRAPH",
         "course_id":    course_id,
         "triggered_by": body.triggered_by,
+        "selected_survivor_ids": body.selected_survivor_ids,
     })
     return {
         "ok":      True,

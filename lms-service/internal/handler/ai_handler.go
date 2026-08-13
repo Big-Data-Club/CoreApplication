@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -1107,8 +1108,17 @@ func (h *AIHandler) ConsolidateGraph(c *gin.Context) {
 	if err := h.assertCourseOwner(c, courseID); err != nil {
 		return
 	}
+	var req struct {
+		SelectedSurvivorIDs []int64 `json:"selected_survivor_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
 
-	resp, err := h.aiClient.TriggerGraphConsolidation(c.Request.Context(), courseID, userID)
+	resp, err := h.aiClient.TriggerGraphConsolidation(
+		c.Request.Context(), courseID, userID, req.SelectedSurvivorIDs,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
 		return

@@ -49,6 +49,7 @@ settings = get_settings()
 # semantic signal to avoid a dense, unusable "related to everything" graph.
 RELATION_SIMILARITY_THRESHOLD = 0.78
 MAX_NODES_PER_BATCH = 5
+MAX_NODES_PER_DOCUMENT = 12
 EMBED_BATCH_SIZE = 16
 MAX_EXCERPT_CHARS = 9000
 MAX_EXISTING_NODES_FOR_GRAPH = 200
@@ -357,6 +358,7 @@ class AutoIndexService:
             if progress_callback:
                 progress_callback(stage, pct)
 
+        new_node_ids: list[int] = []
         try:
             _progress("extract", 10)
             file_type = _detect_file_type(file_url, content_type)
@@ -402,7 +404,6 @@ class AutoIndexService:
                 await self._deduplicate_nodes(nodes, node_embeddings, course_id)
 
             _progress("create_nodes", 52)
-            new_node_ids: list[int] = []
             if truly_new_nodes:
                 new_node_ids = await self._create_knowledge_nodes_batch(
                     truly_new_nodes, truly_new_embs, course_id, content_id
@@ -424,17 +425,16 @@ class AutoIndexService:
                 language=language, evidence_assignments=evidence_assignments,
             )
 
+            # Check both newly-created and reused nodes. A failed earlier run may
+            # leave an orphan which dedup then reuses on retry.
+            orphaned_ids = await self._cleanup_orphaned_nodes(all_node_ids, course_id)
+            if orphaned_ids:
+                nodes, relations, all_node_ids, all_node_embeddings = self._exclude_nodes(
+                    nodes, relations, all_node_ids, all_node_embeddings, set(orphaned_ids),
+                )
+
             _progress("build_graph", 90)
             await self._build_graph_edges(all_node_ids, all_node_embeddings, course_id)
-
-            # ── GROUNDING GUARD: Cleanup orphaned nodes ─────────────────────
-            # Only cleanup nodes created in this specific run (newly created)
-            if new_node_ids:
-                orphaned_ids = await self._cleanup_orphaned_nodes(new_node_ids, course_id)
-                if orphaned_ids:
-                    # Filter them out from the list to be synced to Neo4j
-                    orphaned_set = set(orphaned_ids)
-                    all_node_ids = [nid for nid in all_node_ids if nid not in orphaned_set]
             
             await self._sync_to_neo4j_safely(
                 node_ids=all_node_ids,
@@ -448,14 +448,18 @@ class AutoIndexService:
             await self._update_content_status(content_id, "indexed")
             _progress("done", 100)
 
+            surviving_ids = set(all_node_ids)
+            new_nodes_created = sum(nid in surviving_ids for nid in new_node_ids)
+            reused_nodes = sum(nid in surviving_ids for nid in idx_to_existing.values())
+
             logger.info(
                 "AutoIndex done: content_id=%d new_nodes=%d reused=%d chunks=%d",
-                content_id, len(new_node_ids), len(idx_to_existing), n_chunks,
+                content_id, new_nodes_created, reused_nodes, n_chunks,
             )
             return {
                 "ok": True, "node_ids": all_node_ids,
-                "new_nodes_created": len(new_node_ids),
-                "nodes_reused":      len(idx_to_existing),
+                "new_nodes_created": new_nodes_created,
+                "nodes_reused":      reused_nodes,
                 "chunks_created":    n_chunks,
                 "language":          language,
                 "file_type":         file_type,
@@ -463,6 +467,11 @@ class AutoIndexService:
 
         except Exception as exc:
             logger.error("AutoIndex failed content_id=%d: %s", content_id, exc, exc_info=True)
+            if new_node_ids:
+                try:
+                    await self._cleanup_orphaned_nodes(new_node_ids, course_id)
+                except Exception as cleanup_exc:
+                    logger.warning("Failed to clean partial nodes for content_id=%d: %s", content_id, cleanup_exc)
             await self._update_content_status(content_id, "failed", str(exc)[:300])
             raise
 
@@ -484,6 +493,7 @@ class AutoIndexService:
             if progress_callback:
                 progress_callback(stage, pct)
 
+        new_node_ids: list[int] = []
         try:
             _progress("parse", 10)
             if not text_content.strip():
@@ -535,7 +545,6 @@ class AutoIndexService:
                 await self._deduplicate_nodes(nodes, node_embeddings, course_id)
 
             _progress("create_nodes", 52)
-            new_node_ids: list[int] = []
             if truly_new_nodes:
                 new_node_ids = await self._create_knowledge_nodes_batch(
                     truly_new_nodes, truly_new_embs, course_id, content_id
@@ -557,15 +566,14 @@ class AutoIndexService:
                 language=language, evidence_assignments=evidence_assignments,
             )
 
+            orphaned_ids = await self._cleanup_orphaned_nodes(all_node_ids, course_id)
+            if orphaned_ids:
+                nodes, relations, all_node_ids, all_node_embeddings = self._exclude_nodes(
+                    nodes, relations, all_node_ids, all_node_embeddings, set(orphaned_ids),
+                )
+
             _progress("build_graph", 90)
             await self._build_graph_edges(all_node_ids, all_node_embeddings, course_id)
-
-            # ── GROUNDING GUARD: Cleanup orphaned nodes ─────────────────────
-            if new_node_ids:
-                orphaned_ids = await self._cleanup_orphaned_nodes(new_node_ids, course_id)
-                if orphaned_ids:
-                    orphaned_set = set(orphaned_ids)
-                    all_node_ids = [nid for nid in all_node_ids if nid not in orphaned_set]
 
             await self._sync_to_neo4j_safely(
                 node_ids=all_node_ids,
@@ -579,10 +587,14 @@ class AutoIndexService:
             await self._update_content_status(content_id, "indexed")
             _progress("done", 100)
 
+            surviving_ids = set(all_node_ids)
+            new_nodes_created = sum(nid in surviving_ids for nid in new_node_ids)
+            reused_nodes = sum(nid in surviving_ids for nid in idx_to_existing.values())
+
             return {
                 "ok": True, "node_ids": all_node_ids,
-                "new_nodes_created": len(new_node_ids),
-                "nodes_reused":      len(idx_to_existing),
+                "new_nodes_created": new_nodes_created,
+                "nodes_reused":      reused_nodes,
                 "chunks_created":    n_chunks,
                 "language":          language,
                 "file_type":         "text",
@@ -590,6 +602,11 @@ class AutoIndexService:
 
         except Exception as exc:
             logger.error("AutoIndexText failed content_id=%d: %s", content_id, exc, exc_info=True)
+            if new_node_ids:
+                try:
+                    await self._cleanup_orphaned_nodes(new_node_ids, course_id)
+                except Exception as cleanup_exc:
+                    logger.warning("Failed to clean partial text nodes for content_id=%d: %s", content_id, cleanup_exc)
             await self._update_content_status(content_id, "failed", str(exc)[:300])
             raise
 
@@ -831,7 +848,54 @@ class AutoIndexService:
                 all_nodes, all_relations
             )
 
+        all_nodes, all_relations = self._limit_document_nodes(
+            all_nodes, all_relations, quality_chunks,
+        )
+
         return all_nodes, all_relations
+
+    @staticmethod
+    def _limit_document_nodes(
+        nodes: list[ExtractedNode],
+        relations: list[ExtractedRelation],
+        quality_chunks: list[DocumentChunk],
+    ) -> tuple[list[ExtractedNode], list[ExtractedRelation]]:
+        """Apply a document-wide concept budget after cross-batch dedup.
+
+        Per-batch extraction scales linearly with document length. A global cap
+        keeps the graph useful while ranking grounded concepts by breadth of
+        cited evidence, then restoring their source order.
+        """
+        budget = min(MAX_NODES_PER_DOCUMENT, max(1, len(quality_chunks) // 3))
+        if len(nodes) <= budget:
+            return nodes, relations
+
+        chunk_by_index = {c.index: c for c in quality_chunks}
+
+        def rank(item: tuple[int, ExtractedNode]) -> tuple[int, int, int]:
+            index, node = item
+            evidence = {i for i in node.evidence_chunk_indexes if i in chunk_by_index}
+            evidence_chars = sum(len(chunk_by_index[i].text.strip()) for i in evidence)
+            return len(evidence), evidence_chars, len(node.description)
+
+        selected = sorted(
+            (i for i, _ in sorted(enumerate(nodes), key=rank, reverse=True)[:budget])
+        )
+        old_to_new = {old: new for new, old in enumerate(selected)}
+        kept_nodes = [nodes[i] for i in selected]
+        kept_relations = [
+            ExtractedRelation(
+                source_index=old_to_new[r.source_index],
+                target_index=old_to_new[r.target_index],
+                relation_type=r.relation_type,
+                reason=r.reason,
+                strength=r.strength,
+            )
+            for r in relations
+            if r.source_index in old_to_new and r.target_index in old_to_new
+        ]
+        logger.info("[node-budget] retained %d/%d document concepts", len(kept_nodes), len(nodes))
+        return kept_nodes, kept_relations
 
     async def _extract_nodes_and_relations(
         self,
@@ -1272,6 +1336,37 @@ class AutoIndexService:
         return all_node_ids, all_node_embeddings
 
     @staticmethod
+    def _exclude_nodes(
+        nodes: list[ExtractedNode],
+        relations: list[ExtractedRelation],
+        node_ids: list[int],
+        embeddings: list[list[float]],
+        excluded_ids: set[int],
+    ) -> tuple[
+        list[ExtractedNode], list[ExtractedRelation], list[int], list[list[float]]
+    ]:
+        """Remove deleted nodes while keeping IDs, vectors and relation indexes aligned."""
+        kept_indexes = [i for i, node_id in enumerate(node_ids) if node_id not in excluded_ids]
+        old_to_new = {old: new for new, old in enumerate(kept_indexes)}
+        kept_relations = [
+            ExtractedRelation(
+                source_index=old_to_new[r.source_index],
+                target_index=old_to_new[r.target_index],
+                relation_type=r.relation_type,
+                reason=r.reason,
+                strength=r.strength,
+            )
+            for r in relations
+            if r.source_index in old_to_new and r.target_index in old_to_new
+        ]
+        return (
+            [nodes[i] for i in kept_indexes],
+            kept_relations,
+            [node_ids[i] for i in kept_indexes],
+            [embeddings[i] for i in kept_indexes],
+        )
+
+    @staticmethod
     def _build_evidence_assignments(
         nodes: list[ExtractedNode], node_ids: list[int],
     ) -> dict[int, int]:
@@ -1351,7 +1446,14 @@ class AutoIndexService:
                 }
                 for node_id, node, emb in zip(node_ids, nodes, embeddings)
             ]
-            await qdrant_service.upsert_nodes_batch(qdrant_points)
+            try:
+                await qdrant_service.upsert_nodes_batch(qdrant_points)
+            except Exception:
+                # PG metadata was committed before the external vector write.
+                # Compensate immediately so the caller never loses track of
+                # partially-created node IDs.
+                await self.delete_nodes_bulk(node_ids)
+                raise
 
         logger.info("Created %d knowledge nodes", len(node_ids))
         return node_ids
@@ -2016,32 +2118,68 @@ class AutoIndexService:
 
     async def _cleanup_orphaned_nodes(self, node_ids: list[int], course_id: int) -> list[int]:
         """
-        Identify and delete nodes that have 0 chunks assigned to them.
-        Optimized to use batch queries.
+        Atomically delete auto-generated nodes that still have zero chunks.
+
+        The NOT EXISTS predicate is part of the DELETE itself, preventing a
+        stale preview/count from deleting a node grounded by a concurrent run.
         """
         if not node_ids:
             return []
 
         async with get_ai_conn() as conn:
-            # Count chunks for these nodes
             rows = await conn.fetch(
                 """
-                SELECT kn.id, COUNT(dc.id) as chunk_count
-                FROM knowledge_nodes kn
-                LEFT JOIN document_chunks dc ON dc.node_id = kn.id
+                DELETE FROM knowledge_nodes kn
                 WHERE kn.id = ANY($1)
-                GROUP BY kn.id
+                  AND kn.course_id = $2
+                  AND kn.auto_generated IS TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM document_chunks dc WHERE dc.node_id = kn.id
+                  )
+                RETURNING kn.id
                 """,
-                node_ids
+                list(set(node_ids)), course_id,
             )
-            
-            orphaned_ids = [r["id"] for r in rows if r["chunk_count"] == 0]
-            
-            if orphaned_ids:
-                logger.info(f"Grounding Guard: Deleting {len(orphaned_ids)} orphaned nodes in course {course_id}")
-                await self.delete_nodes_bulk(orphaned_ids)
-            
-            return orphaned_ids
+
+        orphaned_ids = [r["id"] for r in rows]
+        if orphaned_ids:
+            logger.info(
+                "Grounding Guard: deleted %d orphaned nodes in course %d",
+                len(orphaned_ids), course_id,
+            )
+            await self._delete_node_mirrors(orphaned_ids)
+        return orphaned_ids
+
+    async def cleanup_course_orphans(
+        self, course_id: int, source_content_id: Optional[int] = None,
+    ) -> list[int]:
+        """Delete historical auto-generated nodes that have no source chunks.
+
+        Manual curriculum nodes are intentionally excluded. The candidate list
+        is revalidated by ``_cleanup_orphaned_nodes`` immediately before delete
+        so a concurrent index cannot cause a grounded node to be removed.
+        """
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT kn.id
+                  FROM knowledge_nodes kn
+                 WHERE kn.course_id = $1
+                   AND kn.auto_generated IS TRUE
+                   AND ($2::BIGINT IS NULL OR kn.source_content_id = $2)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM document_chunks dc WHERE dc.node_id = kn.id
+                   )
+                """,
+                course_id, source_content_id,
+            )
+        return await self._cleanup_orphaned_nodes([r["id"] for r in rows], course_id)
+
+    async def cleanup_orphan_candidates(
+        self, course_id: int, node_ids: list[int],
+    ) -> list[int]:
+        """Revalidate and delete an explicit orphan list produced by a preview."""
+        return await self._cleanup_orphaned_nodes(node_ids, course_id)
 
     async def delete_nodes_bulk(self, node_ids: list[int]) -> None:
         """
@@ -2053,22 +2191,51 @@ class AutoIndexService:
         # 1. PostgreSQL deletion (Cascades to relations, progress, etc.)
         async with get_ai_conn() as conn:
             await conn.execute("DELETE FROM knowledge_nodes WHERE id = ANY($1)", node_ids)
-            
-        # 2. Qdrant deletion
+
+        await self._delete_node_mirrors(node_ids)
+
+    async def _delete_node_mirrors(self, node_ids: list[int]) -> None:
+        """Remove already-deleted node IDs from Qdrant and Neo4j."""
+        if not node_ids:
+            return
+
+        # 1. Qdrant deletion
         if settings.use_qdrant:
             try:
-                from app.services.qdrant_service import qdrant_service
-                from qdrant_client.http.models import PointIdsList
-                client = qdrant_service._get_client()
-                await client.delete(
-                    collection_name="knowledge_nodes",
-                    points_selector=PointIdsList(points=node_ids),
-                    wait=True
+                from app.services.qdrant_service import (
+                    qdrant_service, CHUNK_COLLECTION, NODE_COLLECTION,
                 )
-            except Exception as e:
-                logger.error(f"Failed to delete nodes from Qdrant: {e}")
+                from qdrant_client.http.models import (
+                    FieldCondition, Filter, MatchAny, PointIdsList,
+                )
+                client = qdrant_service._get_client()
+            except Exception as exc:
+                logger.error("Failed to initialize Qdrant node cleanup: %s", exc)
+            else:
+                # A stale chunk vector may outlive its PG metadata after an
+                # interrupted cleanup. Keep the retrievable text but remove the
+                # dangling graph reference.
+                try:
+                    await client.set_payload(
+                        collection_name=CHUNK_COLLECTION,
+                        payload={"node_id": None},
+                        points_selector=Filter(
+                            must=[FieldCondition(key="node_id", match=MatchAny(any=node_ids))]
+                        ),
+                        wait=True,
+                    )
+                except Exception as exc:
+                    logger.error("Failed to clear Qdrant chunk node references: %s", exc)
+                try:
+                    await client.delete(
+                        collection_name=NODE_COLLECTION,
+                        points_selector=PointIdsList(points=node_ids),
+                        wait=True,
+                    )
+                except Exception as exc:
+                    logger.error("Failed to delete Qdrant node vectors: %s", exc)
 
-        # 3. Neo4j deletion
+        # 2. Neo4j deletion
         if settings.neo4j_enabled:
             try:
                 from app.services.neo4j_service import neo4j_service

@@ -12,6 +12,8 @@ import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.RoleRepository;
 import com.example.demo.repository.OrganizationRepository;
 import com.example.demo.repository.OrganizationMemberRepository;
+import com.example.demo.repository.TeamRepository;
+import com.example.demo.repository.UserTypeOptionRepository;
 import com.example.demo.service.email.EmailService;
 import com.example.demo.service.org.OrganizationSyncService;
 import com.example.demo.service.user.UserSyncService;
@@ -46,6 +48,8 @@ public class AuthService {
     private final OrganizationRepository organizationRepository;
     private final OrganizationMemberRepository organizationMemberRepository;
     private final OrganizationSyncService organizationSyncService;
+    private final TeamRepository teamRepository;
+    private final UserTypeOptionRepository userTypeOptionRepository;
 
     @Value("${app.default-role:ROLE_USER}")
     private String defaultRole;
@@ -102,6 +106,12 @@ public class AuthService {
                 .map(role -> role.getName().toUpperCase(Locale.ROOT))
                 .collect(Collectors.toSet());
         var organizations = organizationRepository.findAll();
+        var validTeams = teamRepository.findAll().stream()
+                .map(team -> team.getCode().toUpperCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        var validTypes = userTypeOptionRepository.findAll().stream()
+                .map(type -> type.getCode().toUpperCase(Locale.ROOT))
+                .collect(Collectors.toSet());
         Map<String, Organization> organizationsByIdentifier = new java.util.HashMap<>();
         organizations.forEach(org -> {
             organizationsByIdentifier.put(org.getSlug().toLowerCase(Locale.ROOT), org);
@@ -119,9 +129,13 @@ public class AuthService {
             String name = clean(reg.getName());
             String email = clean(reg.getEmail()).toLowerCase(Locale.ROOT);
             String code = clean(reg.getCode());
+            String team = clean(reg.getTeam()).toUpperCase(Locale.ROOT);
+            String type = clean(reg.getType()).toUpperCase(Locale.ROOT);
             if (name.isBlank()) errors.add("Row " + row + ": name is required");
             if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) errors.add("Row " + row + ": invalid email");
             if (code.isBlank()) errors.add("Row " + row + ": code is required");
+            if (team.isBlank() || !validTeams.contains(team)) errors.add("Row " + row + ": unknown team " + team);
+            if (type.isBlank() || !validTypes.contains(type)) errors.add("Row " + row + ": unknown type " + type);
             if (!seenEmails.add(email)) errors.add("Row " + row + ": duplicate email in file: " + email);
             if (!seenCodes.add(code)) errors.add("Row " + row + ": duplicate code in file: " + code);
 
@@ -168,7 +182,7 @@ public class AuthService {
                     }
                 }
             }
-            prepared.add(new PreparedRegistration(reg, name, email, code, roles, lmsRoles, resolvedOrganizations));
+            prepared.add(new PreparedRegistration(name, email, code, team, type, roles, lmsRoles, resolvedOrganizations));
         }
 
         var emails = prepared.stream().map(PreparedRegistration::email).toList();
@@ -184,7 +198,6 @@ public class AuthService {
 
         List<User> users = prepared.stream()
                 .map(item -> {
-                    RegisterRequest reg = item.source();
                     String pwd = PasswordGenerator.generateStrongPassword();
                     emailToPassword.put(item.email(), pwd);
                     emailToName.put(item.email(), item.name());
@@ -197,9 +210,9 @@ public class AuthService {
                             .role(primaryRole)
                             .roles(new LinkedHashSet<>(item.roles()))
                             .lmsRoles(new LinkedHashSet<>(item.lmsRoles()))
-                            .team(clean(reg.getTeam()).isBlank() ? "RESEARCH" : clean(reg.getTeam()).toUpperCase(Locale.ROOT))
+                            .team(item.team())
                             .code(item.code())
-                            .type(clean(reg.getType()).isBlank() ? "CLC" : clean(reg.getType()).toUpperCase(Locale.ROOT))
+                            .type(item.type())
                             .organization(item.organizations().stream().map(resolved -> resolved.organization().getName()).collect(Collectors.joining(", ")))
                             .active(true)
                             .totalScore(0)
@@ -264,10 +277,11 @@ public class AuthService {
 
     private record ResolvedOrganization(Organization organization, String orgRole) {}
     private record PreparedRegistration(
-            RegisterRequest source,
             String name,
             String email,
             String code,
+            String team,
+            String type,
             LinkedHashSet<String> roles,
             LinkedHashSet<String> lmsRoles,
             List<ResolvedOrganization> organizations) {}
