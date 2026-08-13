@@ -190,7 +190,8 @@ jobs:
           - service: lab
             context: ./lab-service
             dockerfile: ./lab-service/Dockerfile
-            image: bdc-lab-service
+            # Must match docker-compose.yml and k3s/base/lab-service-deployment.yaml.
+            image: bdc-lab
             should_build: ${{ needs.detect-changes.outputs.lab == 'true' || github.event.inputs.force_build_all == 'true' }}
             setup: 'go'
             test_cmd: 'go test -v ./... -coverprofile=coverage.out || echo "No tests configured"'
