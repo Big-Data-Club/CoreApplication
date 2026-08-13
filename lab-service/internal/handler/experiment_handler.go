@@ -64,6 +64,21 @@ func (h *ExperimentHandler) GetVersion(c *gin.Context) {
 	c.JSON(status, dto.NewDataResponse(version))
 }
 
+func (h *ExperimentHandler) ListVersions(c *gin.Context) {
+	labID, ok := positiveID(c, "labId")
+	if !ok {
+		return
+	}
+	versions, status, err := h.experimentService.ListVersions(
+		c.Request.Context(), labID, c.GetInt64("user_id"), c.GetString("user_role"),
+	)
+	if err != nil {
+		c.JSON(status, dto.NewErrorResponse("error", err.Error()))
+		return
+	}
+	c.JSON(status, dto.NewDataResponse(versions))
+}
+
 func (h *ExperimentHandler) ValidateVersion(c *gin.Context) {
 	versionID, ok := positiveID(c, "versionId")
 	if !ok {

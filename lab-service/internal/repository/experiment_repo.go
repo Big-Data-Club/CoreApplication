@@ -167,6 +167,41 @@ func (r *ExperimentRepository) GetVersion(ctx context.Context, versionID int64) 
 	return &resp, nil
 }
 
+func (r *ExperimentRepository) ListVersionsByLab(ctx context.Context, labID int64) ([]dto.LabVersionResponse, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, lab_id, version_number, status, definition_hash,
+			definition_snapshot, created_by, validated_at, published_at, created_at, updated_at
+		FROM lab_versions
+		WHERE lab_id = $1
+		ORDER BY version_number DESC`, labID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	versions := make([]dto.LabVersionResponse, 0)
+	for rows.Next() {
+		var version dto.LabVersionResponse
+		var definitionRaw []byte
+		if err := rows.Scan(
+			&version.ID, &version.LabID, &version.VersionNumber, &version.Status,
+			&version.DefinitionHash, &definitionRaw, &version.CreatedBy,
+			&version.ValidatedAt, &version.PublishedAt, &version.CreatedAt, &version.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(definitionRaw, &version.Definition); err != nil {
+			return nil, fmt.Errorf("decode experiment definition for version %d: %w", version.ID, err)
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return versions, nil
+}
+
 func (r *ExperimentRepository) MarkValidated(ctx context.Context, versionID int64) error {
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE lab_versions

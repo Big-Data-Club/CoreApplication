@@ -128,6 +128,21 @@ func (s *ExperimentService) GetVersion(
 	return version, http.StatusOK, nil
 }
 
+func (s *ExperimentService) ListVersions(
+	ctx context.Context,
+	labID, userID int64,
+	userRole string,
+) ([]dto.LabVersionResponse, int, error) {
+	if err := s.checkLabOwnership(ctx, labID, userID, userRole); err != nil {
+		return nil, http.StatusForbidden, err
+	}
+	versions, err := s.experimentRepo.ListVersionsByLab(ctx, labID)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("list lab versions: %w", err)
+	}
+	return versions, http.StatusOK, nil
+}
+
 func (s *ExperimentService) ValidateVersion(
 	ctx context.Context,
 	versionID, userID int64,

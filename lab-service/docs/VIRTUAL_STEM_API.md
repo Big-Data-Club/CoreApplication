@@ -24,6 +24,7 @@ The legacy `POST /labs/{labId}/publish` rejects `PLANT` and `ROBOT` labs. These 
 | Method | Path | Role | Result |
 |---|---|---|---|
 | `POST` | `/labs/{labId}/versions` | Teacher/Admin | Store an immutable definition snapshot |
+| `GET` | `/labs/{labId}/versions` | Lab owner/Admin | List immutable versions newest-first so the editor can resume after reload |
 | `GET` | `/lab-versions/{versionId}/definition` | Owner/Admin or enrolled learner for published version | Read snapshot and hash |
 | `POST` | `/lab-versions/{versionId}/validate` | Teacher/Admin | Return structured errors/warnings and mark valid version `VALIDATED` |
 | `POST` | `/lab-versions/{versionId}/publish` | Teacher/Admin | Publish version and supersede the previous published version |

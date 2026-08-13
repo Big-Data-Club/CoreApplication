@@ -146,6 +146,7 @@ func main() {
 
 		// Versioned Virtual STEM experiment definitions
 		api.POST("/labs/:labId/versions", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.CreateVersion)
+		api.GET("/labs/:labId/versions", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.ListVersions)
 		api.GET("/lab-versions/:versionId/definition", experimentHandler.GetVersion)
 		api.POST("/lab-versions/:versionId/validate", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.ValidateVersion)
 		api.POST("/lab-versions/:versionId/publish", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.PublishVersion)
