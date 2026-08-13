@@ -230,6 +230,42 @@ func (h *CourseHandler) DeleteCourse(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Course deleted successfully"))
 }
 
+func (h *CourseHandler) ArchiveCourse(c *gin.Context) { h.changeArchiveState(c, true) }
+
+func (h *CourseHandler) UnarchiveCourse(c *gin.Context) { h.changeArchiveState(c, false) }
+
+func (h *CourseHandler) changeArchiveState(c *gin.Context, archive bool) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid course ID"))
+		return
+	}
+	userID := c.GetInt64("user_id")
+	role := getRoleFromContext(c)
+	if archive {
+		err = h.courseService.ArchiveCourse(c.Request.Context(), courseID, userID, role)
+	} else {
+		err = h.courseService.UnarchiveCourse(c.Request.Context(), courseID, userID, role)
+	}
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", err.Error()))
+			return
+		}
+		if strings.Contains(err.Error(), "unauthorized") {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
+			return
+		}
+		c.JSON(http.StatusConflict, dto.NewErrorResponse("invalid_state", err.Error()))
+		return
+	}
+	message := "Course archived successfully"
+	if !archive {
+		message = "Course restored successfully"
+	}
+	c.JSON(http.StatusOK, dto.NewMessageResponse(message))
+}
+
 // PublishCourse publishes a course
 // @Summary Publish a course
 // @Description Publish a course (Owner/Admin only)

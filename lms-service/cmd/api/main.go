@@ -446,7 +446,11 @@ func main() {
 				// Teacher/Admin only - Update/Delete/Publish course
 				courses.PUT("/:courseId", courseHandler.UpdateCourse)
 				courses.PUT("/:courseId/sections/reorder", courseHandler.ReorderSections)
-				courses.DELETE("/:courseId", middleware.RequirePermission(permService, "COURSE_DELETE"), courseHandler.DeleteCourse)
+				// Ownership is checked by CourseService, allowing a teacher to delete
+				// only their own course without granting system-wide delete permission.
+				courses.DELETE("/:courseId", courseHandler.DeleteCourse)
+				courses.POST("/:courseId/archive", courseHandler.ArchiveCourse)
+				courses.POST("/:courseId/unarchive", courseHandler.UnarchiveCourse)
 				courses.POST("/:courseId/publish", courseHandler.PublishCourse)
 
 				// Co-teachers management

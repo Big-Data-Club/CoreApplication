@@ -214,6 +214,9 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		}
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
+	if course.Status == models.CourseStatusArchived {
+		return nil, fmt.Errorf("course is archived")
+	}
 
 	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
 
@@ -443,6 +446,42 @@ func (s *CourseService) DeleteCourse(ctx context.Context, courseID int64, userID
 	return nil
 }
 
+func (s *CourseService) ArchiveCourse(ctx context.Context, courseID, userID int64, role string) error {
+	return s.setCourseArchiveState(ctx, courseID, userID, role, true)
+}
+
+func (s *CourseService) UnarchiveCourse(ctx context.Context, courseID, userID int64, role string) error {
+	return s.setCourseArchiveState(ctx, courseID, userID, role, false)
+}
+
+func (s *CourseService) setCourseArchiveState(ctx context.Context, courseID, userID int64, role string, archive bool) error {
+	course, err := s.getCourseCached(ctx, courseID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("course not found")
+		}
+		return fmt.Errorf("failed to get course: %w", err)
+	}
+	// Archiving is lifecycle control: only the course owner or an admin can
+	// hide/restore a course; co-teachers retain authoring but cannot lock it.
+	if role != models.RoleAdmin && course.CreatedBy != userID {
+		return fmt.Errorf("unauthorized to change this course's archive state")
+	}
+	if archive {
+		err = s.courseRepo.Archive(ctx, courseID)
+	} else {
+		err = s.courseRepo.Unarchive(ctx, courseID)
+	}
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("course is already in the requested state")
+		}
+		return fmt.Errorf("failed to change course archive state: %w", err)
+	}
+	s.invalidateCourseCache(ctx, courseID)
+	return nil
+}
+
 // PublishCourse publishes a course and invalidates related cache entries.
 func (s *CourseService) PublishCourse(ctx context.Context, courseID int64, userID int64, role string) error {
 	course, err := s.getCourseCached(ctx, courseID)
@@ -609,6 +648,9 @@ func (s *CourseService) GetSection(ctx context.Context, sectionID int64, userID 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
+	if course.Status == models.CourseStatusArchived {
+		return nil, fmt.Errorf("course is archived")
+	}
 
 	if !section.IsPublished && role != models.RoleAdmin && role != models.RoleTeacher && course.CreatedBy != userID {
 		if role == models.RoleStudent {
@@ -638,6 +680,9 @@ func (s *CourseService) ListSections(ctx context.Context, courseID int64, userID
 			return nil, fmt.Errorf("course not found")
 		}
 		return nil, fmt.Errorf("failed to get course: %w", err)
+	}
+	if course.Status == models.CourseStatusArchived {
+		return nil, fmt.Errorf("course is archived")
 	}
 
 	sections, err := cache.GetOrLoad(ctx, s.loader, cache.KeyCourseSections(courseID), sectionListCacheTTL,
@@ -825,6 +870,9 @@ func (s *CourseService) GetContent(ctx context.Context, contentID int64, userID 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
+	if course.Status == models.CourseStatusArchived {
+		return nil, fmt.Errorf("course is archived")
+	}
 
 	if !content.IsPublished && role != models.RoleAdmin && role != models.RoleTeacher && course.CreatedBy != userID {
 		if role == models.RoleStudent {
@@ -856,6 +904,9 @@ func (s *CourseService) ListContent(ctx context.Context, sectionID int64, userID
 	course, err := s.getCourseCached(ctx, section.CourseID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get course: %w", err)
+	}
+	if course.Status == models.CourseStatusArchived {
+		return nil, fmt.Errorf("course is archived")
 	}
 
 	contents, err := cache.GetOrLoad(ctx, s.loader, cache.KeySectionContents(sectionID), contentListCacheTTL,

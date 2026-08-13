@@ -146,6 +146,50 @@ func (r *CourseRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+// Archive makes a course inaccessible while retaining the state needed to
+// restore it exactly as it was (draft or published).
+func (r *CourseRepository) Archive(ctx context.Context, id int64) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE courses
+		SET archived_from_status = status, status = 'ARCHIVED', updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status IN ('DRAFT', 'PUBLISHED')
+	`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// Unarchive restores the status captured at archive time. Legacy archived
+// records without a source status return to DRAFT as the safe default.
+func (r *CourseRepository) Unarchive(ctx context.Context, id int64) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE courses
+		SET status = COALESCE(archived_from_status, 'DRAFT'),
+		    archived_from_status = NULL,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status = 'ARCHIVED'
+	`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // Publish publishes a course
 func (r *CourseRepository) Publish(ctx context.Context, id int64) error {
 	query := `
