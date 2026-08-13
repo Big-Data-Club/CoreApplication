@@ -7,7 +7,10 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from app.agents.core.context_foundation import resolve_turn_context
+from app.agents.core.context_foundation import (
+    resolve_turn_context,
+    resume_request_after_course_choice,
+)
 
 
 COURSES = {
@@ -119,6 +122,45 @@ class ContextFoundationTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "global")
         self.assertIsNone(result.course_id)
+
+    def test_course_choice_resumes_structured_pending_request(self):
+        resolution = resolve_turn_context(
+            message="LLM Serving, Multi-Agent Systems, and AI Infrastructure",
+            page_context=None, user_context=None, active_courses=COURSES,
+            agent_type="teacher",
+        )
+        effective = resume_request_after_course_choice(
+            message="LLM Serving, Multi-Agent Systems, and AI Infrastructure",
+            resolution=resolution,
+            history=[
+                {"role": "user", "content": "tạo 1 bài học tổng quan về khóa học này"},
+                {
+                    "role": "clarification",
+                    "content": "pick one",
+                    "metadata": {
+                        "kind": "scope",
+                        "pending_user_request": "tạo 1 bài học tổng quan về khóa học này",
+                    },
+                },
+            ],
+        )
+        self.assertIn("tạo 1 bài học tổng quan", effective)
+        self.assertIn("course_id=31", effective)
+
+    def test_old_scope_clarification_can_resume_without_metadata(self):
+        resolution = resolve_turn_context(
+            message="31", page_context=None, user_context=None,
+            active_courses=COURSES, agent_type="teacher",
+        )
+        effective = resume_request_after_course_choice(
+            message="31", resolution=resolution,
+            history=[
+                {"role": "user", "content": "tạo bài học tổng quan"},
+                {"role": "clarification", "content": "Bạn chọn khóa nào?"},
+            ],
+        )
+        self.assertIn("tạo bài học tổng quan", effective)
+        self.assertIn("course_id=31", effective)
 
     def test_explicit_scope_is_verified_before_use(self):
         result = resolve_turn_context(

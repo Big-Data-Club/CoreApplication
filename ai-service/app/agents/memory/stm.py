@@ -46,6 +46,7 @@ class STMemory:
         content: str,
         tool_calls: Optional[list] = None,
         tool_call_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ) -> None:
         """Append a message to the session's STM."""
         r = _get_redis()
@@ -58,6 +59,8 @@ class STMemory:
             msg["tool_calls"] = tool_calls
         if tool_call_id:
             msg["tool_call_id"] = tool_call_id
+        if metadata:
+            msg["metadata"] = metadata
 
         key = self._key(session_id)
         await r.rpush(key, json.dumps(msg, ensure_ascii=False))

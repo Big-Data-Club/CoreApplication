@@ -207,6 +207,12 @@ Available Tools:
 
 Planning Rules:
 1. **Understand Intent & Context**:
+   - Conversation turns may contain a deterministic marker named `Verified follow-up course selection`.
+     It means the current message answered the immediately preceding scope clarification. Continue the
+     original pending request using that verified course_id; do not classify the course name as a new
+     standalone request and do not ask for the course again.
+   - More generally, when the latest user turn supplies a field requested by the preceding clarification,
+     plan the original request plus the supplied field as one continued operation.
    - Teacher asks to add/import an already-written pasted question -> content_creation, requires_tool=true, selected_tools=['parse_quiz_questions'].
    - Teacher asks for new/additional questions based on supplied lesson text/examples -> content_creation, requires_tool=true, selected_tools=['generate_quiz_from_source'].
    - Teacher asks for quiz questions from indexed course materials -> content_creation, requires_tool=true, selected_tools=['generate_quiz_draft'].

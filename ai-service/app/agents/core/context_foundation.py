@@ -119,6 +119,48 @@ def _course_index_path(agent_type: str) -> str:
     return "/lms/teacher/courses" if agent_type == "teacher" else "/lms/student/courses"
 
 
+def resume_request_after_course_choice(
+    *,
+    message: str,
+    resolution: ContextResolution,
+    history: list[dict[str, Any]] | None,
+) -> str:
+    """Join a verified course-selection answer back to its pending request.
+
+    Scope clarification is a protocol state, not a new user task. New records
+    carry explicit metadata; the structural fallback supports conversations
+    created before that metadata was introduced.
+    """
+    if resolution.status != "named_course" or resolution.course_id is None:
+        return message
+    messages = history or []
+    if not messages or messages[-1].get("role") != "clarification":
+        return message
+
+    clarification = messages[-1]
+    metadata = clarification.get("metadata")
+    pending_request = None
+    if isinstance(metadata, dict) and metadata.get("kind") == "scope":
+        pending_request = metadata.get("pending_user_request")
+    else:
+        # Backward compatibility: an early scope stop always wrote the original
+        # user turn immediately before the clarification turn.
+        for item in reversed(messages[:-1]):
+            if item.get("role") == "user":
+                candidate = str(item.get("content") or "").strip()
+                if _course_bound_request(candidate):
+                    pending_request = candidate
+                break
+
+    if not pending_request:
+        return message
+    return (
+        f"{pending_request}\n\n"
+        f"[Verified follow-up course selection: course_id={resolution.course_id}; "
+        f"user reference={message.strip()!r}]"
+    )
+
+
 def resolve_turn_context(
     *,
     message: str,

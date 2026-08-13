@@ -20,7 +20,10 @@ from app.agents.core.prompts import build_system_prompt
 from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
 )
-from app.agents.core.context_foundation import resolve_turn_context
+from app.agents.core.context_foundation import (
+    resolve_turn_context,
+    resume_request_after_course_choice,
+)
 from app.agents.core.clarification import (
     build_scope_clarification,
     should_clarify,
@@ -359,7 +362,12 @@ async def run_react_loop(
     if context_resolution.status == "needs_course_choice":
         question = context_resolution.clarification_question or "Bạn muốn làm việc với khóa học nào?"
         await stm.append(session_id, "user", user_message)
-        await stm.append(session_id, "clarification", question)
+        await stm.append(
+            session_id,
+            "clarification",
+            question,
+            metadata={"kind": "scope", "pending_user_request": user_message},
+        )
         await message_store.save_message(session_id, "user", user_message)
         await message_store.save_message(
             session_id,
@@ -398,8 +406,14 @@ async def run_react_loop(
     except Exception:
         pass
 
+    effective_user_request = resume_request_after_course_choice(
+        message=user_message,
+        resolution=context_resolution,
+        history=history_turns,
+    )
+
     execution_plan = await generate_plan(
-        user_message=user_message,
+        user_message=effective_user_request,
         active_courses=active_courses,
         agent_type=agent_type,
         current_course_id=context_resolution.course_id or course_id,
@@ -558,7 +572,7 @@ async def run_react_loop(
         user_id=user_id,
         session_id=session_id,
         agent_type=agent_type,
-        query=user_message,
+        query=effective_user_request,
         course_id=effective_course_id,
         intent_type=intent_type,
         scope_course_ids=scope.candidate_course_ids or None,
@@ -611,7 +625,7 @@ async def run_react_loop(
             mtm_ctx = memory_ctx["raw"].get("mtm", {})
             try:
                 result = await should_clarify(
-                    user_message=user_message,
+                    user_message=effective_user_request,
                     tool_schemas=tool_schemas,
                     session_context=mtm_ctx,
                 )
@@ -668,7 +682,7 @@ async def run_react_loop(
 
     # Truyền thêm page/sys context và stm_turn_count vào spawning score
     score, breakdown = orchestrator.calculate_spawning_score(
-        user_message=user_message,
+        user_message=effective_user_request,
         intent_type=intent_type,
         parent_context_length=parent_context_length,
         page_context=ctx_decision.effective_page_context,
@@ -693,7 +707,7 @@ async def run_react_loop(
     teacher_action_request = agent_type == "teacher" and (
         router_output.requires_tool
         or intent_type in ("content_creation", "interactive_exercise")
-        or _is_teacher_authoring_request(user_message)
+        or _is_teacher_authoring_request(effective_user_request)
     )
 
     if score >= 0.45 and not teacher_action_request:
@@ -894,13 +908,13 @@ async def run_react_loop(
             })
 
     # If the user pivots and has a suggested_search_topic, add a hint to the message
-    effective_message = user_message
+    effective_message = effective_user_request
     if (
         ctx_decision.suggested_search_topic
         and not ctx_decision.use_page_context
     ):
         effective_message = (
-            f"{user_message}\n\n"
+            f"{effective_user_request}\n\n"
             f"[System hint: user appears to be asking about '{ctx_decision.suggested_search_topic}' "
             f"- search this topic cross-course if needed]"
         )
