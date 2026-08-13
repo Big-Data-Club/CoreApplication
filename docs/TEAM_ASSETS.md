@@ -15,6 +15,8 @@ boundary.
 | Data/ML | Offline analytics workspace | `da-analytics/` submodule | notebooks, reproducible model experiments, Gold inputs |
 | AI | Agent/AI implementation | `ai-service/app/agents/`, `ai-service/app/worker/` | runtime agent and asynchronous job behaviour |
 | Backend | API source and migrations | service `cmd/`, `internal/`, `app/`, `migrations/` | executable implementation source of truth |
+| Product / Backend / Frontend | Virtual STEM Lab proposal | [VIRTUAL_STEM_LAB.md](proposals/VIRTUAL_STEM_LAB.md) | target journeys, scientific-model boundaries, rollout gates |
+| Backend / QA | Virtual STEM foundation API | [VIRTUAL_STEM_API.md](../lab-service/docs/VIRTUAL_STEM_API.md) | implemented version, run, trial and evidence contracts |
 | Frontend | UI repository | `frontend/` submodule | Next.js UI, BFF/route handlers; follow submodule rules |
 | QA | Service tests | `*_service` test directories | regression and contract coverage |
 | QA/DevOps | k6 performance assets | [performance-tests/](../performance-tests/README.md) | approved smoke/load workflow and test Jobs |

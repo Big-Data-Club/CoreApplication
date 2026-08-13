@@ -70,6 +70,7 @@ func main() {
 
 	// ── Repositories ────────────────────────────────────────────
 	labRepo := repository.NewLabRepository(db)
+	experimentRepo := repository.NewExperimentRepository(db)
 	enrollmentRepo := repository.NewEnrollmentRepository(db)
 	submissionRepo := repository.NewSubmissionRepository(db)
 	testCaseRepo := repository.NewTestCaseRepository(db)
@@ -78,6 +79,7 @@ func main() {
 
 	// ── Services ────────────────────────────────────────────────
 	labService := service.NewLabService(labRepo, enrollmentRepo)
+	experimentService := service.NewExperimentService(experimentRepo, labRepo, enrollmentRepo)
 	submissionService := service.NewSubmissionService(
 		submissionRepo, testCaseRepo, labRepo, enrollmentRepo,
 		leaderboardRepo, runtimeRegistry,
@@ -85,6 +87,7 @@ func main() {
 
 	// ── Handlers ────────────────────────────────────────────────
 	labHandler := handler.NewLabHandler(labService)
+	experimentHandler := handler.NewExperimentHandler(experimentService)
 	submissionHandler := handler.NewSubmissionHandler(submissionService)
 	enrollmentHandler := handler.NewEnrollmentHandler(enrollmentRepo)
 	testCaseHandler := handler.NewTestCaseHandler(testCaseRepo)
@@ -135,6 +138,20 @@ func main() {
 		api.PUT("/labs/:labId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.UpdateLab)
 		api.DELETE("/labs/:labId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.DeleteLab)
 		api.POST("/labs/:labId/publish", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.PublishLab)
+
+		// Versioned Virtual STEM experiment definitions
+		api.POST("/labs/:labId/versions", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.CreateVersion)
+		api.GET("/lab-versions/:versionId/definition", experimentHandler.GetVersion)
+		api.POST("/lab-versions/:versionId/validate", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.ValidateVersion)
+		api.POST("/lab-versions/:versionId/publish", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.PublishVersion)
+
+		// Learner experiment runs, deterministic trials and replayable evidence
+		api.POST("/lab-versions/:versionId/runs", experimentHandler.CreateRun)
+		api.GET("/labs/:labId/runs", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.ListLabRuns)
+		api.GET("/runs/:runId", experimentHandler.GetRun)
+		api.POST("/runs/:runId/trials", experimentHandler.CreateTrial)
+		api.POST("/runs/:runId/evidence", experimentHandler.AppendEvidence)
+		api.GET("/runs/:runId/events", experimentHandler.ListEvidence)
 
 		// Lab Interactive Session & Web Terminal
 		api.POST("/labs/:labId/session/start", labHandler.StartSession)

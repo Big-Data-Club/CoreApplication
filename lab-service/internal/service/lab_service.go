@@ -100,6 +100,16 @@ func (s *LabService) PublishLab(ctx context.Context, labID int64, userID int64, 
 	if err := s.checkOwnership(ctx, labID, userID, userRole); err != nil {
 		return http.StatusForbidden, err
 	}
+	lab, err := s.labRepo.GetByID(ctx, labID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return http.StatusNotFound, fmt.Errorf("lab not found")
+		}
+		return http.StatusInternalServerError, fmt.Errorf("failed to get lab before publish: %w", err)
+	}
+	if lab.LabType == "PLANT" || lab.LabType == "ROBOT" {
+		return http.StatusConflict, fmt.Errorf("PLANT and ROBOT labs must publish a validated lab version")
+	}
 	if err := s.labRepo.Publish(ctx, labID); err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("failed to publish lab: %w", err)
 	}
