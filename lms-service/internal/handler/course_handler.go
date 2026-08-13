@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"example/hello/internal/dto"
-	"example/hello/internal/models"
 	"example/hello/internal/service"
 	"example/hello/pkg/logger"
 
