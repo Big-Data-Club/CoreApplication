@@ -48,10 +48,10 @@ func (r *CourseRepository) Create(ctx context.Context, course *models.Course) (*
 // GetByID retrieves a course by ID with creator info
 func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.CourseWithCreator, error) {
 	query := `
-		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url, 
+		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
 		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
 		       c.org_id, c.visibility,
-		       u.full_name as creator_name, u.email as creator_email,
+		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
 		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
 		FROM courses c
 		LEFT JOIN users u ON c.created_by = u.id
@@ -75,6 +75,7 @@ func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.Cours
 		&course.Visibility,
 		&course.CreatorName,
 		&course.CreatorEmail,
+		&course.CreatorAvatarURL,
 		&course.EnrollmentCount,
 	)
 
@@ -148,7 +149,7 @@ func (r *CourseRepository) Delete(ctx context.Context, id int64) error {
 // Publish publishes a course
 func (r *CourseRepository) Publish(ctx context.Context, id int64) error {
 	query := `
-		UPDATE courses 
+		UPDATE courses
 		SET status = $1, published_at = $2
 		WHERE id = $3 AND status = $4
 	`
@@ -216,7 +217,7 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, f
 		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
 		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
 		       p.org_id, p.visibility,
-		       u.full_name as creator_name, u.email as creator_email,
+		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
 		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
 		FROM page p
 		LEFT JOIN users u ON p.created_by = u.id
@@ -249,6 +250,7 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, f
 			&course.Visibility,
 			&course.CreatorName,
 			&course.CreatorEmail,
+			&course.CreatorAvatarURL,
 			&course.EnrollmentCount,
 		)
 		if err != nil {
@@ -294,7 +296,7 @@ func (r *CourseRepository) ListPublished(ctx context.Context, filter CourseListF
 		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
 		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
 		       p.org_id, p.visibility,
-		       u.full_name as creator_name, u.email as creator_email,
+		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
 		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
 		FROM page p
 		LEFT JOIN users u ON p.created_by = u.id
@@ -327,6 +329,7 @@ func (r *CourseRepository) ListPublished(ctx context.Context, filter CourseListF
 			&course.Visibility,
 			&course.CreatorName,
 			&course.CreatorEmail,
+			&course.CreatorAvatarURL,
 			&course.EnrollmentCount,
 		)
 		if err != nil {
@@ -492,7 +495,7 @@ func (r *CourseRepository) DeleteSection(ctx context.Context, id int64) error {
 // CreateContent creates new section content
 func (r *CourseRepository) CreateContent(ctx context.Context, content *models.SectionContent) (*models.SectionContent, error) {
 	query := `
-		INSERT INTO section_content (section_id, type, title, description, order_index, metadata, 
+		INSERT INTO section_content (section_id, type, title, description, order_index, metadata,
 		                             is_published, is_mandatory, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at
@@ -763,7 +766,7 @@ func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter Course
 		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
 		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
 		       p.org_id, p.visibility,
-		       u.full_name as creator_name, u.email as creator_email,
+		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
 		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
 		FROM page p
 		LEFT JOIN users u ON p.created_by = u.id
@@ -796,6 +799,7 @@ func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter Course
 			&course.Visibility,
 			&course.CreatorName,
 			&course.CreatorEmail,
+			&course.CreatorAvatarURL,
 			&course.EnrollmentCount,
 		)
 		if err != nil {
@@ -846,7 +850,7 @@ func (r *CourseRepository) RemoveCoTeacher(ctx context.Context, courseID, userID
 func (r *CourseRepository) ListCoTeachers(ctx context.Context, courseID int64) ([]*models.CourseCoTeacherWithUser, error) {
 	query := `
 		SELECT ct.id, ct.course_id, ct.user_id, ct.added_by, ct.created_at,
-		       COALESCE(u.full_name, '') as full_name, u.email
+		       COALESCE(u.full_name, '') as full_name, u.email, COALESCE(u.profile_picture, '') as avatar_url
 		FROM course_co_teachers ct
 		JOIN users u ON ct.user_id = u.id
 		WHERE ct.course_id = $1
@@ -869,6 +873,7 @@ func (r *CourseRepository) ListCoTeachers(ctx context.Context, courseID int64) (
 			&ct.CreatedAt,
 			&ct.FullName,
 			&ct.Email,
+			&ct.AvatarURL,
 		)
 		if err != nil {
 			return nil, err
@@ -901,8 +906,8 @@ func (r *CourseRepository) ReorderSections(ctx context.Context, courseID int64, 
 	defer tx.Rollback()
 
 	query := `
-		UPDATE course_sections 
-		SET order_index = $1, updated_at = CURRENT_TIMESTAMP 
+		UPDATE course_sections
+		SET order_index = $1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $2 AND course_id = $3
 	`
 	for idx, id := range sectionIDs {
@@ -924,8 +929,8 @@ func (r *CourseRepository) ReorderContents(ctx context.Context, sectionID int64,
 	defer tx.Rollback()
 
 	query := `
-		UPDATE section_content 
-		SET order_index = $1, updated_at = CURRENT_TIMESTAMP 
+		UPDATE section_content
+		SET order_index = $1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $2 AND section_id = $3
 	`
 	for idx, id := range contentIDs {

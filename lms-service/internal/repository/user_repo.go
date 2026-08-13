@@ -39,13 +39,14 @@ func (r *UserRepository) GetOrCreateUser(ctx context.Context, userID int64, emai
 
 // GetByID retrieves a user by ID
 func (r *UserRepository) GetByID(ctx context.Context, id int64) (*models.User, error) {
-	query := `SELECT id, email, full_name, COALESCE(organization, ''), created_at, updated_at FROM users WHERE id = $1`
+	query := `SELECT id, email, full_name, COALESCE(profile_picture, ''), COALESCE(organization, ''), created_at, updated_at FROM users WHERE id = $1`
 
 	var user models.User
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID,
 		&user.Email,
 		&user.FullName,
+		&user.ProfilePicture,
 		&user.Organization,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -63,7 +64,7 @@ func (r *UserRepository) Create(ctx context.Context, id int64, email, fullName, 
 	query := `
 		INSERT INTO users (id, email, full_name, organization)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, email, full_name, COALESCE(organization, ''), created_at, updated_at
+		RETURNING id, email, full_name, COALESCE(profile_picture, ''), COALESCE(organization, ''), created_at, updated_at
 	`
 
 	var user models.User
@@ -71,6 +72,7 @@ func (r *UserRepository) Create(ctx context.Context, id int64, email, fullName, 
 		&user.ID,
 		&user.Email,
 		&user.FullName,
+		&user.ProfilePicture,
 		&user.Organization,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -81,6 +83,12 @@ func (r *UserRepository) Create(ctx context.Context, id int64, email, fullName, 
 	}
 
 	return &user, nil
+}
+
+// UpdateProfilePicture keeps the LMS's local projection current for joined course responses.
+func (r *UserRepository) UpdateProfilePicture(ctx context.Context, userID int64, profilePicture string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET profile_picture = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, profilePicture, userID)
+	return err
 }
 
 // UpdateFullName updates user's full name
@@ -209,7 +217,7 @@ func (r *UserRepository) GetByEmails(ctx context.Context, emails []string) ([]*m
 		return nil, nil
 	}
 
-	query := `SELECT id, email, full_name, COALESCE(organization, ''), created_at, updated_at FROM users WHERE email = ANY($1)`
+	query := `SELECT id, email, full_name, COALESCE(profile_picture, ''), COALESCE(organization, ''), created_at, updated_at FROM users WHERE email = ANY($1)`
 
 	rows, err := r.db.QueryContext(ctx, query, pq.Array(emails))
 	if err != nil {
@@ -224,6 +232,7 @@ func (r *UserRepository) GetByEmails(ctx context.Context, emails []string) ([]*m
 			&user.ID,
 			&user.Email,
 			&user.FullName,
+			&user.ProfilePicture,
 			&user.Organization,
 			&user.CreatedAt,
 			&user.UpdatedAt,

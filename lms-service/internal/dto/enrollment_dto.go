@@ -34,6 +34,7 @@ type StudentEnrollmentResponse struct {
 	NewContentCount   int        `json:"new_content_count"`
 	Status            string     `json:"status"`
 	TeacherName       string     `json:"teacher_name"`
+	TeacherAvatarURL  string     `json:"teacher_avatar_url,omitempty"`
 	EnrolledAt        time.Time  `json:"enrolled_at"`
 	AcceptedAt        *time.Time `json:"accepted_at,omitempty"`
 	ProgressPercent   float64    `json:"progress_percent"`
@@ -46,6 +47,7 @@ type LearnerResponse struct {
 	StudentID   int64      `json:"student_id"`
 	StudentName string     `json:"student_name"`
 	Email       string     `json:"email"`
+	AvatarURL   string     `json:"avatar_url,omitempty"`
 	Status      string     `json:"status"`
 	EnrolledAt  time.Time  `json:"enrolled_at"`
 	AcceptedAt  *time.Time `json:"accepted_at,omitempty"`

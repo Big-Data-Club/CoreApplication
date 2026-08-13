@@ -272,7 +272,10 @@ public class UserServiceImpl implements UserService {
 
             String url = uploadDir + filename;
             user.setProfilePicture(url);
-            userRepository.save(user);
+            User saved = userRepository.save(user);
+            // Keep LMS/course and chat projections in sync immediately, so
+            // participant lists can use the uploaded image without extra lookups.
+            userSyncService.syncUser(saved);
             return url;
 
         } catch (IOException ex) {

@@ -27,6 +27,7 @@ type CourseWithCreator struct {
 	Course
 	CreatorName     string `json:"creator_name" db:"creator_name"`
 	CreatorEmail    string `json:"creator_email" db:"creator_email"`
+	CreatorAvatarURL string `json:"creator_avatar_url" db:"creator_avatar_url"`
 	EnrollmentCount int    `json:"enrollment_count" db:"enrollment_count"`
 }
 
@@ -102,4 +103,5 @@ type CourseCoTeacherWithUser struct {
 	CourseCoTeacher
 	FullName string `json:"full_name" db:"full_name"`
 	Email    string `json:"email" db:"email"`
+	AvatarURL string `json:"avatar_url" db:"avatar_url"`
 }

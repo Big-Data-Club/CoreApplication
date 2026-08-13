@@ -29,6 +29,7 @@ type EnrollmentWithCourse struct {
 	CoursePublishedAt sql.NullTime   `json:"course_published_at" db:"course_published_at"`
 	TeacherName       string         `json:"teacher_name" db:"teacher_name"`
 	TeacherEmail      string         `json:"teacher_email" db:"teacher_email"`
+	TeacherAvatarURL  string         `json:"teacher_avatar_url" db:"teacher_avatar_url"`
 }
 
 // EnrollmentWithStudent includes student information
@@ -36,6 +37,7 @@ type EnrollmentWithStudent struct {
 	Enrollment
 	StudentName  string `json:"student_name" db:"student_name"`
 	StudentEmail string `json:"student_email" db:"student_email"`
+	StudentAvatarURL string `json:"student_avatar_url" db:"student_avatar_url"`
 }
 
 // Enrollment status constants

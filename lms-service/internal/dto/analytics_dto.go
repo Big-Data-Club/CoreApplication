@@ -50,6 +50,7 @@ type CourseStudentProgress struct {
 	StudentID        int64      `json:"student_id"`
 	StudentName      string     `json:"student_name"`
 	StudentEmail     string     `json:"student_email"`
+	StudentAvatarURL string     `json:"student_avatar_url,omitempty"`
 	CompletedContent int        `json:"completed_content"`
 	TotalMandatory   int        `json:"total_mandatory"`
 	ProgressPercent  float64    `json:"progress_percent"`
@@ -173,4 +174,4 @@ type TeacherDashboardSummaryResponse struct {
 	TotalUniqueStudents   int                    `json:"totalUniqueStudents"`
 	RegistrationTimeline  []RegistrationTimeline `json:"registrationTimeline"`
 	CourseStats           []TeacherCourseStats   `json:"courseStats"`
-}
+}

@@ -108,7 +108,7 @@ func (r *EnrollmentRepository) ListByStudent(ctx context.Context, studentID int6
 	query := `
 		SELECT e.id, e.course_id, e.student_id, e.status, e.enrolled_at, e.accepted_at, e.rejected_at, e.created_at, e.updated_at,
 		       c.title, c.description, c.category, c.level, c.updated_at, c.published_at,
-		       u.full_name, u.email
+		       u.full_name, u.email, COALESCE(u.profile_picture, '')
 		FROM enrollments e
 		JOIN courses c ON e.course_id = c.id
 		JOIN users u ON c.created_by = u.id
@@ -135,7 +135,7 @@ func (r *EnrollmentRepository) ListByStudent(ctx context.Context, studentID int6
 		err := rows.Scan(
 			&e.ID, &e.CourseID, &e.StudentID, &e.Status, &e.EnrolledAt, &e.AcceptedAt, &e.RejectedAt, &e.CreatedAt, &e.UpdatedAt,
 			&e.CourseTitle, &e.CourseDescription, &e.CourseCategory, &e.CourseLevel,
-			&e.CourseUpdatedAt, &e.CoursePublishedAt, &e.TeacherName, &e.TeacherEmail,
+		&e.CourseUpdatedAt, &e.CoursePublishedAt, &e.TeacherName, &e.TeacherEmail, &e.TeacherAvatarURL,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan enrollment: %w", err)
@@ -150,7 +150,7 @@ func (r *EnrollmentRepository) ListByStudent(ctx context.Context, studentID int6
 func (r *EnrollmentRepository) ListByCourse(ctx context.Context, courseID int64, status string) ([]*models.EnrollmentWithStudent, error) {
 	query := `
 		SELECT e.id, e.course_id, e.student_id, e.status, e.enrolled_at, e.accepted_at, e.rejected_at, e.created_at, e.updated_at,
-		       u.full_name, u.email
+		       u.full_name, u.email, COALESCE(u.profile_picture, '')
 		FROM enrollments e
 		JOIN users u ON e.student_id = u.id
 		WHERE e.course_id = $1
@@ -175,7 +175,7 @@ func (r *EnrollmentRepository) ListByCourse(ctx context.Context, courseID int64,
 		var e models.EnrollmentWithStudent
 		err := rows.Scan(
 			&e.ID, &e.CourseID, &e.StudentID, &e.Status, &e.EnrolledAt, &e.AcceptedAt, &e.RejectedAt, &e.CreatedAt, &e.UpdatedAt,
-			&e.StudentName, &e.StudentEmail,
+			&e.StudentName, &e.StudentEmail, &e.StudentAvatarURL,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan enrollment: %w", err)
@@ -294,31 +294,31 @@ func (r *EnrollmentRepository) BulkCreate(
 	if len(studentIDs) == 0 {
 		return nil, nil
 	}
- 
+
 	// Xây dựng VALUES clause: ($1,$2), ($1,$3), ($1,$4), ...
 	// $1 là courseID - dùng chung cho mọi row
 	args := make([]interface{}, 0, 1+len(studentIDs))
 	args = append(args, courseID)
- 
+
 	placeholders := make([]string, len(studentIDs))
 	for i, sid := range studentIDs {
 		args = append(args, sid)
 		placeholders[i] = fmt.Sprintf("($1, $%d)", i+2)
 	}
- 
+
 	query := `
 		INSERT INTO enrollments (course_id, student_id)
 		VALUES ` + strings.Join(placeholders, ", ") + `
 		ON CONFLICT (course_id, student_id) DO NOTHING
 		RETURNING student_id
 	`
- 
+
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("BulkCreate enrollments course=%d: %w", courseID, err)
 	}
 	defer rows.Close()
- 
+
 	inserted = make([]int64, 0, len(studentIDs))
 	for rows.Next() {
 		var sid int64

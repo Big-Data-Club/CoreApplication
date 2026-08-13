@@ -48,6 +48,7 @@ type StudentProgressRow struct {
 	StudentID        int64
 	StudentName      string
 	StudentEmail     string
+	StudentAvatarURL string
 	TotalMandatory   int
 	CompletedContent int
 	ProgressPercent  float64
@@ -230,26 +231,26 @@ func (r *AnalyticsRepository) GetCourseStudentProgressOverview(ctx context.Conte
 		valid_attempts AS (
 			SELECT qa.student_id, qa.quiz_id, qa.percentage, qa.submitted_at
 			FROM (
-				SELECT 
+				SELECT
 					qa.student_id, qa.quiz_id, qa.percentage, qa.submitted_at,
 					ROW_NUMBER() OVER (
 						PARTITION BY qa.student_id, qa.quiz_id
-						ORDER BY 
-							CASE 
-								WHEN COALESCE(ans_count.cnt, 0) < COALESCE(q_count.cnt, 0) AND qa.attempt_number = 1 THEN 2 
-								ELSE 1 
+						ORDER BY
+							CASE
+								WHEN COALESCE(ans_count.cnt, 0) < COALESCE(q_count.cnt, 0) AND qa.attempt_number = 1 THEN 2
+								ELSE 1
 							END ASC,
 							qa.attempt_number ASC
 					) as rn
 				FROM quiz_attempts qa
 				LEFT JOIN (
-					SELECT attempt_id, COUNT(*) as cnt 
-					FROM quiz_student_answers 
+					SELECT attempt_id, COUNT(*) as cnt
+					FROM quiz_student_answers
 					GROUP BY attempt_id
 				) ans_count ON ans_count.attempt_id = qa.id
 				LEFT JOIN (
-					SELECT quiz_id, COUNT(*) as cnt 
-					FROM quiz_questions 
+					SELECT quiz_id, COUNT(*) as cnt
+					FROM quiz_questions
 					GROUP BY quiz_id
 				) q_count ON q_count.quiz_id = qa.quiz_id
 				WHERE qa.status IN ('SUBMITTED', 'GRADED')
@@ -274,6 +275,7 @@ func (r *AnalyticsRepository) GetCourseStudentProgressOverview(ctx context.Conte
 			e.student_id,
 			u.full_name,
 			u.email,
+			COALESCE(u.profile_picture, '') AS student_avatar_url,
 			COALESCE(ms.total_mandatory, 0) AS total_mandatory,
 			COALESCE(sp.completed_content, 0) AS completed_content,
 			CASE
@@ -289,7 +291,7 @@ func (r *AnalyticsRepository) GetCourseStudentProgressOverview(ctx context.Conte
 		CROSS JOIN mandatory_stats ms
 		WHERE e.course_id = $1
 		  AND e.status = 'ACCEPTED'
-		GROUP BY e.student_id, u.full_name, u.email, ms.total_mandatory, sp.completed_content, sq.quiz_avg_score, sp.last_completed, sq.last_submitted
+		GROUP BY e.student_id, u.full_name, u.email, u.profile_picture, ms.total_mandatory, sp.completed_content, sq.quiz_avg_score, sp.last_completed, sq.last_submitted
 		ORDER BY progress_percent DESC, u.full_name ASC
 	`, courseID)
 	if err != nil {
@@ -301,7 +303,7 @@ func (r *AnalyticsRepository) GetCourseStudentProgressOverview(ctx context.Conte
 	for rows.Next() {
 		var row StudentProgressRow
 		if err := rows.Scan(
-			&row.StudentID, &row.StudentName, &row.StudentEmail,
+			&row.StudentID, &row.StudentName, &row.StudentEmail, &row.StudentAvatarURL,
 			&row.TotalMandatory, &row.CompletedContent, &row.ProgressPercent,
 			&row.QuizAvgScore, &row.LastActivity,
 		); err != nil {
@@ -319,26 +321,26 @@ func (r *AnalyticsRepository) GetStudentQuizScores(ctx context.Context, courseID
 		WITH valid_attempts AS (
 			SELECT qa.student_id, qa.quiz_id, qa.percentage, qa.earned_points, qa.is_passed
 			FROM (
-				SELECT 
+				SELECT
 					qa.student_id, qa.quiz_id, qa.percentage, qa.earned_points, qa.is_passed,
 					ROW_NUMBER() OVER (
 						PARTITION BY qa.student_id, qa.quiz_id
-						ORDER BY 
-							CASE 
-								WHEN COALESCE(ans_count.cnt, 0) < COALESCE(q_count.cnt, 0) AND qa.attempt_number = 1 THEN 2 
-								ELSE 1 
+						ORDER BY
+							CASE
+								WHEN COALESCE(ans_count.cnt, 0) < COALESCE(q_count.cnt, 0) AND qa.attempt_number = 1 THEN 2
+								ELSE 1
 							END ASC,
 							qa.attempt_number ASC
 					) as rn
 				FROM quiz_attempts qa
 				LEFT JOIN (
-					SELECT attempt_id, COUNT(*) as cnt 
-					FROM quiz_student_answers 
+					SELECT attempt_id, COUNT(*) as cnt
+					FROM quiz_student_answers
 					GROUP BY attempt_id
 				) ans_count ON ans_count.attempt_id = qa.id
 				LEFT JOIN (
-					SELECT quiz_id, COUNT(*) as cnt 
-					FROM quiz_questions 
+					SELECT quiz_id, COUNT(*) as cnt
+					FROM quiz_questions
 					GROUP BY quiz_id
 				) q_count ON q_count.quiz_id = qa.quiz_id
 				WHERE qa.student_id = $2 AND qa.status IN ('SUBMITTED', 'GRADED')
@@ -683,10 +685,10 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 			GROUP BY e.course_id, e.student_id
 		),
 		student_progress AS (
-			SELECT 
-				e.course_id, 
+			SELECT
+				e.course_id,
 				e.student_id,
-				CASE 
+				CASE
 					WHEN COALESCE(mc.total_mandatory, 0) = 0 THEN 0.0
 					ELSE COALESCE(sc.completed_content, 0)::FLOAT / mc.total_mandatory * 100.0
 				END AS progress_percent
@@ -705,7 +707,7 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 			ORDER BY qa.student_id, qa.quiz_id, qa.attempt_number ASC, qa.id ASC
 		),
 		student_quizzes AS (
-			SELECT 
+			SELECT
 				tq.course_id,
 				va.student_id,
 				AVG(va.percentage) AS quiz_avg_score
@@ -716,7 +718,7 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 			GROUP BY tq.course_id, va.student_id
 		),
 		course_aggregates AS (
-			SELECT 
+			SELECT
 				tc.id AS course_id,
 				COUNT(DISTINCT e.student_id) AS student_count,
 				COALESCE(AVG(sp.progress_percent), 0.0) AS avg_progress,
@@ -727,7 +729,7 @@ func (r *AnalyticsRepository) GetTeacherDashboardSummary(ctx context.Context, te
 			LEFT JOIN student_quizzes sq ON sq.course_id = tc.id AND sq.student_id = e.student_id
 			GROUP BY tc.id
 		)
-		SELECT 
+		SELECT
 			tc.id,
 			tc.title,
 			tc.thumbnail_url,

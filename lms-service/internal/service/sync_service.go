@@ -49,6 +49,11 @@ func (s *UserSyncService) SyncUser(ctx context.Context, req *dto.UserSyncRequest
 			logger.Error(fmt.Sprintf("Failed to update full name for user %s", req.Email), err)
 		}
 	}
+	if user.ProfilePicture != req.ProfilePicture {
+		if err := s.userRepo.UpdateProfilePicture(ctx, req.UserID, req.ProfilePicture); err != nil {
+			logger.Error(fmt.Sprintf("Failed to update profile picture for user %s", req.Email), err)
+		}
+	}
 
 	// Update organization if changed
 	if user.Organization != req.Org {
@@ -251,4 +256,4 @@ func (s *UserSyncService) RemoveOrganizationMember(ctx context.Context, orgID, u
 
 	logger.Info(fmt.Sprintf("Removed user %d from organization %d", userID, orgID))
 	return nil
-}
+}

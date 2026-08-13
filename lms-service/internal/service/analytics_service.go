@@ -140,6 +140,7 @@ func (s *AnalyticsService) GetCourseStudentProgressOverview(ctx context.Context,
 			StudentID:        r.StudentID,
 			StudentName:      r.StudentName,
 			StudentEmail:     r.StudentEmail,
+			StudentAvatarURL: r.StudentAvatarURL,
 			TotalMandatory:   r.TotalMandatory,
 			CompletedContent: r.CompletedContent,
 			ProgressPercent:  r.ProgressPercent,
@@ -271,13 +272,13 @@ func (s *AnalyticsService) GetFlashcardStats(ctx context.Context, courseID, stud
 	if err != nil {
 		return nil, fmt.Errorf("GetFlashcardStats from AI: %w", err)
 	}
-	
+
 	resp := &dto.FlashcardStatsResponse{
 		TodayDueCount: ai.GetIntField(aiStats, "due_today"),
 		UpcomingCount: ai.GetIntField(aiStats, "upcoming"),
 		LearningCount: ai.GetIntField(aiStats, "total_tracked"),
 	}
-	
+
 	return resp, nil
 }
 
@@ -478,4 +479,4 @@ func nfv(nf sql.NullFloat64) float64 {
 		return nf.Float64
 	}
 	return 0
-}
+}

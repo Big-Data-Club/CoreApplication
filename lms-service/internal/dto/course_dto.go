@@ -42,6 +42,7 @@ type CourseResponse struct {
 	CreatedBy       int64      `json:"created_by"`
 	CreatorName     string     `json:"creator_name,omitempty"`
 	CreatorEmail    string     `json:"creator_email,omitempty"`
+	CreatorAvatarURL string     `json:"creator_avatar_url,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	PublishedAt     *time.Time `json:"published_at,omitempty"`
@@ -129,6 +130,7 @@ type CoTeacherResponse struct {
 	UserID    int64     `json:"user_id"`
 	FullName  string    `json:"full_name"`
 	Email     string    `json:"email"`
+	AvatarURL string    `json:"avatar_url,omitempty"`
 	AddedBy   int64     `json:"added_by"`
 	CreatedAt time.Time `json:"created_at"`
 }

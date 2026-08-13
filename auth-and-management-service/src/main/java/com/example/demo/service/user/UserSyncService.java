@@ -159,6 +159,7 @@ public class UserSyncService {
             "user_id",   user.getId(),
             "email",     user.getEmail(),
             "full_name", user.getName(),
+            "profile_picture", user.getProfilePicture() != null ? user.getProfilePicture() : "",
             "roles",     lmsRoles,
             "org",       user.getOrganization() != null ? user.getOrganization() : ""
         );
@@ -170,7 +171,7 @@ public class UserSyncService {
             "id",              user.getId(),
             "email",           user.getEmail(),
             "full_name",       user.getName() != null ? user.getName() : "",
-            "profile_picture", ""  // auth-service has no avatar URL yet; chat falls back to DiceBear
+            "profile_picture", user.getProfilePicture() != null ? user.getProfilePicture() : ""
         );
     }
 

@@ -224,6 +224,10 @@ jobs:
       - name: Checkout code
         if: matrix.should_build == true
         uses: actions/checkout@v4
+        with:
+          # The frontend is a Git submodule. setup-node resolves the pnpm lock
+          # file before installation, so it must be present before cache setup.
+          submodules: recursive
 
       # Setup build environments
       - name: Setup Java 21

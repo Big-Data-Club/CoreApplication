@@ -1081,6 +1081,7 @@ func (s *CourseService) toCourseResponseWithCreator(course *models.CourseWithCre
 	resp := s.toCourseResponse(&course.Course)
 	resp.CreatorName = course.CreatorName
 	resp.CreatorEmail = course.CreatorEmail
+	resp.CreatorAvatarURL = course.CreatorAvatarURL
 	resp.EnrollmentCount = course.EnrollmentCount
 	return resp
 }
@@ -1249,6 +1250,7 @@ func (s *CourseService) ListCoTeachers(ctx context.Context, courseID, actorID in
 			UserID:    ct.UserID,
 			FullName:  ct.FullName,
 			Email:     ct.Email,
+			AvatarURL: ct.AvatarURL,
 			AddedBy:   ct.AddedBy,
 			CreatedAt: ct.CreatedAt,
 		}
