@@ -152,11 +152,14 @@ public class UserSyncService {
 
     /** Payload for LMS service - uses "user_id" key */
     private Map<String, Object> buildLmsPayload(User user) {
+        var lmsRoles = user.getLmsRoles() != null && !user.getLmsRoles().isEmpty()
+                ? user.getLmsRoles().stream().distinct().toList()
+                : roleStrategy.resolveAll(user.effectiveRoles());
         return Map.of(
             "user_id",   user.getId(),
             "email",     user.getEmail(),
             "full_name", user.getName(),
-            "roles",     roleStrategy.resolveAll(user.effectiveRoles()),
+            "roles",     lmsRoles,
             "org",       user.getOrganization() != null ? user.getOrganization() : ""
         );
     }

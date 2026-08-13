@@ -69,8 +69,11 @@ public class AuthService {
     }
 
     public String generateToken(User user) {
+        var tokenRoles = user.getLmsRoles() != null && !user.getLmsRoles().isEmpty()
+                ? user.getLmsRoles().stream().distinct().toList()
+                : roleStrategy.resolveAll(user.effectiveRoles());
         return jwtService.generateToken(user.getId(), user.getEmail(),
-                                        roleStrategy.resolveAll(user.effectiveRoles()));
+                                        tokenRoles);
     }
 
     public String generateRefreshToken(User user) {
@@ -129,6 +132,21 @@ public class AuthService {
                 if (!existingRoles.contains(role)) errors.add("Row " + row + ": unknown role " + role);
             }
 
+            LinkedHashSet<String> lmsRoles = new LinkedHashSet<>();
+            if (reg.getLmsRoles() != null) {
+                reg.getLmsRoles().stream()
+                        .filter(value -> value != null)
+                        .flatMap(value -> java.util.Arrays.stream(value.split("[;,]")))
+                        .map(this::normalizeLmsRole)
+                        .filter(role -> !role.isBlank())
+                        .forEach(lmsRoles::add);
+            }
+            for (String lmsRole : lmsRoles) {
+                if (!Set.of("ADMIN", "TEACHER", "STUDENT").contains(lmsRole)) {
+                    errors.add("Row " + row + ": unknown LMS role " + lmsRole);
+                }
+            }
+
             List<ResolvedOrganization> resolvedOrganizations = new java.util.ArrayList<>();
             List<OrganizationAssignmentRequest> requestedOrganizations = reg.getOrganizations();
             if ((requestedOrganizations == null || requestedOrganizations.isEmpty()) && !clean(reg.getOrganization()).isBlank()) {
@@ -150,7 +168,7 @@ public class AuthService {
                     }
                 }
             }
-            prepared.add(new PreparedRegistration(reg, name, email, code, roles, resolvedOrganizations));
+            prepared.add(new PreparedRegistration(reg, name, email, code, roles, lmsRoles, resolvedOrganizations));
         }
 
         var emails = prepared.stream().map(PreparedRegistration::email).toList();
@@ -178,6 +196,7 @@ public class AuthService {
                             .password(passwordEncoder.encode(pwd))
                             .role(primaryRole)
                             .roles(new LinkedHashSet<>(item.roles()))
+                            .lmsRoles(new LinkedHashSet<>(item.lmsRoles()))
                             .team(clean(reg.getTeam()).isBlank() ? "RESEARCH" : clean(reg.getTeam()).toUpperCase(Locale.ROOT))
                             .code(item.code())
                             .type(clean(reg.getType()).isBlank() ? "CLC" : clean(reg.getType()).toUpperCase(Locale.ROOT))
@@ -225,6 +244,10 @@ public class AuthService {
         return normalized.startsWith("ROLE_") ? normalized : "ROLE_" + normalized;
     }
 
+    private String normalizeLmsRole(String role) {
+        return clean(role).toUpperCase(Locale.ROOT).replaceFirst("^LMS:", "");
+    }
+
     private List<OrganizationAssignmentRequest> parseLegacyOrganizations(String value) {
         List<OrganizationAssignmentRequest> result = new java.util.ArrayList<>();
         for (String token : value.split(";")) {
@@ -246,5 +269,6 @@ public class AuthService {
             String email,
             String code,
             LinkedHashSet<String> roles,
+            LinkedHashSet<String> lmsRoles,
             List<ResolvedOrganization> organizations) {}
 }

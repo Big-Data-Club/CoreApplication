@@ -16,6 +16,7 @@ public class UserResponse {
     private String     email;
     private String     role;
     private java.util.List<String> roles;
+    private java.util.List<String> lmsRoles;
     private String     team;
     private String     type;
     private String       code;
@@ -49,6 +50,7 @@ public class UserResponse {
                 .email(user.getEmail())
                 .role(user.getRole())
                 .roles(new java.util.ArrayList<>(user.effectiveRoles()))
+                .lmsRoles(user.getLmsRoles() == null ? java.util.List.of() : new java.util.ArrayList<>(user.getLmsRoles()))
                 .team(user.getTeam())
                 .type(user.getType())
                 .code(user.getCode())

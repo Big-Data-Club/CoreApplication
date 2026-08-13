@@ -44,6 +44,13 @@ public class User {
     @Builder.Default
     private Set<String> roles = new LinkedHashSet<>();
 
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_lms_roles", joinColumns = @JoinColumn(name = "user_id"),
+            uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "lms_role"}))
+    @Column(name = "lms_role", nullable = false, length = 20)
+    @Builder.Default
+    private Set<String> lmsRoles = new LinkedHashSet<>();
+
     @Column(nullable = false, length = 50)
     private String team;
 
