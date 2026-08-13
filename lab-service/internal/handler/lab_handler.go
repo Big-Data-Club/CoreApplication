@@ -12,6 +12,7 @@ import (
 
 	"lab-service/internal/dto"
 	"lab-service/internal/service"
+	appLogger "lab-service/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -34,6 +35,7 @@ func (h *LabHandler) CreateLab(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 	lab, status, err := h.labService.CreateLab(c.Request.Context(), &req, userID)
 	if err != nil {
+		appLogger.Error(fmt.Sprintf("CreateLab failed: user_id=%d lab_type=%s", userID, req.LabType), err)
 		c.JSON(status, dto.NewErrorResponse("error", err.Error()))
 		return
 	}
@@ -312,4 +314,3 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 		return
 	}
 }
-
