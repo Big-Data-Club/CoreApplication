@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, dev, release/*]
   push:
-    branches: [dev, release/*]
+    branches: [main, dev, develop, release/*]
   workflow_dispatch:
     inputs:
       force_build_all:
