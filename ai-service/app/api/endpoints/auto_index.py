@@ -24,6 +24,7 @@ from app.core.database import get_ai_conn
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()
+_STALE_INDEX_AFTER_MINUTES = max(15, settings.document_index_stale_after_minutes)
 
 router       = APIRouter(prefix="/auto-index",      tags=["Auto-Index"])
 graph_router = APIRouter(prefix="/knowledge-graph", tags=["Knowledge Graph"])
@@ -117,9 +118,9 @@ async def _get_content_status(content_id: int) -> dict | None:
                    updated_at = NOW()
              WHERE content_id = $1
                AND status IN ('pending', 'processing')
-               AND updated_at < NOW() - INTERVAL '2 hours'
+               AND updated_at < NOW() - ($2::int * INTERVAL '1 minute')
             """,
-            content_id,
+            content_id, _STALE_INDEX_AFTER_MINUTES,
         )
         row = await conn.fetchrow(
             "SELECT status, error FROM content_index_status WHERE content_id=$1",
@@ -251,9 +252,9 @@ async def batch_get_auto_index_status(body: BatchStatusRequest, request: Request
                    updated_at = NOW()
              WHERE content_id = ANY($1)
                AND status IN ('pending', 'processing')
-               AND updated_at < NOW() - INTERVAL '2 hours'
+               AND updated_at < NOW() - ($2::int * INTERVAL '1 minute')
             """,
-            ids,
+            ids, _STALE_INDEX_AFTER_MINUTES,
         )
         # 1. Batch-fetch statuses
         status_rows = await conn.fetch(

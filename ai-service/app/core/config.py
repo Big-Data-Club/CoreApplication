@@ -112,6 +112,12 @@ class Settings(BaseSettings):
 
     # Kafka worker tuning
     reindex_batch_size: int = 5
+    # A worker refreshes its DB heartbeat while indexing.  These values keep a
+    # live large PDF from being declared stale, while making a dead worker
+    # visible to the retry UI in a bounded time.
+    document_index_timeout_minutes: int = 90
+    document_index_stale_after_minutes: int = 45
+    document_index_max_poll_interval_ms: int = 10_800_000  # 3 hours
 
     # ── Agent Memory ───────────────────────────────────────────────────────────
     stm_overflow_threshold: int = 3000        # tokens before STM overflow warning

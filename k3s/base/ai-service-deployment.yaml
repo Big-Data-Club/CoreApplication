@@ -271,12 +271,15 @@ spec:
               name: bdc-secrets
               key: AI_KEY_ENCRYPTION_SECRET
         resources:
+          # bge-m3 + reranker already use ~1.45Gi before PDF extraction.
+          # Keep one replica until lms.document.uploaded has more partitions;
+          # scaling replicas now would only amplify upstream LLM rate limits.
           limits:
-            cpu: "1.5"
-            memory: 1536Mi
+            cpu: "2.5"
+            memory: 3Gi
           requests:
-            cpu: "0.5"
-            memory: 512Mi
+            cpu: "1"
+            memory: 2Gi
         securityContext:
           runAsUser: 1001
           runAsGroup: 1001

@@ -27,6 +27,7 @@ from app.core.config import get_settings
 from app.core.database import get_ai_conn
 from app.core.llm import chat_complete_json, create_embeddings_batch
 from app.core.llm_gateway import TASK_NODE_EXTRACT
+from app.core.llm_gateway.errors import NoKeyAvailableError, NoModelAvailableError
 from app.services.chunker import (
     PDFChunker,
     DocxChunker,
@@ -928,6 +929,11 @@ class AutoIndexService:
                 temperature=0.15, max_tokens=2048,
                 task=TASK_NODE_EXTRACT,
             )
+        except (NoKeyAvailableError, NoModelAvailableError):
+            # A graph without grounded concept extraction is not a completed
+            # analysis. Bubble this up so the worker records FAILED and the
+            # teacher can retry after keys/bindings recover.
+            raise
         except Exception as exc:
             logger.error("LLM node extraction failed: %s", exc, exc_info=True)
             # Never turn an LLM outage into a generic, ungrounded graph node.

@@ -46,27 +46,39 @@ async def process_document_event(payload: dict):
     )
 
     try:
-        if content_type in ("text/markdown", "TEXT"):
-            await auto_index_service.auto_index_text(
-                content_id=content_id, course_id=course_id,
-                title=payload.get("title", ""),
-                text_content=payload.get("text_content", ""),
-            )
-        elif _is_youtube(file_url):
-            await auto_index_service.auto_index(
-                content_id=content_id, course_id=course_id,
-                file_url=file_url, content_type="video/youtube", file_bytes=b"",
-            )
-        else:
-            file_bytes = await auto_index_service._download_bytes(file_url)
-            await auto_index_service.auto_index(
-                content_id=content_id, course_id=course_id,
-                file_url=file_url, content_type=content_type, file_bytes=file_bytes,
-            )
+        async with asyncio.timeout(settings.document_index_timeout_minutes * 60):
+            if content_type in ("text/markdown", "TEXT"):
+                await auto_index_service.auto_index_text(
+                    content_id=content_id, course_id=course_id,
+                    title=payload.get("title", ""),
+                    text_content=payload.get("text_content", ""),
+                )
+            elif _is_youtube(file_url):
+                await auto_index_service.auto_index(
+                    content_id=content_id, course_id=course_id,
+                    file_url=file_url, content_type="video/youtube", file_bytes=b"",
+                )
+            else:
+                file_bytes = await auto_index_service._download_bytes(file_url)
+                await auto_index_service.auto_index(
+                    content_id=content_id, course_id=course_id,
+                    file_url=file_url, content_type=content_type, file_bytes=file_bytes,
+                )
 
         logger.info("Document indexed successfully",
                     extra={"content_id": content_id, "course_id": course_id})
 
+    except asyncio.TimeoutError:
+        error = f"Indexing exceeded the {settings.document_index_timeout_minutes}-minute limit; retry is available"
+        logger.error("Document indexing timed out", extra={"content_id": content_id})
+        await auto_index_service._update_content_status(content_id, "failed", error)
+    except asyncio.CancelledError:
+        # Mark the durable state before Kubernetes stops the process. The
+        # Kafka offset remains uncommitted, so the next worker can replay it.
+        await auto_index_service._update_content_status(
+            content_id, "failed", "Indexing was interrupted; retry is available",
+        )
+        raise
     except Exception as exc:
         logger.error("Document indexing failed",
                      extra={"content_id": content_id, "error": str(exc),
@@ -359,7 +371,7 @@ async def main():
         # ── Tuned for long-running document processing (95+ image PDFs) ───
         # Default max_poll_interval_ms=300s is too tight: heavy PDFs can
         # take much longer when they contain many images/VLM calls.
-        max_poll_interval_ms=1_800_000,  # 30 minutes
+        max_poll_interval_ms=settings.document_index_max_poll_interval_ms,
         session_timeout_ms=60_000,       # 60 seconds (default 10s)
         heartbeat_interval_ms=10_000,    # 10 seconds (default 3s)
         request_timeout_ms=70_000,       # must be > session_timeout_ms

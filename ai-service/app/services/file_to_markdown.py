@@ -38,8 +38,10 @@ from app.services.image_extractor import (
     render_pptx_slides,
 )
 from app.services.minio_storage import upload_bytes
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 # Heuristic: a PDF page is "scanned" (no real text layer) when extracted
@@ -187,8 +189,19 @@ async def _pdf_to_markdown(
 
     # ── Phase 2: async VLM OCR for scanned pages (back on event loop) ──
     ocr_pages = 0
+    ocr_attempts = 0
+    if not settings.vlm_enabled:
+        scanned_pages = sum(1 for pr in page_results if pr.needs_ocr)
+        if scanned_pages:
+            logger.info(
+                "Skipping VLM OCR for %d scanned PDF pages because VLM_ENABLED=false",
+                scanned_pages,
+            )
     for pr in page_results:
-        if pr.needs_ocr and ocr_pages < _OCR_MAX_PAGES:
+        # Count attempts, not successful responses.  Otherwise an unavailable
+        # VLM turns a 60-page safety cap into one request per scanned page.
+        if settings.vlm_enabled and pr.needs_ocr and ocr_attempts < _OCR_MAX_PAGES:
+            ocr_attempts += 1
             ocr_md = await _vlm_ocr_pdf_page_from_bytes(
                 pdf_bytes=pdf_bytes,
                 page_idx=pr.page_no - 1,
