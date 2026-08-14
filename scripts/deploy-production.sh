@@ -98,6 +98,12 @@ if [[ ",${SERVICES:-}," == *",ai-worker,"* ]]; then
     --namespace "$DEPLOY_NAMESPACE" \
     --timeout "$ROLLOUT_TIMEOUT"
 fi
+# Establish the restricted, default-deny namespace before any future executor
+# image can be rolled out. Applying this declarative policy is idempotent and
+# does not start learner workloads by itself.
+if [[ ",${SERVICES:-}," == *",lab-service,"* ]]; then
+  kubectl apply -f k3s/base/lab-sandbox-policy.yaml
+fi
 # Apply manifests only for selected workloads that require spec-level changes.
 # Capture the previous immutable image before apply so rollback remains correct
 # even though the base manifest uses a `latest` placeholder.

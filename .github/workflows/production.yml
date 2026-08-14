@@ -70,6 +70,7 @@ jobs:
             lab:
               - 'lab-service/**'
               - 'k3s/base/lab-service-deployment.yaml'
+              - 'k3s/base/lab-sandbox-policy.yaml'
               - 'scripts/deploy-production.sh'
               # Keep the lab production selector itself deployable.
               - '.github/workflows/production.yml'

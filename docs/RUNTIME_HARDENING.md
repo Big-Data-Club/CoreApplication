@@ -25,6 +25,11 @@ filesystem, dropped Linux capabilities, no service-account token, strict CPU,
 memory, process-count and execution-time limits, and a default-deny network
 policy.  The API service must have no permission to execute learner code.
 
+The repository applies `k3s/base/lab-sandbox-policy.yaml` before enabling an
+executor. It establishes a `restricted` Pod Security namespace, default-deny
+network policy, resource quotas, default container limits and a service account
+without an API token. The controller role cannot access Secrets or use `exec`.
+
 ## Delivery gates
 
 1. Build an executor image per supported language, pinned by digest.
