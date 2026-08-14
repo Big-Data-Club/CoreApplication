@@ -48,6 +48,7 @@ type SubmissionResponse struct {
 	MemoryKB       int                    `json:"memory_kb"`
 	SlurmJobID     *int64                 `json:"slurm_job_id,omitempty"`
 	CompilerOutput string                 `json:"compiler_output,omitempty"`
+	TestResults    []TestResultResponse   `json:"test_results,omitempty"`
 	Feedback       map[string]interface{} `json:"feedback,omitempty"`
 	SubmittedAt    time.Time              `json:"submitted_at"`
 	GradedAt       *time.Time             `json:"graded_at,omitempty"`
@@ -58,7 +59,10 @@ type TestResultResponse struct {
 	TestCaseID   int64  `json:"test_case_id"`
 	TestName     string `json:"test_name"`
 	Status       string `json:"status"`
+	Input        string `json:"input"`
+	ExpectedOutput string `json:"expected_output"`
 	ActualOutput string `json:"actual_output,omitempty"`
+	ErrorOutput  string `json:"error_output,omitempty"`
 	RuntimeMs    int    `json:"runtime_ms"`
 	MemoryKB     int    `json:"memory_kb"`
 	IsSample     bool   `json:"is_sample"`
@@ -69,4 +73,5 @@ type RunResultResponse struct {
 	TestResults    []TestResultResponse `json:"test_results"`
 	CompilerOutput string               `json:"compiler_output,omitempty"`
 	TotalRuntimeMs int                  `json:"total_runtime_ms"`
+	Status         string               `json:"status"`
 }

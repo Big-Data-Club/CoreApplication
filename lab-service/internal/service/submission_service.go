@@ -89,13 +89,13 @@ func (s *SubmissionService) RunCode(ctx context.Context, labID, userID int64, re
 	}
 
 	// Build response
-	resp := &dto.RunResultResponse{CompilerOutput: result.CompilerOutput, TotalRuntimeMs: result.RuntimeMs}
+	resp := &dto.RunResultResponse{CompilerOutput: result.CompilerOutput, TotalRuntimeMs: result.RuntimeMs, Status: result.Status}
+	testCasesByID := make(map[int64]runtime.TestCase, len(runtimeTCs))
+	for _, tc := range runtimeTCs {
+		testCasesByID[tc.ID] = tc
+	}
 	for _, tr := range result.TestResults {
-		resp.TestResults = append(resp.TestResults, dto.TestResultResponse{
-			TestCaseID: tr.TestCaseID, Status: tr.Status,
-			ActualOutput: tr.ActualOutput, RuntimeMs: tr.RuntimeMs,
-			MemoryKB: tr.MemoryKB, IsSample: true,
-		})
+		resp.TestResults = append(resp.TestResults, learnerTestResult(tr, testCasesByID[tr.TestCaseID]))
 	}
 	return resp, http.StatusOK, nil
 }
@@ -192,7 +192,46 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64,
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
+	// A graded submission may contain hidden tests. Return only sample-test
+	// details so students can learn from feedback without revealing evaluation
+	// inputs, expected outputs, or hidden-test-derived program output.
+	testCasesByID := make(map[int64]runtime.TestCase, len(runtimeTCs))
+	publicSampleByID := make(map[int64]bool, len(testCases))
+	for _, tc := range runtimeTCs {
+		testCasesByID[tc.ID] = tc
+	}
+	for _, tc := range testCases {
+		publicSampleByID[tc.ID] = tc.IsSample && !tc.IsHidden
+	}
+	for _, tr := range result.TestResults {
+		tc := testCasesByID[tr.TestCaseID]
+		if publicSampleByID[tr.TestCaseID] {
+			resp.TestResults = append(resp.TestResults, learnerTestResult(tr, tc))
+		}
+	}
 	return resp, http.StatusOK, nil
+}
+
+// learnerTestResult is the safe diagnostic view exposed to a learner. It is
+// used only for sample tests; hidden test data must never leave the API.
+func learnerTestResult(result runtime.TestResult, testCase runtime.TestCase) dto.TestResultResponse {
+	response := dto.TestResultResponse{
+		TestCaseID:     result.TestCaseID,
+		TestName:       testCase.Name,
+		Status:         result.Status,
+		Input:          testCase.Input,
+		ExpectedOutput: testCase.Expected,
+		RuntimeMs:      result.RuntimeMs,
+		MemoryKB:       result.MemoryKB,
+		IsSample:       true,
+	}
+	switch result.Status {
+	case "COMPILER_ERROR", "RUNTIME_ERROR", "TIME_LIMIT", "MEMORY_LIMIT":
+		response.ErrorOutput = result.ActualOutput
+	default:
+		response.ActualOutput = result.ActualOutput
+	}
+	return response
 }
 
 // SubmitHPCJob submits one bounded Slurm job. The job only receives resource

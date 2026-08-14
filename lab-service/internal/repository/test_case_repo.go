@@ -35,7 +35,9 @@ func (r *TestCaseRepository) ListByLab(ctx context.Context, labID int64, include
 		input, expected, time_limit_ms, memory_limit_mb, explanation, created_at
 		FROM lab_test_cases WHERE lab_id = $1`
 	if includeSampleOnly {
-		query += " AND is_sample = TRUE"
+		// A case can be accidentally marked both sample and hidden by an author.
+		// The learner-facing run endpoint must always prefer confidentiality.
+		query += " AND is_sample = TRUE AND is_hidden = FALSE"
 	}
 	query += " ORDER BY order_index"
 
@@ -130,4 +132,3 @@ func (r *TestCaseRepository) Update(ctx context.Context, testCaseID int64, req *
 	_, err := r.db.ExecContext(ctx, query, args...)
 	return err
 }
-
