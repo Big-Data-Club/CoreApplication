@@ -76,6 +76,20 @@ func (s *LabService) ListMyLabs(ctx context.Context, userID int64, status string
 	return dto.NewListResponse(labs, page, pageSize, total), http.StatusOK, nil
 }
 
+func (s *LabService) ListAllLabs(ctx context.Context, status string, page, pageSize int) (*dto.ListResponse, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	labs, total, err := s.labRepo.ListAll(ctx, status, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to list all labs: %w", err)
+	}
+	return dto.NewListResponse(labs, page, pageSize, total), http.StatusOK, nil
+}
+
 func (s *LabService) UpdateLab(ctx context.Context, labID int64, req *dto.UpdateLabRequest, userID int64, userRole string) (int, error) {
 	if err := s.checkOwnership(ctx, labID, userID, userRole); err != nil {
 		return http.StatusForbidden, err

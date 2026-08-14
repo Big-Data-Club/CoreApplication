@@ -138,23 +138,24 @@ func main() {
 		// Labs CRUD
 		api.GET("/labs", labHandler.ListPublishedLabs)
 		api.GET("/labs/my", labHandler.ListMyLabs)
-		api.POST("/labs", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.CreateLab)
+		api.GET("/labs/manage", middleware.RequireRoles("ADMIN"), labHandler.ListAllLabs)
+		api.POST("/labs", middleware.RequireRoles("ADMIN"), labHandler.CreateLab)
 		api.GET("/labs/:labId", labHandler.GetLab)
-		api.PUT("/labs/:labId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.UpdateLab)
-		api.DELETE("/labs/:labId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.DeleteLab)
-		api.POST("/labs/:labId/publish", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.PublishLab)
+		api.PUT("/labs/:labId", middleware.RequireRoles("ADMIN"), labHandler.UpdateLab)
+		api.DELETE("/labs/:labId", middleware.RequireRoles("ADMIN"), labHandler.DeleteLab)
+		api.POST("/labs/:labId/publish", middleware.RequireRoles("ADMIN"), labHandler.PublishLab)
 
 		// Versioned Virtual STEM experiment definitions
-		api.POST("/labs/:labId/versions", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.CreateVersion)
-		api.GET("/labs/:labId/versions", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.ListVersions)
+		api.POST("/labs/:labId/versions", middleware.RequireRoles("ADMIN"), experimentHandler.CreateVersion)
+		api.GET("/labs/:labId/versions", middleware.RequireRoles("ADMIN"), experimentHandler.ListVersions)
 		api.GET("/labs/:labId/published-version", experimentHandler.GetPublishedVersion)
 		api.GET("/lab-versions/:versionId/definition", experimentHandler.GetVersion)
-		api.POST("/lab-versions/:versionId/validate", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.ValidateVersion)
-		api.POST("/lab-versions/:versionId/publish", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.PublishVersion)
+		api.POST("/lab-versions/:versionId/validate", middleware.RequireRoles("ADMIN"), experimentHandler.ValidateVersion)
+		api.POST("/lab-versions/:versionId/publish", middleware.RequireRoles("ADMIN"), experimentHandler.PublishVersion)
 
 		// Learner experiment runs, deterministic trials and replayable evidence
 		api.POST("/lab-versions/:versionId/runs", experimentHandler.CreateRun)
-		api.GET("/labs/:labId/runs", middleware.RequireRoles("TEACHER", "ADMIN"), experimentHandler.ListLabRuns)
+		api.GET("/labs/:labId/runs", middleware.RequireRoles("ADMIN"), experimentHandler.ListLabRuns)
 		api.GET("/runs/:runId", experimentHandler.GetRun)
 		api.POST("/runs/:runId/complete", experimentHandler.CompleteRun)
 		api.POST("/runs/:runId/trials", experimentHandler.CreateTrial)
@@ -166,24 +167,24 @@ func main() {
 		api.GET("/labs/:labId/session/terminal/ws", labHandler.TerminalWS)
 
 		// Lab Sections
-		api.POST("/labs/:labId/sections", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.CreateSection)
+		api.POST("/labs/:labId/sections", middleware.RequireRoles("ADMIN"), labHandler.CreateSection)
 		api.GET("/labs/:labId/sections", labHandler.ListSections)
-		api.PUT("/sections/:sectionId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.UpdateSection)
-		api.DELETE("/sections/:sectionId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.DeleteSection)
+		api.PUT("/sections/:sectionId", middleware.RequireRoles("ADMIN"), labHandler.UpdateSection)
+		api.DELETE("/sections/:sectionId", middleware.RequireRoles("ADMIN"), labHandler.DeleteSection)
 
 		// Lab Content
-		api.POST("/sections/:sectionId/content", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.CreateContent)
+		api.POST("/sections/:sectionId/content", middleware.RequireRoles("ADMIN"), labHandler.CreateContent)
 		api.GET("/sections/:sectionId/content", labHandler.ListContent)
-		api.PUT("/content/:contentId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.UpdateContent)
-		api.DELETE("/content/:contentId", middleware.RequireRoles("TEACHER", "ADMIN"), labHandler.DeleteContent)
+		api.PUT("/content/:contentId", middleware.RequireRoles("ADMIN"), labHandler.UpdateContent)
+		api.DELETE("/content/:contentId", middleware.RequireRoles("ADMIN"), labHandler.DeleteContent)
 
 
 		// Test Cases
-		api.POST("/labs/:labId/test-cases", middleware.RequireRoles("TEACHER", "ADMIN"), testCaseHandler.CreateTestCase)
+		api.POST("/labs/:labId/test-cases", middleware.RequireRoles("ADMIN"), testCaseHandler.CreateTestCase)
 		api.GET("/labs/:labId/test-cases", testCaseHandler.ListTestCases)
-		api.PUT("/test-cases/:id", middleware.RequireRoles("TEACHER", "ADMIN"), testCaseHandler.UpdateTestCase)
-		api.DELETE("/test-cases/:id", middleware.RequireRoles("TEACHER", "ADMIN"), testCaseHandler.DeleteTestCase)
-		api.POST("/labs/:labId/test-cases/bulk", middleware.RequireRoles("TEACHER", "ADMIN"), testCaseHandler.BulkCreateTestCases)
+		api.PUT("/test-cases/:id", middleware.RequireRoles("ADMIN"), testCaseHandler.UpdateTestCase)
+		api.DELETE("/test-cases/:id", middleware.RequireRoles("ADMIN"), testCaseHandler.DeleteTestCase)
+		api.POST("/labs/:labId/test-cases/bulk", middleware.RequireRoles("ADMIN"), testCaseHandler.BulkCreateTestCases)
 
 
 		// Submissions
@@ -197,10 +198,10 @@ func main() {
 
 		// Enrollment
 		api.POST("/labs/:labId/enroll", enrollmentHandler.EnrollLab)
-		api.GET("/labs/:labId/learners", middleware.RequireRoles("TEACHER", "ADMIN"), enrollmentHandler.GetLabLearners)
+		api.GET("/labs/:labId/learners", middleware.RequireRoles("ADMIN"), enrollmentHandler.GetLabLearners)
 		api.GET("/enrollments/labs/my", enrollmentHandler.GetMyLabEnrollments)
 		api.DELETE("/lab-enrollments/:id", enrollmentHandler.CancelEnrollment)
-		api.POST("/labs/:labId/bulk-enroll", middleware.RequireRoles("TEACHER", "ADMIN"), enrollmentHandler.BulkEnroll)
+		api.POST("/labs/:labId/bulk-enroll", middleware.RequireRoles("ADMIN"), enrollmentHandler.BulkEnroll)
 	}
 
 	// ── Start Kafka Consumers ───────────────────────────────────

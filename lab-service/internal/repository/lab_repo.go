@@ -210,6 +210,59 @@ func (r *LabRepository) ListByCreator(ctx context.Context, userID int64, status 
 	return labs, total, nil
 }
 
+// ListAll is reserved for system administrators who operate the central lab catalog.
+func (r *LabRepository) ListAll(ctx context.Context, status string, limit, offset int) ([]dto.LabResponse, int, error) {
+	where := ""
+	args := []interface{}{}
+	idx := 1
+	if status != "" {
+		where = "WHERE l.status = $1"
+		args = append(args, status)
+		idx++
+	}
+
+	var total int
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM labs l "+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count all labs: %w", err)
+	}
+
+	args = append(args, limit, offset)
+	query := fmt.Sprintf(
+		`SELECT l.id, l.title, l.description, l.category, l.level, l.thumbnail_url,
+			l.lab_type, l.status, l.max_session_duration_min, l.auto_grade,
+			l.created_by, u.full_name, u.email, l.published_at, l.created_at, l.updated_at,
+			COALESCE((SELECT COUNT(*) FROM lab_enrollments WHERE lab_id = l.id AND status = 'ACCEPTED'), 0)
+		FROM labs l
+		LEFT JOIN users u ON u.id = l.created_by
+		%s
+		ORDER BY l.updated_at DESC
+		LIMIT $%d OFFSET $%d`, where, idx, idx+1)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list all labs: %w", err)
+	}
+	defer rows.Close()
+
+	labs := make([]dto.LabResponse, 0)
+	for rows.Next() {
+		var lab dto.LabResponse
+		if err := rows.Scan(
+			&lab.ID, &lab.Title, &lab.Description, &lab.Category, &lab.Level,
+			&lab.ThumbnailURL, &lab.LabType, &lab.Status, &lab.MaxSessionDurationMin,
+			&lab.AutoGrade, &lab.CreatedBy, &lab.CreatorName, &lab.CreatorEmail,
+			&lab.PublishedAt, &lab.CreatedAt, &lab.UpdatedAt, &lab.EnrollmentCount,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan all labs: %w", err)
+		}
+		labs = append(labs, lab)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return labs, total, nil
+}
+
 func (r *LabRepository) Update(ctx context.Context, labID int64, req *dto.UpdateLabRequest) error {
 	sets := []string{}
 	args := []interface{}{}
@@ -482,4 +535,3 @@ func (r *LabRepository) DeleteContent(ctx context.Context, contentID int64) erro
 	_, err := r.db.ExecContext(ctx, "DELETE FROM lab_section_content WHERE id = $1", contentID)
 	return err
 }
-

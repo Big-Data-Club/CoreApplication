@@ -86,6 +86,17 @@ func (h *LabHandler) ListMyLabs(c *gin.Context) {
 	c.JSON(st, resp)
 }
 
+func (h *LabHandler) ListAllLabs(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, status, err := h.labService.ListAllLabs(c.Request.Context(), c.Query("status"), page, pageSize)
+	if err != nil {
+		c.JSON(status, dto.NewErrorResponse("error", err.Error()))
+		return
+	}
+	c.JSON(status, resp)
+}
+
 func (h *LabHandler) UpdateLab(c *gin.Context) {
 	labID, err := strconv.ParseInt(c.Param("labId"), 10, 64)
 	if err != nil {
