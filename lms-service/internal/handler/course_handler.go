@@ -344,7 +344,7 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(dto.NewListResponse(courses, page, limit, total)))
 }
 
-// ListPublishedCourses lists published courses visible to users, or every course for administrators.
+// ListPublishedCourses lists published courses visible to users.
 // @Summary List published courses
 // @Description List published courses based on org membership visibility rules
 // @Tags courses
@@ -353,7 +353,6 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 // @Security BearerAuth
 // @Param page query int false "Page number (1-based)"
 // @Param page_size query int false "Items per page (max 100)"
-// @Param status query string false "Course status (administrators only)"
 // @Param category query string false "Category filter"
 // @Param level query string false "Level filter"
 // @Param search query string false "Title or description search"
@@ -362,7 +361,6 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 // @Router /courses [get]
 func (h *CourseHandler) ListPublishedCourses(c *gin.Context) {
 	userID := c.GetInt64("user_id")
-	role := getRoleFromContext(c)
 	var pagination dto.PaginationRequest
 	if err := c.ShouldBindQuery(&pagination); err != nil {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
@@ -379,7 +377,7 @@ func (h *CourseHandler) ListPublishedCourses(c *gin.Context) {
 		return
 	}
 
-	courses, total, err := h.courseService.ListPublishedCourses(c.Request.Context(), userID, role, filter, limit, offset)
+	courses, total, err := h.courseService.ListPublishedCourses(c.Request.Context(), userID, filter, limit, offset)
 	if err != nil {
 		logger.Error("Failed to list published courses", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to retrieve courses"))

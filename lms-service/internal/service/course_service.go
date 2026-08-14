@@ -521,26 +521,11 @@ func (s *CourseService) ListMyCourses(ctx context.Context, userID int64, filter 
 	return result, total, nil
 }
 
-// ListPublishedCourses lists published courses visible to the user.
-func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, role string, filter dto.FilterRequest, limit, offset int) ([]*dto.CourseResponse, int, error) {
-	repoListFilter := repository.CourseListFilter{
-		Category: filter.Category, Level: filter.Level, Search: filter.Search,
-	}
-	// Administrators moderate the complete catalogue. In particular, archived
-	// courses must be visible here so an admin can restore them.
-	if role == models.RoleAdmin {
-		repoListFilter.Status = filter.Status
-		courses, total, err := s.courseRepo.ListAll(ctx, repoListFilter, limit, offset)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to list published courses: %w", err)
-		}
-		result := make([]*dto.CourseResponse, len(courses))
-		for i, course := range courses {
-			result[i] = s.toCourseResponseWithCreator(course)
-		}
-		return result, total, nil
-	}
-
+// ListPublishedCourses lists only published courses visible to the user.
+//
+// This is the catalogue/discovery endpoint. Role and ownership must not make a
+// draft visible here: authors manage drafts through ListMyCourses instead.
+func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, filter dto.FilterRequest, limit, offset int) ([]*dto.CourseResponse, int, error) {
 	// Fetch user's organizations
 	orgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
 	if err != nil {
