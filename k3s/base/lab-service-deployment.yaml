@@ -14,6 +14,33 @@ spec:
       labels:
         app: lab-service
     spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+      - name: prepare-hpc-credentials
+        image: alpine:3.20
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          if [ -f /hpc-source/id_ed25519 ] && [ -f /hpc-source/known_hosts ]; then
+            install -o 1000 -g 1000 -m 0400 /hpc-source/id_ed25519 /hpc-runtime/id_ed25519
+            install -o 1000 -g 1000 -m 0444 /hpc-source/known_hosts /hpc-runtime/known_hosts
+          fi
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - name: hpc-slurm-credentials-source
+          mountPath: /hpc-source
+          readOnly: true
+        - name: hpc-slurm-credentials
+          mountPath: /hpc-runtime
       containers:
       - name: lab-service
         image: phucnhan2809/bdc-lab:latest
@@ -82,6 +109,10 @@ spec:
               key: LMS_SYNC_SECRET
         - name: GOMAXPROCS
           value: "2"
+        volumeMounts:
+        - name: hpc-slurm-credentials
+          mountPath: /etc/lab-hpc
+          readOnly: true
         resources:
           limits:
             cpu: "2.0"
@@ -94,6 +125,11 @@ spec:
           runAsGroup: 1000
           runAsNonRoot: true
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
         livenessProbe:
           httpGet:
             path: /health
@@ -108,6 +144,19 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 15
           timeoutSeconds: 5
+      volumes:
+      # This optional Secret is created out-of-band by the HPC operator. It
+      # contains only an unencrypted submit-only SSH key and pinned host keys;
+      # it must never be uploaded through the lab authoring UI.
+      - name: hpc-slurm-credentials
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Mi
+      - name: hpc-slurm-credentials-source
+        secret:
+          secretName: hpc-slurm-credentials
+          optional: true
+          defaultMode: 0444
 
 ---
 apiVersion: v1

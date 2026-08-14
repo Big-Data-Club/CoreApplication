@@ -63,7 +63,7 @@ func main() {
 	runtimeRegistry.Register(runtime.NewCodingRunner(cfg.RuntimeSecurity.AllowUnsafeLocalExecution))
 	runtimeRegistry.Register(runtime.NewDatabaseRunner(cfg.DatabaseLab))
 	runtimeRegistry.Register(runtime.NewWorkspaceRunner())
-	runtimeRegistry.Register(runtime.NewHPCRunner())
+	runtimeRegistry.Register(runtime.NewHPCRunner(cfg.SLURM))
 	runtimeRegistry.Register(runtime.NewJupyterRunner())
 	runtimeRegistry.Register(runtime.NewCustomRunner())
 	logger.Info("Runtime adapters registered: CODING, DATABASE, WORKSPACE, HPC, JUPYTER, CUSTOM")
@@ -195,6 +195,7 @@ func main() {
 		// Submissions
 		api.POST("/labs/:labId/run", submissionHandler.RunCode)
 		api.POST("/labs/:labId/submit", submissionHandler.SubmitCode)
+		api.POST("/labs/:labId/hpc-jobs", submissionHandler.SubmitHPCJob)
 		api.GET("/labs/:labId/submissions/my", submissionHandler.ListMySubmissions)
 		api.GET("/submissions/:subId", submissionHandler.GetSubmission)
 

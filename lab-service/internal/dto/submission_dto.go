@@ -46,6 +46,7 @@ type SubmissionResponse struct {
 	TotalTests     int                    `json:"total_tests"`
 	RuntimeMs      int                    `json:"runtime_ms"`
 	MemoryKB       int                    `json:"memory_kb"`
+	SlurmJobID     *int64                 `json:"slurm_job_id,omitempty"`
 	CompilerOutput string                 `json:"compiler_output,omitempty"`
 	Feedback       map[string]interface{} `json:"feedback,omitempty"`
 	SubmittedAt    time.Time              `json:"submitted_at"`

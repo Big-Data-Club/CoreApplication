@@ -103,12 +103,31 @@ type K8sConfig struct {
 }
 
 type SLURMConfig struct {
+	// A profile is provisioned by the platform operator, never supplied by a
+	// browser request.  It identifies one trusted Slurm gateway.
 	Enabled          bool
-	RestAPIURL       string
-	AuthToken        string
+	ProfileID        string
+	ProfileLabel     string
+	Transport        string // SSH (currently supported); REST is reserved for slurmrestd.
+	SSHHost          string
+	SSHPort          int
+	SSHUser          string
+	SSHIdentityFile  string
+	SSHKnownHostsFile string
+	CommandTimeout   time.Duration
 	DefaultPartition string
 	DefaultAccount   string
-	ScratchDir       string
+	DefaultQOS       string
+	AllowedPartitions []string
+	AllowedAccounts   []string
+	AllowedQOS        []string
+	MaxNodes          int
+	MaxTasks          int
+	MaxCPUsPerTask    int
+	MaxMemoryMB       int
+	MaxGPUCount       int
+	MaxTime           string
+	ScratchDir        string
 }
 
 type KafkaConfig struct {
@@ -213,12 +232,29 @@ func Load() (*Config, error) {
 			PVCSize:       getEnv("K8S_PVC_SIZE", "1Gi"),
 		},
 		SLURM: SLURMConfig{
-			Enabled:          getEnvAsBool("SLURM_ENABLED", false),
-			RestAPIURL:       getEnv("SLURM_REST_URL", ""),
-			AuthToken:        getEnv("SLURM_AUTH_TOKEN", ""),
-			DefaultPartition: getEnv("SLURM_DEFAULT_PARTITION", "normal"),
-			DefaultAccount:   getEnv("SLURM_DEFAULT_ACCOUNT", "students"),
-			ScratchDir:       getEnv("SLURM_SCRATCH_DIR", "/scratch/lab-jobs"),
+			Enabled:            getEnvAsBool("SLURM_ENABLED", false),
+			ProfileID:          getEnv("SLURM_PROFILE_ID", ""),
+			ProfileLabel:       getEnv("SLURM_PROFILE_LABEL", ""),
+			Transport:          strings.ToUpper(getEnv("SLURM_TRANSPORT", "SSH")),
+			SSHHost:            getEnv("SLURM_SSH_HOST", ""),
+			SSHPort:            getEnvAsInt("SLURM_SSH_PORT", 22),
+			SSHUser:            getEnv("SLURM_SSH_USER", ""),
+			SSHIdentityFile:    getEnv("SLURM_SSH_IDENTITY_FILE", "/etc/lab-hpc/id_ed25519"),
+			SSHKnownHostsFile:  getEnv("SLURM_SSH_KNOWN_HOSTS_FILE", "/etc/lab-hpc/known_hosts"),
+			CommandTimeout:     getEnvAsDuration("SLURM_COMMAND_TIMEOUT", 20*time.Second),
+			DefaultPartition:   getEnv("SLURM_DEFAULT_PARTITION", ""),
+			DefaultAccount:     getEnv("SLURM_DEFAULT_ACCOUNT", ""),
+			DefaultQOS:         getEnv("SLURM_DEFAULT_QOS", ""),
+			AllowedPartitions:  getEnvAsSlice("SLURM_ALLOWED_PARTITIONS", []string{}),
+			AllowedAccounts:    getEnvAsSlice("SLURM_ALLOWED_ACCOUNTS", []string{}),
+			AllowedQOS:         getEnvAsSlice("SLURM_ALLOWED_QOS", []string{}),
+			MaxNodes:           getEnvAsInt("SLURM_MAX_NODES", 1),
+			MaxTasks:           getEnvAsInt("SLURM_MAX_TASKS", 32),
+			MaxCPUsPerTask:     getEnvAsInt("SLURM_MAX_CPUS_PER_TASK", 16),
+			MaxMemoryMB:        getEnvAsInt("SLURM_MAX_MEMORY_MB", 65536),
+			MaxGPUCount:        getEnvAsInt("SLURM_MAX_GPU_COUNT", 0),
+			MaxTime:            getEnv("SLURM_MAX_TIME", "01:00:00"),
+			ScratchDir:         getEnv("SLURM_SCRATCH_DIR", "/scratch/lab-jobs"),
 		},
 		Kafka: KafkaConfig{
 			Brokers: getEnv("KAFKA_BROKERS", "localhost:9092"),

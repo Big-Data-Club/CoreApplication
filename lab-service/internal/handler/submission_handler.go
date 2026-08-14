@@ -52,6 +52,24 @@ func (h *SubmissionHandler) SubmitCode(c *gin.Context) {
 	c.JSON(status, dto.NewDataResponse(resp))
 }
 
+// SubmitHPCJob submits a constrained Slurm batch job. Interactive SSH shells
+// are intentionally not exposed to the browser.
+func (h *SubmissionHandler) SubmitHPCJob(c *gin.Context) {
+	labID, _ := strconv.ParseInt(c.Param("labId"), 10, 64)
+	var req dto.SubmitJobRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+	userID := c.GetInt64("user_id")
+	resp, status, err := h.subService.SubmitHPCJob(c.Request.Context(), labID, userID, &req)
+	if err != nil {
+		c.JSON(status, dto.NewErrorResponse("error", err.Error()))
+		return
+	}
+	c.JSON(status, dto.NewSuccessResponse("HPC job submitted", resp))
+}
+
 // GetSubmission returns a submission with detailed results.
 func (h *SubmissionHandler) GetSubmission(c *gin.Context) {
 	subID, _ := strconv.ParseInt(c.Param("subId"), 10, 64)

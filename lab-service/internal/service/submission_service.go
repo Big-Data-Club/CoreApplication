@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"lab-service/internal/dto"
 	"lab-service/internal/repository"
@@ -46,6 +47,9 @@ func (s *SubmissionService) RunCode(ctx context.Context, labID, userID int64, re
 	}
 	if lab.LabType == "CODING" && !s.unsafeLocalExecutionEnabled {
 		return nil, http.StatusServiceUnavailable, fmt.Errorf("coding sandbox is being provisioned; execution is temporarily unavailable")
+	}
+	if lab.LabType == "HPC" {
+		return nil, http.StatusConflict, fmt.Errorf("HPC labs use batch-job submission, not the code-run endpoint")
 	}
 
 	// Get sample test cases only
@@ -104,6 +108,9 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64,
 	}
 	if lab.LabType == "CODING" && !s.unsafeLocalExecutionEnabled {
 		return nil, http.StatusServiceUnavailable, fmt.Errorf("coding sandbox is being provisioned; submissions are temporarily unavailable")
+	}
+	if lab.LabType == "HPC" {
+		return nil, http.StatusConflict, fmt.Errorf("HPC labs require the dedicated job-submission endpoint")
 	}
 
 	// Check enrollment
@@ -186,6 +193,74 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64,
 		return nil, http.StatusInternalServerError, err
 	}
 	return resp, http.StatusOK, nil
+}
+
+// SubmitHPCJob submits one bounded Slurm job. The job only receives resource
+// values that the lab owner already constrained in runtime_config.
+func (s *SubmissionService) SubmitHPCJob(ctx context.Context, labID, userID int64, req *dto.SubmitJobRequest) (*dto.SubmissionResponse, int, error) {
+	lab, err := s.labRepo.GetByID(ctx, labID)
+	if err != nil {
+		return nil, http.StatusNotFound, fmt.Errorf("lab not found")
+	}
+	if lab.LabType != "HPC" {
+		return nil, http.StatusConflict, fmt.Errorf("this endpoint is only available for HPC labs")
+	}
+	enrolled, _ := s.enrollRepo.IsEnrolled(ctx, labID, userID)
+	if !enrolled {
+		return nil, http.StatusForbidden, fmt.Errorf("not enrolled in this lab")
+	}
+	if lab.MaxSubmissions != nil && *lab.MaxSubmissions > 0 {
+		count, _ := s.subRepo.CountByLabAndUser(ctx, labID, userID)
+		if count >= *lab.MaxSubmissions {
+			return nil, http.StatusTooManyRequests, fmt.Errorf("submission limit reached")
+		}
+	}
+	adapter, err := s.registry.Get(runtime.RuntimeHPC)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	if err := adapter.Validate(lab.RuntimeConfig); err != nil {
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("HPC scheduler is not ready: %w", err)
+	}
+
+	submissionID, err := s.subRepo.Create(ctx, labID, userID, "SLURM", "", "", req.ScriptContent)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create HPC submission: %w", err)
+	}
+	result, err := adapter.Execute(ctx, runtime.ExecutionRequest{
+		LabID: labID, UserID: userID, SubmissionID: submissionID, RuntimeConfig: lab.RuntimeConfig,
+		Script: req.ScriptContent,
+		Resources: map[string]interface{}{
+			"job_name": req.JobName, "num_nodes": req.NumNodes, "num_tasks": req.NumTasks,
+			"cpus_per_task": req.CpusPerTask, "memory_mb": req.MemoryMB, "gpu_count": req.GPUCount,
+			"max_time": req.MaxTime,
+		},
+	})
+	if err != nil {
+		_ = s.subRepo.MarkHPCFailed(ctx, submissionID, err.Error())
+		return nil, http.StatusBadGateway, fmt.Errorf("HPC job was not submitted: %w", err)
+	}
+	jobID, parseErr := parsePositiveID(result.JobID)
+	if parseErr != nil {
+		_ = s.subRepo.MarkHPCFailed(ctx, submissionID, "scheduler returned an invalid job ID")
+		return nil, http.StatusBadGateway, fmt.Errorf("scheduler returned an invalid job ID")
+	}
+	if err := s.subRepo.MarkHPCSubmitted(ctx, submissionID, jobID); err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to record scheduler job: %w", err)
+	}
+	resp, err := s.subRepo.GetByID(ctx, submissionID)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	return resp, http.StatusAccepted, nil
+}
+
+func parsePositiveID(value string) (int64, error) {
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id < 1 {
+		return 0, fmt.Errorf("invalid ID")
+	}
+	return id, nil
 }
 
 // GetSubmission returns a submission with test results.

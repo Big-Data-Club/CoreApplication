@@ -59,6 +59,7 @@ declare -A images=(
 declare -A manifests=(
   [chat-service]=k3s/base/chat-service-deployment.yaml
   [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml
+  [lab-service]=k3s/base/lab-service-deployment.yaml
 )
 
 updated=()

@@ -35,17 +35,37 @@ func (r *SubmissionRepository) UpdateStatus(ctx context.Context, subID int64, st
 	return err
 }
 
+// MarkHPCSubmitted stores the scheduler ID but keeps the lab submission
+// pending. A scheduler accepting a job is not evidence that the work passed.
+func (r *SubmissionRepository) MarkHPCSubmitted(ctx context.Context, subID, jobID int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE lab_submissions SET status = 'PENDING', slurm_job_id = $1 WHERE id = $2`,
+		jobID, subID)
+	return err
+}
+
+func (r *SubmissionRepository) MarkHPCFailed(ctx context.Context, subID int64, message string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE lab_submissions SET status = 'FAILED', compiler_output = $1, graded_at = NOW() WHERE id = $2`,
+		message, subID)
+	return err
+}
+
 func (r *SubmissionRepository) GetByID(ctx context.Context, subID int64) (*dto.SubmissionResponse, error) {
 	var resp dto.SubmissionResponse
+	var slurmJobID sql.NullInt64
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, lab_id, user_id, language, status, score, max_score,
 			passed_tests, total_tests, runtime_ms, memory_kb, compiler_output,
-			submitted_at, graded_at
+			slurm_job_id, submitted_at, graded_at
 		FROM lab_submissions WHERE id = $1`, subID,
 	).Scan(&resp.ID, &resp.LabID, &resp.UserID, &resp.Language, &resp.Status,
 		&resp.Score, &resp.MaxScore, &resp.PassedTests, &resp.TotalTests,
 		&resp.RuntimeMs, &resp.MemoryKB, &resp.CompilerOutput,
-		&resp.SubmittedAt, &resp.GradedAt)
+		&slurmJobID, &resp.SubmittedAt, &resp.GradedAt)
+	if slurmJobID.Valid {
+		resp.SlurmJobID = &slurmJobID.Int64
+	}
 	return &resp, err
 }
 
@@ -58,7 +78,7 @@ func (r *SubmissionRepository) ListByLabAndUser(ctx context.Context, labID, user
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, lab_id, user_id, language, status, score, max_score,
 			passed_tests, total_tests, runtime_ms, memory_kb,
-			submitted_at, graded_at
+			slurm_job_id, submitted_at, graded_at
 		FROM lab_submissions
 		WHERE lab_id = $1 AND user_id = $2
 		ORDER BY submitted_at DESC
@@ -72,9 +92,13 @@ func (r *SubmissionRepository) ListByLabAndUser(ctx context.Context, labID, user
 	var subs []dto.SubmissionResponse
 	for rows.Next() {
 		var s dto.SubmissionResponse
+		var slurmJobID sql.NullInt64
 		rows.Scan(&s.ID, &s.LabID, &s.UserID, &s.Language, &s.Status,
 			&s.Score, &s.MaxScore, &s.PassedTests, &s.TotalTests,
-			&s.RuntimeMs, &s.MemoryKB, &s.SubmittedAt, &s.GradedAt)
+			&s.RuntimeMs, &s.MemoryKB, &slurmJobID, &s.SubmittedAt, &s.GradedAt)
+		if slurmJobID.Valid {
+			s.SlurmJobID = &slurmJobID.Int64
+		}
 		subs = append(subs, s)
 	}
 	return subs, total, nil

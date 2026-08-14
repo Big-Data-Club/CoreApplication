@@ -42,41 +42,6 @@ func (r *WorkspaceRunner) Execute(ctx context.Context, req ExecutionRequest) (*E
 	}, nil
 }
 
-// ── HPC RUNNER ──────────────────────────────────────────────────────────────
-
-type HPCRunner struct{}
-
-func NewHPCRunner() *HPCRunner {
-	return &HPCRunner{}
-}
-
-func (r *HPCRunner) Type() RuntimeType {
-	return RuntimeHPC
-}
-
-func (r *HPCRunner) Validate(config map[string]interface{}) error {
-	return nil
-}
-
-func (r *HPCRunner) Execute(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error) {
-	logger.Info(fmt.Sprintf("HPCRunner: executing job submission for HPC lab %d", req.LabID))
-	
-	return &ExecutionResult{
-		Status:      "ACCEPTED",
-		Score:       100,
-		MaxScore:    100,
-		PassedTests: 1,
-		TotalTests:  1,
-		TestResults: []TestResult{
-			{
-				TestCaseID:   1,
-				Status:       "PASSED",
-				ActualOutput: "HPC job run successful",
-			},
-		},
-	}, nil
-}
-
 // ── JUPYTER RUNNER ──────────────────────────────────────────────────────────
 
 type JupyterRunner struct{}
