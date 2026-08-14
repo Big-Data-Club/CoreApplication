@@ -119,12 +119,14 @@ func (e *KubernetesCodingExecutor) ExecuteTestCase(ctx context.Context, req Exec
 	if err := e.createJob(ctx, jobName, language, req.Code, tc.Input, limit, memoryMB); err != nil {
 		return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: "Could not start isolated executor: " + err.Error()}
 	}
-	defer e.deleteJob(context.Background(), jobName)
 
 	started := time.Now()
 	waitTimeout := e.cfg.ProvisionTimeout + e.cfg.MaxCompileTime + limit + 10*time.Second
 	status, err := e.waitForJob(ctx, jobName, waitTimeout)
 	if err != nil {
+		// Keep non-completed Jobs until Kubernetes' TTL controller removes them.
+		// This gives operators a short diagnostic window without leaving workload
+		// state around indefinitely.
 		return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: "Sandbox execution failed: " + err.Error(), RuntimeMs: int(time.Since(started).Milliseconds())}
 	}
 	logs, err := e.getJobLogs(ctx, jobName)
@@ -141,6 +143,9 @@ func (e *KubernetesCodingExecutor) ExecuteTestCase(ctx context.Context, req Exec
 		} else {
 			result.Status = "WRONG_ANSWER"
 		}
+	}
+	if status == "SUCCEEDED" {
+		e.deleteJob(context.Background(), jobName)
 	}
 	return result
 }
