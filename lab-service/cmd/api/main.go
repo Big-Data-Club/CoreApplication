@@ -60,7 +60,8 @@ func main() {
 
 	// ── Runtime Adapter Registry ────────────────────────────────
 	runtimeRegistry := runtime.NewRegistry()
-	runtimeRegistry.Register(runtime.NewCodingRunner(cfg.RuntimeSecurity.AllowUnsafeLocalExecution))
+	codingRunner := runtime.NewCodingRunner(cfg.RuntimeSecurity.AllowUnsafeLocalExecution, cfg.CodingSandbox)
+	runtimeRegistry.Register(codingRunner)
 	runtimeRegistry.Register(runtime.NewDatabaseRunner(cfg.DatabaseLab))
 	runtimeRegistry.Register(runtime.NewWorkspaceRunner())
 	runtimeRegistry.Register(runtime.NewHPCRunner(cfg.SLURM))
@@ -82,7 +83,7 @@ func main() {
 	experimentService := service.NewExperimentService(experimentRepo, labRepo, enrollmentRepo)
 	submissionService := service.NewSubmissionService(
 		submissionRepo, testCaseRepo, labRepo, enrollmentRepo,
-		leaderboardRepo, runtimeRegistry, cfg.RuntimeSecurity.AllowUnsafeLocalExecution,
+		leaderboardRepo, runtimeRegistry, codingRunner.Available(),
 	)
 
 	// ── Handlers ────────────────────────────────────────────────
@@ -114,6 +115,7 @@ func main() {
 				"unsafe_local_execution_enabled": cfg.RuntimeSecurity.AllowUnsafeLocalExecution,
 				"unsafe_terminal_enabled": cfg.RuntimeSecurity.AllowUnsafeTerminal,
 				"production_execution_mode": "isolated-worker-required",
+				"coding_sandbox_enabled": codingRunner.Available(),
 			},
 		})
 	}

@@ -24,6 +24,7 @@ type Config struct {
 	Kafka    KafkaConfig
 	DatabaseLab DatabaseLabConfig
 	RuntimeSecurity RuntimeSecurityConfig
+	CodingSandbox CodingSandboxConfig
 }
 
 type AppConfig struct {
@@ -148,6 +149,19 @@ type RuntimeSecurityConfig struct {
 	AllowUnsafeTerminal       bool
 }
 
+// CodingSandboxConfig describes an in-cluster, restricted execution worker.
+// It intentionally has no user-controlled image, namespace or network fields.
+type CodingSandboxConfig struct {
+	Enabled       bool
+	Namespace     string
+	Image         string
+	MaxTime       time.Duration
+	MaxMemoryMB   int
+	MaxCPU        string
+	PollInterval  time.Duration
+	JobTTLSeconds int
+}
+
 func LoadStorageConfig() StorageConfig {
 	return StorageConfig{
 		Type:          getEnv("STORAGE_TYPE", "minio"),
@@ -270,6 +284,16 @@ func Load() (*Config, error) {
 			// It is forcibly disabled in production regardless of the environment.
 			AllowUnsafeLocalExecution: getEnvAsBool("LAB_ALLOW_UNSAFE_LOCAL_EXECUTION", false),
 			AllowUnsafeTerminal:       getEnvAsBool("LAB_ALLOW_UNSAFE_TERMINAL", false),
+		},
+		CodingSandbox: CodingSandboxConfig{
+			Enabled:       getEnvAsBool("LAB_CODING_SANDBOX_ENABLED", false),
+			Namespace:     getEnv("LAB_CODING_SANDBOX_NAMESPACE", "lab-sandbox"),
+			Image:         getEnv("LAB_CODING_SANDBOX_IMAGE", "python:3.12-alpine"),
+			MaxTime:       getEnvAsDuration("LAB_CODING_SANDBOX_MAX_TIME", 10*time.Second),
+			MaxMemoryMB:   getEnvAsInt("LAB_CODING_SANDBOX_MAX_MEMORY_MB", 512),
+			MaxCPU:        getEnv("LAB_CODING_SANDBOX_MAX_CPU", "1"),
+			PollInterval:  getEnvAsDuration("LAB_CODING_SANDBOX_POLL_INTERVAL", 250*time.Millisecond),
+			JobTTLSeconds: getEnvAsInt("LAB_CODING_SANDBOX_JOB_TTL_SECONDS", 60),
 		},
 	}
 	if cfg.App.Env == "production" {

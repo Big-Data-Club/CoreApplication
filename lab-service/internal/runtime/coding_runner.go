@@ -10,21 +10,34 @@ import (
 	"strings"
 	"time"
 
+	"lab-service/internal/config"
 	"lab-service/pkg/logger"
 )
 
 // CodingRunner executes code in a sandboxed environment and compares output.
-// Phase 1 uses a simple exec-based approach. Phase 2 will use K8s Jobs + gVisor.
+// Production requests use a short-lived Kubernetes Job. Direct local execution
+// is retained only as an explicitly enabled developer-machine escape hatch.
 type CodingRunner struct {
 	allowUnsafeLocalExecution bool
+	sandbox                   *KubernetesCodingExecutor
 }
 
-func NewCodingRunner(allowUnsafeLocalExecution bool) *CodingRunner {
-	return &CodingRunner{allowUnsafeLocalExecution: allowUnsafeLocalExecution}
+func NewCodingRunner(allowUnsafeLocalExecution bool, sandboxConfig config.CodingSandboxConfig) *CodingRunner {
+	sandbox, err := NewKubernetesCodingExecutor(sandboxConfig)
+	if err != nil {
+		logger.Error("Kubernetes coding executor disabled", err)
+	}
+	return &CodingRunner{allowUnsafeLocalExecution: allowUnsafeLocalExecution, sandbox: sandbox}
 }
 
 func (r *CodingRunner) Type() RuntimeType {
 	return RuntimeCoding
+}
+
+// Available reports whether this process can execute coding workloads without
+// silently falling back to an unsafe local process.
+func (r *CodingRunner) Available() bool {
+	return r.sandbox != nil || r.allowUnsafeLocalExecution
 }
 
 func (r *CodingRunner) Validate(config map[string]interface{}) error {
@@ -38,6 +51,9 @@ func (r *CodingRunner) Validate(config map[string]interface{}) error {
 // In Phase 1, this is a placeholder that simulates execution.
 // In Phase 2, this creates a K8s Job with gVisor/nsjail sandbox.
 func (r *CodingRunner) Execute(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error) {
+	if r.sandbox != nil {
+		return r.executeInKubernetes(ctx, req)
+	}
 	if !r.allowUnsafeLocalExecution {
 		return nil, fmt.Errorf("secure coding executor is not provisioned; local process execution is disabled")
 	}
@@ -77,8 +93,6 @@ func (r *CodingRunner) Execute(ctx context.Context, req ExecutionRequest) (*Exec
 			ml = tc.MemoryLimitMB
 		}
 
-		// Phase 1: Delegate to sandbox executor
-		// Phase 2: K8s Job with gVisor
 		tr := executeTestCase(req.Language, req.Code, tc, tl, ml)
 		result.TestResults = append(result.TestResults, tr)
 
@@ -113,9 +127,40 @@ func (r *CodingRunner) Execute(ctx context.Context, req ExecutionRequest) (*Exec
 	return result, nil
 }
 
-// executeTestCase runs a single test case against the code.
-// Phase 1: simple local exec-based approach.
-// Phase 2: actual sandboxed execution with K8s Jobs.
+func (r *CodingRunner) executeInKubernetes(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error) {
+	result := &ExecutionResult{TotalTests: len(req.TestCases), MaxScore: 100}
+	timeLimitMs := configInt(req.RuntimeConfig, "time_limit_ms", 2000)
+	memoryLimitMB := configInt(req.RuntimeConfig, "memory_limit_mb", 256)
+	totalWeight, passedWeight := 0, 0
+	for _, tc := range req.TestCases {
+		timeLimit := timeLimitMs
+		if tc.TimeLimitMs > 0 { timeLimit = tc.TimeLimitMs }
+		memoryLimit := memoryLimitMB
+		if tc.MemoryLimitMB > 0 { memoryLimit = tc.MemoryLimitMB }
+		tr := r.sandbox.ExecuteTestCase(ctx, req, tc, timeLimit, memoryLimit)
+		result.TestResults = append(result.TestResults, tr)
+		result.RuntimeMs += tr.RuntimeMs
+		totalWeight += tc.Weight
+		if tr.Status == "PASSED" { result.PassedTests++; passedWeight += tc.Weight }
+	}
+	if result.PassedTests == result.TotalTests { result.Status = "ACCEPTED" } else {
+		result.Status = "WRONG_ANSWER"
+		for _, tr := range result.TestResults { if tr.Status != "PASSED" { result.Status = tr.Status; break } }
+	}
+	if totalWeight > 0 { result.Score = float64(passedWeight) / float64(totalWeight) * result.MaxScore }
+	return result, nil
+}
+
+func configInt(values map[string]interface{}, key string, fallback int) int {
+	switch value := values[key].(type) {
+	case int: return value
+	case float64: return int(value)
+	case int64: return int(value)
+	default: return fallback
+	}
+}
+
+// executeTestCase is the developer-machine-only local executor.
 func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimitMB int) TestResult {
 	_ = memoryLimitMB
 

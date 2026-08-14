@@ -14,6 +14,10 @@ spec:
       labels:
         app: lab-service
     spec:
+      serviceAccountName: lab-execution-controller
+      # The controller needs only its projected Kubernetes API token to create
+      # short-lived Jobs in lab-sandbox; its RBAC cannot access secrets or exec.
+      automountServiceAccountToken: true
       securityContext:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
@@ -109,6 +113,25 @@ spec:
               key: LMS_SYNC_SECRET
         - name: GOMAXPROCS
           value: "2"
+        # LeetCode-style executor. Jobs run only in lab-sandbox, never in this
+        # API pod. Keep this local to lab-service so changing it cannot restart
+        # unrelated workers such as document indexing.
+        - name: LAB_CODING_SANDBOX_ENABLED
+          value: "true"
+        - name: LAB_CODING_SANDBOX_NAMESPACE
+          value: "lab-sandbox"
+        - name: LAB_CODING_SANDBOX_IMAGE
+          value: "python:3.12-alpine"
+        - name: LAB_CODING_SANDBOX_MAX_TIME
+          value: "10s"
+        - name: LAB_CODING_SANDBOX_MAX_MEMORY_MB
+          value: "512"
+        - name: LAB_CODING_SANDBOX_MAX_CPU
+          value: "1"
+        - name: LAB_CODING_SANDBOX_POLL_INTERVAL
+          value: "250ms"
+        - name: LAB_CODING_SANDBOX_JOB_TTL_SECONDS
+          value: "60"
         volumeMounts:
         - name: hpc-slurm-credentials
           mountPath: /etc/lab-hpc
