@@ -133,6 +133,7 @@ jobs:
           fi
           if [[ "${LAB_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-lab","context":"lab-service"}')
+            items+=('{"image":"bdc-lab-scala-sandbox","context":"lab-service/sandbox/scala"}')
             services+=(lab-service)
           fi
           if [[ "${CHAT_CHANGED}" == "true" ]]; then

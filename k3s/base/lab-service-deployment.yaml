@@ -120,10 +120,26 @@ spec:
           value: "true"
         - name: LAB_CODING_SANDBOX_NAMESPACE
           value: "lab-sandbox"
-        - name: LAB_CODING_SANDBOX_IMAGE
+        - name: LAB_CODING_SANDBOX_PYTHON_IMAGE
           value: "python:3.12-alpine"
+        - name: LAB_CODING_SANDBOX_C_IMAGE
+          value: "gcc:14"
+        - name: LAB_CODING_SANDBOX_CPP_IMAGE
+          value: "gcc:14"
+        - name: LAB_CODING_SANDBOX_JAVA_IMAGE
+          value: "eclipse-temurin:21-jdk-alpine"
+        - name: LAB_CODING_SANDBOX_GO_IMAGE
+          value: "golang:1.25-alpine"
+        - name: LAB_CODING_SANDBOX_RUST_IMAGE
+          value: "rust:1.88-alpine"
+        - name: LAB_CODING_SANDBOX_SCALA_IMAGE
+          value: "phucnhan2809/bdc-lab-scala-sandbox:latest"
         - name: LAB_CODING_SANDBOX_MAX_TIME
           value: "10s"
+        - name: LAB_CODING_SANDBOX_MAX_COMPILE_TIME
+          value: "30s"
+        - name: LAB_CODING_SANDBOX_PROVISION_TIMEOUT
+          value: "90s"
         - name: LAB_CODING_SANDBOX_MAX_MEMORY_MB
           value: "512"
         - name: LAB_CODING_SANDBOX_MAX_CPU

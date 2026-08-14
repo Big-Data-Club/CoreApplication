@@ -197,6 +197,15 @@ jobs:
             test_cmd: 'go test -v ./... -coverprofile=coverage.out || echo "No tests configured"'
             build_cmd: 'go mod download && go build -v ./...'
 
+          - service: lab-scala-sandbox
+            context: ./lab-service/sandbox/scala
+            dockerfile: ./lab-service/sandbox/scala/Dockerfile
+            image: bdc-lab-scala-sandbox
+            should_build: ${{ needs.detect-changes.outputs.lab == 'true' || github.event.inputs.force_build_all == 'true' }}
+            setup: 'none'
+            test_cmd: 'true'
+            build_cmd: 'true'
+
           - service: personalize
             context: ./personalize-service
             dockerfile: ./personalize-service/Dockerfile

@@ -152,14 +152,22 @@ type RuntimeSecurityConfig struct {
 // CodingSandboxConfig describes an in-cluster, restricted execution worker.
 // It intentionally has no user-controlled image, namespace or network fields.
 type CodingSandboxConfig struct {
-	Enabled       bool
-	Namespace     string
-	Image         string
-	MaxTime       time.Duration
-	MaxMemoryMB   int
-	MaxCPU        string
-	PollInterval  time.Duration
-	JobTTLSeconds int
+	Enabled          bool
+	Namespace        string
+	PythonImage      string
+	CImage           string
+	CPPImage         string
+	JavaImage        string
+	GoImage          string
+	RustImage        string
+	ScalaImage       string
+	MaxTime          time.Duration
+	MaxCompileTime   time.Duration
+	ProvisionTimeout time.Duration
+	MaxMemoryMB      int
+	MaxCPU           string
+	PollInterval     time.Duration
+	JobTTLSeconds    int
 }
 
 func LoadStorageConfig() StorageConfig {
@@ -286,14 +294,22 @@ func Load() (*Config, error) {
 			AllowUnsafeTerminal:       getEnvAsBool("LAB_ALLOW_UNSAFE_TERMINAL", false),
 		},
 		CodingSandbox: CodingSandboxConfig{
-			Enabled:       getEnvAsBool("LAB_CODING_SANDBOX_ENABLED", false),
-			Namespace:     getEnv("LAB_CODING_SANDBOX_NAMESPACE", "lab-sandbox"),
-			Image:         getEnv("LAB_CODING_SANDBOX_IMAGE", "python:3.12-alpine"),
-			MaxTime:       getEnvAsDuration("LAB_CODING_SANDBOX_MAX_TIME", 10*time.Second),
-			MaxMemoryMB:   getEnvAsInt("LAB_CODING_SANDBOX_MAX_MEMORY_MB", 512),
-			MaxCPU:        getEnv("LAB_CODING_SANDBOX_MAX_CPU", "1"),
-			PollInterval:  getEnvAsDuration("LAB_CODING_SANDBOX_POLL_INTERVAL", 250*time.Millisecond),
-			JobTTLSeconds: getEnvAsInt("LAB_CODING_SANDBOX_JOB_TTL_SECONDS", 60),
+			Enabled:          getEnvAsBool("LAB_CODING_SANDBOX_ENABLED", false),
+			Namespace:        getEnv("LAB_CODING_SANDBOX_NAMESPACE", "lab-sandbox"),
+			PythonImage:      getEnv("LAB_CODING_SANDBOX_PYTHON_IMAGE", "python:3.12-alpine"),
+			CImage:           getEnv("LAB_CODING_SANDBOX_C_IMAGE", "gcc:14"),
+			CPPImage:         getEnv("LAB_CODING_SANDBOX_CPP_IMAGE", "gcc:14"),
+			JavaImage:        getEnv("LAB_CODING_SANDBOX_JAVA_IMAGE", "eclipse-temurin:21-jdk-alpine"),
+			GoImage:          getEnv("LAB_CODING_SANDBOX_GO_IMAGE", "golang:1.25-alpine"),
+			RustImage:        getEnv("LAB_CODING_SANDBOX_RUST_IMAGE", "rust:1.88-alpine"),
+			ScalaImage:       getEnv("LAB_CODING_SANDBOX_SCALA_IMAGE", "phucnhan2809/bdc-lab-scala-sandbox:latest"),
+			MaxTime:          getEnvAsDuration("LAB_CODING_SANDBOX_MAX_TIME", 10*time.Second),
+			MaxCompileTime:   getEnvAsDuration("LAB_CODING_SANDBOX_MAX_COMPILE_TIME", 30*time.Second),
+			ProvisionTimeout: getEnvAsDuration("LAB_CODING_SANDBOX_PROVISION_TIMEOUT", 90*time.Second),
+			MaxMemoryMB:      getEnvAsInt("LAB_CODING_SANDBOX_MAX_MEMORY_MB", 512),
+			MaxCPU:           getEnv("LAB_CODING_SANDBOX_MAX_CPU", "1"),
+			PollInterval:     getEnvAsDuration("LAB_CODING_SANDBOX_POLL_INTERVAL", 250*time.Millisecond),
+			JobTTLSeconds:    getEnvAsInt("LAB_CODING_SANDBOX_JOB_TTL_SECONDS", 60),
 		},
 	}
 	if cfg.App.Env == "production" {
