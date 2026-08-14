@@ -60,7 +60,7 @@ func main() {
 
 	// ── Runtime Adapter Registry ────────────────────────────────
 	runtimeRegistry := runtime.NewRegistry()
-	runtimeRegistry.Register(runtime.NewCodingRunner())
+	runtimeRegistry.Register(runtime.NewCodingRunner(cfg.RuntimeSecurity.AllowUnsafeLocalExecution))
 	runtimeRegistry.Register(runtime.NewDatabaseRunner(cfg.DatabaseLab))
 	runtimeRegistry.Register(runtime.NewWorkspaceRunner())
 	runtimeRegistry.Register(runtime.NewHPCRunner())
@@ -82,11 +82,11 @@ func main() {
 	experimentService := service.NewExperimentService(experimentRepo, labRepo, enrollmentRepo)
 	submissionService := service.NewSubmissionService(
 		submissionRepo, testCaseRepo, labRepo, enrollmentRepo,
-		leaderboardRepo, runtimeRegistry,
+		leaderboardRepo, runtimeRegistry, cfg.RuntimeSecurity.AllowUnsafeLocalExecution,
 	)
 
 	// ── Handlers ────────────────────────────────────────────────
-	labHandler := handler.NewLabHandler(labService)
+	labHandler := handler.NewLabHandler(labService, cfg.RuntimeSecurity)
 	experimentHandler := handler.NewExperimentHandler(experimentService)
 	submissionHandler := handler.NewSubmissionHandler(submissionService)
 	enrollmentHandler := handler.NewEnrollmentHandler(enrollmentRepo)
@@ -110,6 +110,11 @@ func main() {
 			"service":             cfg.App.Name,
 			"version":             cfg.App.Version,
 			"supported_lab_types": []string{"CODING", "HPC", "JUPYTER", "WORKSPACE", "DATABASE", "CUSTOM", "PLANT", "ROBOT"},
+			"runtime_security": gin.H{
+				"unsafe_local_execution_enabled": cfg.RuntimeSecurity.AllowUnsafeLocalExecution,
+				"unsafe_terminal_enabled": cfg.RuntimeSecurity.AllowUnsafeTerminal,
+				"production_execution_mode": "isolated-worker-required",
+			},
 		})
 	}
 	r.GET("/health", healthHandler)

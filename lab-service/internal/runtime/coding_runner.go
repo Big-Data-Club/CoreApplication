@@ -15,10 +15,12 @@ import (
 
 // CodingRunner executes code in a sandboxed environment and compares output.
 // Phase 1 uses a simple exec-based approach. Phase 2 will use K8s Jobs + gVisor.
-type CodingRunner struct{}
+type CodingRunner struct {
+	allowUnsafeLocalExecution bool
+}
 
-func NewCodingRunner() *CodingRunner {
-	return &CodingRunner{}
+func NewCodingRunner(allowUnsafeLocalExecution bool) *CodingRunner {
+	return &CodingRunner{allowUnsafeLocalExecution: allowUnsafeLocalExecution}
 }
 
 func (r *CodingRunner) Type() RuntimeType {
@@ -36,6 +38,9 @@ func (r *CodingRunner) Validate(config map[string]interface{}) error {
 // In Phase 1, this is a placeholder that simulates execution.
 // In Phase 2, this creates a K8s Job with gVisor/nsjail sandbox.
 func (r *CodingRunner) Execute(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error) {
+	if !r.allowUnsafeLocalExecution {
+		return nil, fmt.Errorf("secure coding executor is not provisioned; local process execution is disabled")
+	}
 	logger.Info(fmt.Sprintf("CodingRunner: executing %s code for submission %d with %d test cases",
 		req.Language, req.SubmissionID, len(req.TestCases)))
 

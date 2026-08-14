@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"lab-service/internal/dto"
+	"lab-service/internal/config"
 	"lab-service/internal/service"
 	appLogger "lab-service/pkg/logger"
 
@@ -20,10 +21,11 @@ import (
 
 type LabHandler struct {
 	labService *service.LabService
+	runtimeSecurity config.RuntimeSecurityConfig
 }
 
-func NewLabHandler(labService *service.LabService) *LabHandler {
-	return &LabHandler{labService: labService}
+func NewLabHandler(labService *service.LabService, runtimeSecurity config.RuntimeSecurityConfig) *LabHandler {
+	return &LabHandler{labService: labService, runtimeSecurity: runtimeSecurity}
 }
 
 func (h *LabHandler) CreateLab(c *gin.Context) {
@@ -258,6 +260,10 @@ var upgrader = websocket.Upgrader{
 }
 
 func (h *LabHandler) StartSession(c *gin.Context) {
+	if !h.runtimeSecurity.AllowUnsafeTerminal {
+		c.JSON(http.StatusServiceUnavailable, dto.NewErrorResponse("sandbox_unavailable", "secure terminal sandbox is not provisioned; host shell execution is disabled"))
+		return
+	}
 	labID, err := strconv.ParseInt(c.Param("labId"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid lab ID"))
@@ -276,6 +282,10 @@ func (h *LabHandler) StartSession(c *gin.Context) {
 }
 
 func (h *LabHandler) TerminalWS(c *gin.Context) {
+	if !h.runtimeSecurity.AllowUnsafeTerminal {
+		c.JSON(http.StatusServiceUnavailable, dto.NewErrorResponse("sandbox_unavailable", "secure terminal sandbox is not provisioned; host shell execution is disabled"))
+		return
+	}
 	labID, err := strconv.ParseInt(c.Param("labId"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid lab ID"))

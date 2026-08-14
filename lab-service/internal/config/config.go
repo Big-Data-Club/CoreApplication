@@ -23,6 +23,7 @@ type Config struct {
 	SLURM    SLURMConfig
 	Kafka    KafkaConfig
 	DatabaseLab DatabaseLabConfig
+	RuntimeSecurity RuntimeSecurityConfig
 }
 
 type AppConfig struct {
@@ -119,6 +120,13 @@ type DatabaseLabConfig struct {
 	MySQLURL     string
 	SQLServerURL string
 	OracleURL    string
+}
+
+// RuntimeSecurityConfig intentionally defaults to fail-closed.  Learner code
+// and shells must execute in an isolated worker, never inside the API pod.
+type RuntimeSecurityConfig struct {
+	AllowUnsafeLocalExecution bool
+	AllowUnsafeTerminal       bool
 }
 
 func LoadStorageConfig() StorageConfig {
@@ -221,6 +229,16 @@ func Load() (*Config, error) {
 			SQLServerURL: getEnv("DB_LAB_SQLSERVER_URL", "sqlserver://sa:SqlServerPassword123@localhost:1433?database=mssql_db"),
 			OracleURL:    getEnv("DB_LAB_ORACLE_URL", "oracle://system:oracle_password@localhost:1521/XE"),
 		},
+		RuntimeSecurity: RuntimeSecurityConfig{
+			// This escape hatch exists solely for a developer's isolated machine.
+			// It is forcibly disabled in production regardless of the environment.
+			AllowUnsafeLocalExecution: getEnvAsBool("LAB_ALLOW_UNSAFE_LOCAL_EXECUTION", false),
+			AllowUnsafeTerminal:       getEnvAsBool("LAB_ALLOW_UNSAFE_TERMINAL", false),
+		},
+	}
+	if cfg.App.Env == "production" {
+		cfg.RuntimeSecurity.AllowUnsafeLocalExecution = false
+		cfg.RuntimeSecurity.AllowUnsafeTerminal = false
 	}
 
 	if err := cfg.Validate(); err != nil {

@@ -18,6 +18,7 @@ type SubmissionService struct {
 	enrollRepo   *repository.EnrollmentRepository
 	leaderboard  *repository.LeaderboardRepository
 	registry     *runtime.Registry
+	unsafeLocalExecutionEnabled bool
 }
 
 func NewSubmissionService(
@@ -27,11 +28,13 @@ func NewSubmissionService(
 	enrollRepo *repository.EnrollmentRepository,
 	leaderboard *repository.LeaderboardRepository,
 	registry *runtime.Registry,
+	unsafeLocalExecutionEnabled bool,
 ) *SubmissionService {
 	return &SubmissionService{
 		subRepo: subRepo, testCaseRepo: testCaseRepo,
 		labRepo: labRepo, enrollRepo: enrollRepo,
 		leaderboard: leaderboard, registry: registry,
+		unsafeLocalExecutionEnabled: unsafeLocalExecutionEnabled,
 	}
 }
 
@@ -40,6 +43,9 @@ func (s *SubmissionService) RunCode(ctx context.Context, labID, userID int64, re
 	lab, err := s.labRepo.GetByID(ctx, labID)
 	if err != nil {
 		return nil, http.StatusNotFound, fmt.Errorf("lab not found")
+	}
+	if lab.LabType == "CODING" && !s.unsafeLocalExecutionEnabled {
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("coding sandbox is being provisioned; execution is temporarily unavailable")
 	}
 
 	// Get sample test cases only
@@ -95,6 +101,9 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64,
 	lab, err := s.labRepo.GetByID(ctx, labID)
 	if err != nil {
 		return nil, http.StatusNotFound, fmt.Errorf("lab not found")
+	}
+	if lab.LabType == "CODING" && !s.unsafeLocalExecutionEnabled {
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("coding sandbox is being provisioned; submissions are temporarily unavailable")
 	}
 
 	// Check enrollment
