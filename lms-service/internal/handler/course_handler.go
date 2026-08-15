@@ -114,6 +114,10 @@ func (h *CourseHandler) GetCourse(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Course not found"))
 			return
 		}
+		if err.Error() == "course is archived" {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("course_archived", "Course is temporarily disabled"))
+			return
+		}
 		if strings.Contains(err.Error(), "unauthorized") {
 			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", err.Error()))
 			return
@@ -380,6 +384,34 @@ func (h *CourseHandler) ListPublishedCourses(c *gin.Context) {
 	courses, total, err := h.courseService.ListPublishedCourses(c.Request.Context(), userID, filter, limit, offset)
 	if err != nil {
 		logger.Error("Failed to list published courses", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to retrieve courses"))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(dto.NewListResponse(courses, page, limit, total)))
+}
+
+// ListAllCoursesForAdmin lists every course state for administrator moderation.
+func (h *CourseHandler) ListAllCoursesForAdmin(c *gin.Context) {
+	var pagination dto.PaginationRequest
+	if err := c.ShouldBindQuery(&pagination); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+	limit, offset := pagination.GetPagination()
+	page := pagination.Page
+	if page < 1 {
+		page = 1
+	}
+	var filter dto.FilterRequest
+	if err := c.ShouldBindQuery(&filter); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+
+	courses, total, err := h.courseService.ListAllCoursesForAdmin(c.Request.Context(), filter, limit, offset)
+	if err != nil {
+		logger.Error("Failed to list courses for administration", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to retrieve courses"))
 		return
 	}

@@ -25,6 +25,7 @@ type EnrollmentWithCourse struct {
 	CourseDescription sql.NullString `json:"course_description" db:"course_description"`
 	CourseCategory    sql.NullString `json:"course_category" db:"course_category"`
 	CourseLevel       sql.NullString `json:"course_level" db:"course_level"`
+	CourseStatus      string         `json:"course_status" db:"course_status"`
 	CourseUpdatedAt   time.Time      `json:"course_updated_at" db:"course_updated_at"`
 	CoursePublishedAt sql.NullTime   `json:"course_published_at" db:"course_published_at"`
 	TeacherName       string         `json:"teacher_name" db:"teacher_name"`

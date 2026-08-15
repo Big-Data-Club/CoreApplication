@@ -215,6 +215,12 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
 	if course.Status == models.CourseStatusArchived {
+		// Enrolled students need a distinct response so the UI can explain why
+		// their existing course is unavailable. Everyone else must receive the
+		// same not-found result as for a course absent from discovery.
+		if role == models.RoleStudent && !s.isStudentEnrolled(ctx, userID, courseID) {
+			return nil, fmt.Errorf("course not found")
+		}
 		return nil, fmt.Errorf("course is archived")
 	}
 
@@ -583,6 +589,25 @@ func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, 
 		result[i] = s.toCourseResponseWithCreator(course)
 	}
 
+	return result, total, nil
+}
+
+// ListAllCoursesForAdmin returns every course state for moderation. It is kept
+// separate from the catalogue endpoint so an administrator browsing as a
+// student receives exactly the same published-only results as any student.
+func (s *CourseService) ListAllCoursesForAdmin(ctx context.Context, filter dto.FilterRequest, limit, offset int) ([]*dto.CourseResponse, int, error) {
+	repoFilter := repository.CourseListFilter{
+		Status: filter.Status, Category: filter.Category, Level: filter.Level, Search: filter.Search,
+	}
+	courses, total, err := s.courseRepo.ListAll(ctx, repoFilter, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list courses for administration: %w", err)
+	}
+
+	result := make([]*dto.CourseResponse, 0, len(courses))
+	for _, course := range courses {
+		result = append(result, s.toCourseResponseWithCreator(course))
+	}
 	return result, total, nil
 }
 

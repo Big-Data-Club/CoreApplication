@@ -404,6 +404,11 @@ func main() {
 				adminOrgs.PUT("/:id/members/:userId/role", orgHandler.UpdateMemberRole)
 				adminOrgs.DELETE("/:id/members/:userId", orgHandler.RemoveMember)
 			}
+			adminCourses := auth.Group("/admin/courses")
+			adminCourses.Use(middleware.RequireRoles("ADMIN"))
+			{
+				adminCourses.GET("", courseHandler.ListAllCoursesForAdmin)
+			}
 
 			// Student-facing: list my orgs
 			auth.GET("/my/orgs", orgHandler.GetMyOrganizations)

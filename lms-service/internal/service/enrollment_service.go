@@ -104,6 +104,9 @@ func (s *EnrollmentService) EnrollCourse(ctx context.Context, courseID, studentI
 	if err != nil {
 		return nil, fmt.Errorf("course not found")
 	}
+	if course.Status != models.CourseStatusPublished {
+		return nil, fmt.Errorf("course is unavailable")
+	}
 
 	// Use the live repository (not the cache) for the duplicate check: stale
 	// "not enrolled" entries in Redis would otherwise let the same student
@@ -204,6 +207,7 @@ func (s *EnrollmentService) GetMyEnrollments(ctx context.Context, studentID int6
 			CourseDescription: e.CourseDescription.String,
 			CourseCategory:    e.CourseCategory.String,
 			CourseLevel:       e.CourseLevel.String,
+			CourseStatus:      e.CourseStatus,
 			CourseUpdatedAt:   e.CourseUpdatedAt,
 			CoursePublishedAt: extractTime(e.CoursePublishedAt),
 			LastActivityAt:    lastActivityAt,

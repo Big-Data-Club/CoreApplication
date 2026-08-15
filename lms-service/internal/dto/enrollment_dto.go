@@ -28,6 +28,7 @@ type StudentEnrollmentResponse struct {
 	CourseDescription string     `json:"course_description,omitempty"`
 	CourseCategory    string     `json:"course_category,omitempty"`
 	CourseLevel       string     `json:"course_level,omitempty"`
+	CourseStatus      string     `json:"course_status"`
 	CourseUpdatedAt   time.Time  `json:"course_updated_at"`
 	CoursePublishedAt *time.Time `json:"course_published_at,omitempty"`
 	LastActivityAt    *time.Time `json:"last_activity_at,omitempty"`
