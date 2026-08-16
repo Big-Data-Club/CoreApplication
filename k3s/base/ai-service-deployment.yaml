@@ -14,6 +14,8 @@ spec:
       labels:
         app: ai-service
     spec:
+      securityContext:
+        fsGroup: 1001
       containers:
       - name: ai-service
         image: phucnhan2809/bdc-ai:fix-index-vlmguard-20260728
@@ -175,6 +177,8 @@ spec:
       labels:
         app: ai-worker
     spec:
+      securityContext:
+        fsGroup: 1001
       containers:
       - name: ai-worker
         image: phucnhan2809/bdc-ai:fix-index-vlmguard-20260728
