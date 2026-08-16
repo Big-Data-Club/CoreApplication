@@ -499,6 +499,12 @@ class AutoIndexService:
                 "AutoIndex done: content_id=%d new_nodes=%d reused=%d chunks=%d",
                 content_id, new_nodes_created, reused_nodes, n_chunks,
             )
+
+            # Background sweep: delete any auto_generated node in this course
+            # that still has 0 chunks after this run (includes nodes from
+            # previous document runs that may have lost all their evidence).
+            asyncio.create_task(self.cleanup_course_orphans(course_id))
+
             return {
                 "ok": True, "node_ids": all_node_ids,
                 "new_nodes_created": new_nodes_created,
@@ -634,6 +640,9 @@ class AutoIndexService:
             surviving_ids = set(all_node_ids)
             new_nodes_created = sum(nid in surviving_ids for nid in new_node_ids)
             reused_nodes = sum(nid in surviving_ids for nid in idx_to_existing.values())
+
+            # Background sweep: same as above for text content.
+            asyncio.create_task(self.cleanup_course_orphans(course_id))
 
             return {
                 "ok": True, "node_ids": all_node_ids,
@@ -1779,6 +1788,53 @@ class AutoIndexService:
                     assigned_node_ids[i] = evidence_assignments[chunk.index]
                 elif score >= MIN_CHUNK_TO_NODE_SIMILARITY and not self._is_artifact_chunk(chunk):
                     assigned_node_ids[i] = node_ids[local_node]
+
+            # ── Fallback: rescue nodes that won zero chunks ───────────────────
+            # After the Top-1 pass, some nodes may have no chunk assigned because
+            # their best-matching chunks fell below MIN_CHUNK_TO_NODE_SIMILARITY
+            # or were out-competed by a sibling node.  For each such node we scan
+            # the pool of UNASSIGNED, non-artifact chunks and take the single
+            # best-matching one (if score >= FALLBACK_CHUNK_TO_NODE_SIMILARITY).
+            #
+            # Rules that keep the graph professional:
+            #  • Only draw from the unassigned pool — no chunk is given to two nodes.
+            #  • Each rescue node receives exactly ONE chunk (minimum evidence).
+            #  • Artifact chunks (images, captions) are excluded.
+            #  • The threshold 0.45 is intentionally lower than the primary pass
+            #    (0.52) — just enough to verify some topical overlap exists.
+            FALLBACK_CHUNK_TO_NODE_SIMILARITY = 0.45
+            nodes_with_chunks = {nid for nid in assigned_node_ids if nid is not None}
+            zero_chunk_node_indices = [
+                i for i, nid in enumerate(node_ids) if nid not in nodes_with_chunks
+            ]
+            if zero_chunk_node_indices:
+                # Build a mutable list of unassigned (and non-artifact) chunk positions
+                unassigned_pool = [
+                    i for i, nid in enumerate(assigned_node_ids)
+                    if nid is None and not self._is_artifact_chunk(structured_chunks[i])
+                ]
+                for node_local_idx in zero_chunk_node_indices:
+                    if not unassigned_pool:
+                        break  # no more unassigned chunks available
+                    # sims shape: (n_chunks, n_nodes) — column = one node
+                    scores_for_unassigned = [
+                        (float(sims[ci, node_local_idx]), ci)
+                        for ci in unassigned_pool
+                    ]
+                    best_score, best_ci = max(scores_for_unassigned, key=lambda x: x[0])
+                    if best_score >= FALLBACK_CHUNK_TO_NODE_SIMILARITY:
+                        nid = node_ids[node_local_idx]
+                        assigned_node_ids[best_ci] = nid
+                        unassigned_pool.remove(best_ci)
+                        logger.info(
+                            "[fallback-chunk] node_id=%d rescued with chunk_i=%d (score=%.3f)",
+                            nid, best_ci, best_score,
+                        )
+                    else:
+                        logger.debug(
+                            "[fallback-chunk] node_local=%d: best unassigned score %.3f < %.2f – remains 0-chunk",
+                            node_local_idx, best_score, FALLBACK_CHUNK_TO_NODE_SIMILARITY,
+                        )
 
         stored = await self._batch_insert_chunks(
             content_id=content_id, course_id=course_id,
