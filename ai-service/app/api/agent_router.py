@@ -34,7 +34,7 @@ settings = get_settings()
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
-# ── Request/Response models ──────────────────────────────────────────────────
+# -- Request/Response models --------------------------------------------------
 
 class UserContext(BaseModel):
     """User identity context injected from the frontend JWT session."""
@@ -100,7 +100,7 @@ class SessionListResponse(BaseModel):
     sessions: list[dict]
 
 
-# ── Auth helper ──────────────────────────────────────────────────────────────
+# -- Auth helper --------------------------------------------------------------
 
 def _verify_secret(x_ai_secret: str | None):
     """Verify the X-AI-Secret header."""
@@ -108,7 +108,7 @@ def _verify_secret(x_ai_secret: str | None):
         raise HTTPException(status_code=401, detail="Invalid AI service secret")
 
 
-# ── SSE Chat Endpoint ───────────────────────────────────────────────────────
+# -- SSE Chat Endpoint -------------------------------------------------------
 
 @router.post("/chat")
 async def chat_endpoint(
@@ -182,7 +182,7 @@ async def chat_endpoint(
     )
 
 
-# ── Session history ──────────────────────────────────────────────────────────
+# -- Session history ----------------------------------------------------------
 
 @router.get("/sessions")
 async def list_sessions(
@@ -256,7 +256,7 @@ async def rename_session(
     return {"status": "ok", "title": body.title}
 
 
-# ── Notebook CRUD Proxy ───────────────────────────────────────────────────────
+# -- Notebook CRUD Proxy -------------------------------------------------------
 
 class NotebookEntryRequest(BaseModel):
     title: str
@@ -345,7 +345,7 @@ async def delete_notebook_entry(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Notifications Proxy ────────────────────────────────────────────────────────
+# -- Notifications Proxy --------------------------------------------------------
 
 @router.get("/notifications")
 async def list_notifications(
@@ -370,7 +370,7 @@ async def list_notifications(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Health check ─────────────────────────────────────────────────────────────
+# -- Health check -------------------------------------------------------------
 
 @router.get("/health")
 async def agent_health():

@@ -342,7 +342,7 @@ func main() {
 			}
 		}
 
-		// ── Section management (Internal Service Secret OR JWT) ──────────────
+		// -- Section management (Internal Service Secret OR JWT) --------------
 		// AI service calls these endpoints using X-API-Secret header.
 		// Normal users continue to use JWT authentication.
 		flexCourses := v1.Group("/courses")
@@ -413,7 +413,7 @@ func main() {
 			// Student-facing: list my orgs
 			auth.GET("/my/orgs", orgHandler.GetMyOrganizations)
 
-			// ── Composite Analytics (Quick Action Panel + heatmap) ─────────
+			// -- Composite Analytics (Quick Action Panel + heatmap) ---------
 			// POST /analytics/micro-interaction is hit by every flashcard
 			// flip, quick-check answer, "Ask AI" message and lesson
 			// completion. The endpoint persists a raw row + publishes a
@@ -463,7 +463,7 @@ func main() {
 				courses.DELETE("/:courseId/co-teachers/:userId", coTeacherHandler.RemoveCoTeacher)
 				courses.GET("/:courseId/co-teachers", coTeacherHandler.ListCoTeachers)
 
-				// ── Analytics (Teacher / Admin only)
+				// -- Analytics (Teacher / Admin only)
 				courses.GET("/:courseId/quiz-analytics", analyticsHandler.GetCourseQuizAnalytics)
 				courses.GET("/:courseId/student-progress-overview", analyticsHandler.GetStudentProgressOverview)
 
@@ -471,13 +471,13 @@ func main() {
 				courses.GET("/:courseId/learners", enrollmentHandler.GetCourseLearners)
 				courses.POST("/:courseId/bulk-enroll", enrollmentHandler.BulkEnroll)
 
-				// ── Analytics (Student) ───────────────────────────────────
+				// -- Analytics (Student) -----------------------------------
 				courses.GET("/:courseId/my-quiz-scores", analyticsHandler.GetMyQuizScores)
 				courses.GET("/:courseId/analytics/weaknesses", analyticsHandler.GetStudentWeaknesses)
 				courses.GET("/:courseId/analytics/flashcard-stats", analyticsHandler.GetFlashcardStats)
 				courses.GET("/:courseId/analytics/student-summary", analyticsHandler.GetStudentAnalyticsSummary)
 
-				// ── Flashcards (Student) ──────────────────────────────────
+				// -- Flashcards (Student) ----------------------------------
 				courses.POST("/:courseId/nodes/:nodeId/flashcards/generate", flashcardHandler.GenerateFlashcards)
 				courses.POST("/:courseId/flashcards/generate", flashcardHandler.GenerateFlashcards)
 				courses.GET("/:courseId/flashcards/due", flashcardHandler.ListDueFlashcards)
@@ -485,7 +485,7 @@ func main() {
 				courses.GET("/:courseId/flashcards", flashcardHandler.ListFlashcards)
 				courses.POST("/:courseId/flashcards/bulk-save", flashcardHandler.BulkSaveFlashcards)
 
-				// ── Progress tracking (Student) ───────────────────────────
+				// -- Progress tracking (Student) ---------------------------
 				courses.GET("/:courseId/my-progress", progressHandler.GetMyProgress)
 				courses.GET("/:courseId/progress-detail", progressHandler.GetMyProgressDetail)
 			}
@@ -516,7 +516,7 @@ func main() {
 				content.GET("/:contentId/quiz", quizHandler.GetQuizByContentID)
 				content.PUT("/:contentId", courseHandler.UpdateContent)
 				content.DELETE("/:contentId", courseHandler.DeleteContent)
-				// ── Progress tracking (Student) ───────────────────────────
+				// -- Progress tracking (Student) ---------------------------
 				content.POST("/:contentId/complete", progressHandler.MarkComplete)
 				content.POST("/:contentId/process", aiHandler.TriggerDocumentProcess)
 
@@ -631,7 +631,7 @@ func main() {
 
 			aiGroup := auth.Group("/ai")
 			{
-				// ── Phase 1: Error Diagnosis ──────────────────────────────────────────
+				// -- Phase 1: Error Diagnosis ------------------------------------------
 				// POST /api/v1/ai/attempts/:attemptId/questions/:questionId/diagnose
 				aiGroup.POST("/attempts/:attemptId/questions/:questionId/diagnose",
 					aiHandler.DiagnoseWrongAnswer)
@@ -660,7 +660,7 @@ func main() {
 			// Per-course AI routes (reuse courseId param)
 			aiCourses := auth.Group("/courses/:courseId/ai")
 			{
-				// ── Phase 1: Heatmap ──────────────────────────────────────────────────
+				// -- Phase 1: Heatmap --------------------------------------------------
 				aiCourses.GET("/heatmap",
 					middleware.RequirePermission(permService, "ANALYTICS_VIEW"),
 					aiHandler.GetClassHeatmap)
@@ -668,7 +668,7 @@ func main() {
 				aiCourses.GET("/my-heatmap",
 					aiHandler.GetStudentHeatmap)
 
-				// ── Knowledge Graph ───────────────────────────────────────────────────
+				// -- Knowledge Graph ---------------------------------------------------
 				aiCourses.POST("/nodes",
 					middleware.RequirePermission(permService, "AI_INDEX"),
 					aiHandler.CreateKnowledgeNode)
@@ -676,7 +676,7 @@ func main() {
 				aiCourses.GET("/nodes",
 					aiHandler.ListKnowledgeNodes)
 
-				// ── Phase 2: Quiz Generation ──────────────────────────────────────────
+				// -- Phase 2: Quiz Generation ------------------------------------------
 				aiCourses.POST("/generate-quiz",
 					middleware.RequirePermission(permService, "AI_GENERATE"),
 					aiHandler.GenerateQuiz)
@@ -685,7 +685,7 @@ func main() {
 					middleware.RequirePermission(permService, "AI_GENERATE"),
 					aiHandler.ListDraftQuestions)
 
-				// ── Phase 2: Spaced Repetition ────────────────────────────────────────
+				// -- Phase 2: Spaced Repetition ----------------------------------------
 				aiCourses.GET("/reviews/due",
 					aiHandler.GetDueReviews)
 
@@ -721,7 +721,7 @@ func main() {
 					aiHandler.RejectQuestion)
 			}
 
-			// ── Micro-Lessons (Teacher / Admin) ───────────────────────────
+			// -- Micro-Lessons (Teacher / Admin) ---------------------------
 			// Per-course generation triggers + job listing.
 			microPerCourse := auth.Group("/courses/:courseId/micro-lessons")
 			microPerCourse.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
@@ -740,7 +740,7 @@ func main() {
 				microGroup.DELETE("/:lessonId", microLessonHandler.DeleteLesson)
 			}
 
-			// ── Micro-Quizzes (Teacher / Admin) ───────────────────────────
+			// -- Micro-Quizzes (Teacher / Admin) ---------------------------
 			microQuizPerCourse := auth.Group("/courses/:courseId/micro-quizzes")
 			microQuizPerCourse.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
 			{
@@ -757,7 +757,7 @@ func main() {
 				microQuizGroup.DELETE("/:quizId", microQuizHandler.DeleteQuiz)
 			}
 
-			// ── Section Overview (Teacher / Admin) ────────────────────────
+			// -- Section Overview (Teacher / Admin) ------------------------
 			// Per-section trigger and job listing routes.
 			sectionOverviewPerSection := auth.Group("/courses/:courseId/sections/:sectionId")
 			sectionOverviewPerSection.Use(middleware.RequirePermission(permService, "AI_GENERATE"))
@@ -779,7 +779,7 @@ func main() {
 			}
 		}
 
-		// ── Internal callbacks (AI service -> LMS) ─────────────────────────
+		// -- Internal callbacks (AI service -> LMS) -------------------------
 		// Authenticated via shared service secret only - never reachable
 		// with user JWTs because the path lives outside the auth group.
 		internalAI := v1.Group("/internal")
@@ -803,7 +803,7 @@ func main() {
 			internalQuiz.POST("/quizzes", microQuizHandler.CallbackQuizzes)
 		}
 
-		// ── Section Overview internal callbacks (AI service -> LMS) ─────
+		// -- Section Overview internal callbacks (AI service -> LMS) -----
 		internalOverview := v1.Group("/internal/section-overview")
 		internalOverview.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 		{

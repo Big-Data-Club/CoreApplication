@@ -25,7 +25,7 @@ import (
 )
 
 func main() {
-	// ── Load config ─────────────────────────────────────────────
+	// -- Load config ---------------------------------------------
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
@@ -35,17 +35,17 @@ func main() {
 	logger.Init(cfg.App.Env)
 	logger.Info(fmt.Sprintf("Starting %s v%s (%s)", cfg.App.Name, cfg.App.Version, cfg.App.Env))
 
-	// ── Database ────────────────────────────────────────────────
+	// -- Database ------------------------------------------------
 	db, err := database.NewPostgresDB(cfg.Database)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", err)
 	}
 	defer db.Close()
 
-	// ── Run migrations ──────────────────────────────────────────
+	// -- Run migrations ------------------------------------------
 	runMigrations(db)
 
-	// ── Redis ───────────────────────────────────────────────────
+	// -- Redis ---------------------------------------------------
 	redisCache, err := cache.NewRedisClient(cfg.Redis)
 	if err != nil {
 		logger.Warn(fmt.Sprintf("Failed to connect to Redis: %v (continuing without cache)", err))
@@ -54,11 +54,11 @@ func main() {
 	}
 	_ = redisCache // Will be used in Phase 2 for session tokens
 
-	// ── Kafka ───────────────────────────────────────────────────
+	// -- Kafka ---------------------------------------------------
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
 
-	// ── Runtime Adapter Registry ────────────────────────────────
+	// -- Runtime Adapter Registry --------------------------------
 	runtimeRegistry := runtime.NewRegistry()
 	codingRunner := runtime.NewCodingRunner(cfg.RuntimeSecurity.AllowUnsafeLocalExecution, cfg.CodingSandbox)
 	runtimeRegistry.Register(codingRunner)
@@ -69,7 +69,7 @@ func main() {
 	runtimeRegistry.Register(runtime.NewCustomRunner())
 	logger.Info("Runtime adapters registered: CODING, DATABASE, WORKSPACE, HPC, JUPYTER, CUSTOM")
 
-	// ── Repositories ────────────────────────────────────────────
+	// -- Repositories --------------------------------------------
 	labRepo := repository.NewLabRepository(db)
 	experimentRepo := repository.NewExperimentRepository(db)
 	enrollmentRepo := repository.NewEnrollmentRepository(db)
@@ -78,7 +78,7 @@ func main() {
 	leaderboardRepo := repository.NewLeaderboardRepository(db)
 	userRepo := repository.NewUserRepository(db)
 
-	// ── Services ────────────────────────────────────────────────
+	// -- Services ------------------------------------------------
 	labService := service.NewLabService(labRepo, enrollmentRepo)
 	experimentService := service.NewExperimentService(experimentRepo, labRepo, enrollmentRepo)
 	submissionService := service.NewSubmissionService(
@@ -86,7 +86,7 @@ func main() {
 		leaderboardRepo, runtimeRegistry, codingRunner.Available(),
 	)
 
-	// ── Handlers ────────────────────────────────────────────────
+	// -- Handlers ------------------------------------------------
 	labHandler := handler.NewLabHandler(labService, cfg.RuntimeSecurity)
 	experimentHandler := handler.NewExperimentHandler(experimentService)
 	submissionHandler := handler.NewSubmissionHandler(submissionService)
@@ -95,7 +95,7 @@ func main() {
 	leaderboardHandler := handler.NewLeaderboardHandler(leaderboardRepo)
 	syncHandler := handler.NewSyncHandler(userRepo)
 
-	// ── Gin Router ──────────────────────────────────────────────
+	// -- Gin Router ----------------------------------------------
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -104,7 +104,7 @@ func main() {
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS(cfg.CORS))
 
-	// ── Health Check ────────────────────────────────────────────
+	// -- Health Check --------------------------------------------
 	healthHandler := func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":              "healthy",
@@ -126,7 +126,7 @@ func main() {
 	r.GET("/api/v1/health", healthHandler)
 	r.HEAD("/api/v1/health", healthHandler)
 
-	// ── Sync Routes (service secret) ────────────────────────────
+	// -- Sync Routes (service secret) ----------------------------
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
 	if syncSecret == "" {
 		syncSecret = cfg.JWT.Secret
@@ -138,7 +138,7 @@ func main() {
 		syncGroup.POST("/users/bulk", syncHandler.BulkSyncUsers)
 	}
 
-	// ── Protected Routes (JWT) ──────────────────────────────────
+	// -- Protected Routes (JWT) ----------------------------------
 	api := r.Group("/api/v1")
 	api.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
 	{
@@ -212,7 +212,7 @@ func main() {
 		api.POST("/labs/:labId/bulk-enroll", middleware.RequireRoles("ADMIN"), enrollmentHandler.BulkEnroll)
 	}
 
-	// ── Start Kafka Consumers ───────────────────────────────────
+	// -- Start Kafka Consumers -----------------------------------
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -222,7 +222,7 @@ func main() {
 		return nil
 	})
 
-	// ── Start HTTP Server ───────────────────────────────────────
+	// -- Start HTTP Server ---------------------------------------
 	srv := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,
@@ -238,7 +238,7 @@ func main() {
 		}
 	}()
 
-	// ── Graceful Shutdown ───────────────────────────────────────
+	// -- Graceful Shutdown ---------------------------------------
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
