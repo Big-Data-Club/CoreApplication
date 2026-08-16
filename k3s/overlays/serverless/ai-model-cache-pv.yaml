@@ -10,5 +10,5 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: manual
   hostPath:
-    path: /var/lib/docker/volumes/core_ai_model_cache/_data
-    type: Directory
+    path: /var/lib/bdc-model-cache
+    type: DirectoryOrCreate
