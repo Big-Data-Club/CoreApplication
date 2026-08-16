@@ -48,12 +48,12 @@ settings = get_settings()
 # Similarity alone is weak evidence of a pedagogical relationship.  Explicit
 # LLM relations remain available; automatic links require a much stronger
 # semantic signal to avoid a dense, unusable "related to everything" graph.
-RELATION_SIMILARITY_THRESHOLD = 0.78
+RELATION_SIMILARITY_THRESHOLD = 0.68
 MAX_NODES_PER_BATCH = 5
 MAX_NODES_PER_DOCUMENT = 12
 EMBED_BATCH_SIZE = 16
 MAX_EXCERPT_CHARS = 9000
-MAX_EXISTING_NODES_FOR_GRAPH = 200
+MAX_EXISTING_NODES_FOR_GRAPH = 500
 
 # Cross-document dedup: aggressively merge to prevent node explosion
 DEDUP_HARD_THRESHOLD = 0.90
@@ -188,6 +188,47 @@ DOCUMENT CONTENT:
 Return ONLY valid JSON matching the schema (no markdown wrapper or extra text):
 {schema}"""
 
+
+CROSS_BATCH_RELATION_SYSTEM = """\
+You are an expert curriculum designer analyzing relationships between knowledge concepts extracted from the SAME learning document.
+Your task: identify missing pedagogical relationships between concept pairs that appear in DIFFERENT sections of the document.
+
+Rules:
+- Only create relations when there is a CLEAR logical dependency or connection in the learning path.
+- relation_type must be one of: "prerequisite" (A must be known before B), "extends" (B deepens A), "related" (same topic domain), "contrasts_with" (opposing/compared concepts).
+- DO NOT create "equivalent" relations (those are handled by dedup).
+- Strength: 0.70 = weakly related, 0.85 = clearly related, 0.95 = strongly depends.
+- Return an empty list if no meaningful relations exist.
+Return ONLY valid JSON. No extra text.\
+"""
+
+
+def build_cross_batch_relation_prompt(nodes: list["ExtractedNode"], language: str) -> str:
+    lang_hint = "Write 'reason' in Vietnamese." if language == "vi" else "Write 'reason' in English."
+    node_list = "\n".join(
+        f"[{i}] {n.name_vi or n.name} — {n.description[:200]}"
+        for i, n in enumerate(nodes)
+    )
+    schema = """{
+  "relations": [
+    {
+      "source_index": 0,
+      "target_index": 3,
+      "relation_type": "prerequisite",
+      "reason": "Brief explanation",
+      "strength": 0.85
+    }
+  ]
+}"""
+    return f"""\
+KNOWLEDGE CONCEPTS FROM THE SAME DOCUMENT (extracted from different sections):
+{node_list}
+
+TASK: Identify ALL meaningful pedagogical relationships between concept pairs from DIFFERENT sections above.
+{lang_hint}
+
+Return ONLY valid JSON matching the schema:
+{schema}"""
 
 
 # ── File type detection ────────────────────────────────────────────────────────
@@ -436,6 +477,7 @@ class AutoIndexService:
 
             _progress("build_graph", 90)
             await self._build_graph_edges(all_node_ids, all_node_embeddings, course_id)
+            await self._repair_isolated_nodes(all_node_ids, all_node_embeddings, course_id)
             
             await self._sync_to_neo4j_safely(
                 node_ids=all_node_ids,
@@ -575,6 +617,7 @@ class AutoIndexService:
 
             _progress("build_graph", 90)
             await self._build_graph_edges(all_node_ids, all_node_embeddings, course_id)
+            await self._repair_isolated_nodes(all_node_ids, all_node_embeddings, course_id)
 
             await self._sync_to_neo4j_safely(
                 node_ids=all_node_ids,
@@ -849,6 +892,16 @@ class AutoIndexService:
                 all_nodes, all_relations
             )
 
+        # ── Cross-batch relation synthesis ────────────────────────────
+        # After dedup, all nodes are renumbered 0..N-1. Ask LLM to find
+        # relations between nodes that span batch boundaries (these were
+        # invisible during per-batch extraction).
+        if len(quality_chunks) > BATCH_SIZE and len(all_nodes) >= 3:
+            cross_relations = await self._synthesize_cross_batch_relations(
+                all_nodes, all_relations, language,
+            )
+            all_relations.extend(cross_relations)
+
         all_nodes, all_relations = self._limit_document_nodes(
             all_nodes, all_relations, quality_chunks,
         )
@@ -1007,6 +1060,197 @@ class AutoIndexService:
             and "[image:" not in c.text.lower()
         ]
         return bool(substantive)
+
+    async def _synthesize_cross_batch_relations(
+        self,
+        nodes: list[ExtractedNode],
+        existing_relations: list[ExtractedRelation],
+        language: str,
+    ) -> list[ExtractedRelation]:
+        """Use LLM to find pedagogical relations between nodes extracted from different
+        batches of the SAME document.
+
+        Per-batch extraction only sees 15 chunks at a time, so relations between
+        concepts appearing in early vs late sections are systematically missed.
+        This pass sees ALL dedup'd nodes together and fills that gap.
+
+        Skipped when:
+          - Fewer than 3 nodes (not enough for cross-batch rels to matter)
+          - All nodes came from a single batch (no cross-batch gap exists)
+          - Number of pairs would be > 66 (too many → high LLM cost/latency)
+        """
+        if len(nodes) < 3:
+            return []
+
+        # Build set of (src, tgt) pairs already covered by existing relations
+        existing_pairs: set[tuple[int, int]] = set()
+        for r in existing_relations:
+            existing_pairs.add((r.source_index, r.target_index))
+            existing_pairs.add((r.target_index, r.source_index))  # undirected guard
+
+        n = len(nodes)
+        uncovered_pairs = n * (n - 1) // 2 - len(existing_pairs) // 2
+        if uncovered_pairs <= 0:
+            return []
+        # Skip if too expensive (> 66 pairs ≈ 12 nodes)
+        if uncovered_pairs > 66:
+            logger.info(
+                "[cross-batch] %d uncovered pairs – skipping LLM synthesis (too many)",
+                uncovered_pairs,
+            )
+            return []
+
+        prompt = build_cross_batch_relation_prompt(nodes, language)
+        try:
+            result = await chat_complete_json(
+                messages=[
+                    {"role": "system", "content": CROSS_BATCH_RELATION_SYSTEM},
+                    {"role": "user",   "content": prompt},
+                ],
+                model=settings.quiz_model,
+                temperature=0.10,
+                max_tokens=1024,
+                task=TASK_NODE_EXTRACT,
+            )
+        except Exception as exc:
+            logger.warning("[cross-batch] LLM synthesis failed (non-fatal): %s", exc)
+            return []
+
+        raw_rels = result.get("relations", [])
+        new_relations: list[ExtractedRelation] = []
+        seen: set[tuple[int, int, str]] = set()
+        for r in raw_rels:
+            src = r.get("source_index")
+            tgt = r.get("target_index")
+            if not (isinstance(src, int) and isinstance(tgt, int)):
+                continue
+            if src < 0 or tgt < 0 or src >= n or tgt >= n or src == tgt:
+                continue
+            # Skip pairs already covered by intra-batch extraction
+            if (src, tgt) in existing_pairs or (tgt, src) in existing_pairs:
+                continue
+            rel_type = r.get("relation_type", "related")
+            key = (min(src, tgt), max(src, tgt), rel_type)
+            if key in seen:
+                continue
+            seen.add(key)
+            new_relations.append(ExtractedRelation(
+                source_index=src,
+                target_index=tgt,
+                relation_type=rel_type,
+                reason=r.get("reason", ""),
+                strength=float(r.get("strength", 0.80)),
+            ))
+
+        logger.info(
+            "[cross-batch] LLM found %d new cross-batch relations (from %d nodes)",
+            len(new_relations), n,
+        )
+        return new_relations
+
+    async def _repair_isolated_nodes(
+        self,
+        all_node_ids: list[int],
+        all_node_embeddings: list[list[float]],
+        course_id: int,
+    ) -> int:
+        """Safety-net pass: connect nodes that have zero edges after indexing.
+
+        Strategy:
+          1. Query PG for nodes that have no entry in knowledge_node_relations.
+          2. For each isolated node, find nearest neighbours by cosine similarity
+             using a lower threshold (REPAIR_SIMILARITY_THRESHOLD) than the normal
+             graph-edge pass.
+          3. Insert RELATED edges directly (no LLM needed – similarity at this
+             range is sufficient for a weak 'related' link).
+
+        This runs AFTER _build_graph_edges so it only fixes what similarity-based
+        edge creation still missed.  It is intentionally lightweight to avoid
+        adding latency to the hot indexing path.
+        """
+        if not all_node_ids or len(all_node_ids) < 2:
+            return 0
+
+        REPAIR_SIMILARITY_THRESHOLD = 0.55  # lower than RELATION_SIMILARITY_THRESHOLD
+
+        # 1. Find isolated nodes (no edges in either direction)
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT kn.id
+                FROM knowledge_nodes kn
+                WHERE kn.id = ANY($1)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM knowledge_node_relations r
+                      WHERE r.source_node_id = kn.id OR r.target_node_id = kn.id
+                  )
+                """,
+                all_node_ids,
+            )
+        isolated_ids = {r["id"] for r in rows}
+        if not isolated_ids:
+            logger.debug("[repair-isolated] no isolated nodes found – nothing to do")
+            return 0
+
+        logger.info(
+            "[repair-isolated] found %d isolated node(s) in course %d – attempting repair",
+            len(isolated_ids), course_id,
+        )
+
+        # 2. Build similarity matrix among all nodes in this run
+        node_matrix = np.array(all_node_embeddings, dtype=np.float32)
+        norms = np.linalg.norm(node_matrix, axis=1, keepdims=True) + 1e-8
+        normed = node_matrix / norms
+        sims = normed @ normed.T  # (N, N)
+
+        id_to_idx = {nid: i for i, nid in enumerate(all_node_ids)}
+        edges: list[tuple[int, int, float]] = []
+
+        for iso_id in isolated_ids:
+            iso_idx = id_to_idx.get(iso_id)
+            if iso_idx is None:
+                continue
+            sim_row = sims[iso_idx]
+            # Find best neighbour that is NOT itself and meets repair threshold
+            best_sim = -1.0
+            best_nid = None
+            for j, nid in enumerate(all_node_ids):
+                if nid == iso_id:
+                    continue
+                s = float(sim_row[j])
+                if s >= REPAIR_SIMILARITY_THRESHOLD and s > best_sim:
+                    best_sim = s
+                    best_nid = nid
+            if best_nid is not None:
+                edges.append((iso_id, best_nid, best_sim))
+
+        if not edges:
+            logger.info("[repair-isolated] no neighbours above %.2f for isolated nodes", REPAIR_SIMILARITY_THRESHOLD)
+            return 0
+
+        # 3. Insert RELATED edges for all repaired pairs
+        from app.services.neo4j_service import EQUIVALENT_THRESHOLD
+        async with get_ai_conn() as conn:
+            async with conn.transaction():
+                for src, tgt, strength in edges:
+                    rel_type = "equivalent" if strength >= EQUIVALENT_THRESHOLD else "related"
+                    await conn.execute(
+                        """
+                        INSERT INTO knowledge_node_relations
+                            (course_id, source_node_id, target_node_id,
+                             relation_type, strength, auto_generated)
+                        VALUES ($1,$2,$3,$4,$5,true)
+                        ON CONFLICT (source_node_id, target_node_id, relation_type) DO UPDATE
+                            SET strength = GREATEST(knowledge_node_relations.strength, EXCLUDED.strength)
+                        """,
+                        course_id, src, tgt, rel_type, round(strength, 3),
+                    )
+
+        logger.info(
+            "[repair-isolated] created %d repair edges for %d isolated node(s) in course %d",
+            len(edges), len(isolated_ids), course_id,
+        )
+        return len(edges)
 
     # ─ Step 4: Node deduplication (Qdrant-backed) ─────────────────────────────
 
