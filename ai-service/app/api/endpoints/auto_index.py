@@ -319,6 +319,16 @@ async def get_global_knowledge_graph(
     content_ids = [n["source_content_id"] for n in graph["nodes"] if n.get("source_content_id")]
     title_map   = await _build_title_map(content_ids)
 
+    node_ids = [n["id"] for n in graph["nodes"]]
+    chunk_counts: dict[int, int] = {}
+    if node_ids:
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                "SELECT node_id, COUNT(*) AS n FROM document_chunks WHERE node_id = ANY($1) AND status = 'ready' GROUP BY node_id",
+                node_ids,
+            )
+            chunk_counts = {r["node_id"]: r["n"] for r in rows}
+
     nodes = [
         GraphNode(
             id=n["id"], name=n.get("name", ""),
@@ -328,7 +338,7 @@ async def get_global_knowledge_graph(
             source_content_title=title_map.get(n["source_content_id"]) if n.get("source_content_id") else None,
             course_id=n.get("course_id"),
             auto_generated=bool(n.get("auto_generated", True)),
-            chunk_count=0, level=0,
+            chunk_count=chunk_counts.get(n["id"], 0), level=0,
         )
         for n in graph["nodes"]
     ]
@@ -407,6 +417,16 @@ async def get_knowledge_graph(course_id: int, request: Request):
         content_ids = [n["source_content_id"] for n in graph["nodes"] if n.get("source_content_id")]
         title_map   = await _build_title_map(content_ids)
 
+        node_ids = [n["id"] for n in graph["nodes"]]
+        chunk_counts: dict[int, int] = {}
+        if node_ids:
+            async with get_ai_conn() as conn:
+                rows = await conn.fetch(
+                    "SELECT node_id, COUNT(*) AS n FROM document_chunks WHERE node_id = ANY($1) AND status = 'ready' GROUP BY node_id",
+                    node_ids,
+                )
+                chunk_counts = {r["node_id"]: r["n"] for r in rows}
+
         nodes = [
             GraphNode(
                 id=n["id"], name=n.get("name", ""),
@@ -416,7 +436,7 @@ async def get_knowledge_graph(course_id: int, request: Request):
                 source_content_title=title_map.get(n["source_content_id"]) if n.get("source_content_id") else None,
                 course_id=n.get("course_id", course_id),
                 auto_generated=bool(n.get("auto_generated", True)),
-                chunk_count=0, level=0,
+                chunk_count=chunk_counts.get(n["id"], 0), level=0,
             )
             for n in graph["nodes"]
         ]
