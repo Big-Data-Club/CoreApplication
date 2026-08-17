@@ -17,11 +17,13 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
@@ -334,7 +336,7 @@ func (h *SectionOverviewHandler) PublishLesson(c *gin.Context) {
 	}
 
 	// Mark as processing in LMS DB so frontend immediately displays 'processing' status
-	_ = h.repo.UpdateContentAIIndexStatus(c.Request.Context(), saved.ID, "processing", "")
+	_ = h.courseRepo.UpdateContentAIIndexStatus(c.Request.Context(), saved.ID, "processing")
 
 	// Auto-index in the background using background context
 	contentID := saved.ID
@@ -352,7 +354,7 @@ func (h *SectionOverviewHandler) PublishLesson(c *gin.Context) {
 			TextContent: md,
 		}); err != nil {
 			logger.Error(fmt.Sprintf("Auto-index after overview lesson publish failed content=%d", contentID), err)
-			_ = h.repo.UpdateContentAIIndexStatus(context.Background(), contentID, "failed", err.Error())
+			_ = h.courseRepo.UpdateContentAIIndexStatus(context.Background(), contentID, "failed")
 		}
 	}()
 
