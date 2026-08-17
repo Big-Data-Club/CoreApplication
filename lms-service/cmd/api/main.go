@@ -1,4 +1,3 @@
-// Trigger CI rebuild: chemistry virtual labs & LLM gateway updates
 package main
 
 import (

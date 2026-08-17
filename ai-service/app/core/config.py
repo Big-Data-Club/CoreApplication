@@ -1,4 +1,3 @@
-# Trigger CI rebuild: chemistry virtual labs & LLM gateway updates
 from functools import lru_cache
 from pydantic_settings import BaseSettings
 
