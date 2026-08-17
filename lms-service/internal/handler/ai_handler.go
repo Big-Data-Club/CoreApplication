@@ -1289,3 +1289,90 @@ func (h *AIHandler) ParseQuizText(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(result))
 }
+
+// LinkIsolatedNodes godoc
+// @Summary      Trigger Link Isolated Nodes
+// @Description  Enqueues a background Kafka job that scans zero-edge nodes in
+//               the course and connects them via LLM-enriched similarity matching.
+//               Returns 202 immediately with a job_id.
+// @Tags         AI - Knowledge Graph
+// @Produce      json
+// @Param        courseId path int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/link-isolated [post]
+func (h *AIHandler) LinkIsolatedNodes(c *gin.Context) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_course_id", "invalid courseId"))
+		return
+	}
+
+	result, err := h.aiClient.LinkIsolatedNodes(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusAccepted, dto.NewDataResponse(result))
+}
+
+// UpsertGraphEdge godoc
+// @Summary      Create or update a knowledge graph edge
+// @Description  Idempotent: creates a new directed edge or updates strength/type
+//               of an existing one. Writes PG + Neo4j synchronously.
+// @Tags         AI - Knowledge Graph
+// @Accept       json
+// @Produce      json
+// @Param        courseId path  int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/graph/edge [post]
+func (h *AIHandler) UpsertGraphEdge(c *gin.Context) {
+	var body ai.GraphEdgeRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+	if body.Strength == 0 {
+		body.Strength = 0.85
+	}
+
+	result, err := h.aiClient.UpsertGraphEdge(c.Request.Context(), body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(result))
+}
+
+// DeleteGraphEdge godoc
+// @Summary      Delete a knowledge graph edge
+// @Description  Deletes a specific directed edge (or all edges between a pair
+//               when relation_type is omitted) from PG and Neo4j.
+// @Tags         AI - Knowledge Graph
+// @Accept       json
+// @Produce      json
+// @Param        courseId path  int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/graph/edge [delete]
+func (h *AIHandler) DeleteGraphEdge(c *gin.Context) {
+	var body struct {
+		SourceNodeID int64  `json:"source_node_id" binding:"required"`
+		TargetNodeID int64  `json:"target_node_id" binding:"required"`
+		RelationType string `json:"relation_type"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	if err := h.aiClient.DeleteGraphEdge(
+		c.Request.Context(),
+		body.SourceNodeID, body.TargetNodeID, body.RelationType,
+	); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusNoContent, nil)
+}

@@ -707,6 +707,17 @@ func main() {
 
 				aiCourses.GET("/nodes/:nodeId/chunks", aiHandler.GetNodeChunks)
 				aiCourses.DELETE("/nodes/:nodeId", aiHandler.DeleteKnowledgeNode)
+
+				// -- Graph Teacher Tools ---------------------------------------
+				aiCourses.POST("/link-isolated",
+					middleware.RequirePermission(permService, "AI_INDEX"),
+					aiHandler.LinkIsolatedNodes)
+				aiCourses.POST("/graph/edge",
+					middleware.RequirePermission(permService, "AI_INDEX"),
+					aiHandler.UpsertGraphEdge)
+				aiCourses.DELETE("/graph/edge",
+					middleware.RequirePermission(permService, "AI_INDEX"),
+					aiHandler.DeleteGraphEdge)
 			}
 
 			// Quiz draft review (outside course context)
