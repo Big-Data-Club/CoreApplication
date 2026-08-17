@@ -85,6 +85,11 @@ class Settings(BaseSettings):
 
     # Anthropic Claude
     anthropic_api_key: str = ""
+    anthropic_base_url: str = ""
+
+    # FreeModel (Claude API compatibility)
+    freemodel_api_key: str = ""
+    freemodel_base_url: str = "https://cc.freemodel.dev"
 
     # Embedding
     embedding_model: str = "BAAI/bge-m3"

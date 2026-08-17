@@ -383,7 +383,7 @@ async def bootstrap_llm_registry() -> None:
         code="anthropic",
         display_name="Anthropic Claude",
         adapter_type="anthropic",
-        base_url=None,
+        base_url=settings.anthropic_base_url or None,
         enabled=True,
     )
 
@@ -403,6 +403,35 @@ async def bootstrap_llm_registry() -> None:
             logger.info("Migrated ANTHROPIC_API_KEY from env into llm_api_keys (alias=anthropic-env)")
         except Exception as exc:
             logger.warning("Could not seed Anthropic env key: %s", exc)
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # FreeModel provider + models (Anthropic-compatible endpoint)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    freemodel_base = settings.freemodel_base_url or "https://cc.freemodel.dev"
+    freemodel_provider = await registry.upsert_provider(
+        code="freemodel",
+        display_name="FreeModel AI (Claude)",
+        adapter_type="anthropic",
+        base_url=freemodel_base,
+        enabled=True,
+    )
+
+    for spec in _DEFAULT_CLAUDE_MODELS:
+        await registry.upsert_model(provider_id=freemodel_provider.id, **spec)
+        total_models += 1
+
+    # Seed FreeModel API key from env
+    freemodel_keys = await registry.list_api_keys(provider_id=freemodel_provider.id)
+    if not freemodel_keys and settings.freemodel_api_key:
+        try:
+            await registry.create_api_key(
+                provider_id=freemodel_provider.id,
+                alias="freemodel-env",
+                plaintext_key=settings.freemodel_api_key,
+            )
+            logger.info("Migrated FREEMODEL_API_KEY from env into llm_api_keys (alias=freemodel-env)")
+        except Exception as exc:
+            logger.warning("Could not seed FreeModel env key: %s", exc)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Default task bindings. The first deployment intentionally promotes
