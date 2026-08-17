@@ -51,18 +51,38 @@ async def publish_status_event(content_id: int, status: str, chunks_created: int
     logger.info(f"Published status to {topic} for content {content_id}: {status}")
 
 
-async def publish_graph_event(command: str, status: str, result_count: int = 0, error: str = ""):
-    """Send feedback about graph maintenance tasks (like GLOBAL_LINK)."""
+async def publish_graph_event(
+    command: str,
+    status: str,
+    result_count: int = 0,
+    error: str = "",
+    course_id: int | None = None,
+    job_id: str | None = None,
+):
+    """Send feedback about graph maintenance tasks.
+
+    course_id and job_id are included so the LMS Kafka consumer can route
+    the notification to the correct teacher's WebSocket channel.
+    """
     producer = await get_kafka_producer()
-    payload = {
-        "command": command,
-        "status":  status,
+    payload: dict = {
+        "command":      command,
+        "status":       status,
         "result_count": result_count,
-        "error":   error,
+        "error":        error,
     }
+    if course_id is not None:
+        payload["course_id"] = course_id
+    if job_id is not None:
+        payload["job_id"] = job_id
+
     topic = "ai.graph.status"
-    await producer.send_and_wait(topic, value=payload)
-    logger.info(f"Published graph event to {topic}: {command} -> {status}")
+    key = str(course_id).encode("utf-8") if course_id is not None else None
+    await producer.send_and_wait(topic, value=payload, key=key)
+    logger.info(
+        "Published graph event to %s: %s -> %s (course=%s job=%s)",
+        topic, command, status, course_id, job_id,
+    )
 
 
 async def publish_node_merged_event(

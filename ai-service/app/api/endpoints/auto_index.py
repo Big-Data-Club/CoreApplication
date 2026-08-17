@@ -570,6 +570,198 @@ async def delete_content_index(content_id: int, request: Request):
     return {"ok": True, "message": f"Content {content_id} data deleted successfully"}
 
 
+# ── Graph Teacher Tools ────────────────────────────────────────────────────────
+
+_VALID_RELATION_TYPES = {"prerequisite", "extends", "related", "equivalent", "contrasts_with"}
+
+
+class LinkIsolatedResponse(BaseModel):
+    job_id: str
+    course_id: int
+    status: str = "queued"
+    message: str = "Isolated node linking queued. You will be notified when complete."
+
+
+class EdgeUpsertRequest(BaseModel):
+    source_node_id: int
+    target_node_id: int
+    relation_type: str          # prerequisite | extends | related | equivalent | contrasts_with
+    strength: float = 0.85      # 0.6 – 1.0
+    reason: str = ""
+    bidirectional: bool = False  # if True, also create the reverse edge
+
+
+class EdgeUpsertResponse(BaseModel):
+    source_node_id: int
+    target_node_id: int
+    relation_type: str
+    strength: float
+    auto_generated: bool = False
+
+
+class EdgeDeleteRequest(BaseModel):
+    source_node_id: int
+    target_node_id: int
+    relation_type: Optional[str] = None  # None → delete ALL edges between the pair
+
+
+@graph_router.post("/{course_id}/link-isolated", response_model=LinkIsolatedResponse)
+async def trigger_link_isolated_nodes(course_id: int, request: Request):
+    """Trigger an async Kafka job that finds zero-edge (isolated) nodes and
+    connects them to the nearest semantically related nodes using LLM enrichment.
+
+    Returns 202 immediately. The job publishes its result to the
+    ``ai.graph.status`` Kafka topic (command=LINK_ISOLATED_NODES, status=completed)
+    so the LMS can push a WebSocket notification to the teacher.
+    """
+    _verify(request)
+
+    import uuid
+    job_id = f"link-isolated-{course_id}-{uuid.uuid4().hex[:8]}"
+
+    from app.worker.kafka_producer import get_kafka_producer
+    producer = await get_kafka_producer()
+    await producer.send_and_wait(
+        "lms.graph.command",
+        value={
+            "command":   "LINK_ISOLATED_NODES",
+            "course_id": course_id,
+            "job_id":    job_id,
+        },
+    )
+
+    return LinkIsolatedResponse(job_id=job_id, course_id=course_id)
+
+
+@graph_router.post("/edge", response_model=EdgeUpsertResponse)
+async def upsert_graph_edge(body: EdgeUpsertRequest, request: Request):
+    """Create a new edge or update the relation_type / strength of an existing edge.
+
+    Writes to both PostgreSQL (knowledge_node_relations) and Neo4j synchronously.
+    Idempotent: calling with the same (source, target, relation_type) updates the
+    existing row rather than duplicating it.
+
+    Set ``bidirectional=true`` to also create the reverse edge (target→source)
+    with the same type and strength.
+    """
+    _verify(request)
+
+    rel_type = body.relation_type.lower().strip()
+    if rel_type not in _VALID_RELATION_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid relation_type '{rel_type}'. "
+                   f"Valid values: {sorted(_VALID_RELATION_TYPES)}",
+        )
+    strength = max(0.0, min(1.0, body.strength))
+
+    # Resolve course_id from source node
+    async with get_ai_conn() as conn:
+        node_row = await conn.fetchrow(
+            "SELECT course_id FROM knowledge_nodes WHERE id = $1",
+            body.source_node_id,
+        )
+    if not node_row:
+        raise HTTPException(status_code=404, detail=f"Source node {body.source_node_id} not found")
+    course_id = node_row["course_id"]
+
+    pairs = [(body.source_node_id, body.target_node_id)]
+    if body.bidirectional:
+        pairs.append((body.target_node_id, body.source_node_id))
+
+    async with get_ai_conn() as conn:
+        async with conn.transaction():
+            for src, tgt in pairs:
+                await conn.execute(
+                    """
+                    INSERT INTO knowledge_node_relations
+                        (course_id, source_node_id, target_node_id,
+                         relation_type, strength, auto_generated)
+                    VALUES ($1, $2, $3, $4, $5, false)
+                    ON CONFLICT (source_node_id, target_node_id, relation_type) DO UPDATE
+                        SET strength       = EXCLUDED.strength,
+                            auto_generated = false
+                    """,
+                    course_id, src, tgt, rel_type, round(strength, 3),
+                )
+
+    # Sync to Neo4j
+    if settings.neo4j_enabled:
+        try:
+            from app.services.neo4j_service import neo4j_service, RELATIONSHIP_TYPES
+            neo4j_rel = RELATIONSHIP_TYPES.get(rel_type, "RELATED")
+            edges = [
+                {
+                    "source_id": src, "target_id": tgt,
+                    "rel_type": neo4j_rel, "strength": round(strength, 3),
+                    "auto_generated": False, "cross_course": False,
+                    "reason": body.reason,
+                }
+                for src, tgt in pairs
+            ]
+            await neo4j_service.upsert_relationships_batch(edges)
+        except Exception as exc:
+            logger.warning("Neo4j edge upsert failed (PG already committed): %s", exc)
+
+    return EdgeUpsertResponse(
+        source_node_id=body.source_node_id,
+        target_node_id=body.target_node_id,
+        relation_type=rel_type,
+        strength=round(strength, 3),
+        auto_generated=False,
+    )
+
+
+@graph_router.delete("/edge")
+async def delete_graph_edge(body: EdgeDeleteRequest, request: Request):
+    """Delete one or all edges between two nodes.
+
+    - If ``relation_type`` is provided, only that specific directed edge is deleted.
+    - If ``relation_type`` is omitted, ALL edges between the pair are deleted
+      (both directions).
+
+    Also removes the corresponding relationship from Neo4j.
+    """
+    _verify(request)
+
+    async with get_ai_conn() as conn:
+        if body.relation_type:
+            rel_type = body.relation_type.lower().strip()
+            deleted = await conn.execute(
+                """
+                DELETE FROM knowledge_node_relations
+                WHERE source_node_id = $1
+                  AND target_node_id = $2
+                  AND relation_type  = $3
+                """,
+                body.source_node_id, body.target_node_id, rel_type,
+            )
+        else:
+            # Delete all edges in both directions
+            deleted = await conn.execute(
+                """
+                DELETE FROM knowledge_node_relations
+                WHERE (source_node_id = $1 AND target_node_id = $2)
+                   OR (source_node_id = $2 AND target_node_id = $1)
+                """,
+                body.source_node_id, body.target_node_id,
+            )
+
+    # Sync to Neo4j
+    if settings.neo4j_enabled:
+        try:
+            from app.services.neo4j_service import neo4j_service
+            await neo4j_service.delete_relationship(
+                source_id=body.source_node_id,
+                target_id=body.target_node_id,
+                relation_type=body.relation_type,
+            )
+        except Exception as exc:
+            logger.warning("Neo4j edge delete failed (PG already committed): %s", exc)
+
+    return {"ok": True, "deleted": deleted}
+
+
 def _verify(request: Request):
     if request.headers.get("X-AI-Secret", "") != settings.ai_service_secret:
         raise HTTPException(status_code=403, detail="Unauthorized")

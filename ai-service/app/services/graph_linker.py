@@ -230,6 +230,93 @@ async def link_global_graph() -> int:
     return total_new_edges
 
 
+async def link_isolated_nodes_for_course(course_id: int) -> int:
+    """Find all zero-edge nodes in a course and connect them via LLM-enriched linking.
+
+    Called by the Kafka worker on LINK_ISOLATED_NODES command (teacher-triggered).
+
+    Pipeline:
+      1. Query PG for nodes with no entries in knowledge_node_relations (either side).
+      2. Fetch all non-isolated nodes for this course from Qdrant (with embeddings).
+      3. Compute cosine similarity between isolated nodes and the rest.
+      4. For candidates above ISOLATED_LINK_THRESHOLD, call LLM to confirm and
+         classify the relation type (reuses _process_and_upsert_pairs).
+      5. Write new edges to Neo4j + PG.
+    """
+    ISOLATED_LINK_THRESHOLD = 0.55   # lower than INTRA_COURSE_THRESHOLD for rescue pass
+    MAX_CANDIDATES_PER_NODE = 5      # top-K anchor nodes to send to LLM per isolated node
+
+    # 1. Find isolated node IDs
+    async with get_ai_conn() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT kn.id
+            FROM knowledge_nodes kn
+            WHERE kn.course_id = $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM knowledge_node_relations r
+                  WHERE r.source_node_id = kn.id OR r.target_node_id = kn.id
+              )
+            """,
+            course_id,
+        )
+    isolated_ids = {r["id"] for r in rows}
+    if not isolated_ids:
+        logger.info("[link-isolated] course %d: no isolated nodes found", course_id)
+        return 0
+
+    logger.info("[link-isolated] course %d: found %d isolated node(s)", course_id, len(isolated_ids))
+
+    # 2. Fetch all course nodes from Qdrant (includes isolated ones – filtered below)
+    all_nodes = await _fetch_nodes_for_course(course_id)
+    if len(all_nodes) < 2:
+        logger.info("[link-isolated] course %d: not enough nodes to link", course_id)
+        return 0
+
+    isolated_nodes  = [n for n in all_nodes if n.id in isolated_ids]
+    anchor_nodes    = [n for n in all_nodes if n.id not in isolated_ids]
+
+    if not anchor_nodes:
+        # All nodes are isolated – run a full intra-course pass instead
+        logger.info("[link-isolated] course %d: ALL nodes isolated – running intra-course pass", course_id)
+        anchor_nodes = all_nodes  # allow isolated→isolated connections
+
+    # 3. Find candidate pairs: each isolated node vs all anchors
+    raw_pairs = _find_candidate_pairs(
+        isolated_nodes, anchor_nodes,
+        threshold=ISOLATED_LINK_THRESHOLD,
+        skip_same_id=True,
+    )
+    if not raw_pairs:
+        logger.info("[link-isolated] course %d: no candidates above %.2f", course_id, ISOLATED_LINK_THRESHOLD)
+        return 0
+
+    # Keep only top-K anchor candidates per isolated node to bound LLM calls
+    from collections import defaultdict
+    per_isolated: dict[int, list[tuple]] = defaultdict(list)
+    for node_a, node_b, sim in raw_pairs:
+        per_isolated[node_a.id].append((node_a, node_b, sim))
+
+    top_pairs: list[tuple[NodeInfo, NodeInfo, float]] = []
+    for iso_id, pairs in per_isolated.items():
+        pairs.sort(key=lambda x: x[2], reverse=True)
+        top_pairs.extend(pairs[:MAX_CANDIDATES_PER_NODE])
+
+    logger.info(
+        "[link-isolated] course %d: %d candidates for LLM enrichment (from %d isolated nodes)",
+        course_id, len(top_pairs), len(isolated_nodes),
+    )
+
+    # 4. LLM enrichment + write to Neo4j (also writes to PG via upsert_relationships_batch)
+    edges_created = await _process_and_upsert_pairs(top_pairs, limit=len(top_pairs))
+
+    logger.info(
+        "[link-isolated] course %d: created %d new edge(s) for previously isolated nodes",
+        course_id, edges_created,
+    )
+    return edges_created
+
+
 async def _process_and_upsert_pairs(
     candidate_pairs: list[tuple[NodeInfo, NodeInfo, float]], 
     limit: int

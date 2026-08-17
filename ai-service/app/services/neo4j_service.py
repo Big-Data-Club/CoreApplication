@@ -227,6 +227,47 @@ class Neo4jService:
                 """
                 await s.run(cypher, edges=batch)
 
+    async def delete_relationship(
+        self,
+        source_id: int,
+        target_id: int,
+        relation_type: str | None = None,
+    ) -> int:
+        """Delete one or all relationships between two nodes in Neo4j.
+
+        Args:
+            source_id: ID of the source KnowledgeNode.
+            target_id: ID of the target KnowledgeNode.
+            relation_type: If provided, delete only that specific relationship type.
+                           If None, delete ALL relationship types between the pair
+                           (both directions).
+        Returns:
+            Number of relationships deleted.
+        """
+        async with self._get_driver().session() as s:
+            if relation_type:
+                rel = relation_type.upper()
+                result = await s.run(
+                    f"""
+                    MATCH (a:KnowledgeNode {{id: $src}})-[r:{rel}]->(b:KnowledgeNode {{id: $tgt}})
+                    DELETE r
+                    RETURN count(r) AS deleted
+                    """,
+                    src=source_id, tgt=target_id,
+                )
+            else:
+                # Delete all relationship types in both directions
+                result = await s.run(
+                    """
+                    MATCH (a:KnowledgeNode {id: $src})-[r]-(b:KnowledgeNode {id: $tgt})
+                    DELETE r
+                    RETURN count(r) AS deleted
+                    """,
+                    src=source_id, tgt=target_id,
+                )
+            record = await result.single()
+            return int(record["deleted"]) if record else 0
+
     # ── Graph Queries ──────────────────────────────────────────────────────────
 
     async def get_course_graph(self, course_id: int) -> dict[str, Any]:

@@ -92,35 +92,37 @@ async def process_document_event(payload: dict):
 # ── Graph maintenance ─────────────────────────────────────────────────────────
 
 async def process_graph_command(payload: dict):
-    command = payload.get("command")
-    logger.info("Graph command received", extra={"command": command})
+    command   = payload.get("command")
+    course_id = payload.get("course_id")
+    job_id    = payload.get("job_id")
+    logger.info("Graph command received", extra={"command": command, "course_id": course_id})
 
     from app.worker.kafka_producer import publish_graph_event
     try:
         if command == "GLOBAL_LINK":
             from app.services.graph_linker import link_global_graph
-            await publish_graph_event(command, "processing")
+            await publish_graph_event(command, "processing", job_id=job_id)
             count = await link_global_graph()
-            await publish_graph_event(command, "completed", result_count=count)
+            await publish_graph_event(command, "completed", result_count=count, job_id=job_id)
             logger.info("Global linking complete", extra={"edges_created": count})
+
         elif command == "CONSOLIDATE_GRAPH":
             from app.services.graph_consolidation_service import consolidate_graph
-            course_id    = payload.get("course_id")
-            triggered_by = payload.get("triggered_by")
+            triggered_by          = payload.get("triggered_by")
             selected_survivor_ids = payload.get("selected_survivor_ids")
             if course_id is None:
-                await publish_graph_event(command, "failed", error="missing course_id")
+                await publish_graph_event(command, "failed", error="missing course_id",
+                                          course_id=course_id, job_id=job_id)
                 return
-            await publish_graph_event(command, "processing")
-            result = await consolidate_graph(
-                int(course_id), triggered_by, selected_survivor_ids,
-            )
+            await publish_graph_event(command, "processing", course_id=course_id, job_id=job_id)
+            result = await consolidate_graph(int(course_id), triggered_by, selected_survivor_ids)
             await publish_graph_event(
                 command, "completed",
                 result_count=(
                     result.get("absorbed_nodes", 0)
                     + result.get("orphaned_nodes_removed", 0)
                 ),
+                course_id=course_id, job_id=job_id,
             )
             logger.info(
                 "Graph consolidation complete",
@@ -129,12 +131,33 @@ async def process_graph_command(payload: dict):
                        "absorbed_nodes": result.get("absorbed_nodes", 0),
                        "orphaned_nodes_removed": result.get("orphaned_nodes_removed", 0)},
             )
+
+        elif command == "LINK_ISOLATED_NODES":
+            from app.services.graph_linker import link_isolated_nodes_for_course
+            if course_id is None:
+                await publish_graph_event(command, "failed", error="missing course_id",
+                                          course_id=course_id, job_id=job_id)
+                return
+            await publish_graph_event(command, "processing", course_id=course_id, job_id=job_id)
+            count = await link_isolated_nodes_for_course(int(course_id))
+            await publish_graph_event(
+                command, "completed",
+                result_count=count,
+                course_id=course_id, job_id=job_id,
+            )
+            logger.info(
+                "Link-isolated complete",
+                extra={"course_id": course_id, "edges_created": count},
+            )
+
         else:
             logger.warning("Unknown graph command", extra={"command": command})
+
     except Exception as exc:
         logger.error("Graph command failed",
                      extra={"command": command, "error": str(exc)})
-        await publish_graph_event(command, "failed", error=str(exc))
+        await publish_graph_event(command, "failed", error=str(exc),
+                                  course_id=course_id, job_id=job_id)
 
 
 # ── Maintenance tasks ─────────────────────────────────────────────────────────
