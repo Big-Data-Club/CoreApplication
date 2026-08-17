@@ -110,7 +110,7 @@ func main() {
 			"status":              "healthy",
 			"service":             cfg.App.Name,
 			"version":             cfg.App.Version,
-			"supported_lab_types": []string{"CODING", "HPC", "JUPYTER", "WORKSPACE", "DATABASE", "CUSTOM", "PLANT", "ROBOT"},
+			"supported_lab_types": []string{"CODING", "HPC", "JUPYTER", "WORKSPACE", "DATABASE", "CUSTOM", "PLANT", "ROBOT", "CHEMISTRY"},
 			"runtime_security": gin.H{
 				"unsafe_local_execution_enabled": cfg.RuntimeSecurity.AllowUnsafeLocalExecution,
 				"unsafe_terminal_enabled": cfg.RuntimeSecurity.AllowUnsafeTerminal,
