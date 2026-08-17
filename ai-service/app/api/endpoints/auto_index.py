@@ -152,6 +152,11 @@ async def _build_title_map(content_ids: list[int]) -> dict[int, str]:
 async def trigger_auto_index(body: AutoIndexRequest, request: Request):
     _verify(request)
 
+    if not body.force:
+        status_data = await _get_content_status(body.content_id)
+        if status_data and status_data.get("status") in ("pending", "processing"):
+            return AutoIndexResponse(job_id=f"content-{body.content_id}", content_id=body.content_id)
+
     if body.force:
         from app.services.auto_index_service import auto_index_service
         await auto_index_service.delete_content_data(body.content_id)
@@ -174,6 +179,11 @@ async def trigger_auto_index(body: AutoIndexRequest, request: Request):
 @router.post("/text", response_model=AutoIndexResponse)
 async def trigger_auto_index_text(body: AutoIndexTextRequest, request: Request):
     _verify(request)
+
+    if not body.force:
+        status_data = await _get_content_status(body.content_id)
+        if status_data and status_data.get("status") in ("pending", "processing"):
+            return AutoIndexResponse(job_id=f"content-{body.content_id}", content_id=body.content_id)
 
     if body.force:
         from app.services.auto_index_service import auto_index_service

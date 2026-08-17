@@ -333,17 +333,28 @@ func (h *SectionOverviewHandler) PublishLesson(c *gin.Context) {
 		_ = h.redisCache.Delete(c.Request.Context(), cache.KeySectionContents(body.SectionID))
 	}
 
-	// Auto-index in the background.
-	go func(contentID, courseID int64, title, md string) {
-		if _, err := h.aiClient.AutoIndexText(c, ai.AutoIndexTextRequest{
+	// Mark as processing in LMS DB so frontend immediately displays 'processing' status
+	_ = h.repo.UpdateContentAIIndexStatus(c.Request.Context(), saved.ID, "processing", "")
+
+	// Auto-index in the background using background context
+	contentID := saved.ID
+	courseID := lesson.CourseID
+	title := lesson.Title
+	md := lesson.MarkdownContent
+
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if _, err := h.aiClient.AutoIndexText(bgCtx, ai.AutoIndexTextRequest{
 			ContentID:   contentID,
 			CourseID:    courseID,
 			Title:       title,
 			TextContent: md,
 		}); err != nil {
 			logger.Error(fmt.Sprintf("Auto-index after overview lesson publish failed content=%d", contentID), err)
+			_ = h.repo.UpdateContentAIIndexStatus(context.Background(), contentID, "failed", err.Error())
 		}
-	}(saved.ID, lesson.CourseID, lesson.Title, lesson.MarkdownContent)
+	}()
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{
 		"overview_lesson_id":  lessonID,
