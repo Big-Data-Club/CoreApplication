@@ -134,21 +134,29 @@ async def process_graph_command(payload: dict):
 
         elif command == "LINK_ISOLATED_NODES":
             from app.services.graph_linker import link_isolated_nodes_for_course
+            from app.services.graph_job_tracker import set_job_status
             if course_id is None:
                 await publish_graph_event(command, "failed", error="missing course_id",
                                           course_id=course_id, job_id=job_id)
                 return
-            await publish_graph_event(command, "processing", course_id=course_id, job_id=job_id)
-            count = await link_isolated_nodes_for_course(int(course_id))
-            await publish_graph_event(
-                command, "completed",
-                result_count=count,
-                course_id=course_id, job_id=job_id,
-            )
-            logger.info(
-                "Link-isolated complete",
-                extra={"course_id": course_id, "edges_created": count},
-            )
+            cid = int(course_id)
+            set_job_status(cid, job_id, "processing")
+            await publish_graph_event(command, "processing", course_id=cid, job_id=job_id)
+            try:
+                count = await link_isolated_nodes_for_course(cid)
+                set_job_status(cid, job_id, "completed", edges_created=count)
+                await publish_graph_event(
+                    command, "completed",
+                    result_count=count,
+                    course_id=cid, job_id=job_id,
+                )
+                logger.info(
+                    "Link-isolated complete",
+                    extra={"course_id": cid, "edges_created": count},
+                )
+            except Exception as exc:
+                set_job_status(cid, job_id, "failed", error=str(exc))
+                raise
 
         else:
             logger.warning("Unknown graph command", extra={"command": command})

@@ -740,6 +740,16 @@ func (c *Client) LinkIsolatedNodes(ctx context.Context, courseID int64) (map[str
 	return resp, nil
 }
 
+// GetLinkIsolatedStatus checks the current status of the link-isolated job for a course.
+func (c *Client) GetLinkIsolatedStatus(ctx context.Context, courseID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	path := fmt.Sprintf("/ai/knowledge-graph/%d/link-isolated/status", courseID)
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GetLinkIsolatedStatus: %w", err)
+	}
+	return resp, nil
+}
+
 // GraphEdgeRequest is the payload for creating or updating a graph edge.
 type GraphEdgeRequest struct {
 	SourceNodeID  int64   `json:"source_node_id"`

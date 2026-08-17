@@ -1316,6 +1316,30 @@ func (h *AIHandler) LinkIsolatedNodes(c *gin.Context) {
 	c.JSON(http.StatusAccepted, dto.NewDataResponse(result))
 }
 
+// GetLinkIsolatedStatus godoc
+// @Summary      Get Link Isolated Nodes Status
+// @Description  Queries the status of the isolated node linking job for a course.
+// @Tags         AI - Knowledge Graph
+// @Produce      json
+// @Param        courseId path int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/link-isolated/status [get]
+func (h *AIHandler) GetLinkIsolatedStatus(c *gin.Context) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_course_id", "invalid courseId"))
+		return
+	}
+
+	result, err := h.aiClient.GetLinkIsolatedStatus(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(result))
+}
+
 // UpsertGraphEdge godoc
 // @Summary      Create or update a knowledge graph edge
 // @Description  Idempotent: creates a new directed edge or updates strength/type

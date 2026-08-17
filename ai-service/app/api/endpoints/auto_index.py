@@ -610,14 +610,23 @@ async def trigger_link_isolated_nodes(course_id: int, request: Request):
     """Trigger an async Kafka job that finds zero-edge (isolated) nodes and
     connects them to the nearest semantically related nodes using LLM enrichment.
 
-    Returns 202 immediately. The job publishes its result to the
-    ``ai.graph.status`` Kafka topic (command=LINK_ISOLATED_NODES, status=completed)
-    so the LMS can push a WebSocket notification to the teacher.
+    Returns 202 immediately. Prevents duplicate concurrent executions for the same course.
     """
     _verify(request)
 
+    from app.services.graph_job_tracker import get_job_status, set_job_status
+    current = get_job_status(course_id)
+    if current["status"] in ("queued", "processing"):
+        return LinkIsolatedResponse(
+            job_id=current["job_id"],
+            course_id=course_id,
+            status=current["status"],
+            message="Isolated node linking job is already in progress for this course.",
+        )
+
     import uuid
     job_id = f"link-isolated-{course_id}-{uuid.uuid4().hex[:8]}"
+    set_job_status(course_id, job_id, "queued")
 
     from app.worker.kafka_producer import get_kafka_producer
     producer = await get_kafka_producer()
@@ -630,7 +639,15 @@ async def trigger_link_isolated_nodes(course_id: int, request: Request):
         },
     )
 
-    return LinkIsolatedResponse(job_id=job_id, course_id=course_id)
+    return LinkIsolatedResponse(job_id=job_id, course_id=course_id, status="queued")
+
+
+@graph_router.get("/{course_id}/link-isolated/status")
+async def get_link_isolated_status(course_id: int, request: Request):
+    """Check the status of the isolated node linking job for a course."""
+    _verify(request)
+    from app.services.graph_job_tracker import get_job_status
+    return get_job_status(course_id)
 
 
 @graph_router.post("/edge", response_model=EdgeUpsertResponse)

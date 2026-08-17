@@ -712,6 +712,8 @@ func main() {
 				aiCourses.POST("/link-isolated",
 					middleware.RequirePermission(permService, "AI_INDEX"),
 					aiHandler.LinkIsolatedNodes)
+				aiCourses.GET("/link-isolated/status",
+					aiHandler.GetLinkIsolatedStatus)
 				aiCourses.POST("/graph/edge",
 					middleware.RequirePermission(permService, "AI_INDEX"),
 					aiHandler.UpsertGraphEdge)
