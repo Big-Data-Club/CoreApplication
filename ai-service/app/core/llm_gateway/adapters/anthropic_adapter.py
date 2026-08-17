@@ -94,15 +94,82 @@ class AnthropicAdapter(LLMAdapter):
         json_mode: bool,
         extra: dict[str, Any],
     ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
-        content, usage, raw = await self.chat(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            json_mode=json_mode,
-            extra=extra,
-        )
-        yield content, usage, raw
+        base = (self.base_url or DEFAULT_BASE_URL).rstrip("/")
+        url = f"{base}/v1/messages"
+        version = self.provider_config.get("anthropic_version") or DEFAULT_VERSION
+
+        system_text, normalised = _normalise_messages(messages, json_mode=json_mode)
+
+        body: dict[str, Any] = {
+            "model": model.model_name,
+            "messages": normalised,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if system_text:
+            body["system"] = system_text
+        for k in ("stop_sequences", "top_p", "top_k", "tools", "tool_choice"):
+            if k in extra:
+                body[k] = extra[k]
+
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": version,
+            "Content-Type": "application/json",
+        }
+
+        import json as jsonlib
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                async with client.stream("POST", url, json=body, headers=headers) as resp:
+                    if resp.status_code == 429:
+                        text = await resp.aread()
+                        raise RateLimitedError(text.decode("utf-8", errors="ignore"))
+                    if resp.status_code in (401, 403):
+                        text = await resp.aread()
+                        raise AuthError(text.decode("utf-8", errors="ignore"), status_code=resp.status_code)
+                    if resp.status_code >= 400:
+                        text = await resp.aread()
+                        txt = text.decode("utf-8", errors="ignore")
+                        if "context" in txt.lower() and ("length" in txt.lower() or "window" in txt.lower()):
+                            raise ContextLengthError(txt)
+                        raise ProviderError(txt, status_code=resp.status_code, retryable=resp.status_code >= 500)
+
+                    input_tokens = 0
+                    output_tokens = 0
+
+                    async for line in resp.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data_str = line[5:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            event_data = jsonlib.loads(data_str)
+                            event_type = event_data.get("type")
+                            if event_type == "message_start":
+                                msg = event_data.get("message", {})
+                                u = msg.get("usage", {})
+                                input_tokens = int(u.get("input_tokens") or 0)
+                            elif event_type == "content_block_delta":
+                                delta = event_data.get("delta", {})
+                                if delta.get("type") == "text_delta":
+                                    text_chunk = delta.get("text", "")
+                                    yield text_chunk, None, event_data
+                            elif event_type == "message_delta":
+                                u = event_data.get("usage", {})
+                                output_tokens = int(u.get("output_tokens") or 0)
+                                usage = Usage(
+                                    prompt_tokens=input_tokens,
+                                    completion_tokens=output_tokens,
+                                    total_tokens=input_tokens + output_tokens,
+                                )
+                                yield None, usage, event_data
+                        except Exception:
+                            continue
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"Network error calling Anthropic: {exc}", retryable=True) from exc
  
  
 def _normalise_messages(
