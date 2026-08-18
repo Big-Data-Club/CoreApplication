@@ -72,11 +72,11 @@ func (r *LabRepository) GetByID(ctx context.Context, labID int64) (*dto.LabRespo
 	var runtimeRaw, gradingRaw []byte
 
 	err := r.db.QueryRowContext(ctx,
-		`SELECT l.id, l.title, l.description, l.category, l.level, l.thumbnail_url,
+		`SELECT l.id, l.title, COALESCE(l.description, ''), COALESCE(l.category, ''), COALESCE(l.level, ''), COALESCE(l.thumbnail_url, ''),
 			l.lab_type, l.status, l.runtime_config, l.max_session_duration_min,
 			l.max_concurrent_sessions, l.max_submissions, l.auto_grade, l.grading_config,
 			l.start_time, l.deadline, l.allow_late_submission, l.late_penalty_percent,
-			l.created_by, u.full_name, u.email, l.published_at, l.created_at, l.updated_at,
+			l.created_by, COALESCE(u.full_name, ''), COALESCE(u.email, ''), l.published_at, l.created_at, l.updated_at,
 			COALESCE((SELECT COUNT(*) FROM lab_enrollments WHERE lab_id = l.id AND status = 'ACCEPTED'), 0)
 		FROM labs l
 		LEFT JOIN users u ON u.id = l.created_by
@@ -135,9 +135,9 @@ func (r *LabRepository) ListPublished(ctx context.Context, labType, category, le
 	// Fetch page
 	args = append(args, limit, offset)
 	query := fmt.Sprintf(
-		`SELECT l.id, l.title, l.description, l.category, l.level, l.thumbnail_url,
+		`SELECT l.id, l.title, COALESCE(l.description, ''), COALESCE(l.category, ''), COALESCE(l.level, ''), COALESCE(l.thumbnail_url, ''),
 			l.lab_type, l.status, l.max_session_duration_min, l.auto_grade,
-			l.created_by, u.full_name, l.published_at, l.created_at, l.updated_at,
+			l.created_by, COALESCE(u.full_name, ''), l.published_at, l.created_at, l.updated_at,
 			COALESCE((SELECT COUNT(*) FROM lab_enrollments WHERE lab_id = l.id AND status = 'ACCEPTED'), 0)
 		FROM labs l
 		LEFT JOIN users u ON u.id = l.created_by
@@ -151,16 +151,21 @@ func (r *LabRepository) ListPublished(ctx context.Context, labType, category, le
 	}
 	defer rows.Close()
 
-	var labs []dto.LabResponse
+	labs := make([]dto.LabResponse, 0)
 	for rows.Next() {
 		var lab dto.LabResponse
-		rows.Scan(
+		if err := rows.Scan(
 			&lab.ID, &lab.Title, &lab.Description, &lab.Category, &lab.Level,
 			&lab.ThumbnailURL, &lab.LabType, &lab.Status, &lab.MaxSessionDurationMin,
 			&lab.AutoGrade, &lab.CreatedBy, &lab.CreatorName,
 			&lab.PublishedAt, &lab.CreatedAt, &lab.UpdatedAt, &lab.EnrollmentCount,
-		)
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan published lab: %w", err)
+		}
 		labs = append(labs, lab)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("published labs rows error: %w", err)
 	}
 	return labs, total, nil
 }
@@ -181,7 +186,7 @@ func (r *LabRepository) ListByCreator(ctx context.Context, userID int64, status 
 
 	args = append(args, limit, offset)
 	query := fmt.Sprintf(
-		`SELECT l.id, l.title, l.description, l.category, l.level, l.thumbnail_url,
+		`SELECT l.id, l.title, COALESCE(l.description, ''), COALESCE(l.category, ''), COALESCE(l.level, ''), COALESCE(l.thumbnail_url, ''),
 			l.lab_type, l.status, l.max_session_duration_min, l.auto_grade,
 			l.created_by, l.published_at, l.created_at, l.updated_at,
 			COALESCE((SELECT COUNT(*) FROM lab_enrollments WHERE lab_id = l.id AND status = 'ACCEPTED'), 0)
@@ -196,16 +201,21 @@ func (r *LabRepository) ListByCreator(ctx context.Context, userID int64, status 
 	}
 	defer rows.Close()
 
-	var labs []dto.LabResponse
+	labs := make([]dto.LabResponse, 0)
 	for rows.Next() {
 		var lab dto.LabResponse
-		rows.Scan(
+		if err := rows.Scan(
 			&lab.ID, &lab.Title, &lab.Description, &lab.Category, &lab.Level,
 			&lab.ThumbnailURL, &lab.LabType, &lab.Status, &lab.MaxSessionDurationMin,
 			&lab.AutoGrade, &lab.CreatedBy, &lab.PublishedAt,
 			&lab.CreatedAt, &lab.UpdatedAt, &lab.EnrollmentCount,
-		)
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan creator lab: %w", err)
+		}
 		labs = append(labs, lab)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("creator labs rows error: %w", err)
 	}
 	return labs, total, nil
 }
@@ -228,9 +238,9 @@ func (r *LabRepository) ListAll(ctx context.Context, status string, limit, offse
 
 	args = append(args, limit, offset)
 	query := fmt.Sprintf(
-		`SELECT l.id, l.title, l.description, l.category, l.level, l.thumbnail_url,
+		`SELECT l.id, l.title, COALESCE(l.description, ''), COALESCE(l.category, ''), COALESCE(l.level, ''), COALESCE(l.thumbnail_url, ''),
 			l.lab_type, l.status, l.max_session_duration_min, l.auto_grade,
-			l.created_by, u.full_name, u.email, l.published_at, l.created_at, l.updated_at,
+			l.created_by, COALESCE(u.full_name, ''), COALESCE(u.email, ''), l.published_at, l.created_at, l.updated_at,
 			COALESCE((SELECT COUNT(*) FROM lab_enrollments WHERE lab_id = l.id AND status = 'ACCEPTED'), 0)
 		FROM labs l
 		LEFT JOIN users u ON u.id = l.created_by
@@ -258,7 +268,7 @@ func (r *LabRepository) ListAll(ctx context.Context, status string, limit, offse
 		labs = append(labs, lab)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("all labs rows error: %w", err)
 	}
 	return labs, total, nil
 }
