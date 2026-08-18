@@ -92,7 +92,18 @@ class OpenAICompatAdapter(LLMAdapter):
                 txt, status_code=resp.status_code, retryable=resp.status_code >= 500
             )
  
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception as exc:
+            logger.warning(
+                "OpenAICompatAdapter failed to parse JSON response from url=%s status=%d body=%r: %s",
+                url, resp.status_code, resp.text[:500], exc
+            )
+            raise ProviderError(
+                f"Invalid JSON response from {url} (status={resp.status_code}): {resp.text[:200]}",
+                status_code=resp.status_code,
+                retryable=True,
+            ) from exc
         choice = (data.get("choices") or [{}])[0]
         content = ((choice.get("message") or {}).get("content")) or ""
         usage_obj = data.get("usage") or {}

@@ -71,7 +71,18 @@ class AnthropicAdapter(LLMAdapter):
                 raise ContextLengthError(txt)
             raise ProviderError(txt, status_code=resp.status_code, retryable=resp.status_code >= 500)
  
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception as exc:
+            logger.warning(
+                "AnthropicAdapter failed to parse JSON response from url=%s status=%d body=%r: %s",
+                url, resp.status_code, resp.text[:500], exc
+            )
+            raise ProviderError(
+                f"Invalid JSON response from {url} (status={resp.status_code}): {resp.text[:200]}",
+                status_code=resp.status_code,
+                retryable=True,
+            ) from exc
         blocks = data.get("content") or []
         content = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
         u = data.get("usage") or {}

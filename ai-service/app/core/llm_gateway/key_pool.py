@@ -50,6 +50,10 @@ class LeasedKey:
     @property
     def id(self) -> int:
         return self.record.id
+
+    @property
+    def alias(self) -> str:
+        return self.record.alias
  
  
 class KeyPool:

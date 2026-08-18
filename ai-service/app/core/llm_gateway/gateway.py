@@ -242,7 +242,7 @@ class LLMGateway:
                 elapsed = int((time.monotonic() - start) * 1000)
                 logger.warning(
                     "LLM Gateway AuthError for task=%s model=%s provider=%s key_id=%d alias=%s: %s",
-                    req.task, model.model_name, model.provider_code, lease.id, lease.alias, str(exc)
+                    req.task, model.model_name, model.provider_code, lease.id, lease.record.alias, str(exc)
                 )
                 await self.key_pool.record_auth_failure(lease.id, str(exc))
                 await self._log(
@@ -266,7 +266,7 @@ class LLMGateway:
                 elapsed = int((time.monotonic() - start) * 1000)
                 logger.warning(
                     "LLM Gateway ProviderError for task=%s model=%s provider=%s key_id=%d alias=%s: %s",
-                    req.task, model.model_name, model.provider_code, lease.id, lease.alias, str(exc)
+                    req.task, model.model_name, model.provider_code, lease.id, lease.record.alias, str(exc)
                 )
                 await self.key_pool.record_generic_failure(lease.id, str(exc))
                 await self._log(
@@ -304,11 +304,11 @@ class LLMGateway:
 
             if not (content or "").strip() and not valid_tool_response:
                 elapsed = int((time.monotonic() - start) * 1000)
-                reasoning_len = len(getattr(
-                    getattr(getattr(raw, "choices", [None])[0] if getattr(raw, "choices", None) else None,
-                            "message", None),
-                    "reasoning", None) or ""
-                )
+                choices = _get_field(raw, "choices")
+                first_choice = choices[0] if (choices and isinstance(choices, (list, tuple)) and len(choices) > 0) else None
+                msg = _get_field(first_choice, "message")
+                reasoning = _get_field(msg, "reasoning") or _get_field(msg, "reasoning_content") or ""
+                reasoning_len = len(reasoning) if isinstance(reasoning, str) else 0
                 logger.warning(
                     "Empty completion from provider: task=%s model=%s "
                     "finish_reason=%s completion_tokens=%d reasoning_len=%d",
@@ -504,12 +504,20 @@ def _resolve(*values: Any) -> Any:
     return None
 
 
+def _get_field(obj: Any, key: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def _extract_finish_reason(raw: Any) -> str | None:
     """Best-effort extraction of finish_reason from any provider response."""
     try:
-        choices = getattr(raw, "choices", None)
-        if choices:
-            return getattr(choices[0], "finish_reason", None)
+        choices = _get_field(raw, "choices")
+        if choices and isinstance(choices, (list, tuple)) and len(choices) > 0:
+            return _get_field(choices[0], "finish_reason")
     except Exception:
         pass
     return None
@@ -518,11 +526,11 @@ def _extract_finish_reason(raw: Any) -> str | None:
 def _has_tool_calls(raw: Any) -> bool:
     """Return True when the response contains at least one tool call."""
     try:
-        choices = getattr(raw, "choices", None)
-        if not choices:
+        choices = _get_field(raw, "choices")
+        if not choices or not isinstance(choices, (list, tuple)) or len(choices) == 0:
             return False
-        message = getattr(choices[0], "message", None)
-        tool_calls = getattr(message, "tool_calls", None)
+        message = _get_field(choices[0], "message")
+        tool_calls = _get_field(message, "tool_calls")
         return bool(tool_calls)
     except Exception:
         return False
