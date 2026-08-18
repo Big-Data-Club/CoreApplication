@@ -32,9 +32,10 @@ class OpenAICompatAdapter(LLMAdapter):
         extra: dict[str, Any],
     ) -> tuple[str, Usage, Any]:
         base = (self.base_url or "http://localhost:11434").rstrip("/")
-        # Ollama exposes both `/api/chat` (native) and `/v1/chat/completions`
-        # (OpenAI-compatible). We always use the latter for portability.
-        url = f"{base}/v1/chat/completions"
+        if base.endswith("/v1"):
+            url = f"{base}/chat/completions"
+        else:
+            url = f"{base}/v1/chat/completions"
  
         body: dict[str, Any] = {
             "model": model.model_name,
