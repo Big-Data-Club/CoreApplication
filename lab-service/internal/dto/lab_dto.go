@@ -11,7 +11,7 @@ type CreateLabRequest struct {
 	Category              string                 `json:"category" binding:"max=100"`
 	Level                 string                 `json:"level" binding:"omitempty,oneof=BEGINNER INTERMEDIATE ADVANCED ALL_LEVELS"`
 	ThumbnailURL          string                 `json:"thumbnail_url" binding:"omitempty,max=500"`
-	LabType               string                 `json:"lab_type" binding:"required,oneof=CODING HPC JUPYTER WORKSPACE DATABASE CUSTOM PLANT ROBOT"`
+	LabType               string                 `json:"lab_type" binding:"required,oneof=CODING HPC JUPYTER WORKSPACE DATABASE CUSTOM PLANT ROBOT CHEMISTRY"`
 	RuntimeConfig         map[string]interface{} `json:"runtime_config"`
 	MaxSessionDurationMin int                    `json:"max_session_duration_min" binding:"omitempty,min=1,max=1440"`
 	MaxConcurrentSessions int                    `json:"max_concurrent_sessions" binding:"omitempty,min=1,max=1000"`
