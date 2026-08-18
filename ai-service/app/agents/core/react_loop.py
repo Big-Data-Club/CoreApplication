@@ -42,6 +42,14 @@ MAX_ITERATIONS = 5
 MAX_CLARIFICATIONS_PER_SESSION = 2
 
 
+def _val(obj: Any, key: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def _is_teacher_authoring_request(message: str) -> bool:
     """Fail-safe route for actions that must reach the HITL tool workflow.
 
@@ -965,11 +973,8 @@ async def run_react_loop(
 
         try:
             async for delta_text, usage, chunk in gateway.stream(req):
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                if delta is None:
-                    continue
+                choices = _val(chunk, "choices")
+                delta = _val(choices[0], "delta") if choices and isinstance(choices, (list, tuple)) and len(choices) > 0 else None
 
                 if delta_text:
                     parsed_events = parser.feed(delta_text)
@@ -992,17 +997,23 @@ async def run_react_loop(
                                 turn_id=iter_id,
                             )
 
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        while tc.index >= len(collected_tool_calls):
+                tool_calls = _val(delta, "tool_calls") if delta else None
+                if tool_calls and isinstance(tool_calls, (list, tuple)):
+                    for tc in tool_calls:
+                        tc_idx = _val(tc, "index", 0)
+                        while tc_idx >= len(collected_tool_calls):
                             collected_tool_calls.append({"id": "", "name": "", "arguments": ""})
-                        entry = collected_tool_calls[tc.index]
-                        if tc.id:
-                            entry["id"] = tc.id
-                        if tc.function and tc.function.name:
-                            entry["name"] = tc.function.name
-                        if tc.function and tc.function.arguments:
-                            entry["arguments"] += tc.function.arguments
+                        entry = collected_tool_calls[tc_idx]
+                        tc_id = _val(tc, "id")
+                        if tc_id:
+                            entry["id"] = tc_id
+                        func = _val(tc, "function")
+                        fn_name = _val(func, "name") if func else None
+                        fn_args = _val(func, "arguments") if func else None
+                        if fn_name:
+                            entry["name"] = fn_name
+                        if fn_args:
+                            entry["arguments"] += fn_args
 
         except Exception as exc:
             err_str = str(exc)
