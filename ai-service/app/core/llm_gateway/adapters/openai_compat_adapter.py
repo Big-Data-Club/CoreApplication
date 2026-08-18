@@ -6,6 +6,7 @@ self-hosted endpoints by setting the provider's base_url.
 """
 from __future__ import annotations
  
+import logging
 from typing import Any, AsyncIterator, Optional
  
 import httpx
@@ -13,6 +14,8 @@ import httpx
 from app.core.llm_gateway.adapters.base import LLMAdapter
 from app.core.llm_gateway.errors import AuthError, ContextLengthError, ProviderError, RateLimitedError
 from app.core.llm_gateway.types import Model, Usage
+ 
+logger = logging.getLogger(__name__)
  
  
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=5.0)
@@ -67,8 +70,15 @@ class OpenAICompatAdapter(LLMAdapter):
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
                 resp = await client.post(url, json=body, headers=headers)
         except httpx.HTTPError as exc:
+            logger.warning("OpenAICompatAdapter network error calling %s: %s", url, exc)
             raise ProviderError(f"Network error calling {url}: {exc}", retryable=True) from exc
- 
+
+        if resp.status_code >= 400:
+            logger.warning(
+                "OpenAICompatAdapter HTTP %d for url=%s model=%s: %s",
+                resp.status_code, url, model.model_name, resp.text[:500]
+            )
+
         if resp.status_code == 429:
             retry_after = _parse_retry_after(resp.headers.get("retry-after"))
             raise RateLimitedError(resp.text, retry_after=retry_after)

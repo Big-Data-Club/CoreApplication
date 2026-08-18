@@ -240,6 +240,10 @@ class LLMGateway:
                 continue   # try another key on the same model
             except AuthError as exc:
                 elapsed = int((time.monotonic() - start) * 1000)
+                logger.warning(
+                    "LLM Gateway AuthError for task=%s model=%s provider=%s key_id=%d alias=%s: %s",
+                    req.task_code, model.model_name, model.provider_code, lease.id, lease.alias, str(exc)
+                )
                 await self.key_pool.record_auth_failure(lease.id, str(exc))
                 await self._log(
                     req=req, model=model, lease=lease, usage=Usage(),
@@ -260,6 +264,10 @@ class LLMGateway:
                 raise
             except ProviderError as exc:
                 elapsed = int((time.monotonic() - start) * 1000)
+                logger.warning(
+                    "LLM Gateway ProviderError for task=%s model=%s provider=%s key_id=%d alias=%s: %s",
+                    req.task_code, model.model_name, model.provider_code, lease.id, lease.alias, str(exc)
+                )
                 await self.key_pool.record_generic_failure(lease.id, str(exc))
                 await self._log(
                     req=req, model=model, lease=lease, usage=Usage(),
