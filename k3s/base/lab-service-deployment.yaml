@@ -113,6 +113,9 @@ spec:
               key: LMS_SYNC_SECRET
         - name: GOMAXPROCS
           value: "2"
+        # Database lab sandbox connection URL (Neon)
+        - name: DB_LAB_POSTGRES_URL
+          value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(LAB_POSTGRES_HOST)/$(DB_NAME)?sslmode=require"
         # LeetCode-style executor. Jobs run only in lab-sandbox, never in this
         # API pod. Keep this local to lab-service so changing it cannot restart
         # unrelated workers such as document indexing.
