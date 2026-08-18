@@ -43,7 +43,7 @@ func NewSubmissionService(
 func (s *SubmissionService) RunCode(ctx context.Context, labID, userID int64, req *dto.RunCodeRequest) (*dto.RunResultResponse, int, error) {
 	lab, err := s.labRepo.GetByID(ctx, labID)
 	if err != nil {
-		return nil, http.StatusNotFound, fmt.Errorf("lab not found")
+		return nil, http.StatusNotFound, fmt.Errorf("lab not found: %w", err)
 	}
 	if lab.LabType == "CODING" && !s.unsafeLocalExecutionEnabled {
 		return nil, http.StatusServiceUnavailable, fmt.Errorf("coding sandbox is being provisioned; execution is temporarily unavailable")
@@ -104,7 +104,7 @@ func (s *SubmissionService) RunCode(ctx context.Context, labID, userID int64, re
 func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64, req *dto.SubmitCodeRequest) (*dto.SubmissionResponse, int, error) {
 	lab, err := s.labRepo.GetByID(ctx, labID)
 	if err != nil {
-		return nil, http.StatusNotFound, fmt.Errorf("lab not found")
+		return nil, http.StatusNotFound, fmt.Errorf("lab not found: %w", err)
 	}
 	if lab.LabType == "CODING" && !s.unsafeLocalExecutionEnabled {
 		return nil, http.StatusServiceUnavailable, fmt.Errorf("coding sandbox is being provisioned; submissions are temporarily unavailable")

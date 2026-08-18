@@ -32,7 +32,7 @@ func (r *TestCaseRepository) Create(ctx context.Context, labID int64, req *dto.C
 
 func (r *TestCaseRepository) ListByLab(ctx context.Context, labID int64, includeSampleOnly bool) ([]dto.TestCaseResponse, error) {
 	query := `SELECT id, lab_id, name, order_index, is_sample, is_hidden, weight,
-		input, expected, time_limit_ms, memory_limit_mb, explanation, created_at
+		COALESCE(input, ''), COALESCE(expected, ''), time_limit_ms, memory_limit_mb, COALESCE(explanation, ''), created_at
 		FROM lab_test_cases WHERE lab_id = $1`
 	if includeSampleOnly {
 		// A case can be accidentally marked both sample and hidden by an author.
@@ -47,13 +47,18 @@ func (r *TestCaseRepository) ListByLab(ctx context.Context, labID int64, include
 	}
 	defer rows.Close()
 
-	var cases []dto.TestCaseResponse
+	cases := make([]dto.TestCaseResponse, 0)
 	for rows.Next() {
 		var c dto.TestCaseResponse
-		rows.Scan(&c.ID, &c.LabID, &c.Name, &c.OrderIndex, &c.IsSample,
+		if err := rows.Scan(&c.ID, &c.LabID, &c.Name, &c.OrderIndex, &c.IsSample,
 			&c.IsHidden, &c.Weight, &c.Input, &c.Expected,
-			&c.TimeLimitMs, &c.MemoryLimitMB, &c.Explanation, &c.CreatedAt)
+			&c.TimeLimitMs, &c.MemoryLimitMB, &c.Explanation, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan test case: %w", err)
+		}
 		cases = append(cases, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return cases, nil
 }
