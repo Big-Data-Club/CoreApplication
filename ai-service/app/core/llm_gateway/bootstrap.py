@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
  
 from app.core.config import get_settings
+from app.core.llm_gateway.freemodel_providers import _DEFAULT_FREEMODEL_PROVIDERS
 from app.core.llm_gateway.registry import get_registry
 from app.core.llm_gateway.types import (
     ALL_TASK_CODES,
@@ -403,6 +404,33 @@ async def bootstrap_llm_registry() -> None:
             logger.info("Migrated ANTHROPIC_API_KEY from env into llm_api_keys (alias=anthropic-env)")
         except Exception as exc:
             logger.warning("Could not seed Anthropic env key: %s", exc)
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # FreeModel Providers + Models (Auto Warm Up)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    for fm_spec in _DEFAULT_FREEMODEL_PROVIDERS:
+        fm_prov = await registry.upsert_provider(
+            code=fm_spec["code"],
+            display_name=fm_spec["display_name"],
+            adapter_type=fm_spec["adapter_type"],
+            base_url=fm_spec["base_url"],
+            enabled=True,
+        )
+        for m_spec in fm_spec["models"]:
+            await registry.upsert_model(provider_id=fm_prov.id, **m_spec)
+            total_models += 1
+
+        fm_keys = await registry.list_api_keys(provider_id=fm_prov.id)
+        if not fm_keys:
+            try:
+                await registry.create_api_key(
+                    provider_id=fm_prov.id,
+                    alias=f"{fm_spec['code']}-free",
+                    plaintext_key="free-mode-no-key-required",
+                )
+                logger.info("Seeded default key for FreeModel provider %s", fm_spec["code"])
+            except Exception as exc:
+                logger.warning("Could not seed key for FreeModel provider %s: %s", fm_spec["code"], exc)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # FreeModel provider + models (Anthropic-compatible endpoint)

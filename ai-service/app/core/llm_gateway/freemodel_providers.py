@@ -1,0 +1,56 @@
+_DEFAULT_FREEMODEL_PROVIDERS = [
+    {
+        "code": "freemodel-api",
+        "display_name": "FreeModel API (GPT 5.6)",
+        "adapter_type": "openai",
+        "base_url": "https://api.freemodel.dev/v1",
+        "models": [
+            {"model_name": "gpt-5.6-luna", "display_name": "GPT 5.6 Luna", "family": "gpt-5", "context_window": 131072, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "gpt-5.6-sol", "display_name": "GPT 5.6 Sol", "family": "gpt-5", "context_window": 131072, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "gpt-5.6-terra", "display_name": "GPT 5.6 Terra", "family": "gpt-5", "context_window": 131072, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+        ],
+    },
+    {
+        "code": "freemodel-cc",
+        "display_name": "FreeModel CC (Claude)",
+        "adapter_type": "openai",
+        "base_url": "https://cc.freemodel.dev/v1",
+        "models": [
+            {"model_name": "claude-opus-5", "display_name": "Claude Opus 5", "family": "claude-5", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-opus-4-8", "display_name": "Claude Opus 4.8", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-opus-4-7", "display_name": "Claude Opus 4.7", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-sonnet-4-6", "display_name": "Claude Sonnet 4.6", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-sonnet-5", "display_name": "Claude Sonnet 5", "family": "claude-5", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-opus-4-6", "display_name": "Claude Opus 4.6", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-haiku-4-5-20251001", "display_name": "Claude Haiku 4.5", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+        ],
+    },
+    {
+        "code": "freemodel-cc-hq",
+        "display_name": "FreeModel CC-HQ (Claude HQ)",
+        "adapter_type": "openai",
+        "base_url": "https://cc-hq.freemodel.dev/v1",
+        "models": [
+            {"model_name": "claude-opus-5", "display_name": "Claude Opus 5", "family": "claude-5", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-opus-4-8", "display_name": "Claude Opus 4.8", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-opus-4-7", "display_name": "Claude Opus 4.7", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-fable-5", "display_name": "Claude Fable 5", "family": "claude-5", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-sonnet-4-6", "display_name": "Claude Sonnet 4.6", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-sonnet-5", "display_name": "Claude Sonnet 5", "family": "claude-5", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-opus-4-6", "display_name": "Claude Opus 4.6", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "claude-haiku-4-5-20251001", "display_name": "Claude Haiku 4.5", "family": "claude-4", "context_window": 200000, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+        ],
+    },
+    {
+        "code": "freemodel-work",
+        "display_name": "FreeModel Work",
+        "adapter_type": "openai",
+        "base_url": "https://work.freemodel.dev/v1",
+        "models": [
+            {"model_name": "gpt-5.6-luna", "display_name": "GPT 5.6 Luna", "family": "gpt-5", "context_window": 131072, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "gpt-5.6-sol", "display_name": "GPT 5.6 Sol", "family": "gpt-5", "context_window": 131072, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "gpt-5.6-terra", "display_name": "GPT 5.6 Terra", "family": "gpt-5", "context_window": 131072, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+            {"model_name": "FreeModel", "display_name": "FreeModel Default", "family": "freemodel", "context_window": 131072, "supports_tools": True, "supports_json": True, "supports_vision": True, "default_temperature": 0.3, "default_max_tokens": 16384, "input_cost_per_1k": 0.0, "output_cost_per_1k": 0.0},
+        ],
+    },
+]
