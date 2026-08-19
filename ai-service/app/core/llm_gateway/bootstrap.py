@@ -466,7 +466,13 @@ async def bootstrap_llm_registry() -> None:
     # Groq-hosted GPT-OSS 120B for every text task. Admin-created or pinned
     # bindings are never overwritten; they remain the management override.
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    default_model_id = models_by_name.get("openai/gpt-oss-120b") or chat_model_id
+    all_models_reloaded = await registry.list_models(only_enabled=True)
+    models_by_name = {m.model_name: m.id for m in all_models_reloaded}
+
+    terra_model_id = models_by_name.get("gpt-5.6-terra")
+    oss_model_id = models_by_name.get("openai/gpt-oss-120b") or chat_model_id
+    default_model_id = terra_model_id or oss_model_id
+
     default_bindings: list[tuple[str, int, int]] = [
         (TASK_CHAT,             default_model_id, 10),
         (TASK_CLARIFICATION,    default_model_id, 10),
@@ -488,21 +494,28 @@ async def bootstrap_llm_registry() -> None:
 
     for task_code, model_id, priority in default_bindings:
         chain = await registry.list_bindings(task_code)
-        managed = [b for b in chain if (b.notes or "").startswith("seeded-default")]
+        managed = [b for b in chain if (b.notes or "").startswith("seeded-default") or (b.notes or "").startswith("seeded-fallback")]
         human_configured = [b for b in chain if b not in managed]
         if human_configured:
             continue
-        # Keep old seed rows as fallback, but ensure GPT-OSS is first.
         for binding in managed:
             if binding.model.id != model_id and binding.priority <= priority:
-                await registry.update_binding(binding.id, priority=priority + 90)
+                await registry.update_binding(binding.id, priority=priority + 20)
         await registry.upsert_binding(
             task_code=task_code,
             model_id=model_id,
             priority=priority,
             enabled=True,
-            notes="seeded-default:gpt-oss-120b",
+            notes=f"seeded-default:{model_id}",
         )
+        if terra_model_id and oss_model_id and model_id == terra_model_id and task_code != TASK_VLM_DESCRIBE:
+            await registry.upsert_binding(
+                task_code=task_code,
+                model_id=oss_model_id,
+                priority=priority + 10,
+                enabled=True,
+                notes=f"seeded-fallback:{oss_model_id}",
+            )
 
     # Warm binding cache for every known task code
     registry.invalidate()
