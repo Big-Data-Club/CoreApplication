@@ -198,7 +198,7 @@ class LLMGateway:
         requested_max_tokens = int(_resolve(
             req.max_tokens, binding.max_tokens, model.default_max_tokens,
         ))
-        max_tokens = self._fit_completion_budget(req, model.context_window, requested_max_tokens)
+        max_tokens = self._fit_completion_budget(req, model.context_window, requested_max_tokens, model=model)
         json_mode = (
             req.json_mode if req.json_mode is not None
             else binding.json_mode
@@ -208,7 +208,7 @@ class LLMGateway:
         for _ in range(MAX_KEYS_PER_MODEL):
             lease = await self.key_pool.lease(model.provider_id)
             max_tokens = self._fit_completion_budget(
-                req, model.context_window, requested_max_tokens, key_tpm_limit=lease.record.tpm_limit,
+                req, model.context_window, requested_max_tokens, key_tpm_limit=lease.record.tpm_limit, model=model
             )
             adapter = adapter_cls(
                 api_key=lease.plaintext,
@@ -380,7 +380,7 @@ class LLMGateway:
         requested_max_tokens = int(_resolve(
             req.max_tokens, binding.max_tokens, model.default_max_tokens,
         ))
-        max_tokens = self._fit_completion_budget(req, model.context_window, requested_max_tokens)
+        max_tokens = self._fit_completion_budget(req, model.context_window, requested_max_tokens, model=model)
         json_mode = (
             req.json_mode if req.json_mode is not None
             else binding.json_mode
@@ -390,7 +390,7 @@ class LLMGateway:
         for _ in range(MAX_KEYS_PER_MODEL):
             lease = await self.key_pool.lease(model.provider_id)
             max_tokens = self._fit_completion_budget(
-                req, model.context_window, requested_max_tokens, key_tpm_limit=lease.record.tpm_limit,
+                req, model.context_window, requested_max_tokens, key_tpm_limit=lease.record.tpm_limit, model=model
             )
             adapter = adapter_cls(
                 api_key=lease.plaintext,
@@ -473,6 +473,7 @@ class LLMGateway:
         requested: int,
         *,
         key_tpm_limit: int | None = None,
+        model: Model | None = None,
     ) -> int:
         """Keep every upstream request under a safe TPM-sized envelope.
 
@@ -493,6 +494,12 @@ class LLMGateway:
                 f"({prompt_tokens} estimated input tokens; budget={request_budget}). "
                 "Use a coverage-preserving hierarchical reduction instead of truncating source material."
             )
+        # Allow model config to specify optional min_completion_tokens dynamically
+        if model and isinstance(model.config, dict):
+            min_tokens = model.config.get("min_completion_tokens")
+            if isinstance(min_tokens, int) and min_tokens > 0:
+                requested = max(requested, min_tokens)
+
         return min(requested, available)
  
  
