@@ -191,7 +191,7 @@ async def classify_intent(
             response_model=RouterOutput,
             model=settings.chat_model,
             temperature=0.0,
-            max_tokens=256,
+            max_tokens=2048,
             task=TASK_AGENT_ROUTER,
         )
 

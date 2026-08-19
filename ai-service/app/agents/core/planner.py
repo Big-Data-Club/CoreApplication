@@ -336,7 +336,7 @@ async def generate_plan(
             response_model=ExecutionPlan,
             model=settings.quiz_model,  # use accurate model for planning
             temperature=0.0,
-            max_tokens=900,
+            max_tokens=2048,
             task=TASK_AGENT_ROUTER,
         )
         logger.info(
