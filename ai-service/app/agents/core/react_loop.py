@@ -974,10 +974,12 @@ async def run_react_loop(
         try:
             async for delta_text, usage, chunk in gateway.stream(req):
                 choices = _val(chunk, "choices")
-                delta = _val(choices[0], "delta") if choices and isinstance(choices, (list, tuple)) and len(choices) > 0 else None
+                choice_0 = choices[0] if (choices and isinstance(choices, (list, tuple)) and len(choices) > 0) else None
+                container = _val(choice_0, "delta") or _val(choice_0, "message") if choice_0 else None
 
-                if delta_text:
-                    parsed_events = parser.feed(delta_text)
+                raw_text = delta_text or (_val(container, "content") if container and isinstance(_val(container, "content"), str) else "")
+                if raw_text:
+                    parsed_events = parser.feed(raw_text)
                     for ev_type, text_chunk in parsed_events:
                         if ev_type == "thought":
                             assistant_thinking += text_chunk
@@ -997,7 +999,7 @@ async def run_react_loop(
                                 turn_id=iter_id,
                             )
 
-                tool_calls = _val(delta, "tool_calls") if delta else None
+                tool_calls = _val(container, "tool_calls") if container else None
                 if tool_calls and isinstance(tool_calls, (list, tuple)):
                     for tc in tool_calls:
                         tc_idx = _val(tc, "index", 0)
