@@ -283,6 +283,13 @@ jobs:
         working-directory: ${{ matrix.context }}
         run: pnpm install --frozen-lockfile
 
+      - name: Install dependencies (Python)
+        if: matrix.should_build == true && matrix.setup == 'python'
+        working-directory: ${{ matrix.context }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
       - name: Download Go modules
         if: matrix.should_build == true && matrix.setup == 'go'
         working-directory: ${{ matrix.context }}

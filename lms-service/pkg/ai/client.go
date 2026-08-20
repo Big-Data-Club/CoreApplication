@@ -41,11 +41,11 @@ func NewClient() *Client {
 
 // ProcessDocumentRequest triggers document ingestion in the ai-service.
 type ProcessDocumentRequest struct {
-	ContentID   int64   `json:"content_id"`
-	CourseID    int64   `json:"course_id"`
-	NodeID      *int64  `json:"node_id,omitempty"`
-	FileURL     string  `json:"file_url"`
-	ContentType string  `json:"content_type"`
+	ContentID   int64  `json:"content_id"`
+	CourseID    int64  `json:"course_id"`
+	NodeID      *int64 `json:"node_id,omitempty"`
+	FileURL     string `json:"file_url"`
+	ContentType string `json:"content_type"`
 }
 
 type ProcessDocumentResponse struct {
@@ -82,25 +82,25 @@ type DiagnoseRequest struct {
 
 // DiagnoseResponse contains LLM explanation + deep link.
 type DiagnoseResponse struct {
-	Explanation     string                 `json:"explanation"`
-	GapType         string                   `json:"gap_type"`
-	KnowledgeGap    string                   `json:"knowledge_gap"`
-	StudySuggestion string                   `json:"study_suggestion"`
-	Confidence      float64                  `json:"confidence"`
-	SourceChunkID   *int64                   `json:"source_chunk_id"`
+	Explanation        string                   `json:"explanation"`
+	GapType            string                   `json:"gap_type"`
+	KnowledgeGap       string                   `json:"knowledge_gap"`
+	StudySuggestion    string                   `json:"study_suggestion"`
+	Confidence         float64                  `json:"confidence"`
+	SourceChunkID      *int64                   `json:"source_chunk_id"`
 	SuggestedDocuments []map[string]interface{} `json:"suggested_documents"`
-	Language        string                   `json:"language"`
+	Language           string                   `json:"language"`
 }
 
 type ChunkItem struct {
-    ID           int64   `json:"id"`
-    ChunkText    string  `json:"chunk_text"`
-    ChunkIndex   int     `json:"chunk_index"`
-    SourceType   string  `json:"source_type"`
-    PageNumber   *int    `json:"page_number"`
-    StartTimeSec *int    `json:"start_time_sec"`
-    EndTimeSec   *int    `json:"end_time_sec"`
-    Language     string  `json:"language"`
+	ID           int64  `json:"id"`
+	ChunkText    string `json:"chunk_text"`
+	ChunkIndex   int    `json:"chunk_index"`
+	SourceType   string `json:"source_type"`
+	PageNumber   *int   `json:"page_number"`
+	StartTimeSec *int   `json:"start_time_sec"`
+	EndTimeSec   *int   `json:"end_time_sec"`
+	Language     string `json:"language"`
 }
 
 func (c *Client) DiagnoseError(ctx context.Context, req DiagnoseRequest) (*DiagnoseResponse, error) {
@@ -114,14 +114,14 @@ func (c *Client) DiagnoseError(ctx context.Context, req DiagnoseRequest) (*Diagn
 // ── Heatmap ───────────────────────────────────────────────────────────────────
 
 type HeatmapNode struct {
-	NodeID       int64   `json:"node_id"`
-	NodeName     string  `json:"node_name"`
-	NodeNameVI   string  `json:"name_vi"`
-	StudentCount int     `json:"student_count"`
-	AvgMastery   float64 `json:"avg_mastery"`
-	TotalWrong   int     `json:"total_wrong"`
-	TotalAttempts int    `json:"total_attempts"`
-	WrongRate    float64 `json:"wrong_rate"`
+	NodeID        int64   `json:"node_id"`
+	NodeName      string  `json:"node_name"`
+	NodeNameVI    string  `json:"name_vi"`
+	StudentCount  int     `json:"student_count"`
+	AvgMastery    float64 `json:"avg_mastery"`
+	TotalWrong    int     `json:"total_wrong"`
+	TotalAttempts int     `json:"total_attempts"`
+	WrongRate     float64 `json:"wrong_rate"`
 }
 
 func (c *Client) GetClassHeatmap(ctx context.Context, courseID int64) ([]HeatmapNode, error) {
@@ -144,12 +144,12 @@ func (c *Client) GetStudentHeatmap(ctx context.Context, studentID, courseID int6
 // ── Quiz Generation (Phase 2) ─────────────────────────────────────────────────
 
 type GenerateQuizRequest struct {
-	NodeID              int64    `json:"node_id"`
-	CourseID            int64    `json:"course_id"`
-	CreatedBy           int64    `json:"created_by"`
-	BloomLevels         []string `json:"bloom_levels,omitempty"`
-	Language            string   `json:"language"`
-	QuestionsPerLevel   int      `json:"questions_per_level"`
+	NodeID            int64    `json:"node_id"`
+	CourseID          int64    `json:"course_id"`
+	CreatedBy         int64    `json:"created_by"`
+	BloomLevels       []string `json:"bloom_levels,omitempty"`
+	Language          string   `json:"language"`
+	QuestionsPerLevel int      `json:"questions_per_level"`
 }
 
 type GenerateQuizResponse struct {
@@ -188,16 +188,16 @@ type ApproveQuestionRequest struct {
 // ApproveQuestionResponse is the structured response from the AI service
 // containing the full question data that LMS needs to insert into quiz_questions.
 type ApproveQuestionResponse struct {
-	GenID          int64                    `json:"gen_id"`
-	QuizID         int64                    `json:"quiz_id"`
-	QuestionText   string                   `json:"question_text"`
-	QuestionType   string                   `json:"question_type"`
-	Explanation    string                   `json:"explanation"`
-	AnswerOptions  []map[string]interface{} `json:"answer_options"`
-	NodeID         *int64                   `json:"node_id"`
-	BloomLevel     string                   `json:"bloom_level"`
-	SourceChunkID  *int64                   `json:"source_chunk_id"`
-	Language       string                   `json:"language"`
+	GenID         int64                    `json:"gen_id"`
+	QuizID        int64                    `json:"quiz_id"`
+	QuestionText  string                   `json:"question_text"`
+	QuestionType  string                   `json:"question_type"`
+	Explanation   string                   `json:"explanation"`
+	AnswerOptions []map[string]interface{} `json:"answer_options"`
+	NodeID        *int64                   `json:"node_id"`
+	BloomLevel    string                   `json:"bloom_level"`
+	SourceChunkID *int64                   `json:"source_chunk_id"`
+	Language      string                   `json:"language"`
 }
 
 func (c *Client) ApproveQuestion(ctx context.Context, genID int64, req ApproveQuestionRequest) (*ApproveQuestionResponse, error) {
@@ -299,7 +299,6 @@ func (c *Client) GetTotalDueReviews(ctx context.Context, studentID int64) (int, 
 	}
 	return resp.DueToday, nil
 }
-
 
 // ── Knowledge Nodes ────────────────────────────────────────────────────────────
 
@@ -436,13 +435,13 @@ func (c *Client) GetStudentAnalyticsSummary(ctx context.Context, studentID, cour
 // ── Knowledge Nodes ────────────────────────────────────────────────────────────
 
 type CreateNodeRequest struct {
-	CourseID    int64   `json:"course_id"`
-	Name        string  `json:"name"`
-	NameVI      string  `json:"name_vi,omitempty"`
-	NameEN      string  `json:"name_en,omitempty"`
-	Description string  `json:"description,omitempty"`
-	ParentID    *int64  `json:"parent_id,omitempty"`
-	OrderIndex  int     `json:"order_index"`
+	CourseID    int64  `json:"course_id"`
+	Name        string `json:"name"`
+	NameVI      string `json:"name_vi,omitempty"`
+	NameEN      string `json:"name_en,omitempty"`
+	Description string `json:"description,omitempty"`
+	ParentID    *int64 `json:"parent_id,omitempty"`
+	OrderIndex  int    `json:"order_index"`
 }
 
 func (c *Client) CreateKnowledgeNode(ctx context.Context, req CreateNodeRequest) (map[string]interface{}, error) {
@@ -476,29 +475,29 @@ type AutoIndexTextRequest struct {
 	Title       string `json:"title"`
 	TextContent string `json:"text_content"`
 }
- 
+
 type AutoIndexResponse struct {
 	JobID     string `json:"job_id"`
 	ContentID int64  `json:"content_id"`
 	Status    string `json:"status"`
 	Message   string `json:"message"`
 }
- 
+
 type AutoIndexStatus struct {
-	ContentID    int64  `json:"content_id"`
-	Status       string `json:"status"` // queued|processing|indexed|failed
-	NodesCreated int    `json:"nodes_created"`
-	ChunksCreated int   `json:"chunks_created"`
-	Error        string `json:"error,omitempty"`
+	ContentID     int64  `json:"content_id"`
+	Status        string `json:"status"` // queued|processing|indexed|failed
+	NodesCreated  int    `json:"nodes_created"`
+	ChunksCreated int    `json:"chunks_created"`
+	Error         string `json:"error,omitempty"`
 }
 
 type WeaknessNode struct {
-	NodeID       int64   `json:"node_id"`
-	NodeName     string  `json:"node_name"`
-	NameVI       string  `json:"name_vi"`
-	WrongCount   int     `json:"wrong_count"`
-	TotalAttempt int     `json:"total_attempts"`
-	MasteryLevel float64 `json:"mastery_level"`
+	NodeID         int64   `json:"node_id"`
+	NodeName       string  `json:"node_name"`
+	NameVI         string  `json:"name_vi"`
+	WrongCount     int     `json:"wrong_count"`
+	TotalAttempt   int     `json:"total_attempts"`
+	MasteryLevel   float64 `json:"mastery_level"`
 	StatusLevel    string  `json:"status_level"`
 	FlashcardCount int     `json:"flashcard_count"`
 }
@@ -520,7 +519,7 @@ func (c *Client) AutoIndexText(ctx context.Context, req AutoIndexTextRequest) (*
 	}
 	return &resp, nil
 }
- 
+
 // GetAutoIndexStatus polls the auto-index job status.
 func (c *Client) GetAutoIndexStatus(ctx context.Context, contentID int64) (*AutoIndexStatus, error) {
 	var resp AutoIndexStatus
@@ -543,40 +542,40 @@ func (c *Client) BatchGetAutoIndexStatus(ctx context.Context, contentIDs []int64
 }
 
 func (c *Client) GetNodeChunks(ctx context.Context, nodeID int64, limit int) ([]ChunkItem, error) {
-    var resp []ChunkItem
-    return resp, c.get(ctx, fmt.Sprintf("/ai/knowledge-nodes/%d/chunks?limit=%d", nodeID, limit), &resp)
+	var resp []ChunkItem
+	return resp, c.get(ctx, fmt.Sprintf("/ai/knowledge-nodes/%d/chunks?limit=%d", nodeID, limit), &resp)
 }
- 
+
 // KnowledgeGraphNode represents a node in the knowledge graph.
 type KnowledgeGraphNode struct {
-	ID                 int64   `json:"id"`
-	Name               string  `json:"name"`
-	NameVI             string  `json:"name_vi"`
-	NameEN             string  `json:"name_en"`
-	Description        string  `json:"description"`
-	SourceContentID    *int64  `json:"source_content_id"`
-	SourceContentTitle string  `json:"source_content_title"`
-	CourseID           *int64  `json:"course_id"`
-	AutoGenerated      bool    `json:"auto_generated"`
-	ChunkCount         int     `json:"chunk_count"`
-	Level              int     `json:"level"`
+	ID                 int64  `json:"id"`
+	Name               string `json:"name"`
+	NameVI             string `json:"name_vi"`
+	NameEN             string `json:"name_en"`
+	Description        string `json:"description"`
+	SourceContentID    *int64 `json:"source_content_id"`
+	SourceContentTitle string `json:"source_content_title"`
+	CourseID           *int64 `json:"course_id"`
+	AutoGenerated      bool   `json:"auto_generated"`
+	ChunkCount         int    `json:"chunk_count"`
+	Level              int    `json:"level"`
 }
- 
+
 // KnowledgeGraphEdge represents a directed edge in the knowledge graph.
 type KnowledgeGraphEdge struct {
-	Source       int64   `json:"source"`
-	Target       int64   `json:"target"`
-	RelationType string  `json:"relation_type"`
-	Strength     float64 `json:"strength"`
-	AutoGenerated bool   `json:"auto_generated"`
+	Source        int64   `json:"source"`
+	Target        int64   `json:"target"`
+	RelationType  string  `json:"relation_type"`
+	Strength      float64 `json:"strength"`
+	AutoGenerated bool    `json:"auto_generated"`
 }
- 
+
 type KnowledgeGraphResponse struct {
 	CourseID int64                `json:"course_id"`
 	Nodes    []KnowledgeGraphNode `json:"nodes"`
 	Edges    []KnowledgeGraphEdge `json:"edges"`
 }
- 
+
 // GetKnowledgeGraph returns the full knowledge graph for a course.
 func (c *Client) GetKnowledgeGraph(ctx context.Context, courseID int64) (*KnowledgeGraphResponse, error) {
 	var resp KnowledgeGraphResponse
@@ -711,7 +710,7 @@ func (c *Client) PreviewGraphConsolidation(ctx context.Context, courseID int64) 
 // TriggerGraphConsolidation enqueues a "Compact Graph" Kafka command for a course.
 func (c *Client) TriggerGraphConsolidation(ctx context.Context, courseID int64, triggeredBy int64, selectedSurvivorIDs []int64) (map[string]interface{}, error) {
 	body := map[string]interface{}{
-		"triggered_by": triggeredBy,
+		"triggered_by":          triggeredBy,
 		"selected_survivor_ids": selectedSurvivorIDs,
 	}
 	var resp map[string]interface{}
@@ -721,7 +720,7 @@ func (c *Client) TriggerGraphConsolidation(ctx context.Context, courseID int64, 
 	}
 	return resp, nil
 }
- 
+
 // DeleteKnowledgeNode removes an auto-generated node.
 func (c *Client) DeleteKnowledgeNode(ctx context.Context, nodeID int64) error {
 	var resp map[string]interface{}
@@ -793,7 +792,6 @@ func (c *Client) DeleteGraphEdge(ctx context.Context, sourceID, targetID int64, 
 	return c.deleteWithBody(ctx, "/ai/knowledge-graph/edge", body, &resp)
 }
 
-
 func (c *Client) delete(ctx context.Context, path string, result interface{}) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
 	if err != nil {
@@ -818,7 +816,7 @@ func (c *Client) GetStudentWeaknesses(ctx context.Context, studentID, courseID i
 	if err != nil {
 		return nil, fmt.Errorf("ai.GetStudentWeaknesses: %w", err)
 	}
- 
+
 	nodes := make([]WeaknessNode, 0, len(raw))
 	for _, r := range raw {
 		mastery := GetFloatField(r, "mastery_level")
@@ -837,7 +835,7 @@ func (c *Client) GetStudentWeaknesses(ctx context.Context, studentID, courseID i
 		case mastery < 0.8:
 			statusLevel = "TB"
 		}
- 
+
 		nodes = append(nodes, WeaknessNode{
 			NodeID:         nodeID,
 			NodeName:       GetStringField(r, "node_name"),
@@ -851,7 +849,7 @@ func (c *Client) GetStudentWeaknesses(ctx context.Context, studentID, courseID i
 	}
 	return nodes, nil
 }
- 
+
 // GetIntField safely extracts an int from map[string]interface{}
 func GetIntField(m map[string]interface{}, key string) int {
 	if v, ok := m[key]; ok {
@@ -983,25 +981,43 @@ func (c *Client) GenerateSectionOverview(ctx context.Context, req GenerateSectio
 // never receives the AI service secret or gets to choose an owner id.
 func (c *Client) CreateCourseBlueprint(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
 	var resp map[string]interface{}
-	if err := c.post(ctx, "/ai/course-blueprints", payload, &resp); err != nil { return nil, err }
+	if err := c.post(ctx, "/ai/course-blueprints", payload, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// SuggestCompetencies returns an AI-generated draft only. The LMS caller must
+// present it for human review and explicitly persist approved items.
+func (c *Client) SuggestCompetencies(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	if err := c.post(ctx, "/ai/competency-suggestions", payload, &resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 
 func (c *Client) GetCourseBlueprint(ctx context.Context, id string, ownerID int64) (map[string]interface{}, error) {
 	var resp map[string]interface{}
-	if err := c.get(ctx, fmt.Sprintf("/ai/course-blueprints/%s?owner_id=%d", id, ownerID), &resp); err != nil { return nil, err }
+	if err := c.get(ctx, fmt.Sprintf("/ai/course-blueprints/%s?owner_id=%d", id, ownerID), &resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 
 func (c *Client) UpdateCourseBlueprint(ctx context.Context, id string, payload map[string]interface{}) (map[string]interface{}, error) {
 	var resp map[string]interface{}
-	if err := c.put(ctx, "/ai/course-blueprints/"+id, payload, &resp); err != nil { return nil, err }
+	if err := c.put(ctx, "/ai/course-blueprints/"+id, payload, &resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 
 func (c *Client) ApproveCourseBlueprint(ctx context.Context, id string, ownerID int64) (map[string]interface{}, error) {
 	var resp map[string]interface{}
-	if err := c.post(ctx, "/ai/course-blueprints/"+id+"/approve", map[string]int64{"owner_id": ownerID}, &resp); err != nil { return nil, err }
+	if err := c.post(ctx, "/ai/course-blueprints/"+id+"/approve", map[string]int64{"owner_id": ownerID}, &resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 func (c *Client) CancelCourseBlueprint(ctx context.Context, id string, ownerID int64, result interface{}) error {
@@ -1010,13 +1026,17 @@ func (c *Client) CancelCourseBlueprint(ctx context.Context, id string, ownerID i
 
 func (c *Client) CreateMaterialRouting(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
 	var resp map[string]interface{}
-	if err := c.post(ctx, "/ai/course-material-routing", payload, &resp); err != nil { return nil, err }
+	if err := c.post(ctx, "/ai/course-material-routing", payload, &resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 
 func (c *Client) GetMaterialRouting(ctx context.Context, id string, ownerID int64) (map[string]interface{}, error) {
 	var resp map[string]interface{}
-	if err := c.get(ctx, fmt.Sprintf("/ai/course-material-routing/%s?owner_id=%d", id, ownerID), &resp); err != nil { return nil, err }
+	if err := c.get(ctx, fmt.Sprintf("/ai/course-material-routing/%s?owner_id=%d", id, ownerID), &resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 
@@ -1065,11 +1085,22 @@ func (c *Client) post(ctx context.Context, path string, body, result interface{}
 }
 
 func (c *Client) put(ctx context.Context, path string, body, result interface{}) error {
-	b, err := json.Marshal(body); if err != nil { return err }
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, bytes.NewReader(b)); if err != nil { return err }
-	req.Header.Set("Content-Type", "application/json"); req.Header.Set("X-AI-Secret", c.secret)
-	resp, err := c.httpClient.Do(req); if err != nil { return fmt.Errorf("ai-service PUT %s: %w", path, err) }
-	defer resp.Body.Close(); return c.decodeResponse(resp, path, result)
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-AI-Secret", c.secret)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("ai-service PUT %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	return c.decodeResponse(resp, path, result)
 }
 
 func (c *Client) get(ctx context.Context, path string, result interface{}) error {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"time"
 
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
@@ -359,41 +358,9 @@ func (s *LearningEventService) GetQuestionSkills(ctx context.Context, questionID
 // HELPER FUNCTIONS
 // ══════════════════════════════════════════════════════════════════════════════
 
-func toNullString(s string) sql.NullString {
-	return sql.NullString{String: s, Valid: s != ""}
-}
-
-func toNullInt64(i *int64) sql.NullInt64 {
-	if i == nil {
-		return sql.NullInt64{Valid: false}
-	}
-	return sql.NullInt64{Int64: *i, Valid: true}
-}
-
-func toNullInt32(i *int) sql.NullInt32 {
-	if i == nil {
-		return sql.NullInt32{Valid: false}
-	}
-	return sql.NullInt32{Int32: int32(*i), Valid: true}
-}
-
-func toNullFloat64(f *float64) sql.NullFloat64 {
-	if f == nil {
-		return sql.NullFloat64{Valid: false}
-	}
-	return sql.NullFloat64{Float64: *f, Valid: true}
-}
-
 func toNullBool(b *bool) sql.NullBool {
 	if b == nil {
 		return sql.NullBool{Valid: false}
 	}
 	return sql.NullBool{Bool: *b, Valid: true}
-}
-
-func toNullTime(t *time.Time) sql.NullTime {
-	if t == nil {
-		return sql.NullTime{Valid: false}
-	}
-	return sql.NullTime{Time: *t, Valid: true}
 }

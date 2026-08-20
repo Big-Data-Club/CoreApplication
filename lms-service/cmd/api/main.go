@@ -256,6 +256,7 @@ func main() {
 	permHandler := handler.NewPermissionHandler(permService)
 	orgHandler := handler.NewOrganizationHandler(orgService)
 	courseBlueprintHandler := handler.NewCourseBlueprintHandler(aiClient, orgRepo, courseService)
+	competencyAIHandler := handler.NewCompetencyAIHandler(aiClient)
 	personalizedLearningHandler := handler.NewPersonalizedLearningHandler(learningEventService, courseService)
 
 	// Setup Gin router
@@ -807,6 +808,10 @@ func main() {
 				personalizedLearning.GET("/students/:studentId/recommendations/discover-courses", personalizedLearningHandler.GetDiscoverCoursesRecommendations)
 				personalizedLearning.GET("/students/:studentId/trajectory", personalizedLearningHandler.GetLearningTrajectory)
 			}
+
+			// AI only returns an editable draft. It has no write access to
+			// competency frameworks, course outcomes, or assessment mappings.
+			auth.POST("/competency-suggestions", competencyAIHandler.Suggest)
 		}
 
 		// -- Internal callbacks (AI service -> LMS) -------------------------
