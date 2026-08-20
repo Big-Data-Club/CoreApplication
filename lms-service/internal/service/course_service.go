@@ -1418,3 +1418,15 @@ func (s *CourseService) ReorderContents(ctx context.Context, sectionID int64, re
 
 	return nil
 }
+
+// GetCategories returns all distinct course categories
+func (s *CourseService) GetCategories(ctx context.Context) ([]string, error) {
+	categories, err := s.courseRepo.GetDistinctCategories(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch course categories: %w", err)
+	}
+	if categories == nil {
+		categories = []string{}
+	}
+	return categories, nil
+}

@@ -105,10 +105,14 @@ type LessonContentTypeCount struct {
 }
 
 type SectionProgressCount struct {
-	SectionTitle string `json:"section_title"`
-	Completed    int    `json:"completed"`
-	Total        int    `json:"total"`
-	Percent      int    `json:"percent"`
+	SectionTitle       string `json:"section_title"`
+	TotalMandatory     int    `json:"total_mandatory"`
+	CompletedMandatory int    `json:"completed_mandatory"`
+	TotalContent       int    `json:"total_content,omitempty"`
+	CompletedContent   int    `json:"completed_content,omitempty"`
+	Completed          int    `json:"completed"`
+	Total              int    `json:"total"`
+	Percent            int    `json:"percent"`
 }
 
 type LessonProgressSummary struct {

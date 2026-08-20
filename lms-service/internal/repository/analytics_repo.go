@@ -479,8 +479,8 @@ func (r *AnalyticsRepository) GetStudentLessonProgressSummary(ctx context.Contex
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT
 			sc.type AS content_type,
-			COUNT(sc.id) AS total_count,
-			COUNT(cp.id) AS completed_count
+			COUNT(sc.id) FILTER (WHERE sc.is_mandatory = TRUE) AS total_mandatory,
+			COUNT(cp.id) FILTER (WHERE sc.is_mandatory = TRUE AND cp.id IS NOT NULL) AS completed_mandatory
 		FROM section_content sc
 		JOIN course_sections cs ON sc.section_id = cs.id
 		LEFT JOIN content_progress cp ON cp.content_id = sc.id AND cp.student_id = $2
@@ -508,14 +508,15 @@ func (r *AnalyticsRepository) GetStudentLessonProgressSummary(ctx context.Contex
 		byType = append(byType, item)
 	}
 
-	// Query section progress
+	// Query section progress (aligned with mandatory logic)
 	rowsSec, err := r.db.QueryContext(ctx, `
 		SELECT
 			COALESCE(cs.title, 'Chương khác') AS section_title,
-			COUNT(sc.id) AS total_count,
-			COUNT(cp.id) AS completed_count
-		FROM section_content sc
-		JOIN course_sections cs ON sc.section_id = cs.id
+			COUNT(sc.id) FILTER (WHERE sc.is_mandatory = TRUE) AS total_mandatory,
+			COUNT(cp.id) FILTER (WHERE sc.is_mandatory = TRUE AND cp.id IS NOT NULL) AS completed_mandatory,
+			COUNT(sc.id) AS total_all
+		FROM course_sections cs
+		LEFT JOIN section_content sc ON sc.section_id = cs.id
 		LEFT JOIN content_progress cp ON cp.content_id = sc.id AND cp.student_id = $2
 		WHERE cs.course_id = $1
 		GROUP BY cs.id, cs.title, cs.order_index
@@ -526,10 +527,23 @@ func (r *AnalyticsRepository) GetStudentLessonProgressSummary(ctx context.Contex
 	if err == nil {
 		defer rowsSec.Close()
 		for rowsSec.Next() {
-			var secItem dto.SectionProgressCount
-			if err := rowsSec.Scan(&secItem.SectionTitle, &secItem.Total, &secItem.Completed); err == nil {
-				if secItem.Total > 0 {
-					secItem.Percent = (secItem.Completed * 100) / secItem.Total
+			var (
+				secItem        dto.SectionProgressCount
+				totalMandatory int
+				completedMand  int
+				totalAll       int
+			)
+			if err := rowsSec.Scan(&secItem.SectionTitle, &totalMandatory, &completedMand, &totalAll); err == nil {
+				secItem.TotalMandatory = totalMandatory
+				secItem.CompletedMandatory = completedMand
+				secItem.TotalContent = totalAll
+				secItem.Total = totalMandatory
+				secItem.Completed = completedMand
+				if totalMandatory > 0 {
+					secItem.Percent = (completedMand * 100) / totalMandatory
+				} else {
+					// Default to 100% if section has no mandatory content items
+					secItem.Percent = 100
 				}
 				bySection = append(bySection, secItem)
 			}

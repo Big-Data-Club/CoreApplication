@@ -443,6 +443,7 @@ func main() {
 				courses.POST("/:courseId/material-routing/apply", courseBlueprintHandler.ApplyMaterialRouting)
 				// Public course routes (anyone authenticated can view published courses)
 				courses.GET("", courseHandler.ListPublishedCourses)
+				courses.GET("/categories", courseHandler.GetCategories)
 				courses.GET("/:courseId", courseHandler.GetCourse)
 
 				// Teacher/Admin only - Create course

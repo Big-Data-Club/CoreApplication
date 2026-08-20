@@ -1049,3 +1049,31 @@ func (r *CourseRepository) ReorderContents(ctx context.Context, sectionID int64,
 
 	return tx.Commit()
 }
+
+// GetDistinctCategories returns all non-empty distinct categories ordered alphabetically.
+func (r *CourseRepository) GetDistinctCategories(ctx context.Context) ([]string, error) {
+	query := `
+		SELECT DISTINCT TRIM(category) AS cat
+		FROM courses
+		WHERE category IS NOT NULL AND TRIM(category) != ''
+		ORDER BY cat ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var categories []string
+	for rows.Next() {
+		var cat string
+		if err := rows.Scan(&cat); err != nil {
+			return nil, err
+		}
+		categories = append(categories, cat)
+	}
+	if categories == nil {
+		categories = []string{}
+	}
+	return categories, rows.Err()
+}

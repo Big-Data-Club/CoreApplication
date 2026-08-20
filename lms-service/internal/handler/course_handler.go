@@ -961,3 +961,20 @@ func (h *CourseHandler) ReorderContents(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Contents reordered successfully"))
 }
+
+// GetCategories godoc
+// @Summary      Get distinct course categories
+// @Description  Get a list of all distinct existing course categories
+// @Tags         courses
+// @Produce      json
+// @Success      200 {object} dto.CourseCategoriesResponse
+// @Router       /courses/categories [get]
+func (h *CourseHandler) GetCategories(c *gin.Context) {
+	categories, err := h.courseService.GetCategories(c.Request.Context())
+	if err != nil {
+		logger.Error("Failed to fetch course categories", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, dto.CourseCategoriesResponse{Categories: categories})
+}

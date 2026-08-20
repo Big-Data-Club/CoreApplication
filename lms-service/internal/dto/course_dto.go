@@ -151,3 +151,8 @@ type ReorderSectionsRequest struct {
 type ReorderContentsRequest struct {
 	ContentIDs []int64 `json:"content_ids" binding:"required,min=1"`
 }
+
+// CourseCategoriesResponse represents the list of distinct course categories
+type CourseCategoriesResponse struct {
+	Categories []string `json:"categories"`
+}
