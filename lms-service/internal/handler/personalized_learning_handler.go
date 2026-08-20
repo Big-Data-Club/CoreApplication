@@ -43,7 +43,7 @@ func NewPersonalizedLearningHandler(
 // @Produce json
 // @Param event body dto.TrackLearningEventRequest true "Learning event"
 // @Security BearerAuth
-// @Success 201 {object} dto.DataResponse{data=dto.LearningEventResponse}
+// @Success 201 {object} dto.SuccessResponse{data=dto.LearningEventResponse}
 // @Failure 400 {object} dto.ErrorResponse
 // @Failure 401 {object} dto.ErrorResponse
 // @Router /learning-events [post]
@@ -95,7 +95,7 @@ func (h *PersonalizedLearningHandler) TrackLearningEvent(c *gin.Context) {
 // @Param studentId path int true "Student ID"
 // @Param course_id query int false "Filter by course ID"
 // @Security BearerAuth
-// @Success 200 {object} dto.DataResponse{data=dto.StudentSkillsOverviewResponse}
+// @Success 200 {object} dto.SuccessResponse{data=dto.StudentSkillsOverviewResponse}
 // @Failure 404 {object} dto.ErrorResponse
 // @Router /students/{studentId}/skills-overview [get]
 func (h *PersonalizedLearningHandler) GetStudentSkillsOverview(c *gin.Context) {
@@ -134,7 +134,7 @@ func (h *PersonalizedLearningHandler) GetStudentSkillsOverview(c *gin.Context) {
 // @Param studentId path int true "Student ID"
 // @Param time_budget query int false "Available time in minutes (default: 30)"
 // @Security BearerAuth
-// @Success 200 {object} dto.DataResponse{data=dto.DailyRecommendationsResponse}
+// @Success 200 {object} dto.SuccessResponse{data=dto.DailyRecommendationsResponse}
 // @Router /students/{studentId}/daily-recommendations [get]
 func (h *PersonalizedLearningHandler) GetDailyRecommendations(c *gin.Context) {
 	studentIDStr := c.Param("studentId")
@@ -185,7 +185,7 @@ func (h *PersonalizedLearningHandler) GetDailyRecommendations(c *gin.Context) {
 // @Param studentId path int true "Student ID"
 // @Param limit query int false "Number of recommendations (default: 10)"
 // @Security BearerAuth
-// @Success 200 {object} dto.DataResponse{data=dto.DiscoverCoursesRecommendationResponse}
+// @Success 200 {object} dto.SuccessResponse{data=dto.DiscoverCoursesRecommendationResponse}
 // @Router /students/{studentId}/discover-courses [get]
 func (h *PersonalizedLearningHandler) GetDiscoverCoursesRecommendations(c *gin.Context) {
 	studentIDStr := c.Param("studentId")
@@ -244,7 +244,7 @@ func (h *PersonalizedLearningHandler) GetDiscoverCoursesRecommendations(c *gin.C
 // @Param course_id query int false "Filter by course ID"
 // @Param limit query int false "Number of events (default: 100)"
 // @Security BearerAuth
-// @Success 200 {object} dto.DataResponse{data=dto.StudentLearningTrajectoryResponse}
+// @Success 200 {object} dto.SuccessResponse{data=dto.StudentLearningTrajectoryResponse}
 // @Router /students/{studentId}/trajectory [get]
 func (h *PersonalizedLearningHandler) GetLearningTrajectory(c *gin.Context) {
 	studentIDStr := c.Param("studentId")
