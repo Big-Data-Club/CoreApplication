@@ -62,7 +62,9 @@ def health_check():
 @app.on_event("startup")
 async def startup_event():
     logger.info("BDC Personalize Service starting...")
+
+    # Start existing Kafka worker
     from app.worker.kafka_worker import main as run_worker
-    # Spin off the worker consumer loop as a background task in the same event loop
     asyncio.create_task(run_worker())
-    logger.info("BDC Personalize Service started successfully with Kafka background worker")
+
+    logger.info("BDC Personalize Service started successfully with Kafka analytics worker")

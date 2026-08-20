@@ -148,10 +148,52 @@ class LakehouseService:
                 )
             """)
 
+            # 8. Bronze: Learning Events (Personalized Learning Engine)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS bronze_learning_events (
+                    event_id VARCHAR PRIMARY KEY,
+                    event_type VARCHAR NOT NULL,
+                    student_id BIGINT NOT NULL,
+                    session_id VARCHAR,
+                    course_id BIGINT,
+                    lesson_id BIGINT,
+                    question_id BIGINT,
+                    skill_id BIGINT,
+                    difficulty DOUBLE,
+                    correct BOOLEAN,
+                    attempt_no INTEGER,
+                    response_time_ms BIGINT,
+                    hint_count INTEGER,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # 9. Gold: Learner Skill States (Materialized Mastery)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS gold_learner_skill_states (
+                    student_id BIGINT NOT NULL,
+                    skill_id BIGINT NOT NULL,
+                    mastery_score DOUBLE DEFAULT 0.0,
+                    confidence_score DOUBLE DEFAULT 0.0,
+                    attempt_count INTEGER DEFAULT 0,
+                    accuracy DOUBLE DEFAULT 0.0,
+                    avg_response_time_ms BIGINT,
+                    hint_dependency DOUBLE DEFAULT 0.0,
+                    recommended_difficulty DOUBLE,
+                    last_practiced_at TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (student_id, skill_id)
+                )
+            """)
+
             # Performance Indexes for Fast Aggregations & Joins
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_interactions_lookup ON bronze_interactions (user_id, course_id)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_login_logs_user ON bronze_login_logs (user_id)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_clickstream_user ON bronze_clickstream (user_id)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_learning_events_student ON bronze_learning_events (student_id, created_at)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_learning_events_skill ON bronze_learning_events (skill_id, student_id)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_gold_learner_skill_states_mastery ON gold_learner_skill_states (mastery_score)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_course_interactions_lookup ON bronze_course_interactions (user_id, course_id)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_bronze_recommendation_events_lookup ON bronze_recommendation_events (user_id, recommendation_id)")
 
@@ -1153,6 +1195,177 @@ class LakehouseService:
             """, (user_id,))
         return self._query_to_dict_list("SELECT * FROM gold_vector_recommender_scores")
 
+    # ══════════════════════════════════════════════════════════════════════════════
+    # PERSONALIZED LEARNING ENGINE METHODS
+    # ══════════════════════════════════════════════════════════════════════════════
+
+    def ingest_learning_event(self, event: Dict[str, Any]):
+        """Ingest a learning event into bronze layer."""
+        with self.lock:
+            try:
+                self.conn.execute("""
+                    INSERT INTO bronze_learning_events (
+                        event_id, event_type, student_id, session_id, course_id,
+                        lesson_id, question_id, skill_id, difficulty, correct,
+                        attempt_no, response_time_ms, hint_count, metadata_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (event_id) DO NOTHING
+                """, (
+                    event.get('event_id'),
+                    event.get('event_type'),
+                    event.get('student_id'),
+                    event.get('session_id'),
+                    event.get('course_id'),
+                    event.get('lesson_id'),
+                    event.get('question_id'),
+                    event.get('skill_id'),
+                    event.get('difficulty'),
+                    event.get('correct'),
+                    event.get('attempt_no'),
+                    event.get('response_time_ms'),
+                    event.get('hint_count'),
+                    event.get('metadata'),
+                    event.get('created_at', datetime.now().isoformat())
+                ))
+                logger.debug(f"Ingested learning event {event.get('event_id')}")
+            except Exception as e:
+                logger.error(f"Failed to ingest learning event: {e}")
+                raise
+
+    def get_skill_events(self, student_id: int, skill_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get recent learning events for a student+skill."""
+        with self.lock:
+            try:
+                return self._query_to_dict_list("""
+                    SELECT
+                        event_id,
+                        event_type,
+                        student_id,
+                        skill_id,
+                        difficulty,
+                        correct,
+                        attempt_no,
+                        response_time_ms,
+                        hint_count,
+                        created_at
+                    FROM bronze_learning_events
+                    WHERE student_id = ? AND skill_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (student_id, skill_id, limit))
+            except Exception as e:
+                logger.error(f"Failed to get skill events: {e}")
+                return []
+
+    def update_learner_skill_state(self, state: Dict[str, Any]):
+        """Update or insert learner skill state in gold layer."""
+        with self.lock:
+            try:
+                self.conn.execute("""
+                    INSERT INTO gold_learner_skill_states (
+                        student_id, skill_id, mastery_score, confidence_score,
+                        attempt_count, accuracy, avg_response_time_ms, hint_dependency,
+                        recommended_difficulty, last_practiced_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (student_id, skill_id) DO UPDATE SET
+                        mastery_score = excluded.mastery_score,
+                        confidence_score = excluded.confidence_score,
+                        attempt_count = excluded.attempt_count,
+                        accuracy = excluded.accuracy,
+                        avg_response_time_ms = excluded.avg_response_time_ms,
+                        hint_dependency = excluded.hint_dependency,
+                        recommended_difficulty = excluded.recommended_difficulty,
+                        last_practiced_at = excluded.last_practiced_at,
+                        updated_at = excluded.updated_at
+                """, (
+                    state.get('student_id'),
+                    state.get('skill_id'),
+                    state.get('mastery_score'),
+                    state.get('confidence_score'),
+                    state.get('attempt_count'),
+                    state.get('accuracy'),
+                    state.get('avg_response_time_ms'),
+                    state.get('hint_dependency'),
+                    state.get('recommended_difficulty'),
+                    state.get('last_practiced_at'),
+                    state.get('updated_at', datetime.now().isoformat())
+                ))
+                logger.debug(f"Updated skill state for student {state.get('student_id')}, skill {state.get('skill_id')}")
+            except Exception as e:
+                logger.error(f"Failed to update learner skill state: {e}")
+                raise
+
+    def get_student_skill_states(self, student_id: int, course_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get all skill states for a student, optionally filtered by course."""
+        with self.lock:
+            try:
+                query = """
+                    SELECT
+                        student_id,
+                        skill_id,
+                        mastery_score,
+                        confidence_score,
+                        attempt_count,
+                        accuracy,
+                        avg_response_time_ms,
+                        hint_dependency,
+                        recommended_difficulty,
+                        last_practiced_at,
+                        updated_at
+                    FROM gold_learner_skill_states
+                    WHERE student_id = ?
+                    ORDER BY mastery_score ASC, last_practiced_at DESC
+                """
+                return self._query_to_dict_list(query, (student_id,))
+            except Exception as e:
+                logger.error(f"Failed to get student skill states: {e}")
+                return []
+
+    def get_struggling_skills(self, student_id: int, mastery_threshold: float = 0.3) -> List[Dict[str, Any]]:
+        """Get skills where student is struggling (mastery < threshold)."""
+        with self.lock:
+            try:
+                return self._query_to_dict_list("""
+                    SELECT
+                        student_id,
+                        skill_id,
+                        mastery_score,
+                        confidence_score,
+                        attempt_count,
+                        accuracy,
+                        recommended_difficulty
+                    FROM gold_learner_skill_states
+                    WHERE student_id = ? AND mastery_score < ? AND attempt_count > 0
+                    ORDER BY mastery_score ASC
+                """, (student_id, mastery_threshold))
+            except Exception as e:
+                logger.error(f"Failed to get struggling skills: {e}")
+                return []
+
+    def get_skills_needing_review(self, student_id: int, days_threshold: int = 7, mastery_threshold: float = 0.8) -> List[Dict[str, Any]]:
+        """Get mastered skills that haven't been practiced recently (spaced repetition)."""
+        from datetime import timedelta
+        cutoff_date = datetime.now() - timedelta(days=days_threshold)
+
+        with self.lock:
+            try:
+                return self._query_to_dict_list("""
+                    SELECT
+                        student_id,
+                        skill_id,
+                        mastery_score,
+                        confidence_score,
+                        last_practiced_at
+                    FROM gold_learner_skill_states
+                    WHERE student_id = ?
+                      AND mastery_score >= ?
+                      AND last_practiced_at < ?
+                    ORDER BY last_practiced_at ASC
+                """, (student_id, mastery_threshold, cutoff_date.isoformat()))
+            except Exception as e:
+                logger.error(f"Failed to get skills needing review: {e}")
+                return []
+
     def has_notification_been_sent_recently(self, user_id: int, alert_type: str, node_id: Optional[int], cooldown_hours: int = 24) -> bool:
         from datetime import timedelta
         cutoff_time = datetime.now() - timedelta(hours=cooldown_hours)
@@ -1160,7 +1373,7 @@ class LakehouseService:
             try:
                 # Global per-user cooldown to prevent sending more than 1 email per day
                 res = self.conn.execute("""
-                    SELECT COUNT(*) FROM sent_notifications 
+                    SELECT COUNT(*) FROM sent_notifications
                     WHERE user_id = ? AND sent_at > ?
                 """, (user_id, cutoff_time)).fetchone()
                 return res[0] > 0 if res else False

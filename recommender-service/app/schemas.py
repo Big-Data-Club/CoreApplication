@@ -124,3 +124,36 @@ class RecommendationInteraction(BaseModel):
         if isinstance(value, str) and value.endswith("Z"):
             return value[:-1] + "+00:00"
         return value
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SKILL-BASED RECOMMENDATION SCHEMAS
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class NextBestLessonRequest(BaseModel):
+    """Request for skill-based next best lesson recommendation."""
+    student_id: int = Field(gt=0)
+    course_id: int = Field(gt=0)
+    time_budget_minutes: int = Field(default=20, ge=5, le=120)
+
+
+class SkillRecommendationItem(BaseModel):
+    """Individual skill-based recommendation."""
+    content_id: int
+    skill_id: int
+    skill_name: str
+    difficulty: float = Field(ge=0, le=1)
+    reason: str
+    score: float = Field(ge=0, le=1)
+    action: Literal["review", "practice", "advance", "learn_new"]
+    estimated_minutes: int = Field(default=20)
+
+
+class NextBestLessonResponse(BaseModel):
+    """Response with skill-based recommendations."""
+    student_id: int
+    course_id: int
+    recommendations: list[SkillRecommendationItem] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    policy_version: str = "skill-based-v1"

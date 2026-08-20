@@ -125,6 +125,7 @@ func main() {
 	microInteractionRepo := repository.NewMicroInteractionRepository(db)
 	microQuizRepo := repository.NewMicroQuizRepository(db)
 	sectionOverviewRepo := repository.NewSectionOverviewRepository(db)
+	learningEventRepo := repository.NewLearningEventRepository(db)
 
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
@@ -226,6 +227,7 @@ func main() {
 	microInteractionService := service.NewMicroInteractionService(microInteractionRepo, microLessonRepo)
 	roleAdminService := service.NewRoleAdminService(roleDefRepo, userRepo, redisClient)
 	permService := service.NewPermissionService(permRepo, redisClient)
+	learningEventService := service.NewLearningEventService(learningEventRepo, service.NewKafkaService())
 
 	// Heatmap analytics worker: consumes Quick Action Panel interactions
 	// off `lms.analytics.interactions` and updates knowledge_node_mastery.
@@ -254,6 +256,7 @@ func main() {
 	permHandler := handler.NewPermissionHandler(permService)
 	orgHandler := handler.NewOrganizationHandler(orgService)
 	courseBlueprintHandler := handler.NewCourseBlueprintHandler(aiClient, orgRepo, courseService)
+	personalizedLearningHandler := handler.NewPersonalizedLearningHandler(learningEventService, courseService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -790,6 +793,19 @@ func main() {
 				sectionOverviewGroup.POST("/lessons/:lessonId/publish", sectionOverviewHandler.PublishLesson)
 				sectionOverviewGroup.PUT("/quizzes/:quizId", sectionOverviewHandler.UpdateQuiz)
 				sectionOverviewGroup.POST("/quizzes/:quizId/publish", sectionOverviewHandler.PublishQuiz)
+			}
+
+			// -- Personalized Learning Engine ------------------------
+			personalizedLearning := auth.Group("/personalized-learning")
+			{
+				// Track learning events
+				personalizedLearning.POST("/events", personalizedLearningHandler.TrackLearningEvent)
+
+				// Student APIs
+				personalizedLearning.GET("/students/:studentId/skills/overview", personalizedLearningHandler.GetStudentSkillsOverview)
+				personalizedLearning.GET("/students/:studentId/recommendations/daily", personalizedLearningHandler.GetDailyRecommendations)
+				personalizedLearning.GET("/students/:studentId/recommendations/discover-courses", personalizedLearningHandler.GetDiscoverCoursesRecommendations)
+				personalizedLearning.GET("/students/:studentId/trajectory", personalizedLearningHandler.GetLearningTrajectory)
 			}
 		}
 
