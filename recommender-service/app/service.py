@@ -86,6 +86,75 @@ class RecommendationService:
             logger.warning("onboarding profile lookup failed for user=%s: %s", user_id, exc)
             return {}
 
+    async def course_skill_profile(self, student_id: int, course_id: int) -> dict[str, Any] | None:
+        """Fetch mastery states + eligible content from the LMS internal API."""
+        url = f"{settings.lms_service_url}/api/v1/internal/students/{student_id}/skill-profile"
+        try:
+            async with httpx.AsyncClient(timeout=settings.request_timeout_seconds + 1.5) as client:
+                response = await client.get(
+                    url,
+                    params={"course_id": course_id},
+                    headers={"X-API-Secret": settings.ai_service_secret},
+                )
+                response.raise_for_status()
+                body = response.json()
+                return body.get("data") or body
+        except Exception as exc:
+            logger.warning("skill profile lookup failed for student=%s course=%s: %s", student_id, course_id, exc)
+            return None
+
+    def next_best_lessons(self, student_id: int, course_id: int, profile: dict[str, Any], time_budget_minutes: int) -> list[dict[str, Any]]:
+        """Run the skill-based engine over an LMS skill profile payload."""
+        from app.skill_recommender import skill_based_recommender
+
+        skill_states = [
+            {
+                "skill_id": state.get("skill_id"),
+                "mastery_score": float(state.get("mastery_score") or 0.0),
+                "attempt_count": int(state.get("attempt_count") or 0),
+                "recommended_difficulty": (
+                    float(state["recommended_difficulty"])
+                    if state.get("recommended_difficulty") is not None
+                    else 0.5
+                ),
+                "skill_name": state.get("skill_name") or f"Skill {state.get('skill_id')}",
+            }
+            for state in profile.get("skill_states") or []
+        ]
+        available_content = [
+            {
+                "id": item.get("content_id"),
+                "title": item.get("content_title"),
+                "skill_id": item.get("skill_id"),
+                "skill_name": item.get("skill_name"),
+                "difficulty": float(item.get("difficulty") if item.get("difficulty") is not None else 0.5),
+                "completed": bool(item.get("completed")),
+            }
+            for item in profile.get("available_content") or []
+        ]
+
+        recommendations = skill_based_recommender.get_next_best_lesson(
+            student_id=student_id,
+            course_id=course_id,
+            skill_states=skill_states,
+            available_content=available_content,
+            time_budget_minutes=time_budget_minutes,
+        )
+        budget_per_item = max(5, time_budget_minutes // max(1, len(recommendations)))
+        return [
+            {
+                "content_id": rec.content_id,
+                "skill_id": rec.skill_id,
+                "skill_name": rec.skill_name,
+                "difficulty": round(max(0.0, min(rec.difficulty, 1.0)), 3),
+                "reason": rec.reason,
+                "score": round(max(0.0, min(rec.score, 1.0)), 3),
+                "action": rec.action,
+                "estimated_minutes": budget_per_item,
+            }
+            for rec in recommendations
+        ]
+
     def _item(
         self,
         request: RecommendationRequest,

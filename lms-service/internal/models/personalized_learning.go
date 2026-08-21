@@ -131,6 +131,27 @@ type PersonalizedContent struct {
 	Difficulty   float64 `json:"difficulty" db:"difficulty"`
 }
 
+// SkillContentCandidate is one navigable content item mapped to a skill,
+// consumed by the recommender-service next-best-lesson engine.
+type SkillContentCandidate struct {
+	ContentID   int64   `json:"content_id" db:"content_id"`
+	ContentTitle string `json:"content_title" db:"content_title"`
+	ContentType string  `json:"content_type" db:"content_type"`
+	SkillID     int64   `json:"skill_id" db:"skill_id"`
+	SkillName   string  `json:"skill_name" db:"skill_name"`
+	Difficulty  float64 `json:"difficulty" db:"difficulty"`
+	Completed   bool    `json:"completed" db:"completed"`
+}
+
+// CourseSkillProfile is the full skill-based personalization payload for one
+// student in one course: current mastery states plus the eligible catalogue.
+type CourseSkillProfile struct {
+	StudentID       int64                   `json:"student_id"`
+	CourseID        int64                   `json:"course_id"`
+	SkillStates     []LearnerSkillStateWithSkill `json:"skill_states"`
+	AvailableContent []SkillContentCandidate `json:"available_content"`
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // SKILL RECOMMENDATION MODELS
 // ══════════════════════════════════════════════════════════════════════════════

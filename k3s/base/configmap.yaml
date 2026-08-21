@@ -16,6 +16,7 @@ data:
   AI_SERVICE_URL: "http://ai-service:8000"
   PERSONALIZE_SERVICE_URL: "http://personalize-service:8082"
   RECOMMENDER_SERVICE_URL: "http://recommender-service:8086"
+  LMS_SERVICE_URL: "http://lms-service:8081"
   CHAT_API_URL: "http://chat-service:8083"
   AUTH_SERVICE_URL: "http://auth-service:8080"
   

@@ -67,4 +67,19 @@ async def startup_event():
     from app.worker.kafka_worker import main as run_worker
     asyncio.create_task(run_worker())
 
-    logger.info("BDC Personalize Service started successfully with Kafka analytics worker")
+    # Start the learning-event worker: consumes 'learning-events' produced by
+    # the LMS and projects skill mastery into the lakehouse. A crash here must
+    # not take down the API, so the task only logs failures.
+    from app.worker.learning_event_worker import run_learning_event_worker
+
+    async def _safe_learning_event_worker():
+        try:
+            await run_learning_event_worker()
+        except Exception:
+            logger.exception("Learning event worker crashed; API continues serving")
+
+    asyncio.create_task(_safe_learning_event_worker())
+
+    logger.info(
+        "BDC Personalize Service started successfully with Kafka analytics + learning event workers"
+    )

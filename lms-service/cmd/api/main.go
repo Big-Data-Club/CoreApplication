@@ -822,6 +822,9 @@ func main() {
 		{
 			internalAI.GET("/sections/:sectionId/contents", courseHandler.InternalGetSectionContents)
 			internalAI.GET("/contents/:contentId/hierarchy", courseHandler.InternalGetContentHierarchy)
+
+			// Skill-based personalization payload for recommender-service
+			internalAI.GET("/students/:studentId/skill-profile", personalizedLearningHandler.InternalGetStudentSkillProfile)
 		}
 
 		internal := v1.Group("/internal/micro-lessons")

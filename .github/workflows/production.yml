@@ -66,6 +66,7 @@ jobs:
             lms:
               - 'lms-service/**'
               - 'k3s/base/lms-service-deployment.yaml'
+              - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
             lab:
               - 'lab-service/**'

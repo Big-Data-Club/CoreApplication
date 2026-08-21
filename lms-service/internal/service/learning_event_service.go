@@ -199,6 +199,12 @@ func (s *LearningEventService) GetStudentSkills(ctx context.Context, studentID i
 	return s.repo.GetStudentSkillStates(ctx, studentID, courseID)
 }
 
+// GetCourseSkillProfile exposes mastery states + eligible content for the
+// internal next-best-lesson API consumed by recommender-service.
+func (s *LearningEventService) GetCourseSkillProfile(ctx context.Context, studentID, courseID int64) (*models.CourseSkillProfile, error) {
+	return s.repo.GetCourseSkillProfile(ctx, studentID, courseID)
+}
+
 func (s *LearningEventService) FindPublishedContentForSkill(ctx context.Context, skillID int64, targetDifficulty float64) (*models.PersonalizedContent, error) {
 	return s.repo.FindPublishedContentForSkill(ctx, skillID, targetDifficulty)
 }

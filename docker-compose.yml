@@ -963,6 +963,7 @@ services:
       KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
       AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-ai-service-secret-change-me}
       PERSONALIZE_SERVICE_URL: http://personalize-service:8082
+      LMS_SERVICE_URL: http://lms-service:8081
     depends_on:
       kafka:
         condition: service_healthy

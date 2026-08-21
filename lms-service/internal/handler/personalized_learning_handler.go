@@ -279,6 +279,32 @@ func (h *PersonalizedLearningHandler) GetLearningTrajectory(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(trajectory))
 }
 
+// InternalGetStudentSkillProfile returns the skill-based personalization
+// payload (mastery states + eligible content) for one student in one course.
+// It lives under /internal and is guarded by the service secret middleware;
+// recommender-service uses it to power next-best-lesson recommendations.
+func (h *PersonalizedLearningHandler) InternalGetStudentSkillProfile(c *gin.Context) {
+	studentID, err := strconv.ParseInt(c.Param("studentId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_parameter", "Invalid student ID"))
+		return
+	}
+	courseID, err := strconv.ParseInt(c.Query("course_id"), 10, 64)
+	if err != nil || courseID <= 0 {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_parameter", "course_id query parameter is required"))
+		return
+	}
+
+	profile, err := h.learningEventService.GetCourseSkillProfile(c.Request.Context(), studentID, courseID)
+	if err != nil {
+		logger.Error("Failed to get course skill profile", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to get skill profile"))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(profile))
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // HELPER METHODS
 // ══════════════════════════════════════════════════════════════════════════════

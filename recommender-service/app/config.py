@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     ai_service_secret: str = "ai-service-secret-change-me"
     personalize_service_url: str = "http://personalize-service:8082"
+    lms_service_url: str = "http://lms-service:8081"
     kafka_brokers: str = "kafka:9092"
     recommendation_event_topic: str = "recommender.interactions.v1"
     # Can be rotated independently later; v1 falls back to the already-managed

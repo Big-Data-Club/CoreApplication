@@ -5,7 +5,13 @@ from fastapi import FastAPI, Header, HTTPException, status
 from prometheus_client import Counter, Histogram, make_asgi_app
 
 from app.config import get_settings
-from app.schemas import RecommendationInteraction, RecommendationRequest, RecommendationResponse
+from app.schemas import (
+    NextBestLessonRequest,
+    NextBestLessonResponse,
+    RecommendationInteraction,
+    RecommendationRequest,
+    RecommendationResponse,
+)
 from app.service import recommendation_service
 
 settings = get_settings()
@@ -61,6 +67,23 @@ async def health() -> dict:
 async def recommendations(body: RecommendationRequest, x_ai_secret: str | None = Header(None, alias="X-AI-Secret")) -> RecommendationResponse:
     verify_secret(x_ai_secret)
     return await recommendation_service.recommend(body)
+
+
+@app.post("/v1/recommendations/next-best-lesson", response_model=NextBestLessonResponse)
+async def next_best_lesson(body: NextBestLessonRequest, x_ai_secret: str | None = Header(None, alias="X-AI-Secret")) -> NextBestLessonResponse:
+    """Skill-based next best lesson recommendations for one student in one course."""
+    verify_secret(x_ai_secret)
+    profile = await recommendation_service.course_skill_profile(body.student_id, body.course_id)
+    if not profile:
+        return NextBestLessonResponse(student_id=body.student_id, course_id=body.course_id, recommendations=[])
+    items = recommendation_service.next_best_lessons(
+        body.student_id, body.course_id, profile, body.time_budget_minutes
+    )
+    return NextBestLessonResponse(
+        student_id=body.student_id,
+        course_id=body.course_id,
+        recommendations=items,
+    )
 
 
 @app.post("/v1/events", status_code=status.HTTP_202_ACCEPTED)

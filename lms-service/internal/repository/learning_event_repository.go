@@ -201,7 +201,9 @@ func (r *LearningEventRepository) GetLearnerSkillState(ctx context.Context, stud
 
 // FindPublishedContentForSkill returns one real, published content item close
 // to the learner's target difficulty. Recommendations must only point to
-// navigable content; never synthesize lesson IDs.
+// navigable content; never synthesize lesson IDs. Section-level publish state
+// is intentionally not filtered: the student learning view serves every
+// section of a published course (see CourseRepository.ListSectionsByCourse).
 func (r *LearningEventRepository) FindPublishedContentForSkill(ctx context.Context, skillID int64, targetDifficulty float64) (*models.PersonalizedContent, error) {
 	var content models.PersonalizedContent
 	err := r.db.GetContext(ctx, &content, `
@@ -209,7 +211,7 @@ func (r *LearningEventRepository) FindPublishedContentForSkill(ctx context.Conte
 		       c.title AS course_title, COALESCE(cs.difficulty, 0.5) AS difficulty
 		FROM content_skills cs
 		JOIN section_content sc ON sc.id = cs.content_id AND sc.is_published = true
-		JOIN course_sections sec ON sec.id = sc.section_id AND sec.is_published = true
+		JOIN course_sections sec ON sec.id = sc.section_id
 		JOIN courses c ON c.id = sec.course_id AND c.status = 'PUBLISHED'
 		WHERE cs.skill_id = $1
 		ORDER BY ABS(COALESCE(cs.difficulty, 0.5) - $2), sc.order_index
@@ -380,6 +382,50 @@ func (r *LearningEventRepository) GetQuestionSkills(ctx context.Context, questio
 		return nil, err
 	}
 	return mappings, nil
+}
+
+// GetCourseSkillProfile returns the learner's mastery states plus every
+// published, skill-mapped content item of the course (with completion flags).
+// It is the data foundation for the recommender-service next-best-lesson
+// engine and must only be exposed through the internal service API.
+func (r *LearningEventRepository) GetCourseSkillProfile(ctx context.Context, studentID, courseID int64) (*models.CourseSkillProfile, error) {
+	profile := &models.CourseSkillProfile{
+		StudentID:        studentID,
+		CourseID:         courseID,
+		SkillStates:      []models.LearnerSkillStateWithSkill{},
+		AvailableContent: []models.SkillContentCandidate{},
+	}
+
+	states, err := r.GetStudentSkillStates(ctx, studentID, strconv.FormatInt(courseID, 10))
+	if err != nil {
+		return nil, err
+	}
+	profile.SkillStates = states
+
+	contentQuery := `
+		SELECT
+			sc.id AS content_id,
+			sc.title AS content_title,
+			sc.type AS content_type,
+			cs.skill_id AS skill_id,
+			s.name AS skill_name,
+			COALESCE(cs.difficulty, s.difficulty, 0.5) AS difficulty,
+			EXISTS (
+				SELECT 1 FROM content_progress cp
+				WHERE cp.content_id = sc.id AND cp.student_id = $1
+			) AS completed
+		FROM content_skills cs
+		JOIN skills s ON s.id = cs.skill_id
+		JOIN section_content sc ON sc.id = cs.content_id AND sc.is_published = true
+		JOIN course_sections sec ON sec.id = sc.section_id
+		JOIN courses c ON c.id = sec.course_id AND c.status = 'PUBLISHED'
+		WHERE sec.course_id = $2
+		ORDER BY cs.skill_id, difficulty, sc.order_index`
+
+	if err := r.db.SelectContext(ctx, &profile.AvailableContent, contentQuery, studentID, courseID); err != nil {
+		return nil, err
+	}
+	return profile, nil
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
