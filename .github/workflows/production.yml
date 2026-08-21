@@ -247,9 +247,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Pick a Running AND Ready pod: terminated/Failed pods from earlier
+          # crashes linger in the namespace and .items[0] order is arbitrary.
           POD="$(kubectl get pod -n "$DEPLOY_NAMESPACE" -l app=ai-service \
-            -o jsonpath='{.items[0].metadata.name}')"
-          test -n "$POD"
+            --field-selector=status.phase=Running \
+            -o jsonpath='{.items[?(@.status.containerStatuses[0].ready==true)].metadata.name}' \
+            | awk '{print $1}')"
+          if [[ -z "${POD}" ]]; then
+            echo "No Running/Ready ai-service pod found for migration." >&2
+            kubectl get pod -n "$DEPLOY_NAMESPACE" -l app=ai-service -o wide >&2 || true
+            exit 1
+          fi
+          echo "Running AI schema migration in pod ${POD}"
           kubectl exec -n "$DEPLOY_NAMESPACE" "$POD" -- python -c '
           import asyncio, os, asyncpg
           SQL = """
