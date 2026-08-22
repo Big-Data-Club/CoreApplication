@@ -153,6 +153,9 @@ memory across this session. Follow these rules:
   tools or ask a single clarifying question grounded in the Ground \
   Truth block.
 
+# Current Lesson Dossier (verified structure from the course index)
+{lesson_context}
+
 # Active Lesson (Quick Action Panel "Ask AI")
 {system_context}
 
@@ -284,6 +287,9 @@ this student across turns. Use it actively:
 - If the context is empty, rely on tools + a single clarification rather \
   than guessing.
 
+# Current Lesson Dossier (verified structure from the course index)
+{lesson_context}
+
 # Active Lesson (Quick Action Panel "Ask AI")
 {system_context}
 
@@ -321,6 +327,7 @@ def build_system_prompt(
     page_context: dict | None = None,
     system_context: dict | None = None,
     graph_context: str = "",
+    lesson_context: str = "",
 ) -> str:
     """
     Build the final system prompt with memory and user context injected.
@@ -328,6 +335,10 @@ def build_system_prompt(
     When there is rich page_context, suppress
     active_courses_block thành compact summary để giảm context bloat.
     redundant context to stay within provider token budgets.
+
+    [Lesson Dossier] lesson_context is a verified structural block (course
+    hierarchy, knowledge nodes, prerequisites) for the lesson being viewed.
+    Empty string renders a no-op placeholder.
 
     [GraphRAG] graph_context is injected into MENTOR prompt's
     'Knowledge Graph Context' section. Empty string means no graph data.
@@ -339,6 +350,8 @@ def build_system_prompt(
 
     if not memory_context:
         memory_context = "(No additional context available for this session)"
+    if not lesson_context:
+        lesson_context = "(No verified lesson structure available for this turn.)"
 
     # Context bloat reduction:
     # When the page_context is comprehensive (the learner is reading a specific lesson), there is no need
@@ -348,6 +361,10 @@ def build_system_prompt(
             page_context.get("contentBody")
             or page_context.get("content_body")
             or page_context.get("body")
+            # A verified dossier means the lesson is pinned even without text
+            or (
+                page_context.get("contentId") or page_context.get("content_id")
+            ) and lesson_context != "(No verified lesson structure available for this turn.)"
         )
     )
 
@@ -393,6 +410,7 @@ def build_system_prompt(
         user_context=user_section,
         page_context=page_section,
         system_context=sys_section,
+        lesson_context=lesson_context,
     )
     if agent_type == "mentor":
         kwargs["graph_context"] = graph_section
@@ -499,6 +517,24 @@ def _format_page_context(ctx: dict | None) -> str:
     if title:
         parts.append(f"Title: {title}")
 
+    # What kind of material is this lesson (TEXT / FILE / VIDEO / QUIZ...)?
+    ctype = ctx.get("contentType") or ctx.get("content_type")
+    if isinstance(ctx.get("extra"), dict) and not ctype:
+        ctype = ctx["extra"].get("contentType") or ctx["extra"].get("content_type")
+    if ctype:
+        parts.append(f"Content Type: {str(ctype)}")
+
+    # Page-specific extras the browser declared for this material
+    # (file name/kind, video host...). Skip keys already rendered above.
+    extra = ctx.get("extra") if isinstance(ctx.get("extra"), dict) else {}
+    _RENDERED_EXTRA = {"quizId", "quiz_id", "contentType", "content_type"}
+    for key in list(extra.keys())[:6]:
+        if key in _RENDERED_EXTRA:
+            continue
+        value = extra[key]
+        if isinstance(value, (str, int, float, bool)) and str(value).strip():
+            parts.append(f"{key}: {str(value)[:120]}")
+
     # Handle content body (the actual lesson text)
     body = ctx.get("contentBody") or ctx.get("content_body") or ctx.get("body")
     if body:
@@ -506,6 +542,13 @@ def _format_page_context(ctx: dict | None) -> str:
         if len(body) > 3000:
             body = body[:3000] + "..."
         parts.append(f"\nPage Content:\n{body}")
+    elif str(ctype or "").upper() in {"FILE", "DOCUMENT", "PDF", "DOCX", "PPTX"}:
+        parts.append(
+            "\nNote: this lesson is an uploaded document and its text is not "
+            "printed on the page. Use the search_course_materials tool (it is "
+            "automatically scoped to this course/content_id) to read and "
+            "explain its contents."
+        )
 
     if not parts:
         return "(User is not viewing any specific course page right now)"

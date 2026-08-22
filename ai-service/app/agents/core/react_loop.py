@@ -16,6 +16,10 @@ from app.agents.memory.active_courses import (
     invalidate_active_courses,
     load_active_courses,
 )
+from app.agents.memory.lesson_dossier import (
+    format_lesson_dossier,
+    load_lesson_dossier,
+)
 from app.agents.core.prompts import build_system_prompt
 from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
@@ -913,6 +917,34 @@ async def run_react_loop(
 
     # Use ctx_decision.effective_* instead of raw page_context/system_context
     # When the user pivots, effective_page_context = None -> prevents context-lock
+
+    # -- Lesson dossier: verified structure (course hierarchy, knowledge
+    # nodes, prerequisites, chunk coverage) for the lesson on screen. This
+    # is what lets the agent "know where it is" even for FILE/VIDEO lessons
+    # that have no page text.
+    lesson_context_text = ""
+    _dossier_course_id = effective_course_id or context_resolution.course_id
+    _dossier_content_id = None
+    if ctx_decision.use_page_context and ctx_decision.effective_page_context:
+        _pc = ctx_decision.effective_page_context
+        _dossier_content_id = _as_positive_int(_pc.get("contentId") or _pc.get("content_id"))
+    if _dossier_course_id and _dossier_content_id:
+        try:
+            _dossier = await load_lesson_dossier(
+                course_id=int(_dossier_course_id),
+                content_id=int(_dossier_content_id),
+            )
+            lesson_context_text = format_lesson_dossier(_dossier)
+            if lesson_context_text:
+                yield AgentEvent(
+                    type=AgentEventType.THINKING,
+                    data={"step": "lesson_dossier", "detail": f"course={_dossier_course_id} content={_dossier_content_id}"},
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
+        except Exception as _exc:  # noqa: BLE001 - dossier is best-effort
+            logger.warning("Lesson dossier failed (non-fatal): %s", _exc)
+
     system_prompt = build_system_prompt(
         agent_type=agent_type,
         memory_context=memory_ctx["prompt_section"],
@@ -921,6 +953,7 @@ async def run_react_loop(
         page_context=ctx_decision.effective_page_context,
         system_context=ctx_decision.effective_system_context,
         graph_context=graph_context_text,
+        lesson_context=lesson_context_text,
     )
 
     # Start with system prompt

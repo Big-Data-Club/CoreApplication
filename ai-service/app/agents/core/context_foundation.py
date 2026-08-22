@@ -30,6 +30,7 @@ class ContextSnapshot:
     section_name: str | None = None
     content_id: int | None = None
     content_title: str | None = None
+    content_type: str | None = None
     quiz_id: int | None = None
     has_content_body: bool = False
 
@@ -83,6 +84,11 @@ def normalize_page_context(
         section_name=str(_get(raw, "sectionName", "section_name") or "")[:200] or None,
         content_id=_as_positive_int(_get(raw, "contentId", "content_id")),
         content_title=str(_get(raw, "contentTitle", "content_title") or "")[:200] or None,
+        content_type=str(
+            _get(raw, "contentType", "content_type")
+            or (extra.get("contentType") if isinstance(extra, dict) else None)
+            or ""
+        )[:32] or None,
         quiz_id=_as_positive_int(_get(raw, "quizId", "quiz_id") or extra.get("quizId") or extra.get("quiz_id")),
         has_content_body=bool(_get(raw, "contentBody", "content_body")),
     )
