@@ -21,6 +21,7 @@ from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
 )
 from app.agents.core.context_foundation import (
+    _as_positive_int,
     resolve_turn_context,
     resume_request_after_course_choice,
 )
@@ -323,6 +324,31 @@ async def run_react_loop(
         agent_type=agent_type,
         explicit_course_id=course_id,
     )
+
+    # The browser/panel pointed at a specific course that failed verification.
+    # That is often just a stale anchor cache (fresh enrolment, role switch,
+    # LMS hiccup). Re-fetch the authoritative list once before asking the
+    # user to pick a course they may demonstrably be viewing.
+    hinted_course_id = _as_positive_int(course_id) or context_resolution.snapshot.course_id
+    if context_resolution.status == "needs_course_choice" and hinted_course_id:
+        logger.info(
+            "Course hint %s failed verification; refreshing active courses",
+            hinted_course_id,
+        )
+        active_courses = await load_active_courses(
+            user_id=user_id,
+            agent_type=agent_type,
+            refresh=True,
+        )
+        context_resolution = resolve_turn_context(
+            message=user_message,
+            page_context=page_context,
+            user_context=user_context,
+            active_courses=active_courses,
+            agent_type=agent_type,
+            explicit_course_id=course_id,
+        )
+
     yield AgentEvent(
         type=AgentEventType.CONTEXT,
         data=context_resolution.as_dict(),

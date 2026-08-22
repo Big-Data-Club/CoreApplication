@@ -71,6 +71,7 @@ async def load_active_courses(
     user_id: int,
     agent_type: str,
     include_nodes: Optional[bool] = None,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     """
     Return the user's active courses in a role-agnostic envelope.
@@ -80,6 +81,10 @@ async def load_active_courses(
         agent_type: "teacher" or "mentor".
         include_nodes: Whether to fetch knowledge_nodes per course.
             Defaults: True for teacher, False for mentor.
+        refresh: Bypass the TTL cache and fetch from LMS/DB. Use when a
+            stale miss could trigger a wrong decision - e.g. verifying a
+            page-context course hint before asking the user which course
+            they mean. The fresh result re-populates the cache either way.
     """
     if not user_id or agent_type not in ("teacher", "mentor"):
         return _empty(user_id, agent_type)
@@ -89,13 +94,14 @@ async def load_active_courses(
 
     cache_key = (user_id, agent_type)
     now = time.monotonic()
-    cached = _CACHE.get(cache_key)
-    if cached and cached[0] > now:
-        # If caller wants nodes but cache was built without them, refetch.
-        if include_nodes and not _has_nodes(cached[1]):
-            pass
-        else:
-            return cached[1]
+    if not refresh:
+        cached = _CACHE.get(cache_key)
+        if cached and cached[0] > now:
+            # If caller wants nodes but cache was built without them, refetch.
+            if include_nodes and not _has_nodes(cached[1]):
+                pass
+            else:
+                return cached[1]
 
     try:
         if agent_type == "teacher":

@@ -99,6 +99,24 @@ def _course_options(courses: list[dict[str, Any]]) -> list[dict[str, str]]:
     ]
 
 
+def _course_choice_question(snapshot: ContextSnapshot) -> str:
+    """
+    Ask which course to work on - and, when we know what the user is
+    viewing, say why that course could not be used. A bare option list
+    makes the agent look oblivious to the page it sits on.
+    """
+    question = "Bạn muốn tôi làm việc với khóa học nào?"
+    viewed = (snapshot.course_name or "").strip()
+    if not viewed and snapshot.content_title:
+        viewed = f'khóa học chứa bài "{snapshot.content_title.strip()}"'
+    if viewed:
+        question += (
+            f' Tôi thấy bạn đang mở "{viewed}" nhưng không tìm thấy khóa học này '
+            f"trong danh sách khóa học của bạn."
+        )
+    return question
+
+
 def _course_bound_request(message: str) -> bool:
     """Conservative signal: only block when an action truly needs a course."""
     text = message.casefold()
@@ -213,7 +231,7 @@ def resolve_turn_context(
         return ContextResolution(
             status="needs_course_choice", snapshot=snapshot, confidence=0.4,
             reason="course-bound request with multiple active courses",
-            clarification_question="Bạn muốn tôi làm việc với khóa học nào?",
+            clarification_question=_course_choice_question(snapshot),
             clarification_options=_course_options(courses),
         )
 
