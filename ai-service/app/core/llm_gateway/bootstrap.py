@@ -12,9 +12,10 @@ This preserves current behaviour for existing deployments while switching
 the runtime to the new gateway.
 """
 from __future__ import annotations
- 
+
 import logging
- 
+from typing import Optional
+
 from app.core.config import get_settings
 from app.core.llm_gateway.freemodel_providers import _DEFAULT_FREEMODEL_PROVIDERS
 from app.core.llm_gateway.registry import get_registry
@@ -469,7 +470,20 @@ async def bootstrap_llm_registry() -> None:
     all_models_reloaded = await registry.list_models(only_enabled=True)
     models_by_name = {m.model_name: m.id for m in all_models_reloaded}
 
-    terra_model_id = models_by_name.get("gpt-5.6-terra")
+    # Several FreeModel mirrors expose the same model_name (gpt-5.6-terra
+    # exists on freemodel-api / freemodel-work / freemodel-vip-sg), so a
+    # plain name lookup silently depends on list_models ordering. Resolve
+    # deterministically via an explicit mirror preference instead.
+    def _model_id_by_provider(model_name: str, provider_preference: tuple[str, ...]) -> Optional[int]:
+        for code in provider_preference:
+            for m in all_models_reloaded:
+                if m.model_name == model_name and m.provider_code == code:
+                    return m.id
+        return models_by_name.get(model_name)
+
+    terra_model_id = _model_id_by_provider(
+        "gpt-5.6-terra", ("freemodel-api", "freemodel-work", "freemodel-vip-sg"),
+    )
     oss_model_id = models_by_name.get("openai/gpt-oss-120b") or chat_model_id
     default_model_id = terra_model_id or oss_model_id
 
