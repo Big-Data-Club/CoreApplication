@@ -109,7 +109,8 @@ class GetStudyPlanTool(BaseTool):
                             timeout=5.0,
                         )
                         if resp.status_code == 200:
-                            personalize_profile = resp.json()
+                            from app.core.llm import ensure_dict
+                            personalize_profile = ensure_dict(resp.json())
                             logger.info("Loaded personalization profile from Lakehouse: %s", personalize_profile)
                 except Exception as exc:
                     logger.warning("Failed to fetch personalize profile: %s", exc)
@@ -211,7 +212,10 @@ class GetStudyPlanTool(BaseTool):
                     "description": f"{len(due_reviews)} câu hỏi cần ôn tập hôm nay",
                     "items": [
                         {
-                            "question_id": r.get("question_id"),
+                            # due_reviews rows come from flashcard_repetitions
+                            # (flashcard_id) - the old "question_id" key was
+                            # always None.
+                            "question_id": r.get("flashcard_id"),
                             "node_name": r.get("node_name", ""),
                             "next_review_date": r.get("next_review_date", ""),
                         }

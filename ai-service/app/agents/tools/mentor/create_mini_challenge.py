@@ -8,8 +8,9 @@ used for real-time learning interaction within the chat.
 from __future__ import annotations
 
 import logging
+import re
 
-from app.agents.tools.base_tool import BaseTool, ToolResult
+from app.agents.tools.base_tool import BaseTool, ToolResult, sanitize_query
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +58,10 @@ class CreateMiniChallengeTool(BaseTool):
     }
 
     async def execute(self, **kwargs) -> ToolResult:
-        from app.core.llm import chat_complete_json
+        from app.core.llm import chat_complete_json, ensure_dict
         from app.core.llm_gateway import TASK_QUIZ_GEN
 
-        concept = kwargs["concept"]
+        concept = sanitize_query(kwargs.get("concept"))
         q_type = kwargs.get("question_type", "multiple_choice")
         difficulty = kwargs.get("difficulty", "medium")
         language = kwargs.get("language", "vi")
@@ -112,7 +113,9 @@ class CreateMiniChallengeTool(BaseTool):
                 + (f"CONTEXT:\n{context}" if context else "")
             )
 
-            result = await chat_complete_json(
+            # chat_complete_json may legitimately parse to a top-level array
+            # (LLM ignored the object instruction) - collapse it to a dict.
+            result = ensure_dict(await chat_complete_json(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Create a {difficulty} {q_type} question about: {concept}"},
@@ -120,12 +123,16 @@ class CreateMiniChallengeTool(BaseTool):
                 temperature=0.7,
                 max_tokens=512,
                 task=TASK_QUIZ_GEN,
-            )
+            ))
 
             # Parse and format options to match the frontend MCQOption schema:
             # interface MCQOption { text: string; is_correct: boolean; explanation?: string; }
             formatted_options = []
             raw_options = result.get("options", result.get("choices", []))
+            if isinstance(raw_options, str):
+                # Some models return options as a single newline/comma string.
+                parts = [p.strip(" -.):") for p in re.split(r"[\n,]+", raw_options) if p.strip()]
+                raw_options = parts
             correct_ans = str(result.get("correct_answer", "")).strip()
             explanation = result.get("explanation", "")
 
@@ -134,11 +141,16 @@ class CreateMiniChallengeTool(BaseTool):
                 raw_options, correct_ans,
             )
 
+            if not isinstance(raw_options, list):
+                raw_options = []
+
             if not raw_options and q_type in ["multiple_choice", "true_false"]:
                 if q_type == "true_false":
                     raw_options = ["Đúng/True", "Sai/False"]
                 else:
-                    raw_options = []
+                    # Never hand the widget zero options - placeholders keep
+                    # it renderable and the model can retry next turn.
+                    raw_options = [f"Option {c}" for c in "ABCD"]
 
             for idx, opt in enumerate(raw_options):
                 option_char = chr(65 + idx)  # 'A', 'B', 'C', 'D'

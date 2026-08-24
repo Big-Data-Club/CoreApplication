@@ -112,6 +112,9 @@ class DiagnosisService:
                 "study_suggestion": "Xem lại tài liệu liên quan." if language == "vi" else "Review related materials.",
                 "confidence":      0.5,
             }
+        # LLM may emit a bare array - collapse so downstream .get() is safe.
+        from app.core.llm import ensure_dict
+        llm_result = ensure_dict(llm_result)
 
         # ── 5. Build suggested documents ─────────────────────────────────────
         indices    = llm_result.get("relevant_source_indices", [])

@@ -19,5 +19,29 @@
     "message": "Tạo cho tôi 5 câu hỏi trắc nghiệm mức độ nhớ (Remember) để warm-up lớp học.",
     "expected_sources": false,
     "must_contain": []
+  },
+  {
+    "id": "mentor-dashboard-proactive",
+    "agent": "mentor",
+    "pageType": "dashboard",
+    "message": "Hôm nay tôi nên học gì?",
+    "expected_sources": false,
+    "must_contain": [],
+    "expect_any": ["kế hoạch", "ôn tập", "gợi ý", "học tiếp", "review", "luyện", "next"]
+  },
+  {
+    "id": "mentor-lesson-grounded-big-o",
+    "agent": "mentor",
+    "pageType": "lesson",
+    "message": "Giải thích lại khái niệm trong bài học này cho tôi dễ hiểu hơn với.",
+    "expected_sources": false,
+    "must_contain": ["big-o"],
+    "system_context": {
+      "lesson_id": 9001,
+      "node_id": 9001,
+      "course_id": 1,
+      "lesson_title": "Độ phức tạp thuật toán",
+      "lesson_text": "# Big-O Notation\n\nBig-O notation describes the upper bound of an algorithm's time or space complexity as the input size grows. Common classes: O(1) constant, O(log n) logarithmic (binary search), O(n) linear, O(n log n) efficient sorting, O(n^2) nested loops, O(2^n) brute force. We ignore constants and lower-order terms: 3n + 5 simplifies to O(n). Big-O focuses on scalability, not exact runtime."
+    }
   }
 ]

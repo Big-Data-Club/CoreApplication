@@ -91,10 +91,23 @@ class SaveToNotebookTool(BaseTool):
                     message="Không thể lưu ghi chú vào personalize-service."
                 )
                 
-            entry = res.json()
+            entry = {}
+            if res.status_code == 200:
+                from app.core.llm import ensure_dict
+                entry = ensure_dict(res.json())
+            if res.status_code != 200:
+                logger.error(f"personalize-service returned {res.status_code}: {res.text}")
+                return ToolResult(
+                    status="error",
+                    data={"error": res.text},
+                    message="Không thể lưu ghi chú vào personalize-service."
+                )
+
             return ToolResult(
                 status="success",
                 data={
+                    # Body may not be an object - the note IS saved (2xx);
+                    # only the id echo is optional.
                     "entry_id": entry.get("id"),
                     "title": title
                 },

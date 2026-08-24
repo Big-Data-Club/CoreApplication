@@ -91,6 +91,10 @@ class FlashcardService:
         results = []
         async with get_ai_conn() as conn:
             for item in flashcards_data:
+                # LLM output may contain scalars/strings inside the array.
+                if not isinstance(item, dict):
+                    logger.warning("Skipping non-object flashcard item: %r", item)
+                    continue
                 row = await conn.fetchrow(
                     """
                     INSERT INTO flashcards (course_id, node_id, lesson_id, content_id, student_id, front_text, back_text, status)
@@ -221,12 +225,21 @@ class FlashcardService:
             temperature=0.7,
             task=TASK_FLASHCARD_GEN,
         )
-        if "flashcards" not in result:
-            raise ValueError("Missing 'flashcards' key in LLM response")
+        # Accept both {"flashcards": [...]} and a bare [...] array - some
+        # providers drop the wrapper key.
+        if isinstance(result, list):
+            flashcards = [x for x in result if isinstance(x, dict)]
+        elif isinstance(result, dict):
+            raw = result.get("flashcards")
+            if not isinstance(raw, list):
+                raise ValueError("Missing 'flashcards' key in LLM response")
+            flashcards = [x for x in raw if isinstance(x, dict)]
+        else:
+            raise ValueError("LLM returned neither an object nor an array")
 
         # 5. Persist and return
         return await self.create_flashcards(
-            result["flashcards"],
+            flashcards,
             student_id=student_id,
             course_id=course_id,
             node_id=node_id,

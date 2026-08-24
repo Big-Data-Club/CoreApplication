@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 
-from app.agents.tools.base_tool import BaseTool, ToolResult
+from app.agents.tools.base_tool import BaseTool, ToolResult, sanitize_query
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class SearchMaterialsTool(BaseTool):
         from app.core.config import get_settings
         settings = get_settings()
 
-        query = kwargs["query"]
+        query = sanitize_query(kwargs.get("query"))
         course_id: int | None = kwargs.get("_course_id") or kwargs.get("course_id")
         content_id: int | None = kwargs.get("_content_id") or kwargs.get("content_id")
         node_id: int | None = kwargs.get("_node_id") or kwargs.get("node_id")

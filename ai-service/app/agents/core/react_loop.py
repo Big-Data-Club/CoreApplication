@@ -192,6 +192,8 @@ def _smart_truncate_tool_result(
 # -----------------------------------------------------------------------------
 
 from app.agents.core.references import ReferenceLedger
+from app.agents.core.tool_gating import select_tool_schemas
+from app.agents.core.learner_context import should_inject_learner_snapshot
 
 
 # -----------------------------------------------------------------------------
@@ -978,6 +980,40 @@ async def run_react_loop(
         except Exception as _exc:  # noqa: BLE001 - dossier is best-effort
             logger.warning("Lesson dossier failed (non-fatal): %s", _exc)
 
+    # -- Step 3.8: Deterministic learner snapshot (mentor) ----------------------
+    # Fetch the few facts that make the agent *know* the student (due reviews,
+    # weakest concepts) and hand them to the prompt as ground truth - so even
+    # a small model can be personal without orchestrating tool calls.
+    learner_context_text = ""
+    if should_inject_learner_snapshot(
+        agent_type=agent_type,
+        personalization_enabled=execution_plan.personalization_enabled,
+        lakehouse_required=execution_plan.lakehouse_required,
+        page_type=context_resolution.snapshot.page_type,
+    ):
+        try:
+            from app.agents.core.learner_context import (
+                fetch_learner_snapshot,
+                format_learner_snapshot,
+            )
+            _snap = await fetch_learner_snapshot(user_id)
+            learner_context_text = format_learner_snapshot(_snap)
+            yield AgentEvent(
+                type=AgentEventType.THINKING,
+                data={
+                    "step": "learner_snapshot",
+                    "detail": (
+                        f"due={_snap.get('due_count', 0)} "
+                        f"weak={len(_snap.get('weak') or [])} "
+                        f"strong={len(_snap.get('strong') or [])}"
+                    ),
+                },
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+        except Exception as _exc:  # noqa: BLE001 - best-effort
+            logger.warning("Learner snapshot failed (non-fatal): %s", _exc)
+
     system_prompt = build_system_prompt(
         agent_type=agent_type,
         memory_context=memory_ctx["prompt_section"],
@@ -987,6 +1023,7 @@ async def run_react_loop(
         system_context=ctx_decision.effective_system_context,
         graph_context=graph_context_text,
         lesson_context=lesson_context_text,
+        learner_context=learner_context_text,
     )
 
     # Start with system prompt
@@ -1023,6 +1060,25 @@ async def run_react_loop(
     messages.append({"role": "user", "content": effective_message})
 
     tool_schemas = get_tool_schemas(agent_type)
+    # Progressive disclosure: iteration 0 only shows the planner-selected
+    # tools (small models drown in 20+ schemas); later iterations re-open
+    # the full catalogue so the model can recover from a bad plan.
+    focused_schemas, tools_were_gated = select_tool_schemas(
+        tool_schemas, execution_plan.selected_tools,
+    )
+    if tools_were_gated:
+        yield AgentEvent(
+            type=AgentEventType.THINKING,
+            data={
+                "step": "tool_gating",
+                "detail": (
+                    f"{len(focused_schemas)}/{len(tool_schemas)} tools: "
+                    f"{sorted((s.get('function', {}).get('name') or s.get('name')) for s in focused_schemas)}"
+                ),
+            },
+            session_id=session_id,
+            turn_id=turn_id,
+        )
     assistant_text = ""
     assistant_thinking = ""
     answered_model: str | None = None
@@ -1057,7 +1113,10 @@ async def run_react_loop(
             temperature=0.3,
             max_tokens=max_tokens,          # dynamic
             json_mode=False,
-            extra={"tools": tool_schemas, "tool_choice": "auto"} if tool_schemas else {},
+            extra={
+                "tools": focused_schemas if (tools_were_gated and iteration == 0) else tool_schemas,
+                "tool_choice": "auto",
+            } if tool_schemas else {},
         )
 
         collected_text = ""
@@ -1359,6 +1418,15 @@ async def run_react_loop(
                     harvested_chunks = tool_result.data.get("chunks") or []
                 elif tool_name == "search_web":
                     harvested_chunks = tool_result.data.get("results") or []
+                elif tool_name == "fetch_page":
+                    fetched = tool_result.data or {}
+                    if fetched.get("content"):
+                        harvested_chunks = [{
+                            "title": fetched.get("title") or fetched.get("url") or "Trang web",
+                            "snippet": (fetched.get("content") or "")[:600],
+                            "url": fetched.get("url"),
+                            "relevance_score": 1.0,
+                        }]
 
                 if harvested_chunks:
                     is_web = tool_name == "search_web"

@@ -115,6 +115,13 @@ class QuizGenerationService:
             messages=messages, model=settings.quiz_model, temperature=0.5,
             task=TASK_QUIZ_GEN,
         )
+        # A bare-array or scalar response must fail with a CLEAN message -
+        # the old f-string called result.keys() and raised AttributeError
+        # while formatting the intended ValueError.
+        if not isinstance(result, dict):
+            raise ValueError(
+                f"Invalid LLM response structure: expected object, got {type(result).__name__}"
+            )
 
         if "question_text" not in result or "answer_options" not in result:
             raise ValueError(f"Invalid LLM response structure: {list(result.keys())}")

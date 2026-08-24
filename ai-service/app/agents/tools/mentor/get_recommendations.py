@@ -71,7 +71,8 @@ class GetRecommendationsTool(BaseTool):
                     headers={"X-AI-Secret": settings.ai_service_secret},
                 )
                 response.raise_for_status()
-                recommendation_set = response.json()
+                from app.core.llm import ensure_dict
+                recommendation_set = ensure_dict(response.json())
         except Exception as exc:
             logger.warning("recommender service unavailable: %s", exc)
             return ToolResult(

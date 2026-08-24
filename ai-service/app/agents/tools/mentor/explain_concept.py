@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 
-from app.agents.tools.base_tool import BaseTool, ToolResult
+from app.agents.tools.base_tool import BaseTool, ToolResult, sanitize_query
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class ExplainConceptTool(BaseTool):
         from app.core.llm_gateway import TASK_CHAT
 
         settings = get_settings()
-        concept = kwargs["concept"]
+        concept = sanitize_query(kwargs.get("concept"))
         course_id = kwargs.get("_course_id") or kwargs.get("course_id")
         content_id = kwargs.get("_content_id") or kwargs.get("content_id")
         section_id = kwargs.get("_section_id") or kwargs.get("section_id")

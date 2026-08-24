@@ -1,7 +1,9 @@
 """
 Mentor/Teacher Shared Tool: search_web
 
-Allows agents to search the web using DuckDuckGo HTML search for up-to-date information.
+Web search via DuckDuckGo Lite HTML scraping - zero config, zero cost.
+Results are normalised to {title, url, snippet} for downstream citation
+harvesting.
 """
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ import httpx
 import re
 from urllib.parse import unquote
 
-from app.agents.tools.base_tool import BaseTool, ToolResult
+from app.agents.tools.base_tool import BaseTool, ToolResult, sanitize_query
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,8 @@ class SearchWebTool(BaseTool):
     }
 
     async def execute(self, **kwargs) -> ToolResult:
-        query = kwargs["query"]
+        # Web engines degrade on long prose - keep it keyword-sized.
+        query = sanitize_query(kwargs.get("query"), max_len=200)
         max_results = kwargs.get("max_results", 4)
 
         try:
@@ -51,11 +54,10 @@ class SearchWebTool(BaseTool):
                     message=f"Không tìm thấy kết quả tìm kiếm web nào cho '{query}'."
                 )
 
-            formatted_message = f"Tìm thấy {len(results)} kết quả tìm kiếm web."
             return ToolResult(
                 status="success",
                 data={"results": results, "query": query, "count": len(results)},
-                message=formatted_message
+                message=f"Tìm thấy {len(results)} kết quả tìm kiếm web."
             )
         except Exception as e:
             logger.error("SearchWebTool failed: %s", e, exc_info=True)

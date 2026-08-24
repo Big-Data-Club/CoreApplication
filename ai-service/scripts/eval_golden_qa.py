@@ -43,6 +43,8 @@ async def run_case(client: httpx.AsyncClient, base_url: str, secret: str,
         "user_id": user_id,
         "page_context": {"pageType": case.get("pageType", "other")},
     }
+    if case.get("system_context"):
+        payload["system_context"] = case["system_context"]
     result: dict[str, Any] = {
         "id": case["id"], "ok": True, "failures": [],
         "text": "", "references": [], "model": None,
@@ -100,6 +102,12 @@ async def run_case(client: httpx.AsyncClient, base_url: str, secret: str,
     if missing:
         result["ok"] = False
         result["failures"].append(f"missing keywords {missing}")
+
+    # 3b. Any-of keywords (soft relevance, e.g. proactive surfaces)
+    any_of = [kw for kw in case.get("expect_any", [])]
+    if any_of and not any(kw.casefold() in lowered for kw in any_of):
+        result["ok"] = False
+        result["failures"].append(f"expected one of {any_of} in the answer")
 
     if not answer.strip():
         result["ok"] = False

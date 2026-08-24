@@ -54,6 +54,7 @@ class CreateSectionTool(BaseTool):
             lms_base = settings.lms_service_url.rstrip("/")
             
             # 1. If order_index is not provided, fetch existing sections to determine end
+            from app.core.llm import ensure_dict
             if order is None:
                 async with httpx.AsyncClient(timeout=10) as client:
                     resp = await client.get(
@@ -61,7 +62,9 @@ class CreateSectionTool(BaseTool):
                         headers={"X-API-Secret": settings.ai_service_secret},
                     )
                     if resp.status_code == 200:
-                        sections = resp.json().get("data") or []
+                        body = resp.json()
+                        sections = (body.get("data") if isinstance(body, dict) else body) or []
+                        sections = [s for s in sections if isinstance(s, dict)]
                         order = len(sections) + 1
                     else:
                         order = 1
@@ -81,14 +84,19 @@ class CreateSectionTool(BaseTool):
                 )
 
             if resp.status_code in (200, 201):
-                data = resp.json().get("data", {})
+                body = ensure_dict(resp.json())
+                data = ensure_dict(body.get("data", body))
                 return ToolResult(
                     status="success",
                     data=data,
                     message=f"Đã tạo chương mới: '{title}' (ID: {data.get('id')})."
                 )
             else:
-                error_msg = resp.json().get("message", resp.text)
+                body = resp.json()
+                error_msg = (
+                    body.get("message", resp.text) if isinstance(body, dict)
+                    else str(body) if body else resp.text
+                )
                 return ToolResult(
                     status="error",
                     data={"error": error_msg},

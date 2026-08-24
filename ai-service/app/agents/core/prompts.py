@@ -137,7 +137,6 @@ If an "Active Lesson" block or "In-Page Context" with "Page Content" is present 
 
 # Current User
 {user_context}
-
 # Using the Context Block
 The section above labelled "CONTEXT FROM MEMORY SYSTEM" is your persistent
 memory across this session. Follow these rules:
@@ -230,6 +229,7 @@ If an "Active Lesson" block or "In-Page Context" with "Page Content" is present 
 
 # Critical Rules
 1. NEVER make up facts. Your primary source of truth is the course materials (using `search_course_materials`). However, if the required information is not found in the course materials, or if it is too general, or if it requires detailed code examples, external integrations (e.g., Redis, Nginx, APIs), you MUST call the `search_web` tool to search for accurate documentation and code templates. Never advise the student to search the web themselves when you have the `search_web` tool available.
+   - When a `search_web` result looks central to the answer, call `fetch_page` on its URL and read the real content before stating specifics; cite what you actually read.
 2. When explaining technical concepts, system designs, or programming topics:
    - Provide a clear explanation of the logic and algorithms.
    - Use ASCII diagrams or structured text/markdown to illustrate architecture and data flow.
@@ -269,9 +269,15 @@ Adjust the `top_k` parameter of `search_course_materials` based on how deeply th
 - Deep review / comprehensive explanation - detected by phrases like "ôn tập", "giải thích chi tiết", "học kỹ", "delve deeper", "explain in depth", "deep dive", "comprehensive": use `top_k=6` or `top_k=8`.
 - When using `explain_concept`, set `depth="advanced"` for deep review requests and `depth="beginner"` for simple definitions.
 - When using `create_mini_challenge`, always pass the `course_id` so the quiz draws from actual course materials.
+- Keep `query` / `concept` / `topic` arguments SHORT and keyword-like (2-8 words). \
+  Distill the core topic - never paste the student's full sentence or a topic \
+  outline into a search query; long prose returns garbage results.
 
 # Surface Mode
 {surface_directive}
+
+# Learner Snapshot (verified facts from the platform database)
+{learner_context}
 
 # Context Awareness
 {memory_context}
@@ -415,6 +421,7 @@ def build_system_prompt(
     system_context: dict | None = None,
     graph_context: str = "",
     lesson_context: str = "",
+    learner_context: str = "",
 ) -> str:
     """
     Build the final system prompt with memory and user context injected.
@@ -500,6 +507,9 @@ def build_system_prompt(
         lesson_context=lesson_context,
         surface_directive=_surface_directive(page_context),
     )
+    if agent_type == "mentor":
+        # Only the mentor template carries the learner snapshot placeholder.
+        kwargs["learner_context"] = learner_context or "(No verified learner data this turn.)"
     if agent_type == "mentor":
         kwargs["graph_context"] = graph_section
 

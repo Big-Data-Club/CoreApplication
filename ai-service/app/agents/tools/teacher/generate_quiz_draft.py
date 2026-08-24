@@ -86,7 +86,7 @@ class GenerateQuizDraftTool(BaseTool):
 
     async def execute(self, **kwargs) -> ToolResult:
         from app.services.quiz_service import quiz_gen_service
-        from app.core.llm import chat_complete_json
+        from app.core.llm import chat_complete_json, ensure_dict
         from app.core.llm_gateway import TASK_CHAT
 
         course_id = kwargs.get("_course_id") or kwargs["course_id"]
@@ -147,7 +147,9 @@ class GenerateQuizDraftTool(BaseTool):
                     headers={"X-API-Secret": settings.ai_service_secret},
                 )
                 if resp.status_code == 200:
-                    sections = resp.json().get("data") or []
+                    body = resp.json()
+                    sections = (body.get("data") if isinstance(body, dict) else body) or []
+                    sections = [s for s in sections if isinstance(s, dict)]
 
             # 3. Use LLM to suggest Title, Time, and Section
             topic_name = new_drafts[0].get("node_name", "Chủ đề hiện tại") if new_drafts else "Quiz mới"
@@ -171,11 +173,11 @@ class GenerateQuizDraftTool(BaseTool):
                 f"- 'description': Một mô tả ngắn gọn (1-2 câu)"
             )
 
-            suggestion = await chat_complete_json(
+            suggestion = ensure_dict(await chat_complete_json(
                 messages=[{"role": "system", "content": prompt}],
                 temperature=0.3,
                 task=TASK_CHAT,
-            )
+            ))
 
             preview_data = []
             for d in new_drafts:

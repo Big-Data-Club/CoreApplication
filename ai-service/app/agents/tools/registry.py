@@ -38,6 +38,7 @@ from app.agents.tools.mentor.get_study_plan import GetStudyPlanTool
 from app.agents.tools.mentor.get_recommendations import GetRecommendationsTool
 from app.agents.tools.mentor.explain_concept import ExplainConceptTool
 from app.agents.tools.mentor.search_web import SearchWebTool
+from app.agents.tools.mentor.fetch_page import FetchPageTool
 from app.agents.tools.mentor.save_to_notebook import SaveToNotebookTool
 
 # ── Shared tools (available to both agents) ───────────────────────────────────
@@ -48,6 +49,7 @@ _SHARED_TOOLS: list[BaseTool] = [
     ListKnowledgeNodesTool(),
     SearchMaterialsTool(),
     SearchWebTool(),
+    FetchPageTool(),
 ]
 
 _TEACHER_ONLY_TOOLS: list[BaseTool] = [

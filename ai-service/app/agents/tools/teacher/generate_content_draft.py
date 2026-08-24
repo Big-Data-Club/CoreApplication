@@ -112,7 +112,7 @@ class GenerateContentDraftTool(BaseTool):
     }
 
     async def execute(self, **kwargs) -> ToolResult:
-        from app.core.llm import chat_complete_json
+        from app.core.llm import chat_complete_json, ensure_dict
         from app.core.llm_gateway import TASK_MICRO_LESSON_GEN
         from app.services.rag_service import rag_service
 
@@ -272,12 +272,13 @@ class GenerateContentDraftTool(BaseTool):
                     task=TASK_MICRO_LESSON_GEN,
                 )
 
-            draft_text = result.get("draft", "")
-            suggested_cid = result.get("suggested_course_id")
-            suggested_sid = result.get("suggested_section_id")
-            title = str(result.get("title") or topic).strip()[:180]
-            description = str(result.get("description") or f"Tài liệu học tập về {topic}").strip()[:500]
-            learning_design = result.get("learning_design") if isinstance(result.get("learning_design"), dict) else {}
+            draft_text = ensure_dict(result).get("draft", "")
+            _rd = ensure_dict(result)
+            suggested_cid = _rd.get("suggested_course_id")
+            suggested_sid = _rd.get("suggested_section_id")
+            title = str(_rd.get("title") or topic).strip()[:180]
+            description = str(_rd.get("description") or f"Tài liệu học tập về {topic}").strip()[:500]
+            learning_design = _rd.get("learning_design") if isinstance(_rd.get("learning_design"), dict) else {}
             # Preserve a useful design contract even when a provider returns a
             # partial JSON object. The draft itself remains fully editable.
             learning_design = {

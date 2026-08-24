@@ -237,6 +237,25 @@ async def chat_complete_structured(
 
 
 # ── JSON extraction (defensive) ────────────────────────────────────────────
+def ensure_dict(value: dict | list | str | None) -> dict:
+    """
+    Coerce a parsed-JSON value into a dict.
+
+    LLM JSON output and third-party HTTP bodies are sometimes a top-level
+    array (or scalar) even when the prompt asked for an object.  Callers
+    that need ``.get()`` should wrap results with this helper: an array is
+    collapsed to its first object element, everything else becomes {}.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                return item
+        return {}
+    return {}
+
+
 def _extract_json(raw: str) -> dict | list:
     raw = (raw or "").strip()
     if not raw:

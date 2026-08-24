@@ -105,7 +105,7 @@ class ExecutionPlan(BaseModel):
             "Available tools include ['generate_quiz_from_source', 'parse_quiz_questions', "
             "'generate_quiz_draft', 'generate_content_draft', 'search_course_materials', 'explain_concept', "
             "'get_study_plan', 'diagnose_knowledge_gap', 'create_mini_challenge', "
-            "'generate_flashcard', 'search_web', 'save_to_notebook']"
+            "'generate_flashcard', 'search_web', 'fetch_page', 'save_to_notebook']"
         )
     )
     personalization_enabled: bool = Field(

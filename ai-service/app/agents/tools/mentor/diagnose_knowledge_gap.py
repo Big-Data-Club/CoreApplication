@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from app.agents.tools.base_tool import BaseTool, ToolResult
+from app.agents.tools.base_tool import BaseTool, ToolResult, sanitize_query
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class DiagnoseKnowledgeGapTool(BaseTool):
         from app.core.config import get_settings
 
         course_id = kwargs.get("_course_id") or kwargs["course_id"]
-        topic = kwargs.get("topic")
+        topic = sanitize_query(kwargs.get("topic")) or None
         student_id = kwargs.get("_user_id", 0)
         settings = get_settings()
 
