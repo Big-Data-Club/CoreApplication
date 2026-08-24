@@ -175,7 +175,7 @@ class ContextBuilder:
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
-                        f"http://personalize-service:8082/personalize/student/{user_id}/course/{course_id}",
+                        f"{settings.personalize_service_url}/personalize/student/{user_id}/course/{course_id}",
                         headers={"X-AI-Secret": settings.ai_service_secret},
                         timeout=5.0,
                     )

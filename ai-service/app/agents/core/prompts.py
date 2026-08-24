@@ -129,6 +129,9 @@ If an "Active Lesson" block or "In-Page Context" with "Page Content" is present 
     and pass concrete constraints through `instructions`. Keep the requested Bloom levels aligned with the
     stated learning objectives; do not generate a recall-only quiz when the teacher requests application or analysis.
 
+# Surface Mode
+{surface_directive}
+
 # Context Awareness
 {memory_context}
 
@@ -169,6 +172,9 @@ memory across this session. Follow these rules:
 - When presenting data, use tables where appropriate
 - When presenting quiz questions, use numbered lists
 - Summarise tool results concisely - don't dump raw JSON
+- When a statement is grounded in retrieved material or web results, cite \
+  it inline with the bracketed `ref` number from the tool result, e.g. [1]. \
+  Only cite numbers that actually appeared this turn; never fabricate one.
 """
 
 
@@ -264,6 +270,9 @@ Adjust the `top_k` parameter of `search_course_materials` based on how deeply th
 - When using `explain_concept`, set `depth="advanced"` for deep review requests and `depth="beginner"` for simple definitions.
 - When using `create_mini_challenge`, always pass the `course_id` so the quiz draws from actual course materials.
 
+# Surface Mode
+{surface_directive}
+
 # Context Awareness
 {memory_context}
 
@@ -296,6 +305,19 @@ this student across turns. Use it actively:
 # In-Page Context
 {page_context}
 
+# Citations & Sources
+- When any statement in your answer comes from course materials or web \
+  results returned by tools, cite it inline using the bracketed `ref` \
+  number attached to that chunk/result in the tool output, e.g. [1], [2]. \
+  Place the marker at the end of the sentence or bullet it supports.
+- Only cite `ref` numbers that actually appeared in tool results THIS \
+  turn. NEVER invent or reuse numbers from earlier turns.
+- Common knowledge, study tips, and motivational language do not need \
+  citations. Specific facts, definitions, figures, and code drawn from \
+  retrieved material DO.
+- If you could not verify something with a tool, say so plainly instead \
+  of citing.
+
 # Output Format
 - CRITICAL FOR TOOL CALLING: If you decide to call a tool, you MUST output the tool call directly. Do NOT output any thoughts, text, or `<thought>` tags before the tool call, otherwise the API will reject your request.
 - If you are NOT calling a tool (i.e., when producing the final response to the user), you MUST start your response with a detailed thinking process enclosed in `<thought>...</thought>` tags.
@@ -317,6 +339,71 @@ this student across turns. Use it actively:
 # Knowledge Graph Context
 {graph_context}
 """
+
+
+def _surface_directive(page_context: dict | None) -> str:
+    """
+    Adapt the agent's strategy to WHERE the user is.
+
+    - Lesson/quiz surface (specific content on screen): strictly grounded,
+      stay on-topic, no proactive pitching.
+    - Dashboard/listing surface (no specific content): be proactive -
+      lead with a status snapshot and offer one concrete next action.
+    - Unknown: neutral guidance.
+    """
+    if not page_context:
+        return (
+            "(No page signal. Answer the question directly; only suggest "
+            "next actions when they naturally help.)"
+        )
+
+    ptype = str(
+        page_context.get("pageType")
+        or page_context.get("page_type")
+        or ""
+    ).lower()
+    route = str(page_context.get("route") or page_context.get("pathname") or "").lower()
+    has_content = bool(
+        page_context.get("contentId")
+        or page_context.get("content_id")
+        or page_context.get("contentBody")
+        or page_context.get("content_body")
+    )
+    lessonish = ptype in ("lesson", "quiz", "forum", "course_detail") or has_content
+
+    if lessonish:
+        return (
+            "GROUNDED LESSON MODE - the student is inside a course, section "
+            "or lesson. The on-screen content is the primary source of truth: "
+            "answer from it first and stay strictly on-topic. Search tools "
+            "only for things the page cannot answer. Do NOT pitch study "
+            "plans or recommendations unless asked."
+        )
+
+    dashboardish = (
+        ptype in ("dashboard", "home", "index", "landing", "course_list")
+        or "/dashboard" in route
+        or route.endswith("/courses")
+        or route.rstrip("/").endswith("/lms/student")
+        or route.rstrip("/").endswith("/lms/teacher")
+    )
+    if dashboardish:
+        return (
+            "PROACTIVE DASHBOARD MODE - the student is on an overview page, "
+            "not inside a lesson. Be action-first:\n"
+            "- Open with a 2-3 line status snapshot (due reviews, weakest "
+            "topic, recent progress) drawn from memory/profile context.\n"
+            "- Then proactively offer exactly ONE next best action and ask "
+            "for confirmation before running heavy tools: get_study_plan to "
+            "plan today, diagnose_knowledge_gap when struggles seem "
+            "relevant, or get_recommendations to discover courses.\n"
+            "- Keep it short; never dump long lectures here."
+        )
+
+    return (
+        "(No strong page signal. Answer directly; add one relevant next "
+        "step at most.)"
+    )
 
 
 def build_system_prompt(
@@ -411,6 +498,7 @@ def build_system_prompt(
         page_context=page_section,
         system_context=sys_section,
         lesson_context=lesson_context,
+        surface_directive=_surface_directive(page_context),
     )
     if agent_type == "mentor":
         kwargs["graph_context"] = graph_section

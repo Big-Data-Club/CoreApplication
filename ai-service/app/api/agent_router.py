@@ -321,6 +321,38 @@ async def create_notebook_entry(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/notebook/{entry_id}")
+async def update_notebook_entry(
+    entry_id: str,
+    body: NotebookEntryRequest,
+    user_id: int,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
+):
+    """Update an existing notebook entry (title/content)."""
+    _verify_secret(x_ai_secret)
+    title, content = body.title.strip(), body.content.strip()
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="title and content are required")
+    if len(title) > 180 or len(content) > 100_000:
+        raise HTTPException(status_code=400, detail="notebook entry is too large")
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.put(
+                f"{settings.personalize_service_url}/personalize/notebook/{entry_id}",
+                json={"user_id": user_id, "title": title, "content": content},
+                headers={"X-AI-Secret": settings.ai_service_secret},
+            )
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=res.text)
+        return res.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update notebook entry: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/notebook/{entry_id}")
 async def delete_notebook_entry(
     entry_id: str,
@@ -367,6 +399,57 @@ async def list_notifications(
         return {"alerts": res.json()}
     except Exception as e:
         logger.error(f"Failed to proxy list_notifications: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -- Message feedback ---------------------------------------------------------
+
+class FeedbackRequest(BaseModel):
+    """Thumbs up/down on a specific assistant message."""
+    message_id: int = Field(..., gt=0)
+    session_id: str = Field(..., min_length=1)
+    rating: str = Field(..., pattern="^(like|dislike)$")
+
+
+@router.post("/feedback")
+async def submit_message_feedback(
+    body: FeedbackRequest,
+    user_id: int,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
+):
+    """
+    Persist per-message feedback for offline quality evaluation.
+
+    The message must exist and belong to the given session; the (message,
+    user) pair is unique - re-rating the same message updates the rating.
+    """
+    _verify_secret(x_ai_secret)
+    from app.core.database import get_ai_conn
+
+    try:
+        async with get_ai_conn() as conn:
+            owner = await conn.fetchrow(
+                """SELECT m.id
+                   FROM agent_messages m
+                   JOIN agent_sessions s ON s.id = m.session_id
+                   WHERE m.id = $1 AND m.session_id = $2 AND s.user_id = $3""",
+                body.message_id, body.session_id, user_id,
+            )
+            if not owner:
+                raise HTTPException(status_code=404, detail="Message not found for this user/session")
+
+            await conn.execute(
+                """INSERT INTO agent_message_feedback (message_id, session_id, user_id, rating)
+                   VALUES ($1, $2, $3, $4)
+                   ON CONFLICT (message_id, user_id)
+                   DO UPDATE SET rating = EXCLUDED.rating, created_at = NOW()""",
+                body.message_id, body.session_id, user_id, body.rating,
+            )
+        return {"status": "ok", "rating": body.rating}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to store feedback: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

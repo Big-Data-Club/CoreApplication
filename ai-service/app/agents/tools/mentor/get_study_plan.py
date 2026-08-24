@@ -104,7 +104,7 @@ class GetStudyPlanTool(BaseTool):
                 try:
                     async with httpx.AsyncClient() as client:
                         resp = await client.get(
-                            f"http://personalize-service:8082/personalize/student/{student_id}/course/{course_id}",
+                            f"{settings.personalize_service_url}/personalize/student/{student_id}/course/{course_id}",
                             headers={"X-AI-Secret": settings.ai_service_secret},
                             timeout=5.0,
                         )

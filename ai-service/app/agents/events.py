@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 class AgentEventType(str, Enum):
     TEXT_DELTA     = "text_delta"
+    TEXT_RESET     = "text_reset"
     THINKING       = "thinking"
     CONTEXT        = "context"
     SCOPE          = "scope"

@@ -48,11 +48,14 @@ class CritiqueReport(BaseModel):
 
 class RetrievalSpecialist:
     """Retrieves and consolidates course materials and web info into a compact context."""
-    
+
     def __init__(self, session_id: str, turn_id: str):
         self.session_id = session_id
         self.turn_id = turn_id
         self.subagent_id = f"retrieval-{turn_id}"
+        # Structured sources harvested this run; consumed by the parent
+        # orchestrator to build verifiable DONE.references.
+        self.sources: list[dict] = []
 
     async def execute(
         self,
@@ -148,6 +151,33 @@ class RetrievalSpecialist:
                 )
                 raw_chunks = [c.chunk_text for c in chunks]
                 logger.info("Multi-agent RetrievalSpecialist hierarchical search resolved to scope: %s", resolved_scope)
+
+                # Resolve document titles once for citation display.
+                titles: dict[int, str] = {}
+                content_ids = list({c.content_id for c in chunks if c.content_id})
+                if content_ids:
+                    try:
+                        async with get_ai_conn() as conn:
+                            rows = await conn.fetch(
+                                "SELECT content_id, title FROM content_index_status WHERE content_id = ANY($1)",
+                                content_ids,
+                            )
+                            titles = {r["content_id"]: r["title"] for r in rows}
+                    except Exception as db_err:
+                        logger.warning("Title lookup failed in RetrievalSpecialist: %s", db_err)
+
+                self.sources.extend(
+                    {
+                        "title": titles.get(c.content_id) or "Tài liệu khóa học",
+                        "content": (c.chunk_text or "")[:600],
+                        "relevance_score": round(float(getattr(c, "similarity", 0.0) or 0.0), 3),
+                        "source_type": "material",
+                        "page_number": getattr(c, "page_number", None),
+                        "content_id": getattr(c, "content_id", None),
+                        "node_id": getattr(c, "node_id", None),
+                    }
+                    for c in chunks
+                )
             except Exception as e:
                 logger.warning("RAG search failed in RetrievalSpecialist: %s", e)
 
@@ -158,6 +188,17 @@ class RetrievalSpecialist:
             if web_result.status == "success" and web_result.data:
                 results = web_result.data.get("results") or []
                 raw_web = [r.get("snippet") for r in results if r.get("snippet")]
+                self.sources.extend(
+                    {
+                        "title": r.get("title") or "Kết quả Web",
+                        "content": (r.get("snippet") or "")[:600],
+                        "relevance_score": float(r.get("relevance_score") or 1.0),
+                        "source_type": "web",
+                        "url": r.get("url"),
+                    }
+                    for r in results
+                    if r.get("snippet")
+                )
         except Exception as e:
             logger.warning("Web search failed in RetrievalSpecialist: %s", e)
 
@@ -169,8 +210,12 @@ class RetrievalSpecialist:
         if system_context:
             context_parts.append(_format_system_context(system_context))
 
-        context_parts.extend(raw_chunks)
-        context_parts.extend(raw_web)
+        # Number the retrieved sources so the drafting agent can cite them
+        # as [n]; n maps 1:1 onto self.sources order.
+        source_parts = [
+            f"[{i}] {text}" for i, text in enumerate(raw_chunks + raw_web, start=1)
+        ]
+        context_parts.extend(source_parts)
 
         raw_text = "\n---\n".join(context_parts)
         raw_token_est = len(raw_text) // 4
@@ -287,6 +332,8 @@ class DraftingSpecialist:
         self.session_id = session_id
         self.turn_id = turn_id
         self.subagent_id = f"drafting-{turn_id}"
+        # Provider/model id of the stream that produced the final draft.
+        self.answered_model: Optional[str] = None
 
     async def execute(
         self, query: str, context: str, critique_feedback: Optional[str] = None
@@ -309,7 +356,11 @@ class DraftingSpecialist:
         system_instruction = (
             "You are a Virtual Mentor/Teaching Assistant. Draft a high-quality pedagogical response "
             "based strictly on the Consolidated Context below.\n"
-            "Format your answer using clean markdown structure. Use Vietnamese as primary language."
+            "Format your answer using clean markdown structure. Use Vietnamese as primary language.\n"
+            "CITATION RULE: retrieved evidence in the context is numbered like [1], [2]. "
+            "When a statement relies on numbered evidence, append its marker at the end of the "
+            "sentence or bullet (e.g. ... [2]). Never invent numbers; only use markers present "
+            "in the context. General study advice needs no marker."
         )
 
         user_content = f"Consolidated Context:\n{context}\n\nQuery: {query}"
@@ -330,7 +381,15 @@ class DraftingSpecialist:
 
         draft = ""
         try:
-            async for delta_text, _, _ in gateway.stream(req):
+            async for delta_text, _, raw in gateway.stream(req):
+                if self.answered_model is None:
+                    chunk_model = (
+                        raw.get("model")
+                        if isinstance(raw, dict)
+                        else getattr(raw, "model", None)
+                    )
+                    if chunk_model:
+                        self.answered_model = str(chunk_model)
                 if delta_text:
                     draft += delta_text
                     yield AgentEvent(

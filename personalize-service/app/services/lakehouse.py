@@ -2,7 +2,7 @@ import os
 import uuid
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import duckdb
 
@@ -10,6 +10,15 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    """Serialise a timestamp as UTC ISO-8601 regardless of column tz-ness."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
 
 
 class LakehouseService:
@@ -574,62 +583,94 @@ class LakehouseService:
 
     def list_notebook_entries(self, user_id: int, course_id: Optional[int] = None) -> List[Dict[str, Any]]:
         with self.lock:
-            try:
-                if course_id is not None:
-                    res = self.conn.execute("""
-                        SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at
-                        FROM notebook_entries
-                        WHERE user_id = ? AND course_id = ?
-                        ORDER BY updated_at DESC
-                    """, (user_id, course_id)).fetchall()
-                else:
-                    res = self.conn.execute("""
-                        SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at
-                        FROM notebook_entries
-                        WHERE user_id = ?
-                        ORDER BY updated_at DESC
-                    """, (user_id,)).fetchall()
-                
-                entries = []
-                for r in res:
-                    entries.append({
-                        "id": r[0],
-                        "user_id": r[1],
-                        "course_id": r[2],
-                        "node_id": r[3],
-                        "title": r[4],
-                        "content": r[5],
-                        "created_at": r[6].isoformat() if r[6] else None,
-                        "updated_at": r[7].isoformat() if r[7] else None
-                    })
-                return entries
-            except Exception as e:
-                logger.error(f"Failed to list notebook entries: {str(e)}")
-                return []
+            # NOTE: errors must propagate (HTTP 500) - returning [] here made
+            # transient DB failures look like "the user has no notes".
+            if course_id is not None:
+                res = self.conn.execute("""
+                    SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at
+                    FROM notebook_entries
+                    WHERE user_id = ? AND course_id = ?
+                    ORDER BY updated_at DESC
+                """, (user_id, course_id)).fetchall()
+            else:
+                res = self.conn.execute("""
+                    SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at
+                    FROM notebook_entries
+                    WHERE user_id = ?
+                    ORDER BY updated_at DESC
+                """, (user_id,)).fetchall()
+
+            entries = []
+            for r in res:
+                entries.append({
+                    "id": r[0],
+                    "user_id": r[1],
+                    "course_id": r[2],
+                    "node_id": r[3],
+                    "title": r[4],
+                    "content": r[5],
+                    "created_at": _iso_utc(r[6]),
+                    "updated_at": _iso_utc(r[7])
+                })
+            return entries
 
     def save_notebook_entry(self, user_id: int, title: str, content: str, course_id: Optional[int] = None, node_id: Optional[int] = None) -> Dict[str, Any]:
         with self.lock:
-            try:
-                entry_id = str(uuid.uuid4())
-                now = datetime.now()
-                self.conn.execute("""
-                    INSERT INTO notebook_entries (id, user_id, course_id, node_id, title, content, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (entry_id, user_id, course_id, node_id, title, content, now, now))
-                logger.info(f"Saved notebook entry {entry_id} for user {user_id}")
-                return {
-                    "id": entry_id,
-                    "user_id": user_id,
-                    "course_id": course_id,
-                    "node_id": node_id,
-                    "title": title,
-                    "content": content,
-                    "created_at": now.isoformat(),
-                    "updated_at": now.isoformat()
-                }
-            except Exception as e:
-                logger.error(f"Failed to save notebook entry: {str(e)}")
-                raise
+            entry_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc)
+            self.conn.execute("""
+                INSERT INTO notebook_entries (id, user_id, course_id, node_id, title, content, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (entry_id, user_id, course_id, node_id, title, content, now, now))
+            logger.info(f"Saved notebook entry {entry_id} for user {user_id}")
+            return {
+                "id": entry_id,
+                "user_id": user_id,
+                "course_id": course_id,
+                "node_id": node_id,
+                "title": title,
+                "content": content,
+                "created_at": _iso_utc(now),
+                "updated_at": _iso_utc(now)
+            }
+
+    def update_notebook_entry(
+        self,
+        entry_id: str,
+        user_id: int,
+        title: str,
+        content: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Update title/content of an existing note. Returns the updated row or None."""
+        with self.lock:
+            exists = self.conn.execute(
+                "SELECT 1 FROM notebook_entries WHERE id = ? AND user_id = ?",
+                (entry_id, user_id),
+            ).fetchone()
+            if not exists:
+                return None
+            now = datetime.now(timezone.utc)
+            self.conn.execute("""
+                UPDATE notebook_entries
+                SET title = ?, content = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+            """, (title, content, now, entry_id, user_id))
+            row = self.conn.execute("""
+                SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at
+                FROM notebook_entries
+                WHERE id = ? AND user_id = ?
+            """, (entry_id, user_id)).fetchone()
+            logger.info(f"Updated notebook entry {entry_id} for user {user_id}")
+            return {
+                "id": row[0],
+                "user_id": row[1],
+                "course_id": row[2],
+                "node_id": row[3],
+                "title": row[4],
+                "content": row[5],
+                "created_at": _iso_utc(row[6]),
+                "updated_at": _iso_utc(row[7]),
+            }
 
     def delete_notebook_entry(self, entry_id: str, user_id: int):
         with self.lock:

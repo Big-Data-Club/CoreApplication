@@ -32,20 +32,23 @@ class MessageStore:
         role: str,
         content: str,
         metadata: Optional[dict] = None
-    ) -> None:
-        """Save a single message to persistent history."""
+    ) -> Optional[int]:
+        """Save a single message to persistent history. Returns the DB id."""
         try:
             async with get_ai_conn() as conn:
-                await conn.execute(
+                row = await conn.fetchrow(
                     """INSERT INTO agent_messages (session_id, role, content, metadata)
-                       VALUES ($1, $2, $3, $4::jsonb)""",
+                       VALUES ($1, $2, $3, $4::jsonb)
+                       RETURNING id""",
                     session_id,
                     role,
                     content,
                     json.dumps(metadata, ensure_ascii=False, default=_custom_json_serializer) if metadata else '{}'
                 )
+                return int(row["id"]) if row else None
         except Exception as exc:
             logger.error("Failed to save message to persistent store: %s", exc)
+            return None
 
     async def get_messages(self, session_id: str, limit: int = 100) -> list[dict]:
         """Retrieve recent persistent messages for a session."""

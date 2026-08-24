@@ -101,6 +101,28 @@ async def save_notebook(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/personalize/notebook/{entry_id}")
+async def update_notebook(
+    entry_id: str,
+    body: NotebookSaveRequest,
+    x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")
+):
+    """Update title/content of an existing note owned by the user."""
+    verify_secret(x_ai_secret)
+    try:
+        updated = lakehouse_service.update_notebook_entry(
+            entry_id=entry_id,
+            user_id=body.user_id,
+            title=body.title,
+            content=body.content,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Notebook entry not found")
+    return updated
+
+
 @router.delete("/personalize/notebook/{entry_id}")
 async def delete_notebook(
     entry_id: str,

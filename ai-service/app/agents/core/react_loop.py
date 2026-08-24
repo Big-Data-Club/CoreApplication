@@ -71,9 +71,18 @@ def _is_teacher_authoring_request(message: str) -> bool:
         "bài học", "lesson", "nội dung", "content", "quiz", "câu hỏi", "question",
         "bài kiểm tra", "assessment", "slide", "tài liệu", "material",
     )
-    return any(marker in text for marker in action_markers) and any(
-        marker in text for marker in artifact_markers
+    if not (
+        any(marker in text for marker in action_markers)
+        and any(marker in text for marker in artifact_markers)
+    ):
+        return False
+    # Guard against false positives: conceptual/explanatory questions that
+    # merely CONTAIN an action word must stay on the prose/tool path.
+    question_markers = (
+        "là gì", "thế nào", "như thế nào", "giải thích", "khái niệm",
+        "ý nghĩa", "explain", "what is", "what are", "how does", "meaning of",
     )
+    return not any(marker in text for marker in question_markers)
 
 
 def _format_compact_teacher_courses(active_courses: dict) -> str:
@@ -138,7 +147,7 @@ def _smart_truncate_tool_result(
     try:
         data = json.loads(result_content)
 
-        if tool_name == "search_course_materials":
+        if tool_name in ("search_course_materials", "explain_concept"):
             chunks = data.get("data", {}).get("chunks", [])
             kept, char_count = [], 0
             for chunk in chunks:
@@ -176,6 +185,13 @@ def _smart_truncate_tool_result(
     if last_nl > int(limit * 0.8):
         truncated = truncated[:last_nl]
     return truncated + "\n[result truncated for context budget]"
+
+
+# -----------------------------------------------------------------------------
+# Reference ledger: assigns stable [n] citation numbers per turn
+# -----------------------------------------------------------------------------
+
+from app.agents.core.references import ReferenceLedger
 
 
 # -----------------------------------------------------------------------------
@@ -769,10 +785,13 @@ async def run_react_loop(
                     final_answer = ev
 
             await stm.append(session_id, "assistant", final_answer)
+            multi_agent_refs = getattr(orchestrator, "collected_references", None) or []
             metadata = {
                 "thinking": "Multi-agent orchestration executed successfully.",
                 "toolActivities": [],
                 "context": context_resolution.as_dict(),
+                "references": multi_agent_refs,
+                "model": getattr(orchestrator, "answered_model", None),
                 "multiAgentLogs": orchestrator.multi_agent_logs,
                 "critiqueReport": orchestrator.critique_report,
                 "consolidation": orchestrator.consolidation,
@@ -780,7 +799,7 @@ async def run_react_loop(
                 "spawningBreakdown": orchestrator.spawning_breakdown,
                 "orchestrationPlan": orchestrator.orchestration_plan,
             }
-            await message_store.save_message(
+            saved_message_id = await message_store.save_message(
                 session_id, "assistant", final_answer, metadata
             )
 
@@ -807,20 +826,25 @@ async def run_react_loop(
             ):
                 yield evt
 
-            yield AgentEvent(
-                type=AgentEventType.TEXT_DELTA,
-                data={"delta": final_answer},
-                session_id=session_id,
-                turn_id=turn_id,
-            )
-
+            # Draft text was already streamed token-by-token during the
+            # pipeline; only fall back to a bulk emission if none of it
+            # reached the user (e.g. drafting stream failed internally).
+            if final_answer.strip() and not getattr(orchestrator, "streamed_to_user", False):
+                yield AgentEvent(
+                    type=AgentEventType.TEXT_DELTA,
+                    data={"delta": final_answer},
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
             yield AgentEvent(
                 type=AgentEventType.DONE,
                 data={
                     "text": final_answer,
                     "iterations": 1,
                     "intent": intent_type,
-                    "references": None,
+                    "model": getattr(orchestrator, "answered_model", None),
+                    "references": multi_agent_refs or None,
+                    "message_id": saved_message_id,
                 },
                 session_id=session_id,
                 turn_id=turn_id,
@@ -838,6 +862,15 @@ async def run_react_loop(
             logger.warning(
                 "Multi-agent flow failed. Falling back to parent ReAct: %s", exc
             )
+            # If part of the draft already reached the user, clear the bubble
+            # so the fallback answer does not append to a half-written draft.
+            if getattr(orchestrator, "streamed_to_user", False):
+                yield AgentEvent(
+                    type=AgentEventType.TEXT_RESET,
+                    data={"reason": "multi_agent_fallback"},
+                    session_id=session_id,
+                    turn_id=turn_id,
+                )
             yield AgentEvent(
                 type=AgentEventType.THINKING,
                 data={
@@ -992,7 +1025,8 @@ async def run_react_loop(
     tool_schemas = get_tool_schemas(agent_type)
     assistant_text = ""
     assistant_thinking = ""
-    turn_references = []
+    answered_model: str | None = None
+    ref_ledger = ReferenceLedger()
     assistant_metadata: dict = {
         "toolActivities": [],
         "references": [],
@@ -1032,6 +1066,14 @@ async def run_react_loop(
 
         try:
             async for delta_text, usage, chunk in gateway.stream(req):
+                if answered_model is None:
+                    chunk_model = (
+                        chunk.get("model")
+                        if isinstance(chunk, dict)
+                        else getattr(chunk, "model", None)
+                    )
+                    if chunk_model:
+                        answered_model = str(chunk_model)
                 choices = _val(chunk, "choices")
                 choice_0 = choices[0] if (choices and isinstance(choices, (list, tuple)) and len(choices) > 0) else None
                 container = _val(choice_0, "delta") or _val(choice_0, "message") if choice_0 else None
@@ -1166,9 +1208,11 @@ async def run_react_loop(
             await stm.append(session_id, "assistant", collected_text)
             if assistant_thinking:
                 assistant_metadata["thinking"] = assistant_thinking
-            if turn_references:
-                assistant_metadata["references"] = turn_references
-            await message_store.save_message(
+            if ref_ledger:
+                assistant_metadata["references"] = ref_ledger.references
+            if answered_model:
+                assistant_metadata["model"] = answered_model
+            saved_message_id = await message_store.save_message(
                 session_id, "assistant", assistant_text, assistant_metadata
             )
             async for evt in _maybe_emit_title_update(
@@ -1183,7 +1227,9 @@ async def run_react_loop(
                     "text": collected_text,
                     "iterations": iteration + 1,
                     "intent": intent_type,
-                    "references": turn_references if turn_references else None,
+                    "model": answered_model,
+                    "references": ref_ledger.references if ref_ledger else None,
+                    "message_id": saved_message_id,
                 },
                 session_id=session_id,
                 turn_id=turn_id,
@@ -1227,9 +1273,43 @@ async def run_react_loop(
                     "Failed to parse tool args: name=%s, raw='%s'",
                     tool_name, tc["arguments"][:200],
                 )
-                args = {}
-            if not isinstance(args, dict):
-                args = {}
+                args = None
+            if args is not None and not isinstance(args, dict):
+                args = None
+
+            if args is None:
+                # Malformed arguments must be fed back to the model as the
+                # tool response - otherwise this tool_call_id dangles (strict
+                # providers reject that) and the model never learns why.
+                error_message = (
+                    "Tool arguments were not valid JSON. Re-issue the same "
+                    "tool call with a valid JSON object."
+                )
+                assistant_metadata["toolActivities"].append({
+                    "tool": tool_name,
+                    "status": "error",
+                    "args": {},
+                    "message": error_message,
+                })
+                yield AgentEvent(
+                    type=AgentEventType.TOOL_RESULT,
+                    data={
+                        "tool": tool_name,
+                        "status": "error",
+                        "message": error_message,
+                    },
+                    session_id=session_id,
+                    turn_id=iter_id,
+                )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"] or f"invalid-{tool_name}",
+                    "content": json.dumps(
+                        {"status": "error", "message": error_message},
+                        ensure_ascii=False,
+                    ),
+                })
+                continue
 
             assistant_metadata["toolActivities"].append({
                 "tool": tool_name,
@@ -1271,26 +1351,43 @@ async def run_react_loop(
             )
 
             if tool_result.status == "success" and tool_result.data:
-                if tool_name == "search_course_materials":
-                    chunks = tool_result.data.get("chunks") or []
-                    for ch in chunks:
-                        turn_references.append({
-                            "title": ch.get("title") or "Tài liệu khóa học",
-                            "content": ch.get("text") or "",
-                            "relevance_score": ch.get("similarity") or 0.0,
-                            "source_type": "material",
-                            "page_number": ch.get("page_number"),
-                        })
+                # Harvest citations into a per-turn ledger with stable [n]
+                # indices, then stamp those indices back onto the chunk dicts
+                # BEFORE serialisation so the model can cite them precisely.
+                harvested_chunks: list[dict] | None = None
+                if tool_name in ("search_course_materials", "explain_concept"):
+                    harvested_chunks = tool_result.data.get("chunks") or []
                 elif tool_name == "search_web":
-                    web_results = tool_result.data.get("results") or []
-                    for wr in web_results:
-                        turn_references.append({
-                            "title": wr.get("title") or "Kết quả Web",
-                            "content": wr.get("snippet") or "",
-                            "relevance_score": 1.0,
-                            "source_type": "web",
-                            "url": wr.get("url"),
-                        })
+                    harvested_chunks = tool_result.data.get("results") or []
+
+                if harvested_chunks:
+                    is_web = tool_name == "search_web"
+                    for ch in harvested_chunks:
+                        if not isinstance(ch, dict):
+                            continue
+                        if is_web:
+                            ref = {
+                                "title": ch.get("title") or "Kết quả Web",
+                                "content": (ch.get("snippet") or "")[:600],
+                                "relevance_score": float(
+                                    ch.get("relevance_score") or 1.0
+                                ),
+                                "source_type": "web",
+                                "url": ch.get("url"),
+                            }
+                        else:
+                            ref = {
+                                "title": ch.get("title") or "Tài liệu khóa học",
+                                "content": (ch.get("text") or "")[:600],
+                                "relevance_score": float(
+                                    ch.get("similarity") or 0.0
+                                ),
+                                "source_type": "material",
+                                "page_number": ch.get("page_number"),
+                                "content_id": ch.get("content_id"),
+                                "node_id": ch.get("node_id"),
+                            }
+                        ch["ref"] = ref_ledger.add(ref)
 
             if tool_result.ui_instruction:
                 # HITL owns rendering of its actionable widget. Emitting it a
@@ -1353,9 +1450,11 @@ async def run_react_loop(
                 await stm.append(session_id, "assistant", tool_result.message)
                 if assistant_thinking:
                     assistant_metadata["thinking"] = assistant_thinking
-                if turn_references:
-                    assistant_metadata["references"] = turn_references
-                await message_store.save_message(
+                if ref_ledger:
+                    assistant_metadata["references"] = ref_ledger.references
+                if answered_model:
+                    assistant_metadata["model"] = answered_model
+                saved_message_id = await message_store.save_message(
                     session_id, "assistant", assistant_text, assistant_metadata
                 )
                 async for evt in _maybe_emit_title_update(
@@ -1370,6 +1469,9 @@ async def run_react_loop(
                         "text": tool_result.message,
                         "iterations": iteration + 1,
                         "reason": "hitl_pending",
+                        "model": answered_model,
+                        "references": ref_ledger.references if ref_ledger else None,
+                        "message_id": saved_message_id,
                     },
                     session_id=session_id,
                     turn_id=turn_id,
@@ -1409,23 +1511,62 @@ async def run_react_loop(
 
     # -- Max iterations reached ------------------------------------------------
     logger.warning("ReAct max iterations reached: session=%s", session_id[:8])
-    fallback = (
-        "Tôi đã thực hiện nhiều bước nhưng chưa hoàn tất. "
-        "Bạn có thể thử lại với yêu cầu cụ thể hơn không?"
-    )
-    await stm.append(session_id, "assistant", fallback)
-    await message_store.save_message(
-        session_id, "assistant", fallback, assistant_metadata
-    )
+
+    if ref_ledger:
+        assistant_metadata["references"] = ref_ledger.references
+    if answered_model:
+        assistant_metadata["model"] = answered_model
+    assistant_metadata["incomplete"] = True
+
     yield AgentEvent(
-        type=AgentEventType.TEXT_DELTA,
-        data={"delta": fallback},
+        type=AgentEventType.THINKING,
+        data={
+            "step": "turn_incomplete",
+            "detail": (
+                "Turn hit the processing limit before full completion."
+                if assistant_text.strip()
+                else "No final answer was produced within the iteration budget."
+            ),
+        },
         session_id=session_id,
         turn_id=turn_id,
     )
+
+    if assistant_text.strip():
+        # Keep the partial answer the user already saw intact - never append
+        # a canned apology to streamed content. Flag it via metadata instead.
+        await stm.append(session_id, "assistant", assistant_text)
+        saved_message_id = await message_store.save_message(
+            session_id, "assistant", assistant_text, assistant_metadata
+        )
+        fallback = assistant_text
+    else:
+        fallback = (
+            "Tôi đã thực hiện nhiều bước nhưng chưa hoàn tất. "
+            "Bạn có thể thử lại với yêu cầu cụ thể hơn không?"
+        )
+        await stm.append(session_id, "assistant", fallback)
+        saved_message_id = await message_store.save_message(
+            session_id, "assistant", fallback, assistant_metadata
+        )
+        yield AgentEvent(
+            type=AgentEventType.TEXT_DELTA,
+            data={"delta": fallback},
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+
     yield AgentEvent(
         type=AgentEventType.DONE,
-        data={"text": fallback, "iterations": MAX_ITERATIONS, "reason": "max_iterations"},
+        data={
+            "text": fallback,
+            "iterations": MAX_ITERATIONS,
+            "reason": "max_iterations",
+            "incomplete": True,
+            "model": answered_model,
+            "references": ref_ledger.references if ref_ledger else None,
+            "message_id": saved_message_id,
+        },
         session_id=session_id,
         turn_id=turn_id,
     )

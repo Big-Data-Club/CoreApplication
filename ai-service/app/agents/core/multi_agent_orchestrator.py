@@ -45,7 +45,36 @@ class MultiAgentOrchestrator:
         self.spawning_score: float = 0.0
         self.spawning_breakdown: Dict[str, Any] = {}
         self.orchestration_plan: dict[str, Any] | None = None
+        # Verifiable sources harvested by the RetrievalSpecialist; surfaced
+        # to the parent loop for DONE.references / message metadata.
+        self.collected_references: List[Dict[str, Any]] = []
+        self.answered_model: Optional[str] = None
+        # True once any user-visible draft text has been streamed as
+        # text_delta (lets the parent reset content before a fallback).
+        self.streamed_to_user: bool = False
         self._capabilities = default_capability_registry()
+
+    def _forward_draft_delta(self, ev: AgentEvent) -> Optional[AgentEvent]:
+        """Mirror drafting-agent thinking deltas as live user-visible text.
+
+        The draft streams token-by-token instead of arriving as one block
+        after the whole pipeline finishes. Returns a text_delta event to
+        yield alongside the recorded subagent event.
+        """
+        if (
+            ev.type == AgentEventType.SUBAGENT_THINK
+            and str(ev.data.get("subagent_id", "")).startswith("drafting-")
+        ):
+            delta = ev.data.get("delta") or ""
+            if delta:
+                self.streamed_to_user = True
+                return AgentEvent(
+                    type=AgentEventType.TEXT_DELTA,
+                    data={"delta": delta},
+                    session_id=self.session_id,
+                    turn_id=self.turn_id,
+                )
+        return None
 
     def calculate_spawning_score(
         self,
@@ -284,6 +313,7 @@ class MultiAgentOrchestrator:
                         yield ev
                     else:
                         consolidated_context = ev
+                self.collected_references = list(retrieval_agent.sources or [])
 
             if not consolidated_context:
                 consolidated_context = "No specific reference materials were found."
@@ -294,7 +324,7 @@ class MultiAgentOrchestrator:
                 (t1 - t_start) * 1000, len(consolidated_context),
             )
 
-            # -- Draft phase ----------------------------------------------------
+            # -- Draft phase (streamed live to the user) ------------------------
             logger.info("[MultiAgent] Starting Draft phase")
             draft_agent = DraftingSpecialist(self.session_id, self.turn_id)
             draft = ""
@@ -302,8 +332,12 @@ class MultiAgentOrchestrator:
                 if isinstance(ev, AgentEvent):
                     self._record_event(ev)
                     yield ev
+                    live = self._forward_draft_delta(ev)
+                    if live:
+                        yield live
                 else:
                     draft = ev
+            self.answered_model = getattr(draft_agent, "answered_model", None)
 
             t2 = time.monotonic()
             logger.info(
@@ -334,6 +368,16 @@ class MultiAgentOrchestrator:
             # -- Phase 4: Revision (max 1 cycle) -------------------------------
             if critique_agent and critique_report and critique_report.verdict == "needs_revision":
                 logger.info("[MultiAgent] Critique rejected draft, starting revision")
+                # The first draft is already visible to the user. Reset the
+                # bubble before streaming the corrected version over it.
+                reset_ev = AgentEvent(
+                    type=AgentEventType.TEXT_RESET,
+                    data={"reason": "revision"},
+                    session_id=self.session_id,
+                    turn_id=self.turn_id,
+                )
+                self._record_event(reset_ev)
+                yield reset_ev
                 revised_draft = ""
                 async for ev in draft_agent.execute(
                     query, consolidated_context,
@@ -342,6 +386,9 @@ class MultiAgentOrchestrator:
                     if isinstance(ev, AgentEvent):
                         self._record_event(ev)
                         yield ev
+                        live = self._forward_draft_delta(ev)
+                        if live:
+                            yield live
                     else:
                         revised_draft = ev
                 draft = revised_draft

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "mentor-oop",
+    "agent": "mentor",
+    "message": "Polymorphism trong OOP là gì? Cho ví dụ cụ thể.",
+    "expected_sources": true,
+    "must_contain": ["polymorphism", "đa hình"]
+  },
+  {
+    "id": "mentor-general-chitchat",
+    "agent": "mentor",
+    "message": "Bạn là ai vậy?",
+    "expected_sources": false,
+    "must_contain": []
+  },
+  {
+    "id": "teacher-authoring",
+    "agent": "teacher",
+    "message": "Tạo cho tôi 5 câu hỏi trắc nghiệm mức độ nhớ (Remember) để warm-up lớp học.",
+    "expected_sources": false,
+    "must_contain": []
+  }
+]

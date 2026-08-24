@@ -236,6 +236,20 @@ class ExplainConceptTool(BaseTool):
                 task=TASK_CHAT,
             )
 
+            # Structured sources so the ReAct loop can turn them into
+            # verifiable references (the parent stamps stable ref indices).
+            source_chunks = [
+                {
+                    "text": c.chunk_text,
+                    "similarity": round(float(getattr(c, "similarity", 0.0) or 0.0), 3),
+                    "source_type": getattr(c, "source_type", None) or "material",
+                    "page_number": getattr(c, "page_number", None),
+                    "content_id": getattr(c, "content_id", None),
+                    "node_id": getattr(c, "node_id", None),
+                }
+                for c in (chunks or [])
+            ]
+
             return ToolResult(
                 status="success",
                 data={
@@ -243,6 +257,7 @@ class ExplainConceptTool(BaseTool):
                     "concept": concept,
                     "depth": depth,
                     "source_count": len(chunks),
+                    "chunks": source_chunks,
                     "prereq_chain": prereq_chain_names,
                     "weak_prereqs": weak_prereqs,
                     "graph_expanded": bool(concept_map_text),

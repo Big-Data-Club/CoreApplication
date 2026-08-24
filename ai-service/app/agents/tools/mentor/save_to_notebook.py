@@ -50,8 +50,10 @@ class SaveToNotebookTool(BaseTool):
 
     async def execute(self, **kwargs) -> ToolResult:
         student_id = kwargs.get("_user_id", 0)
+        # Prefer the verified anchor injected by the registry (the lesson the
+        # student is actually viewing) over an LLM-supplied value.
         course_id = kwargs.get("_course_id") or kwargs.get("course_id")
-        node_id = kwargs.get("node_id")
+        node_id = kwargs.get("_node_id") or kwargs.get("node_id")
         title = kwargs["title"]
         content = kwargs["content"]
 
