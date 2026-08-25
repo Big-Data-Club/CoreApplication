@@ -217,6 +217,8 @@ func main() {
 	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient)
 	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, orgRepo, redisClient)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient)
+	bankRepo := repository.NewQuestionBankRepository(db)
+	bankService := service.NewQuestionBankService(bankRepo, quizRepo, courseRepo, aiClient)
 
 	userSyncService := service.NewUserSyncService(userRepo, redisClient)
 	forumService := service.NewForumService(forumRepo, courseRepo)
@@ -243,6 +245,7 @@ func main() {
 	fileHandler := handler.NewFileHandler(storageProvider, cfg.Upload)
 	syncHandler := handler.NewUserSyncHandler(userSyncService, syncSecret)
 	quizHandler := handler.NewQuizHandler(quizService, storageProvider)
+	questionBankHandler := handler.NewQuestionBankHandler(bankService)
 	forumHandler := handler.NewForumHandler(forumService)
 	progressHandler := handler.NewProgressHandler(progressService)
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, aiClient)
@@ -442,6 +445,12 @@ func main() {
 			auth.POST("/course-blueprints/:blueprintId/cancel", courseBlueprintHandler.Cancel)
 			courses := auth.Group("/courses")
 			{
+				// Question bank (Thư viện đề thi)
+				courses.POST("/:courseId/question-bank", questionBankHandler.CreateItems)
+				courses.GET("/:courseId/question-bank", questionBankHandler.ListItems)
+				courses.GET("/:courseId/question-bank/stats", questionBankHandler.Stats)
+				courses.POST("/:courseId/question-bank/generate", questionBankHandler.GenerateToBank)
+
 				courses.POST("/:courseId/material-routing", courseBlueprintHandler.CreateMaterialRouting)
 				courses.GET("/:courseId/material-routing/:routingId", courseBlueprintHandler.GetMaterialRouting)
 				courses.POST("/:courseId/material-routing/apply", courseBlueprintHandler.ApplyMaterialRouting)
@@ -553,6 +562,9 @@ func main() {
 				quizzes.PUT("/:quizId", quizHandler.UpdateQuiz)
 				quizzes.DELETE("/:quizId", quizHandler.DeleteQuiz)
 
+				// Assemble a quiz from the course question bank (items copied)
+				quizzes.POST("/from-bank", questionBankHandler.CreateQuizFromBank)
+
 				// Question Management
 				quizzes.POST("/:quizId/questions", quizHandler.CreateQuestion)
 				quizzes.POST("/:quizId/questions/batch", quizHandler.BatchCreateQuestions)
@@ -578,6 +590,13 @@ func main() {
 				questions.POST("/:questionId/images", quizHandler.UploadQuestionImage)
 				questions.GET("/:questionId/images", quizHandler.ListQuestionImages)
 				questions.DELETE("/:questionId/images/:imageId", quizHandler.DeleteQuestionImage)
+			}
+
+			// QUESTION BANK ITEM ROUTES (single-item ops)
+			questionBank := auth.Group("/question-bank")
+			{
+				questionBank.PATCH("/:itemId", questionBankHandler.UpdateItem)
+				questionBank.DELETE("/:itemId", questionBankHandler.DeleteItem)
 			}
 
 			// QUIZ ATTEMPT ROUTES
@@ -656,6 +675,10 @@ func main() {
 				// Quiz Smart Import - Parse raw text into structured questions
 				aiGroup.POST("/quizzes/parse-text",
 					aiHandler.ParseQuizText)
+
+				// Quiz Smart Import - Parse ANY document file into structured questions
+				aiGroup.POST("/quizzes/parse-file",
+					aiHandler.ParseQuizFile)
 
 				// Spaced Repetition total due reviews (student dashboard)
 				aiGroup.GET("/reviews/total-due-today",

@@ -1400,3 +1400,73 @@ func (h *AIHandler) DeleteGraphEdge(c *gin.Context) {
 
 	c.JSON(http.StatusNoContent, nil)
 }
+
+// ParseQuizFile godoc
+// @Summary      Smart Quiz Import From File
+// @Description  Accepts ANY teacher document (scanned/text PDF, Word, Excel,
+//
+//	PPTX, Markdown, image photo, plain text), forwards it to the AI service
+//	and returns structured quiz questions ready for review. Illustrative
+//	images found in the document are extracted and matched to questions.
+//
+// @Tags         AI - Quiz Smart Import
+// @Accept       multipart/form-data
+// @Produce      json
+// @Security     BearerAuth
+// @Param        file formData file true "Document file"
+// @Param        points_per_question formData int false "Points per question (default 10)"
+// @Param        language formData string false "vi|en"
+// @Router       /ai/quizzes/parse-file [post]
+func (h *AIHandler) ParseQuizFile(c *gin.Context) {
+	role, _ := c.Get("user_role")
+	if role != "TEACHER" && role != "ADMIN" {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Teacher or Admin access required"))
+		return
+	}
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", "file field is required"))
+		return
+	}
+	if fileHeader.Size > 30*1024*1024 {
+		c.JSON(http.StatusRequestEntityTooLarge, dto.NewErrorResponse("file_too_large", "Max file size is 30MB"))
+		return
+	}
+	src, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+	defer src.Close()
+	fileBytes, err := io.ReadAll(src)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+
+	points := 10
+	if v, err := strconv.Atoi(c.PostForm("points_per_question")); err == nil && v > 0 && v <= 100 {
+		points = v
+	}
+	language := c.PostForm("language")
+	if language == "" {
+		language = "vi"
+	}
+
+	result, err := h.aiClient.ParseQuizFile(
+		c.Request.Context(),
+		fileHeader.Filename,
+		fileHeader.Header.Get("Content-Type"),
+		fileBytes,
+		points,
+		language,
+	)
+	if err != nil {
+		logger.Error("ParseQuizFile failed", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(result))
+}

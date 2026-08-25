@@ -79,6 +79,221 @@ class QuizGenerationService:
         )
         return gen_ids
 
+    # ── Bank generation (Thư viện đề thi) ────────────────────────────────────
+    # Harness rules that make ANY provider/model produce correct output:
+    #   * one question per call (small models fail long-array JSON),
+    #   * strict schema + few-shot prompt (build_quiz_generation_prompt),
+    #   * deterministic normalisation AFTER generation - difficulty is mapped
+    #     from Bloom, options are coerced to the bank contract, exactly one
+    #     correct option is enforced for SINGLE_CHOICE, duplicates are dropped
+    #     via token-Jaccard. The model never decides structure.
+
+    _BLOOM_DIFFICULTY = {
+        "remember": "EASY", "understand": "EASY",
+        "apply": "MEDIUM",
+        "analyze": "HARD", "evaluate": "HARD", "create": "HARD",
+    }
+
+    @staticmethod
+    def _norm_tokens(text: str) -> set[str]:
+        import re
+        return set(re.findall(r"[a-zà-ỹ0-9]+", (text or "").lower()))
+
+    @classmethod
+    def _jaccard(cls, a: str, b: str) -> float:
+        ta, tb = cls._norm_tokens(a), cls._norm_tokens(b)
+        if not ta or not tb:
+            return 0.0
+        inter = len(ta & tb)
+        return inter / (len(ta) + len(tb) - inter)
+
+    def _coerce_bank_question(
+        self, raw: dict, *, node_id: int, node_name: str,
+        bloom_level: str, points: float = 10.0,
+    ) -> dict | None:
+        """Deterministic coercion of one generated question into the bank
+        contract. Returns None when the output is unusable."""
+        if not isinstance(raw, dict):
+            return None
+        text = str(raw.get("question_text") or "").strip()
+        if len(text) < 8:
+            return None
+
+        raw_opts = raw.get("answer_options")
+        if not isinstance(raw_opts, list):
+            return None
+
+        options: list[dict] = []
+        correct_seen = False
+        for i, opt in enumerate(raw_opts[:6]):
+            if isinstance(opt, dict):
+                otext = str(opt.get("text") or opt.get("option_text") or "").strip()
+                if not otext:
+                    continue
+                is_correct = bool(opt.get("is_correct", opt.get("correct", False)))
+                options.append({
+                    "option_text": otext,
+                    "is_correct": is_correct,
+                    "order_index": len(options),
+                    "blank_id": None,
+                })
+                if is_correct:
+                    correct_seen = True
+            elif isinstance(opt, str) and opt.strip():
+                options.append({
+                    "option_text": opt.strip(),
+                    "is_correct": False,
+                    "order_index": len(options),
+                    "blank_id": None,
+                })
+            if len(options) >= 4:
+                break
+
+        q_type = str(raw.get("question_type") or "SINGLE_CHOICE").upper()
+        if q_type not in ("SINGLE_CHOICE", "MULTIPLE_CHOICE"):
+            q_type = "SINGLE_CHOICE"
+        if len(options) < 2:
+            return None
+
+        # Enforce exactly one correct answer for SINGLE_CHOICE (deterministic).
+        if q_type == "SINGLE_CHOICE":
+            first_correct_fixed = False
+            for o in options:
+                if o["is_correct"] and not first_correct_fixed:
+                    first_correct_fixed = True
+                else:
+                    o["is_correct"] = False
+            if not first_correct_fixed:
+                options[0]["is_correct"] = True
+
+        explanation = str(raw.get("explanation") or raw.get("source_quote") or "").strip()
+
+        return {
+            "node_id": int(node_id),
+            "question_type": q_type,
+            "question_text": text,
+            "points": points,
+            "bloom_level": bloom_level,
+            "difficulty": self._BLOOM_DIFFICULTY.get(bloom_level, "MEDIUM"),
+            "answer_options": options,
+            "correct_answers": [],
+            "settings": {},
+            "explanation": explanation[:2000],
+            "source": "AI_GENERATED",
+            "_node_name": node_name,
+        }
+
+    async def _generate_one_for_bank(
+        self, node_id: int, node_name: str, bloom_level: str,
+        language: str, exclude_samples: list[str],
+    ) -> tuple[dict | None, str]:
+        """Returns (coerced_question_or_None, error_reason)."""
+        try:
+            chunks = await rag_service.search_multilingual(
+                query=node_name, course_id=None, node_id=node_id, top_k=4,
+            )
+            if not chunks:
+                chunks = await rag_service.search_multilingual(
+                    query=node_name, top_k=3,
+                )
+            context_texts = [c.chunk_text for c in chunks]
+            if not context_texts:
+                return None, f"no context for node {node_id}"
+
+            messages = build_quiz_generation_prompt(
+                bloom_level=bloom_level,
+                context_chunks=context_texts,
+                node_name=node_name,
+                language=language,
+                existing_questions=exclude_samples,
+                assessment_purpose="formative",
+            )
+            result = await chat_complete_json(
+                messages=messages, temperature=0.5, task=TASK_QUIZ_GEN,
+            )
+            if not isinstance(result, dict):
+                return None, "non-object LLM response"
+            q = self._coerce_bank_question(
+                result, node_id=node_id, node_name=node_name, bloom_level=bloom_level,
+            )
+            if q is None:
+                return None, "unusable structure"
+            return q, ""
+        except Exception as exc:  # noqa: BLE001 - per-question isolation
+            logger.warning("bank gen failed node=%s bloom=%s: %s", node_id, bloom_level, exc)
+            return None, str(exc)
+
+    async def generate_for_bank(
+        self,
+        course_id: int,
+        count: int = 10,
+        bloom_levels: list[str] | None = None,
+        language: str = "vi",
+        exclude_questions: list[str] | None = None,
+    ) -> tuple[list[dict], int]:
+        """
+        Auto-select diverse nodes from the course knowledge graph, generate
+        one classified question per selected (node, bloom) pair, dedupe
+        against existing bank questions. Returns (questions, rejected_count).
+        """
+        count = max(1, min(30, int(count)))
+        blooms = [b for b in (bloom_levels or BLOOM_LEVELS) if b in BLOOM_LEVELS] or BLOOM_LEVELS
+
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, COALESCE(NULLIF(name_vi,''), name) AS name
+                FROM knowledge_nodes
+                WHERE course_id = $1
+                ORDER BY RANDOM()
+                LIMIT $2
+                """,
+                course_id, count * 2,
+            )
+        nodes = [(int(r["id"]), r["name"]) for r in rows]
+        if not nodes:
+            raise ValueError("Khóa học chưa có knowledge nodes để sinh đề.")
+
+        excludes = [q for q in (exclude_questions or []) if q][:200]
+        exclude_samples = excludes[-5:]
+
+        plan = [
+            (nodes[i % len(nodes)], blooms[i % len(blooms)])
+            for i in range(count)
+        ]
+
+        tasks = [
+            self._generate_one_for_bank(nid, name, bloom, language, exclude_samples)
+            for (nid, name), bloom in plan
+        ]
+        results = await asyncio.gather(*tasks)
+
+        seen_texts = list(excludes)
+        questions: list[dict] = []
+        rejected = 0
+        for q, err in results:
+            if q is None:
+                rejected += 1
+                logger.debug("bank gen skipped: %s", err)
+                continue
+            duplicate = any(
+                self._jaccard(q["question_text"], prev) >= 0.8
+                for prev in seen_texts
+            )
+            if duplicate:
+                rejected += 1
+                continue
+            seen_texts.append(q["question_text"])
+            questions.append(q)
+
+        for i, q in enumerate(questions):
+            q["order_index"] = i + 1
+        logger.info(
+            "generate_for_bank: %d generated, %d rejected (course=%d)",
+            len(questions), rejected, course_id,
+        )
+        return questions, rejected
+
     async def _generate_single_with_semaphore(self, **kwargs) -> int:
         """Wraps _generate_single with the shared LLM semaphore."""
         async with _LLM_SEMAPHORE:

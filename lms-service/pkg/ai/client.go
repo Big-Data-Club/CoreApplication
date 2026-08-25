@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"fmt"
 	"io"
 	"net/http"
@@ -1141,4 +1142,114 @@ func getEnvOrDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// ── Quiz Smart File Import ─────────────────────────────────────────────────────
+
+// ParseQuizFileResponse mirrors ai-service /ai/quiz/parse-file.
+type ParseQuizFileResponse struct {
+	Questions       []map[string]interface{} `json:"questions"`
+	Count           int                      `json:"count"`
+	Source          map[string]interface{}   `json:"source"`
+	ExtractedImages []map[string]interface{} `json:"extracted_images"`
+	Status          string                   `json:"status"`
+}
+
+// ParseQuizFile forwards a teacher-uploaded document to the ai-service smart
+// import pipeline (PDF scan/text, Word, Excel, PPTX, Markdown, image, text).
+func (c *Client) ParseQuizFile(ctx context.Context, filename string, contentType string, fileBytes []byte, pointsPerQuestion int, language string) (*ParseQuizFileResponse, error) {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	fw, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+	if _, err := fw.Write(fileBytes); err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+	if err := writer.WriteField("points_per_question", fmt.Sprintf("%d", pointsPerQuestion)); err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+	if language == "" {
+		language = "vi"
+	}
+	if err := writer.WriteField("language", language); err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctxWithTimeout, http.MethodPost, c.baseURL+"/ai/quiz/parse-file", &buf)
+	if err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-AI-Secret", c.secret)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		logger.Error(fmt.Sprintf("ai-service parse-file -> %d: %s", resp.StatusCode, string(body)), nil)
+		return nil, fmt.Errorf("ai-service error %d: %s", resp.StatusCode, string(body))
+	}
+	var out ParseQuizFileResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("ai.ParseQuizFile: %w", err)
+	}
+	return &out, nil
+}
+
+// ── Bank Auto-Generation ───────────────────────────────────────────────────────
+
+type GenerateToBankRequest struct {
+	CourseID         int64    `json:"course_id"`
+	Count            int      `json:"count"`
+	BloomLevels      []string `json:"bloom_levels,omitempty"`
+	Language         string   `json:"language"`
+	ExcludeQuestions []string `json:"exclude_questions"`
+}
+
+type GeneratedBankQuestion struct {
+	NodeID        *int64                    `json:"node_id"`
+	QuestionType  string                    `json:"question_type"`
+	QuestionText  string                    `json:"question_text"`
+	Points        float64                   `json:"points"`
+	BloomLevel    string                    `json:"bloom_level"`
+	Difficulty    string                    `json:"difficulty"`
+	AnswerOptions []map[string]interface{}  `json:"answer_options"`
+	CorrectAnswers []map[string]interface{} `json:"correct_answers"`
+	Settings      map[string]interface{}    `json:"settings"`
+	Explanation   string                    `json:"explanation"`
+	Source        string                    `json:"source"`
+	OrderIndex    int                       `json:"order_index"`
+}
+
+type GenerateToBankResponse struct {
+	Questions     []GeneratedBankQuestion `json:"questions"`
+	Count         int                     `json:"count"`
+	RejectedCount int                     `json:"rejected_count"`
+	Status        string                  `json:"status"`
+}
+
+// GenerateToBank asks the ai-service to auto-generate classified questions
+// for the course question bank (node selection is automatic on the AI side).
+func (c *Client) GenerateToBank(ctx context.Context, req GenerateToBankRequest) (*GenerateToBankResponse, error) {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 420*time.Second)
+	defer cancel()
+	var resp GenerateToBankResponse
+	if err := c.post(ctxWithTimeout, "/ai/quiz/generate-to-bank", req, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GenerateToBank: %w", err)
+	}
+	return &resp, nil
 }
