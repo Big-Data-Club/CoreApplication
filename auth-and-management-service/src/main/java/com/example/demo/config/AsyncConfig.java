@@ -30,7 +30,7 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setQueueCapacity(500);
         executor.setThreadNamePrefix("email-");
         
-        // CallerRunsPolicy: if queue is full, caller thread auto run 
+        // CallerRunsPolicy: if queue is full, caller thread auto run
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
