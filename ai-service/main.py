@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from prometheus_client import Counter, Histogram, make_asgi_app
 
-# Configure structured logging before any other imports that use logging
+# Configure structured logging before any other imports that use logging.
 from app.core.logging_config import configure_logging
 configure_logging()
 

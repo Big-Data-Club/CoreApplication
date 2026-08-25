@@ -71,7 +71,7 @@ var bankValidSources = map[string]bool{
 
 func normalizeBankItem(req *dto.CreateBankItemRequest, createdBy int64) (*models.QuestionBankItem, error) {
 	qType := strings.ToUpper(string(req.QuestionType))
-	switch models.QuestionType(qType) {
+	switch qType {
 	case models.QuestionTypeSingleChoice, models.QuestionTypeMultipleChoice,
 		models.QuestionTypeShortAnswer, models.QuestionTypeEssay,
 		models.QuestionTypeFileUpload, models.QuestionTypeFillBlankText,
@@ -240,6 +240,13 @@ func (s *QuestionBankService) UpdateItem(
 	if req.Difficulty != "" && !bankValidDifficulties[strings.ToUpper(req.Difficulty)] {
 		return nil, fmt.Errorf("invalid difficulty %q", req.Difficulty)
 	}
+	if req.BloomLevel != nil && *req.BloomLevel != "" {
+		b := strings.ToLower(strings.TrimSpace(*req.BloomLevel))
+		if !bankValidBlooms[b] {
+			return nil, fmt.Errorf("invalid bloom_level %q", *req.BloomLevel)
+		}
+		req.BloomLevel = &b
+	}
 	if req.Status != nil {
 		st := strings.ToUpper(*req.Status)
 		if st != models.BankStatusDraft && st != models.BankStatusApproved && st != models.BankStatusDisabled {
@@ -271,10 +278,15 @@ func (s *QuestionBankService) DeleteItem(ctx context.Context, itemID, userID int
 // CreateQuizFromBank copies selected bank items into a brand-new quiz.
 // Bank items are never consumed (teachers keep reusing them).
 func (s *QuestionBankService) CreateQuizFromBank(
-	ctx context.Context, userID int64, userRole string,
+	ctx context.Context, courseID, userID int64, userRole string,
 	req *dto.CreateQuizFromBankRequest,
 ) (*dto.CreateQuizFromBankResponse, error) {
-	// Resolve content -> course once for ownership checks on BOTH sides.
+	// Ownership on the course scope (path param), then verify the target
+	// content actually belongs to that course - prevents cross-course
+	// assembly even between courses the user teaches.
+	if err := s.verifyCourseEditAccess(ctx, courseID, userID, userRole); err != nil {
+		return nil, err
+	}
 	content, err := s.courseRepo.GetContentByID(ctx, req.ContentID)
 	if err != nil {
 		return nil, fmt.Errorf("content not found")
@@ -283,8 +295,8 @@ func (s *QuestionBankService) CreateQuizFromBank(
 	if err != nil {
 		return nil, fmt.Errorf("section not found")
 	}
-	if err := s.verifyCourseEditAccess(ctx, section.CourseID, userID, userRole); err != nil {
-		return nil, err
+	if section.CourseID != courseID {
+		return nil, fmt.Errorf("content does not belong to this course")
 	}
 
 	// Fetch + validate every requested item belongs to that course.
@@ -301,7 +313,7 @@ func (s *QuestionBankService) CreateQuizFromBank(
 		idsInCourse[i] = item.ID
 		totalPoints += item.Points
 	}
-	n, err := s.bankRepo.CountByIDsInCourse(ctx, idsInCourse, section.CourseID)
+	n, err := s.bankRepo.CountByIDsInCourse(ctx, idsInCourse, courseID)
 	if err != nil {
 		return nil, err
 	}

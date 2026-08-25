@@ -203,11 +203,16 @@ func (h *QuestionBankHandler) DeleteItem(c *gin.Context) {
 // @Summary Assemble a new quiz from selected bank items (items are copied, not moved)
 // @Tags Question Bank
 // @Security BearerAuth
+// @Param courseId path int true "Course ID"
 // @Param request body dto.CreateQuizFromBankRequest true "Quiz meta + item_ids"
 // @Success 200 {object} dto.SuccessResponse
-// @Router /quizzes/from-bank [post]
+// @Router /courses/{courseId}/question-bank/create-quiz [post]
 func (h *QuestionBankHandler) CreateQuizFromBank(c *gin.Context) {
 	userID, role, ok := h.identity(c)
+	if !ok {
+		return
+	}
+	courseID, ok := parsePathID(c, "courseId")
 	if !ok {
 		return
 	}
@@ -216,7 +221,7 @@ func (h *QuestionBankHandler) CreateQuizFromBank(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
 		return
 	}
-	resp, err := h.bankService.CreateQuizFromBank(c.Request.Context(), userID, role, &req)
+	resp, err := h.bankService.CreateQuizFromBank(c.Request.Context(), courseID, userID, role, &req)
 	if err != nil {
 		logger.Error("CreateQuizFromBank failed", err)
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("create_failed", err.Error()))

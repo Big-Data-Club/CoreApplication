@@ -450,6 +450,7 @@ func main() {
 				courses.GET("/:courseId/question-bank", questionBankHandler.ListItems)
 				courses.GET("/:courseId/question-bank/stats", questionBankHandler.Stats)
 				courses.POST("/:courseId/question-bank/generate", questionBankHandler.GenerateToBank)
+				courses.POST("/:courseId/question-bank/create-quiz", questionBankHandler.CreateQuizFromBank)
 
 				courses.POST("/:courseId/material-routing", courseBlueprintHandler.CreateMaterialRouting)
 				courses.GET("/:courseId/material-routing/:routingId", courseBlueprintHandler.GetMaterialRouting)
@@ -561,9 +562,9 @@ func main() {
 				quizzes.GET("/:quizId", quizHandler.GetQuiz)
 				quizzes.PUT("/:quizId", quizHandler.UpdateQuiz)
 				quizzes.DELETE("/:quizId", quizHandler.DeleteQuiz)
-
-				// Assemble a quiz from the course question bank (items copied)
-				quizzes.POST("/from-bank", questionBankHandler.CreateQuizFromBank)
+				// NOTE: quiz assembly from the question bank lives at
+				// POST /courses/:courseId/question-bank/create-quiz - a literal
+				// sibling of /:quizId here would make gin's router panic.
 
 				// Question Management
 				quizzes.POST("/:quizId/questions", quizHandler.CreateQuestion)
