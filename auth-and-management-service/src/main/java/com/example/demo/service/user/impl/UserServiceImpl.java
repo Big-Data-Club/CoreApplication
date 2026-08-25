@@ -270,7 +270,16 @@ public class UserServiceImpl implements UserService {
             Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
             deleteOldPicture(user.getProfilePicture());
 
-            String url = uploadDir + filename;
+            // Store a WEB-SERVED absolute path. WebConfig maps "/uploads/**"
+            // to file:uploads/, so the URL is simply "/" + the relative dir.
+            // Storing the raw filesystem dir made browsers resolve the avatar
+            // relative to the current page (e.g. /lms/student/uploads/...)
+            // and every avatar surface fell back to initials.
+            String cleanDir = uploadDir
+                    .replace("\\", "/")
+                    .replaceAll("^\\.?/?", "")
+                    .replaceAll("/+$", "");
+            String url = "/" + cleanDir + "/" + filename;
             user.setProfilePicture(url);
             User saved = userRepository.save(user);
             // Keep LMS/course and chat projections in sync immediately, so
