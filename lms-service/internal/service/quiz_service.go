@@ -24,6 +24,8 @@ type QuizService struct {
 	userRepo       *repository.UserRepository
 	progressRepo   *repository.ProgressRepository
 	aiClient       *ai.Client
+	// Optional: mirrors created questions into the course question bank.
+	bankRepo       *repository.QuestionBankRepository
 }
 
 func NewQuizService(
