@@ -557,9 +557,62 @@ class RAGService:
             LIMIT ${idx}
         """
         params.append(top_k)
-        
+
         async with get_ai_conn() as conn:
             rows = await conn.fetch(sql, *params)
+
+        # Vietnamese queries are long AND-phrases ("phương pháp ra quyết
+        # định"): plainto_tsquery ANDs every word, so one missing token kills
+        # the row even when the concept is clearly present. Fall back to an
+        # OR-query (any token) ranked by how many tokens actually match.
+        if not rows and len(words) > 1:
+            or_tsquery = " | ".join(words)
+            like_patterns = [f"%{w}%" for w in words]
+
+            fallback_params: list = []
+            f_idx = 1
+
+            def next_arg(value):
+                nonlocal f_idx
+                placeholder = f"${f_idx}"
+                fallback_params.append(value)
+                f_idx += 1
+                return placeholder
+
+            p_or_tsquery = next_arg(or_tsquery)
+            p_words_array = next_arg(words)
+            p_like_any = next_arg(like_patterns)
+
+            conds_fb = ["status = 'ready'", "chunk_level = 'child'"]
+            if course_id is not None:
+                conds_fb.append(f"course_id = {next_arg(course_id)}")
+            if node_id is not None:
+                conds_fb.append(f"node_id = {next_arg(node_id)}")
+            if content_id is not None:
+                conds_fb.append(f"content_id = {next_arg(content_id)}")
+            elif content_ids:
+                conds_fb.append(f"content_id = ANY({next_arg(content_ids)})")
+
+            where_fb = " AND ".join(conds_fb)
+            limit_ph = next_arg(top_k)
+
+            or_sql = f"""
+                SELECT id, chunk_text, content_id, node_id,
+                       source_type, page_number, start_time_sec, end_time_sec, language,
+                       (SELECT COUNT(*)
+                          FROM unnest({p_words_array}::text[]) w
+                         WHERE chunk_text ILIKE '%' || w || '%')::float AS rank
+                FROM document_chunks
+                WHERE {where_fb}
+                  AND (
+                    to_tsvector('simple', chunk_text)
+                      @@ plainto_tsquery('simple', {p_or_tsquery})
+                    OR chunk_text ILIKE ANY({p_like_any}::text[])
+                  )
+                ORDER BY rank DESC, id
+                LIMIT {limit_ph}
+            """
+            rows = await conn.fetch(or_sql, *fallback_params)
             
         return [
             RetrievedChunk(
