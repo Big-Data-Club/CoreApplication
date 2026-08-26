@@ -27,14 +27,18 @@ TASK_SECTION_OVERVIEW_GEN = "section_overview_gen" # section-level overview gene
 # deliberately separate from chat: it needs a long-context/map-reduce chain
 # and a stricter structured-output contract.
 TASK_COURSE_BLUEPRINT   = "course_blueprint"
- 
+# Content Studio (slide / document / video authoring). Long-context plan
+# generation with a strict structured-output contract - same rationale as
+# course_blueprint, separate task so admins can bind a stronger model.
+TASK_CONTENT_STUDIO     = "content_studio"
+
 ALL_TASK_CODES: tuple[str, ...] = (
     TASK_CHAT, TASK_QUIZ_GEN, TASK_MICRO_LESSON_GEN, TASK_MICRO_QUIZ_GEN,
     TASK_DIAGNOSIS, TASK_FLASHCARD_GEN,
     TASK_AGENT_REACT, TASK_AGENT_ROUTER, TASK_CLARIFICATION,
     TASK_GRAPH_LINK, TASK_MEMORY_COMPRESS, TASK_LANGUAGE_DETECT,
     TASK_NODE_EXTRACT, TASK_VLM_DESCRIBE, TASK_SECTION_OVERVIEW_GEN,
-    TASK_COURSE_BLUEPRINT,
+    TASK_COURSE_BLUEPRINT, TASK_CONTENT_STUDIO,
 )
  
  
