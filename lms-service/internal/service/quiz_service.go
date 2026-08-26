@@ -32,6 +32,7 @@ func NewQuizService(
 	userRepo *repository.UserRepository,
 	progressRepo *repository.ProgressRepository,
 	aiClient *ai.Client,
+	bankRepo *repository.QuestionBankRepository,
 ) *QuizService {
 	return &QuizService{
 		quizRepo:     quizRepo,
@@ -39,6 +40,7 @@ func NewQuizService(
 		userRepo:     userRepo,
 		progressRepo: progressRepo,
 		aiClient:     aiClient,
+		bankRepo:     bankRepo,
 	}
 }
 
@@ -314,6 +316,9 @@ func (s *QuizService) CreateQuestion(ctx context.Context, req *dto.CreateQuestio
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Mirror the question into the course question bank (best-effort, async).
+	s.syncQuestionToBankAsync(req, userID)
+
 	// Retrieve complete question
 	questionWithOptions, err := s.quizRepo.GetQuestionWithOptions(ctx, question.ID)
 	if err != nil {
@@ -321,6 +326,67 @@ func (s *QuizService) CreateQuestion(ctx context.Context, req *dto.CreateQuestio
 	}
 
 	return s.buildQuestionResponse(questionWithOptions), nil
+}
+
+// syncQuestionToBankAsync best-effort mirrors a committed quiz question into
+// the course question bank. Failures are logged and never affect the quiz.
+func (s *QuizService) syncQuestionToBankAsync(req *dto.CreateQuestionRequest, userID int64) {
+	if s.bankRepo == nil {
+		return
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("bank sync panic recovered", fmt.Errorf("%v", r))
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		quiz, err := s.quizRepo.GetQuiz(ctx, req.QuizID)
+		if err != nil {
+			logger.Error("bank sync: quiz lookup failed", err)
+			return
+		}
+		content, err := s.courseRepo.GetContentByID(ctx, quiz.ContentID)
+		if err != nil {
+			logger.Error("bank sync: content lookup failed", err)
+			return
+		}
+		section, err := s.courseRepo.GetSectionByID(ctx, content.SectionID)
+		if err != nil {
+			logger.Error("bank sync: section lookup failed", err)
+			return
+		}
+
+		optionsJSON, err := json.Marshal(req.AnswerOptions)
+		if err != nil {
+			optionsJSON = []byte("[]")
+		}
+		correctJSON, err := json.Marshal(req.CorrectAnswers)
+		if err != nil {
+			correctJSON = []byte("[]")
+		}
+		settingsJSON, err := json.Marshal(req.Settings)
+		if err != nil || req.Settings == nil {
+			settingsJSON = []byte("{}")
+		}
+
+		if _, err := s.bankRepo.UpsertFromQuizQuestion(ctx, repository.QuizQuestionSync{
+			CourseID:      section.CourseID,
+			QuizID:        req.QuizID,
+			QuestionType:  string(req.QuestionType),
+			QuestionText:  strings.TrimSpace(req.QuestionText),
+			Explanation:   toNullString(req.Explanation),
+			Points:        req.Points,
+			Settings:      settingsJSON,
+			OptionsJSON:   optionsJSON,
+			CorrectJSON:   correctJSON,
+			CreatedBy:     userID,
+		}); err != nil {
+			logger.Error("bank sync: upsert failed", err)
+		}
+	}()
 }
 
 // BatchCreateQuestions creates multiple questions in a single request

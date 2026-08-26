@@ -371,3 +371,50 @@ func (r *QuestionBankRepository) RecentTexts(ctx context.Context, courseID int64
 	}
 	return out, rows.Err()
 }
+
+// QuizQuestionSync carries everything needed to mirror one quiz question
+// into the bank. JSON payloads already match the bank's storage contracts.
+type QuizQuestionSync struct {
+	CourseID       int64
+	QuizID         int64
+	NodeID         sql.NullInt64
+	QuestionType   string
+	QuestionText   string
+	Explanation    sql.NullString
+	Points         float64
+	BloomLevel     sql.NullString
+	Settings       []byte
+	OptionsJSON    []byte
+	CorrectJSON    []byte
+	CreatedBy      int64
+}
+
+// UpsertFromQuizQuestion mirrors a live quiz question into the bank.
+// Conflicts on (course_id, md5(btrim(question_text))) are no-ops, so
+// repeated syncs of the same question never duplicate rows.
+func (r *QuestionBankRepository) UpsertFromQuizQuestion(ctx context.Context, p QuizQuestionSync) (int64, error) {
+	settings := p.Settings
+	if len(settings) == 0 {
+		settings = []byte("{}")
+	}
+	query := `
+		INSERT INTO question_bank_items (
+			course_id, node_id, source_quiz_id, question_type, question_text,
+			explanation, points, bloom_level, difficulty,
+			answer_options, correct_answers, settings, tags,
+			source, status, created_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'MEDIUM',$9,$10,$11,'{}','QUIZ','APPROVED',$12)
+		ON CONFLICT (course_id, md5(btrim(question_text))) DO NOTHING
+		RETURNING id
+	`
+	var id int64
+	err := r.db.QueryRowContext(ctx, query,
+		p.CourseID, p.NodeID, p.QuizID, p.QuestionType, p.QuestionText,
+		p.Explanation, p.Points, p.BloomLevel,
+		p.OptionsJSON, p.CorrectJSON, settings, p.CreatedBy,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil // already in bank
+	}
+	return id, err
+}

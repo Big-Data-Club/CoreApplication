@@ -11,6 +11,7 @@ const (
 	BankSourceManual      = "MANUAL"
 	BankSourceImport      = "IMPORT"
 	BankSourceAIGenerated = "AI_GENERATED"
+	BankSourceQuiz        = "QUIZ" // synced from a live quiz question
 )
 
 // Question bank review status.

@@ -216,8 +216,8 @@ func main() {
 	orgService := service.NewOrganizationService(orgRepo, userRepo, redisClient)
 	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient)
 	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, orgRepo, redisClient)
-	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient)
 	bankRepo := repository.NewQuestionBankRepository(db)
+	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient, bankRepo)
 	bankService := service.NewQuestionBankService(bankRepo, quizRepo, courseRepo, aiClient)
 
 	userSyncService := service.NewUserSyncService(userRepo, redisClient)
