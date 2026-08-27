@@ -73,6 +73,37 @@ class StudioServiceSerializationTest(unittest.TestCase):
         self.assertEqual(res["sources"], 1)
         self.assertGreater(res["chars"], 0)
 
+    @patch("app.services.rag_service.rag_service.search_by_node_ids", new_callable=AsyncMock)
+    @patch("app.services.studio.studio_service.get_ai_conn")
+    def test_add_context_source_node(self, mock_get_conn: AsyncMock, mock_search_nodes: AsyncMock) -> None:
+        mock_conn = AsyncMock()
+        mock_get_conn.return_value.__aenter__.return_value = mock_conn
+        mock_search_nodes.return_value = []
+
+        fake_uuid = str(uuid.uuid4())
+        mock_conn.fetchrow.return_value = {
+            "id": fake_uuid,
+            "course_id": 65,
+            "created_by": 10,
+            "kind": "slides",
+            "title": "Test Title",
+            "status": "collecting",
+            "context_pack": json.dumps([]),
+            "settings": json.dumps({"theme": "academic"}),
+            "plan": None,
+            "artifacts": json.dumps([]),
+            "section_hashes": json.dumps({}),
+        }
+
+        import asyncio
+        res = asyncio.run(self.service.add_context_source(
+            fake_uuid, 10, {"type": "node", "title": "Đồ thị tri thức", "ref": 101}
+        ))
+
+        self.assertFalse(res["duplicate"])
+        self.assertEqual(res["sources"], 1)
+        self.assertGreater(res["chars"], 0)
+
     def test_llm_gateway_exports_task_content_studio(self) -> None:
         from app.core.llm_gateway import TASK_CONTENT_STUDIO, ALL_TASK_CODES
         self.assertEqual(TASK_CONTENT_STUDIO, "content_studio")

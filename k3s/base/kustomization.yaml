@@ -10,6 +10,7 @@ resources:
 - ai-service-deployment.yaml
 - course-blueprint-worker-deployment.yaml
 - ai-model-cache-pvc.yaml
+- personalize-pvc.yaml
 - personalize-service-deployment.yaml
 - recommender-service-deployment.yaml
 - frontend-deployment.yaml

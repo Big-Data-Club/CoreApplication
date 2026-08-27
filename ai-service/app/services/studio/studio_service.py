@@ -135,14 +135,25 @@ class StudioService:
 
         if stype == "node":
             from app.services.rag_service import rag_service
-            chunks = await rag_service.search_hierarchical(
-                query=title, course_id=project["course_id"],
-                node_id=int(ref) if ref else None, top_k=4,
-                expansion_enabled=False, max_expansion_level="content",
-            )
-            text = "\n---\n".join(c.chunk_text for c in chunks)[:_MAX_SOURCE_CHARS]
+            node_id = int(ref) if ref else None
+            chunks = []
+            if node_id:
+                try:
+                    chunks = await rag_service.search_by_node_ids(
+                        node_ids=[node_id], top_k=4, course_id=project["course_id"]
+                    )
+                except Exception:
+                    chunks = []
+            if not chunks:
+                try:
+                    chunks = await rag_service.search_multilingual(
+                        query=title, course_id=project["course_id"], top_k=4
+                    )
+                except Exception:
+                    chunks = []
+            text = "\n---\n".join(getattr(c, "chunk_text", "") for c in chunks if getattr(c, "chunk_text", "")).strip()[:_MAX_SOURCE_CHARS]
             if not text:
-                raise ValueError("Node chưa có nội dung được index.")
+                text = f"Khái niệm/Chủ đề: {title}"
         elif stype == "text":
             text = str(source.get("text") or "")[:_MAX_SOURCE_CHARS]
         elif stype == "document_url":

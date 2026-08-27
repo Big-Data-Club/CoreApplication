@@ -34,10 +34,10 @@ spec:
         resources:
           limits:
             cpu: "1.0"
-            memory: 512Mi
+            memory: 1Gi
           requests:
             cpu: "0.25"
-            memory: 128Mi
+            memory: 256Mi
         securityContext:
           runAsUser: 1001
           runAsGroup: 1001
@@ -62,7 +62,8 @@ spec:
           timeoutSeconds: 5
       volumes:
       - name: data-volume
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: personalize-data-pvc
 
 ---
 apiVersion: v1
