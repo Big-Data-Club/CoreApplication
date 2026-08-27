@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-monitor
+  namespace: monitoring
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
+      - path: /monitor
+        pathType: Prefix
+        backend:
+          service:
+            name: kps-grafana
+            port:
+              number: 80

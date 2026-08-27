@@ -5,3 +5,4 @@ resources:
 - node-exporter.yaml
 - prometheus.yaml
 - grafana.yaml
+- grafana-ingress.yaml
