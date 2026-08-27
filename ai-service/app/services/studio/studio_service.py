@@ -84,20 +84,41 @@ class StudioService:
     async def get_project(self, project_id: str, created_by: int) -> Optional[dict]:
         async with get_ai_conn() as conn:
             row = await conn.fetchrow(
-                "SELECT * FROM studio_projects WHERE id=$1 AND created_by=$2",
+                "SELECT * FROM studio_projects WHERE id=$1::uuid AND created_by=$2",
                 project_id, created_by,
             )
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        if d.get("id") is not None:
+            d["id"] = str(d["id"])
+        for k in ("context_pack", "plan", "settings", "artifacts", "section_hashes"):
+            val = d.get(k)
+            if isinstance(val, str):
+                try:
+                    d[k] = json.loads(val)
+                except Exception:
+                    pass
+        return d
 
     async def _update(self, project_id: str, created_by: int, **fields) -> None:
         if not fields:
             return
-        sets = [f"{k} = ${i+3}" for i, k in enumerate(fields)]
+        json_fields = {"context_pack", "plan", "settings", "artifacts", "section_hashes"}
+        sets = []
+        vals = []
+        for i, (k, v) in enumerate(fields.items()):
+            if k in json_fields:
+                sets.append(f"{k} = ${i+3}::jsonb")
+                vals.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
+            else:
+                sets.append(f"{k} = ${i+3}")
+                vals.append(v)
         async with get_ai_conn() as conn:
             await conn.execute(
                 f"""UPDATE studio_projects SET {", ".join(sets)}, updated_at=NOW()
-                    WHERE id=$1 AND created_by=$2""",
-                project_id, created_by, *fields.values(),
+                    WHERE id=$1::uuid AND created_by=$2""",
+                project_id, created_by, *vals,
             )
 
     # ── Context collection ────────────────────────────────────────────────
@@ -143,12 +164,14 @@ class StudioService:
             "text": text, "hash": _hash_payload(text),
         }
         pack = project.get("context_pack") or []
-        if any(e.get("hash") == entry["hash"] for e in pack):
+        if not isinstance(pack, list):
+            pack = []
+        if any(isinstance(e, dict) and e.get("hash") == entry["hash"] for e in pack):
             return {"duplicate": True, "sources": len(pack)}
 
         pack.append(entry)
         pack = pack[-_MAX_SOURCES:]
-        await self._update(project_id, created_by, context_pack=json.dumps(pack))
+        await self._update(project_id, created_by, context_pack=pack)
         return {"duplicate": False, "sources": len(pack), "chars": len(text)}
 
     # ── Plan ───────────────────────────────────────────────────────────────
