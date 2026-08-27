@@ -60,9 +60,15 @@ def coerce_plan(raw: object, *, kind: str, fallback_title: str,
       * sections beyond target kept (teacher trims later), empty ones dropped
       * unknown extra fields ignored by the model
     """
-    from app.core.llm import ensure_dict
+    from app.core.llm import _extract_json, ensure_dict
 
     warnings: list[str] = []
+    if isinstance(raw, str):
+        try:
+            raw = _extract_json(raw)
+        except Exception as exc:
+            return None, [f"Failed to parse LLM JSON: {exc}"]
+
     data = ensure_dict(raw)
 
     # Some models wrap: {"plan": {...}} / {"sections": [...]} at top level only
