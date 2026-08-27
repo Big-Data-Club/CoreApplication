@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.services.studio.studio_service import studio_service
@@ -82,7 +82,7 @@ async def create_project(body: CreateProjectRequest,
 
 
 @router.get("/projects/{project_id}")
-async def get_project(project_id: str, user_id: int,
+async def get_project(project_id: str, user_id: int = Query(..., gt=0),
                       x_ai_secret: Optional[str] = Header(None)):
     _verify(x_ai_secret)
     project = await studio_service.get_project(project_id, await _uid(user_id))
