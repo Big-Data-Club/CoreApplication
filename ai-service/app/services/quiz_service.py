@@ -189,16 +189,24 @@ class QuizGenerationService:
     ) -> tuple[dict | None, str]:
         """Returns (coerced_question_or_None, error_reason)."""
         try:
-            chunks = await rag_service.search_multilingual(
-                query=node_name, course_id=None, node_id=node_id, top_k=4,
-            )
+            chunks = []
+            if node_id:
+                try:
+                    chunks = await rag_service.search_by_node_ids(
+                        node_ids=[node_id], top_k=4
+                    )
+                except Exception:
+                    chunks = []
             if not chunks:
-                chunks = await rag_service.search_multilingual(
-                    query=node_name, top_k=3,
-                )
-            context_texts = [c.chunk_text for c in chunks]
+                try:
+                    chunks = await rag_service.search_multilingual(
+                        query=node_name, top_k=3,
+                    )
+                except Exception:
+                    chunks = []
+            context_texts = [getattr(c, "chunk_text", "") for c in chunks if getattr(c, "chunk_text", "")]
             if not context_texts:
-                return None, f"no context for node {node_id}"
+                context_texts = [f"Chủ đề/Khái niệm: {node_name}"]
 
             messages = build_quiz_generation_prompt(
                 bloom_level=bloom_level,
