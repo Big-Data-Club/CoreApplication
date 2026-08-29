@@ -87,6 +87,9 @@ rollback_on_error() {
 trap rollback_on_error ERR
 
 kubectl cluster-info >/dev/null
+./scripts/k3s-maintenance.sh \
+  --namespace "$DEPLOY_NAMESPACE" \
+  --phase pre
 # Config changes are safe to apply in place; only deployments selected below
 # are restarted, so unrelated workloads keep their current pods.
 kubectl apply -f k3s/base/configmap.yaml --namespace "$DEPLOY_NAMESPACE"
@@ -160,5 +163,9 @@ done
 trap - ERR
 
 kubectl get pods --namespace "$DEPLOY_NAMESPACE" -o wide
+
+./scripts/k3s-maintenance.sh \
+  --namespace "$DEPLOY_NAMESPACE" \
+  --phase post
 
 echo "Production rollout completed for tag ${IMAGE_TAG}."

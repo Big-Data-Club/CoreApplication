@@ -26,6 +26,12 @@ jobs:
       KUBECONFIG: ${{ vars.PRODUCTION_KUBECONFIG || '/home/bdc_web/.kube/config' }}
 
     steps:
+      - name: Check out operations scripts
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
       - name: Verify production kubeconfig
         run: |
           set -euo pipefail
@@ -81,14 +87,10 @@ jobs:
       - name: Cleanup Old Docker Images & K8s Revisions
         if: always()
         run: |
-          echo "🧹 Cleaning up unused Docker images & containerd cache..."
-          if command -v docker &> /dev/null; then
-            sudo docker image prune -af --filter "until=24h" || docker image prune -f || true
-          fi
-          if command -v k3s &> /dev/null; then
-            sudo k3s crictl rmi --prune || true
-          fi
-          echo "✅ Cleanup complete!"
+          set -euo pipefail
+          ./scripts/k3s-maintenance.sh \
+            --namespace default \
+            --phase post
 
       - name: Deployment Summary
         if: always()
