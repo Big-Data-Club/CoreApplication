@@ -230,10 +230,32 @@ func (h *QuestionBankHandler) CreateQuizFromBank(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(resp))
 }
 
+func (h *QuestionBankHandler) SuggestQuizMetadata(c *gin.Context) {
+	userID, role, ok := h.identity(c)
+	if !ok {
+		return
+	}
+	courseID, ok := parsePathID(c, "courseId")
+	if !ok {
+		return
+	}
+	var req dto.SuggestQuizMetadataRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		return
+	}
+	resp, err := h.bankService.SuggestQuizMetadata(c.Request.Context(), courseID, userID, role, &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("suggest_failed", err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewDataResponse(resp))
+}
+
 // GenerateToBank godoc
 // @Summary AI auto-generate classified questions INTO the bank
-// @Description Node selection is automatic (knowledge graph sampling) and the
-// @Description generator avoids duplicating existing bank questions. Generated
+// @Description Nodes can be selected explicitly; an empty selection samples the
+// @Description course knowledge graph. The generator avoids duplicates. Generated
 // @Description items are persisted with source=AI_GENERATED.
 // @Tags Question Bank
 // @Security BearerAuth

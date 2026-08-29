@@ -41,15 +41,20 @@ class GenerateQuizRequest(BaseModel):
 class GenerateToBankRequest(BaseModel):
     """Auto-generation INTO the course question bank.
 
-    Node selection is automatic (sampled from the knowledge graph) - the
-    teacher never picks nodes manually. ``exclude_questions`` carries recent
-    bank question texts so the generator avoids duplicates.
+    When ``node_ids`` is empty, nodes are sampled from the whole course graph.
+    Otherwise generation is restricted to the selected course-owned nodes.
     """
     course_id: int
     count: int = Field(default=10, ge=1, le=30)
     bloom_levels: Optional[list[str]] = None
+    node_ids: list[int] = Field(default_factory=list, max_length=100)
     language: str = "vi"
     exclude_questions: list[str] = Field(default_factory=list, max_length=200)
+
+
+class SuggestBankQuizMetadataRequest(BaseModel):
+    questions: list[str] = Field(min_length=1, max_length=50)
+    language: str = "vi"
 
 
 class ApproveRequest(BaseModel):
@@ -132,6 +137,7 @@ async def generate_to_bank(body: GenerateToBankRequest, request: Request):
             course_id=body.course_id,
             count=body.count,
             bloom_levels=body.bloom_levels,
+            node_ids=body.node_ids,
             language=body.language or "vi",
             exclude_questions=body.exclude_questions,
         )
@@ -146,6 +152,20 @@ async def generate_to_bank(body: GenerateToBankRequest, request: Request):
     except Exception as e:
         logger.error("generate_to_bank failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+
+
+@router.post("/suggest-bank-metadata")
+async def suggest_bank_metadata(body: SuggestBankQuizMetadataRequest, request: Request):
+    """Suggest editable quiz metadata from teacher-selected bank questions."""
+    _verify_internal(request)
+    try:
+        return await quiz_gen_service.suggest_bank_quiz_metadata(
+            questions=body.questions,
+            language=body.language or "vi",
+        )
+    except Exception as exc:
+        logger.warning("quiz metadata suggestion failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not suggest quiz metadata")
 
 
 @router.get("/drafts/{course_id}")

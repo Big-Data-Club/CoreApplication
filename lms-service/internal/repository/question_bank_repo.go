@@ -50,22 +50,48 @@ func scanBankItem(row interface{ Scan(...interface{}) error }) (*models.Question
 
 // Create inserts one item and returns its ID.
 func (r *QuestionBankRepository) Create(ctx context.Context, item *models.QuestionBankItem) (int64, error) {
+	answerOptions, err := jsonText(item.AnswerOptions, "[]", "answer_options")
+	if err != nil {
+		return 0, err
+	}
+	correctAnswers, err := jsonText(item.CorrectAnswers, "[]", "correct_answers")
+	if err != nil {
+		return 0, err
+	}
+	settings, err := jsonText(item.Settings, "{}", "settings")
+	if err != nil {
+		return 0, err
+	}
+
 	var id int64
-	err := r.db.QueryRowContext(ctx, `
+	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO question_bank_items (
 			course_id, node_id, source_quiz_id, question_type, question_text,
 			explanation, points, bloom_level, difficulty,
 			answer_options, correct_answers, settings, tags,
 			source, status, created_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16)
 		RETURNING id
 	`,
 		item.CourseID, item.NodeID, item.SourceQuizID, item.QuestionType,
 		item.QuestionText, item.Explanation, item.Points, item.BloomLevel,
-		item.Difficulty, item.AnswerOptions, item.CorrectAnswers,
-		item.Settings, pq.Array(item.Tags), item.Source, item.Status, item.CreatedBy,
+		item.Difficulty, answerOptions, correctAnswers,
+		settings, pq.Array(item.Tags), item.Source, item.Status, item.CreatedBy,
 	).Scan(&id)
 	return id, err
+}
+
+// jsonText sends JSON as text instead of []byte. The service uses pgx's
+// simple protocol, where []byte is encoded as bytea (\\x...), which is not
+// valid JSON input and results in PostgreSQL SQLSTATE 22P02.
+func jsonText(raw []byte, fallback, field string) (string, error) {
+	if len(raw) == 0 {
+		raw = []byte(fallback)
+	}
+	if !json.Valid(raw) {
+		return "", fmt.Errorf("invalid %s JSON", field)
+	}
+	return string(raw), nil
 }
 
 // List applies filters + pagination; returns items and total count.
@@ -372,30 +398,87 @@ func (r *QuestionBankRepository) RecentTexts(ctx context.Context, courseID int64
 	return out, rows.Err()
 }
 
+// SyncMissingQuizQuestions repairs the bank invariant for every quiz creation
+// path, including legacy/AI handlers that write quiz_questions directly. It is
+// safe to call concurrently: the expression-index conflict target makes the
+// reconciliation idempotent.
+func (r *QuestionBankRepository) SyncMissingQuizQuestions(ctx context.Context, courseID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO question_bank_items (
+			course_id, node_id, source_quiz_id, question_type, question_text,
+			explanation, points, bloom_level, difficulty,
+			answer_options, correct_answers, settings, tags,
+			source, status, created_by
+		)
+		SELECT
+			cs.course_id, qq.node_id, qz.id, qq.question_type, qq.question_text,
+			qq.explanation, COALESCE(qq.points, 10), qq.bloom_level, 'MEDIUM',
+			COALESCE(opts.payload, '[]'::jsonb),
+			COALESCE(answers.payload, '[]'::jsonb),
+			COALESCE(qq.settings, '{}'::jsonb), '{}'::text[],
+			'QUIZ', 'APPROVED', qz.created_by
+		FROM quiz_questions qq
+		JOIN quizzes qz ON qz.id = qq.quiz_id
+		JOIN section_content sc ON sc.id = qz.content_id
+		JOIN course_sections cs ON cs.id = sc.section_id
+		LEFT JOIN LATERAL (
+			SELECT jsonb_agg(jsonb_build_object(
+				'option_text', o.option_text,
+				'option_html', o.option_html,
+				'is_correct', COALESCE(o.is_correct, false),
+				'order_index', o.order_index,
+				'blank_id', o.blank_id
+			) ORDER BY o.order_index) AS payload
+			FROM quiz_answer_options o WHERE o.question_id = qq.id
+		) opts ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_agg(jsonb_build_object(
+				'answer_text', a.answer_text,
+				'blank_id', a.blank_id,
+				'blank_position', a.blank_position,
+				'case_sensitive', COALESCE(a.case_sensitive, false),
+				'exact_match', COALESCE(a.exact_match, true)
+			)) AS payload
+			FROM quiz_correct_answers a WHERE a.question_id = qq.id
+		) answers ON true
+		WHERE cs.course_id = $1
+		ON CONFLICT (course_id, md5(btrim(question_text))) DO NOTHING
+	`, courseID)
+	return err
+}
+
 // QuizQuestionSync carries everything needed to mirror one quiz question
 // into the bank. JSON payloads already match the bank's storage contracts.
 type QuizQuestionSync struct {
-	CourseID       int64
-	QuizID         int64
-	NodeID         sql.NullInt64
-	QuestionType   string
-	QuestionText   string
-	Explanation    sql.NullString
-	Points         float64
-	BloomLevel     sql.NullString
-	Settings       []byte
-	OptionsJSON    []byte
-	CorrectJSON    []byte
-	CreatedBy      int64
+	CourseID     int64
+	QuizID       int64
+	NodeID       sql.NullInt64
+	QuestionType string
+	QuestionText string
+	Explanation  sql.NullString
+	Points       float64
+	BloomLevel   sql.NullString
+	Settings     []byte
+	OptionsJSON  []byte
+	CorrectJSON  []byte
+	CreatedBy    int64
 }
 
 // UpsertFromQuizQuestion mirrors a live quiz question into the bank.
 // Conflicts on (course_id, md5(btrim(question_text))) are no-ops, so
 // repeated syncs of the same question never duplicate rows.
 func (r *QuestionBankRepository) UpsertFromQuizQuestion(ctx context.Context, p QuizQuestionSync) (int64, error) {
-	settings := p.Settings
-	if len(settings) == 0 {
-		settings = []byte("{}")
+	options, err := jsonText(p.OptionsJSON, "[]", "answer_options")
+	if err != nil {
+		return 0, err
+	}
+	correct, err := jsonText(p.CorrectJSON, "[]", "correct_answers")
+	if err != nil {
+		return 0, err
+	}
+	settings, err := jsonText(p.Settings, "{}", "settings")
+	if err != nil {
+		return 0, err
 	}
 	query := `
 		INSERT INTO question_bank_items (
@@ -403,15 +486,15 @@ func (r *QuestionBankRepository) UpsertFromQuizQuestion(ctx context.Context, p Q
 			explanation, points, bloom_level, difficulty,
 			answer_options, correct_answers, settings, tags,
 			source, status, created_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'MEDIUM',$9,$10,$11,'{}','QUIZ','APPROVED',$12)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'MEDIUM',$9::jsonb,$10::jsonb,$11::jsonb,'{}','QUIZ','APPROVED',$12)
 		ON CONFLICT (course_id, md5(btrim(question_text))) DO NOTHING
 		RETURNING id
 	`
 	var id int64
-	err := r.db.QueryRowContext(ctx, query,
+	err = r.db.QueryRowContext(ctx, query,
 		p.CourseID, p.NodeID, p.QuizID, p.QuestionType, p.QuestionText,
 		p.Explanation, p.Points, p.BloomLevel,
-		p.OptionsJSON, p.CorrectJSON, settings, p.CreatedBy,
+		options, correct, settings, p.CreatedBy,
 	).Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil // already in bank

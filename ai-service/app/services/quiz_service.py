@@ -20,6 +20,39 @@ _LLM_SEMAPHORE = asyncio.Semaphore(4)
 
 class QuizGenerationService:
 
+    async def suggest_bank_quiz_metadata(
+        self, questions: list[str], language: str = "vi",
+    ) -> dict[str, str]:
+        samples = [str(q).strip()[:1000] for q in questions if str(q).strip()][:50]
+        if not samples:
+            raise ValueError("At least one question is required")
+        prompt = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(samples))
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You name educational quizzes. Return one JSON object with keys title, "
+                    "description, instructions. Infer the shared topic from the questions. "
+                    "Keep title under 100 characters, description under 300, instructions under 300. "
+                    "Do not include markdown or claims not supported by the questions."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Language: {language}\nSelected questions:\n{prompt}",
+            },
+        ]
+        result = await chat_complete_json(
+            messages=messages, temperature=0.2, task=TASK_QUIZ_GEN,
+        )
+        if not isinstance(result, dict):
+            raise ValueError("Invalid metadata response")
+        return {
+            "title": str(result.get("title") or "").strip()[:100],
+            "description": str(result.get("description") or "").strip()[:300],
+            "instructions": str(result.get("instructions") or "").strip()[:300],
+        }
+
     async def generate_for_node(
         self,
         node_id: int,
@@ -184,7 +217,7 @@ class QuizGenerationService:
         }
 
     async def _generate_one_for_bank(
-        self, node_id: int, node_name: str, bloom_level: str,
+        self, node_id: int, course_id: int, node_name: str, bloom_level: str,
         language: str, exclude_samples: list[str],
     ) -> tuple[dict | None, str]:
         """Returns (coerced_question_or_None, error_reason)."""
@@ -200,7 +233,7 @@ class QuizGenerationService:
             if not chunks:
                 try:
                     chunks = await rag_service.search_multilingual(
-                        query=node_name, top_k=3,
+                        query=node_name, course_id=course_id, top_k=3,
                     )
                 except Exception:
                     chunks = []
@@ -236,6 +269,7 @@ class QuizGenerationService:
         course_id: int,
         count: int = 10,
         bloom_levels: list[str] | None = None,
+        node_ids: list[int] | None = None,
         language: str = "vi",
         exclude_questions: list[str] | None = None,
     ) -> tuple[list[dict], int]:
@@ -247,17 +281,30 @@ class QuizGenerationService:
         count = max(1, min(30, int(count)))
         blooms = [b for b in (bloom_levels or BLOOM_LEVELS) if b in BLOOM_LEVELS] or BLOOM_LEVELS
 
+        selected_node_ids = list(dict.fromkeys(int(n) for n in (node_ids or []) if int(n) > 0))[:100]
         async with get_ai_conn() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT id, COALESCE(NULLIF(name_vi,''), name) AS name
-                FROM knowledge_nodes
-                WHERE course_id = $1
-                ORDER BY RANDOM()
-                LIMIT $2
-                """,
-                course_id, count * 2,
-            )
+            if selected_node_ids:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, COALESCE(NULLIF(name_vi,''), name) AS name
+                    FROM knowledge_nodes
+                    WHERE course_id = $1 AND id = ANY($2::bigint[])
+                    ORDER BY RANDOM()
+                    LIMIT $3
+                    """,
+                    course_id, selected_node_ids, count * 2,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, COALESCE(NULLIF(name_vi,''), name) AS name
+                    FROM knowledge_nodes
+                    WHERE course_id = $1
+                    ORDER BY RANDOM()
+                    LIMIT $2
+                    """,
+                    course_id, count * 2,
+                )
         nodes = [(int(r["id"]), r["name"]) for r in rows]
         if not nodes:
             raise ValueError("Khóa học chưa có knowledge nodes để sinh đề.")
@@ -271,7 +318,7 @@ class QuizGenerationService:
         ]
 
         tasks = [
-            self._generate_one_for_bank(nid, name, bloom, language, exclude_samples)
+            self._generate_one_for_bank(nid, course_id, name, bloom, language, exclude_samples)
             for (nid, name), bloom in plan
         ]
         results = await asyncio.gather(*tasks)
@@ -297,8 +344,8 @@ class QuizGenerationService:
         for i, q in enumerate(questions):
             q["order_index"] = i + 1
         logger.info(
-            "generate_for_bank: %d generated, %d rejected (course=%d)",
-            len(questions), rejected, course_id,
+            "generate_for_bank: %d generated, %d rejected (course=%d, selected_nodes=%d)",
+            len(questions), rejected, course_id, len(selected_node_ids),
         )
         return questions, rejected
 

@@ -114,15 +114,27 @@ func normalizeBankItem(req *dto.CreateBankItemRequest, createdBy int64) (*models
 		points = *req.Points
 	}
 
-	optionsJSON, err := json.Marshal(req.AnswerOptions)
+	answerOptions := req.AnswerOptions
+	if answerOptions == nil {
+		answerOptions = []dto.CreateAnswerOptionRequest{}
+	}
+	optionsJSON, err := json.Marshal(answerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("invalid answer_options: %w", err)
 	}
-	correctJSON, err := json.Marshal(req.CorrectAnswers)
+	correctAnswers := req.CorrectAnswers
+	if correctAnswers == nil {
+		correctAnswers = []dto.CreateCorrectAnswerRequest{}
+	}
+	correctJSON, err := json.Marshal(correctAnswers)
 	if err != nil {
 		return nil, fmt.Errorf("invalid correct_answers: %w", err)
 	}
-	settingsJSON, err := repository.MarshalJSONField(req.Settings)
+	settings := req.Settings
+	if settings == nil {
+		settings = map[string]interface{}{}
+	}
+	settingsJSON, err := repository.MarshalJSONField(settings)
 	if err != nil {
 		return nil, fmt.Errorf("invalid settings: %w", err)
 	}
@@ -198,6 +210,9 @@ func (s *QuestionBankService) ListItems(
 	if err := s.verifyCourseEditAccess(ctx, courseID, userID, userRole); err != nil {
 		return nil, err
 	}
+	if err := s.bankRepo.SyncMissingQuizQuestions(ctx, courseID); err != nil {
+		return nil, fmt.Errorf("failed to reconcile quiz questions into bank: %w", err)
+	}
 	limit, offset := query.GetPagination()
 	if query.Page < 1 {
 		query.Page = 1
@@ -222,6 +237,9 @@ func (s *QuestionBankService) ListItems(
 func (s *QuestionBankService) Stats(ctx context.Context, courseID, userID int64, userRole string) (*dto.BankStatsResponse, error) {
 	if err := s.verifyCourseEditAccess(ctx, courseID, userID, userRole); err != nil {
 		return nil, err
+	}
+	if err := s.bankRepo.SyncMissingQuizQuestions(ctx, courseID); err != nil {
+		return nil, fmt.Errorf("failed to reconcile quiz questions into bank: %w", err)
 	}
 	return s.bankRepo.Stats(ctx, courseID)
 }
@@ -275,36 +293,133 @@ func (s *QuestionBankService) DeleteItem(ctx context.Context, itemID, userID int
 	return s.bankRepo.Delete(ctx, itemID)
 }
 
+func (s *QuestionBankService) SuggestQuizMetadata(
+	ctx context.Context, courseID, userID int64, userRole string,
+	req *dto.SuggestQuizMetadataRequest,
+) (*dto.SuggestQuizMetadataResponse, error) {
+	if err := s.verifyCourseEditAccess(ctx, courseID, userID, userRole); err != nil {
+		return nil, err
+	}
+	items, err := s.bankRepo.GetByIDs(ctx, req.ItemIDs)
+	if err != nil || len(items) != len(req.ItemIDs) {
+		return nil, fmt.Errorf("some question bank items do not exist")
+	}
+	if count, err := s.bankRepo.CountByIDsInCourse(ctx, req.ItemIDs, courseID); err != nil || int(count) != len(req.ItemIDs) {
+		return nil, fmt.Errorf("some items do not belong to this course")
+	}
+	fallback := &dto.SuggestQuizMetadataResponse{
+		Title:        fmt.Sprintf("Bài kiểm tra kiến thức (%d câu)", len(items)),
+		Description:  "Bài kiểm tra được tổng hợp từ ngân hàng câu hỏi của khóa học.",
+		Instructions: "Đọc kỹ từng câu hỏi và chọn đáp án phù hợp nhất.",
+	}
+	if s.aiClient == nil {
+		return fallback, nil
+	}
+	questions := make([]string, 0, len(items))
+	for _, item := range items {
+		questions = append(questions, item.QuestionText)
+	}
+	suggestion, err := s.aiClient.SuggestBankQuizMetadata(ctx, questions, "vi")
+	if err != nil {
+		logger.Error("quiz metadata suggestion failed; using fallback", err)
+		return fallback, nil
+	}
+	if strings.TrimSpace(suggestion.Title) != "" {
+		fallback.Title = strings.TrimSpace(suggestion.Title)
+	}
+	if strings.TrimSpace(suggestion.Description) != "" {
+		fallback.Description = strings.TrimSpace(suggestion.Description)
+	}
+	if strings.TrimSpace(suggestion.Instructions) != "" {
+		fallback.Instructions = strings.TrimSpace(suggestion.Instructions)
+	}
+	return fallback, nil
+}
+
 // CreateQuizFromBank copies selected bank items into a brand-new quiz.
 // Bank items are never consumed (teachers keep reusing them).
 func (s *QuestionBankService) CreateQuizFromBank(
 	ctx context.Context, courseID, userID int64, userRole string,
 	req *dto.CreateQuizFromBankRequest,
 ) (*dto.CreateQuizFromBankResponse, error) {
-	// Ownership on the course scope (path param), then verify the target
-	// content actually belongs to that course - prevents cross-course
-	// assembly even between courses the user teaches.
 	if err := s.verifyCourseEditAccess(ctx, courseID, userID, userRole); err != nil {
 		return nil, err
 	}
-	content, err := s.courseRepo.GetContentByID(ctx, req.ContentID)
-	if err != nil {
-		return nil, fmt.Errorf("content not found")
+	if req.AvailableFrom != nil && req.AvailableUntil != nil && !req.AvailableUntil.After(*req.AvailableFrom) {
+		return nil, fmt.Errorf("available_until must be after available_from")
 	}
-	section, err := s.courseRepo.GetSectionByID(ctx, content.SectionID)
-	if err != nil {
-		return nil, fmt.Errorf("section not found")
+	if len([]rune(strings.TrimSpace(req.Title))) > 255 {
+		return nil, fmt.Errorf("title must not exceed 255 characters")
 	}
-	if section.CourseID != courseID {
-		return nil, fmt.Errorf("content does not belong to this course")
+
+	// Preferred one-click flow: create the QUIZ content inside the chosen
+	// section here, so the browser cannot leave an orphan content row when quiz
+	// assembly fails. Older clients may still provide an existing ContentID.
+	contentID := req.ContentID
+	createdContent := false
+	if contentID == 0 {
+		if req.SectionID <= 0 {
+			return nil, fmt.Errorf("section_id is required")
+		}
+		section, err := s.courseRepo.GetSectionByID(ctx, req.SectionID)
+		if err != nil || section.CourseID != courseID {
+			return nil, fmt.Errorf("section does not belong to this course")
+		}
+		contents, err := s.courseRepo.ListContentBySection(ctx, req.SectionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect section contents: %w", err)
+		}
+		nextOrder := 0
+		for _, existing := range contents {
+			if existing.OrderIndex >= nextOrder {
+				nextOrder = existing.OrderIndex + 1
+			}
+		}
+		created, err := s.courseRepo.CreateContent(ctx, &models.SectionContent{
+			SectionID:   req.SectionID,
+			Type:        models.ContentTypeQuiz,
+			Title:       strings.TrimSpace(req.Title),
+			Description: toNullString(req.Description),
+			OrderIndex:  nextOrder,
+			Metadata:    []byte("{}"),
+			IsPublished: req.IsPublished,
+			IsMandatory: true,
+			CreatedBy:   userID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create quiz content: %w", err)
+		}
+		contentID = created.ID
+		createdContent = true
+	} else {
+		content, err := s.courseRepo.GetContentByID(ctx, contentID)
+		if err != nil {
+			return nil, fmt.Errorf("content not found")
+		}
+		section, err := s.courseRepo.GetSectionByID(ctx, content.SectionID)
+		if err != nil || section.CourseID != courseID {
+			return nil, fmt.Errorf("content does not belong to this course")
+		}
+		if content.Type != models.ContentTypeQuiz {
+			return nil, fmt.Errorf("content is not a quiz")
+		}
+	}
+	cleanup := func() {
+		if createdContent {
+			if err := s.courseRepo.DeleteContent(ctx, contentID); err != nil {
+				logger.Error("from-bank: failed to clean up quiz content", err)
+			}
+		}
 	}
 
 	// Fetch + validate every requested item belongs to that course.
 	items, err := s.bankRepo.GetByIDs(ctx, req.ItemIDs)
 	if err != nil {
+		cleanup()
 		return nil, err
 	}
 	if len(items) != len(req.ItemIDs) {
+		cleanup()
 		return nil, fmt.Errorf("some question bank items do not exist")
 	}
 	idsInCourse := make([]int64, len(items))
@@ -315,9 +430,11 @@ func (s *QuestionBankService) CreateQuizFromBank(
 	}
 	n, err := s.bankRepo.CountByIDsInCourse(ctx, idsInCourse, courseID)
 	if err != nil {
+		cleanup()
 		return nil, err
 	}
 	if int(n) != len(req.ItemIDs) {
+		cleanup()
 		return nil, fmt.Errorf("some items do not belong to this course")
 	}
 
@@ -331,11 +448,13 @@ func (s *QuestionBankService) CreateQuizFromBank(
 		maxAttempts = *req.MaxAttempts
 	}
 	quiz := &models.Quiz{
-		ContentID:              req.ContentID,
-		Title:                  req.Title,
+		ContentID:              contentID,
+		Title:                  strings.TrimSpace(req.Title),
 		Description:            toNullString(req.Description),
 		Instructions:           toNullString(req.Instructions),
 		TimeLimitMinutes:       toNullInt32(req.TimeLimitMinutes),
+		AvailableFrom:          toNullTime(req.AvailableFrom),
+		AvailableUntil:         toNullTime(req.AvailableUntil),
 		MaxAttempts:            toNullInt32(&maxAttempts),
 		ShuffleQuestions:       req.ShuffleQuestions,
 		ShuffleAnswers:         req.ShuffleAnswers,
@@ -346,11 +465,12 @@ func (s *QuestionBankService) CreateQuizFromBank(
 		ShowCorrectAnswers:     true,
 		AllowReview:            true,
 		ShowFeedback:           true,
-		IsPublished:            false,
+		IsPublished:            req.IsPublished,
 		CreatedBy:              userID,
 	}
 
 	if err := s.quizRepo.CreateQuiz(ctx, quiz); err != nil {
+		cleanup()
 		return nil, fmt.Errorf("failed to create quiz: %w", err)
 	}
 
@@ -358,20 +478,20 @@ func (s *QuestionBankService) CreateQuizFromBank(
 	added := 0
 	for i, item := range items {
 		q := &models.QuizQuestion{
-			QuizID:        quiz.ID,
-			QuestionType:  item.QuestionType,
-			QuestionText:  item.QuestionText,
-			Explanation:   item.Explanation,
-			Points:        item.Points,
-			OrderIndex:    i + 1,
-			Settings:      item.SettingsRaw(),
-			IsRequired:    true,
-			NodeID:        item.NodeID,
-			BloomLevel:    item.BloomLevel,
+			QuizID:       quiz.ID,
+			QuestionType: item.QuestionType,
+			QuestionText: item.QuestionText,
+			Explanation:  item.Explanation,
+			Points:       item.Points,
+			OrderIndex:   i + 1,
+			Settings:     item.SettingsRaw(),
+			IsRequired:   true,
+			NodeID:       item.NodeID,
+			BloomLevel:   item.BloomLevel,
 		}
 		if err := s.quizRepo.CreateQuestion(ctx, q); err != nil {
-			logger.Error(fmt.Sprintf("from-bank: question copy failed (item %d)", item.ID), err)
-			continue
+			cleanup()
+			return nil, fmt.Errorf("failed to copy bank item %d: %w", item.ID, err)
 		}
 		added++
 
@@ -389,7 +509,8 @@ func (s *QuestionBankService) CreateQuizFromBank(
 				BlankID:    toNullInt32(opt.BlankID),
 			}
 			if err := s.quizRepo.CreateAnswerOption(ctx, o); err != nil {
-				logger.Error("from-bank: option insert failed", err)
+				cleanup()
+				return nil, fmt.Errorf("failed to copy answer option: %w", err)
 			}
 		}
 
@@ -407,13 +528,14 @@ func (s *QuestionBankService) CreateQuizFromBank(
 				ExactMatch:    ans.ExactMatch,
 			}
 			if err := s.quizRepo.CreateCorrectAnswer(ctx, a); err != nil {
-				logger.Error("from-bank: correct answer insert failed", err)
+				cleanup()
+				return nil, fmt.Errorf("failed to copy correct answer: %w", err)
 			}
 		}
 	}
 
 	return &dto.CreateQuizFromBankResponse{
-		QuizID: quiz.ID, ContentID: req.ContentID, QuestionsAdded: added,
+		QuizID: quiz.ID, ContentID: contentID, QuestionsAdded: added, IsPublished: req.IsPublished,
 	}, nil
 }
 
@@ -464,11 +586,12 @@ func orEmptyObject(b []byte) string {
 }
 
 // GenerateIntoBankRequest - teacher-facing knobs for AI generation.
-// Node selection is intentionally absent: the AI side samples the knowledge
-// graph automatically and avoids duplicating existing bank questions.
+// An empty NodeIDs list samples the whole course graph. A non-empty list
+// restricts generation to those course-owned knowledge nodes.
 type GenerateIntoBankRequest struct {
 	Count       int      `json:"count" binding:"omitempty,min=1,max=30"`
 	BloomLevels []string `json:"bloom_levels"`
+	NodeIDs     []int64  `json:"node_ids" binding:"omitempty,max=100,dive,gt=0"`
 	Language    string   `json:"language"`
 }
 
@@ -503,6 +626,7 @@ func (s *QuestionBankService) GenerateIntoBank(
 		CourseID:         courseID,
 		Count:            count,
 		BloomLevels:      req.BloomLevels,
+		NodeIDs:          req.NodeIDs,
 		Language:         language,
 		ExcludeQuestions: excludes,
 	})
@@ -528,6 +652,16 @@ func (s *QuestionBankService) GenerateIntoBank(
 				OrderIndex: int(orderIdx),
 			})
 		}
+		correctAnswers := make([]dto.CreateCorrectAnswerRequest, 0, len(q.CorrectAnswers))
+		for _, a := range q.CorrectAnswers {
+			correctAnswers = append(correctAnswers, dto.CreateCorrectAnswerRequest{
+				AnswerText:    stringValue(a["answer_text"]),
+				BlankID:       optionalIntValue(a["blank_id"]),
+				BlankPosition: optionalIntValue(a["blank_position"]),
+				CaseSensitive: boolValue(a["case_sensitive"]),
+				ExactMatch:    boolValue(a["exact_match"]),
+			})
+		}
 		var nodeID *int64
 		if q.NodeID != nil && *q.NodeID > 0 {
 			nodeID = q.NodeID
@@ -537,16 +671,18 @@ func (s *QuestionBankService) GenerateIntoBank(
 			points = 10
 		}
 		items = append(items, dto.CreateBankItemRequest{
-			NodeID:        nodeID,
-			QuestionType:  dto.QuestionType(q.QuestionType),
-			QuestionText:  q.QuestionText,
-			Explanation:   q.Explanation,
-			Points:        &points,
-			BloomLevel:    q.BloomLevel,
-			Difficulty:    q.Difficulty,
-			AnswerOptions: options,
-			Source:        models.BankSourceAIGenerated,
-			Status:        models.BankStatusApproved,
+			NodeID:         nodeID,
+			QuestionType:   dto.QuestionType(q.QuestionType),
+			QuestionText:   q.QuestionText,
+			Explanation:    q.Explanation,
+			Points:         &points,
+			BloomLevel:     q.BloomLevel,
+			Difficulty:     q.Difficulty,
+			AnswerOptions:  options,
+			CorrectAnswers: correctAnswers,
+			Settings:       q.Settings,
+			Source:         models.BankSourceAIGenerated,
+			Status:         models.BankStatusApproved,
 		})
 	}
 
@@ -555,4 +691,29 @@ func (s *QuestionBankService) GenerateIntoBank(
 		return nil, gen.RejectedCount, err
 	}
 	return created, gen.RejectedCount, nil
+}
+
+func stringValue(v interface{}) string {
+	s, _ := v.(string)
+	return s
+}
+
+func boolValue(v interface{}) bool {
+	b, _ := v.(bool)
+	return b
+}
+
+func optionalIntValue(v interface{}) *int {
+	var n int
+	switch value := v.(type) {
+	case float64:
+		n = int(value)
+	case int:
+		n = value
+	case int64:
+		n = int(value)
+	default:
+		return nil
+	}
+	return &n
 }

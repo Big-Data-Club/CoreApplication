@@ -7,9 +7,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"mime/multipart"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"time"
@@ -1228,23 +1228,24 @@ type GenerateToBankRequest struct {
 	CourseID         int64    `json:"course_id"`
 	Count            int      `json:"count"`
 	BloomLevels      []string `json:"bloom_levels,omitempty"`
+	NodeIDs          []int64  `json:"node_ids,omitempty"`
 	Language         string   `json:"language"`
 	ExcludeQuestions []string `json:"exclude_questions"`
 }
 
 type GeneratedBankQuestion struct {
-	NodeID        *int64                    `json:"node_id"`
-	QuestionType  string                    `json:"question_type"`
-	QuestionText  string                    `json:"question_text"`
-	Points        float64                   `json:"points"`
-	BloomLevel    string                    `json:"bloom_level"`
-	Difficulty    string                    `json:"difficulty"`
-	AnswerOptions []map[string]interface{}  `json:"answer_options"`
+	NodeID         *int64                   `json:"node_id"`
+	QuestionType   string                   `json:"question_type"`
+	QuestionText   string                   `json:"question_text"`
+	Points         float64                  `json:"points"`
+	BloomLevel     string                   `json:"bloom_level"`
+	Difficulty     string                   `json:"difficulty"`
+	AnswerOptions  []map[string]interface{} `json:"answer_options"`
 	CorrectAnswers []map[string]interface{} `json:"correct_answers"`
-	Settings      map[string]interface{}    `json:"settings"`
-	Explanation   string                    `json:"explanation"`
-	Source        string                    `json:"source"`
-	OrderIndex    int                       `json:"order_index"`
+	Settings       map[string]interface{}   `json:"settings"`
+	Explanation    string                   `json:"explanation"`
+	Source         string                   `json:"source"`
+	OrderIndex     int                      `json:"order_index"`
 }
 
 type GenerateToBankResponse struct {
@@ -1254,8 +1255,32 @@ type GenerateToBankResponse struct {
 	Status        string                  `json:"status"`
 }
 
-// GenerateToBank asks the ai-service to auto-generate classified questions
-// for the course question bank (node selection is automatic on the AI side).
+type SuggestBankQuizMetadataRequest struct {
+	Questions []string `json:"questions"`
+	Language  string   `json:"language"`
+}
+
+type SuggestBankQuizMetadataResponse struct {
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	Instructions string `json:"instructions"`
+}
+
+func (c *Client) SuggestBankQuizMetadata(ctx context.Context, questions []string, language string) (*SuggestBankQuizMetadataResponse, error) {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	var resp SuggestBankQuizMetadataResponse
+	if err := c.post(ctxWithTimeout, "/ai/quiz/suggest-bank-metadata", SuggestBankQuizMetadataRequest{
+		Questions: questions,
+		Language:  language,
+	}, &resp); err != nil {
+		return nil, fmt.Errorf("ai.SuggestBankQuizMetadata: %w", err)
+	}
+	return &resp, nil
+}
+
+// GenerateToBank asks the ai-service to generate classified questions for the
+// course bank, optionally restricted to teacher-selected knowledge nodes.
 func (c *Client) GenerateToBank(ctx context.Context, req GenerateToBankRequest) (*GenerateToBankResponse, error) {
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 420*time.Second)
 	defer cancel()

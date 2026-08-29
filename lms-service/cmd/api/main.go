@@ -451,6 +451,7 @@ func main() {
 				courses.GET("/:courseId/question-bank/stats", questionBankHandler.Stats)
 				courses.POST("/:courseId/question-bank/generate", questionBankHandler.GenerateToBank)
 				courses.POST("/:courseId/question-bank/create-quiz", questionBankHandler.CreateQuizFromBank)
+				courses.POST("/:courseId/question-bank/suggest-quiz", questionBankHandler.SuggestQuizMetadata)
 
 				courses.POST("/:courseId/material-routing", courseBlueprintHandler.CreateMaterialRouting)
 				courses.GET("/:courseId/material-routing/:routingId", courseBlueprintHandler.GetMaterialRouting)
