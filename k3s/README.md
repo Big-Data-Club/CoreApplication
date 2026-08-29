@@ -2,8 +2,12 @@
 
 `k3s/` contains the Kubernetes source used for BDC Hub production operations.
 It is configuration, not a local development shortcut: inspect changes with the
-service owner and follow the [DevOps runbook](../docs/DEVOPS_RUNBOOK.md) before
+service owner and follow the [DevOps runbook](../docs/teams/DEVOPS_RUNBOOK.md) before
 applying anything to a cluster.
+
+For the production database migration and node recovery sequence completed on
+2026-08-29, see the
+[Neon cutover trajectory](../docs/operations/NEON_CUTOVER_2026-08-29.md).
 
 ## Layout
 

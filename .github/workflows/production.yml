@@ -209,6 +209,8 @@ jobs:
       (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: [self-hosted, linux, x64, production]
     environment: production
+    env:
+      KUBECONFIG: ${{ vars.PRODUCTION_KUBECONFIG || '/home/bdc_web/.kube/config' }}
     permissions:
       contents: read
 
@@ -218,6 +220,16 @@ jobs:
         with:
           submodules: false
           fetch-depth: 1
+
+      - name: Verify production kubeconfig
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -r "$KUBECONFIG" || {
+            echo "Runner kubeconfig is not readable: $KUBECONFIG" >&2
+            exit 1
+          }
+          kubectl get nodes
 
       - name: Log in to Docker Hub for K3s pulls
         env:

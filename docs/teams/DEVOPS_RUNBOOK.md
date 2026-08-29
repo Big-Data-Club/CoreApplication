@@ -5,7 +5,7 @@
 | Status | Active operational runbook |
 | Scope | Production K3s, GitHub Actions, Docker Hub, monitoring, performance tests |
 | Audience | DevOps, platform, on-call engineers, technical leads |
-| Last reviewed | 2026-07-29 |
+| Last reviewed | 2026-08-29 |
 
 > This document intentionally contains no password, token, private IP address,
 > database connection string, or Kubernetes Secret value. Retrieve sensitive
@@ -24,6 +24,12 @@ Kafka and Redis run in the cluster. This runbook defines how to:
 - release, verify, diagnose, roll back, and recover workloads;
 - run load tests without contaminating production data; and
 - track the platform tasks that must be completed before increasing load.
+
+### Related recovery trajectories
+
+- [Neon PostgreSQL cutover and K3s recovery — 2026-08-29](../operations/NEON_CUTOVER_2026-08-29.md):
+  six-database migration, runtime Secret recovery, disk-pressure remediation,
+  Redis credential synchronization, and Neon pooler `search_path` repair.
 
 ### Non-negotiable rules
 
@@ -120,6 +126,43 @@ node-level failover.
 - Do not copy `/etc/rancher/k3s/k3s.yaml` off the production host. It grants
   cluster-admin access.
 - End the VPN session when finished.
+
+### 3.4 GitHub Actions runner kubeconfig
+
+The production runner is a non-interactive systemd service. It does not source
+the operations user's `.bashrc`, so setting `KUBECONFIG` only in that file does
+not configure CI/CD. The runner must use a dedicated kubeconfig owned by the
+runner user:
+
+```text
+/home/bdc_web/.kube/config
+```
+
+The systemd service must also contain:
+
+```ini
+[Service]
+Environment=KUBECONFIG=/home/bdc_web/.kube/config
+```
+
+Use `scripts/bootstrap-production-runner.sh` to provision both. Do not make
+`/etc/rancher/k3s/k3s.yaml` world-readable. K3s can recreate that root-owned
+file on restart and discard ad-hoc mode changes.
+
+Verify the effective service configuration and access with:
+
+```bash
+systemctl show <runner-service> -p User -p Environment
+sudo -u bdc_web env -i \
+  HOME=/home/bdc_web \
+  KUBECONFIG=/home/bdc_web/.kube/config \
+  PATH=/usr/local/bin:/usr/bin:/bin \
+  kubectl get nodes
+```
+
+Production workflows run a kubeconfig preflight before modifying image-pull
+Secrets or workloads. If that preflight fails, repair the runner configuration;
+do not add `sudo kubectl` to workflow steps.
 
 ## 4. First five minutes: standard cluster health check
 

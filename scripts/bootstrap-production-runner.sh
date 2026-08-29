@@ -30,11 +30,17 @@ for command in curl tar python3 kubectl sudo; do
   command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done
 
-# K3s creates its kubeconfig as root-only by default.  The runner needs
-# read-only access to authenticate with kubectl; its authorization remains
-# governed by Kubernetes RBAC.  Do this before the preflight checks below.
-sudo chgrp "$RUNNER_USER" /etc/rancher/k3s/k3s.yaml
-sudo chmod 0640 /etc/rancher/k3s/k3s.yaml
+# K3s may recreate its kubeconfig as root-only whenever the service restarts.
+# Give the runner a dedicated 0600 copy instead of weakening permissions on the
+# root-owned source file. The systemd drop-in below makes non-interactive jobs
+# use this path without relying on .bashrc.
+runner_home="$(getent passwd "$RUNNER_USER" | cut -d: -f6)"
+[[ -n "$runner_home" ]] || { echo "Cannot resolve home for ${RUNNER_USER}" >&2; exit 1; }
+RUNNER_KUBECONFIG="${RUNNER_KUBECONFIG:-${runner_home}/.kube/config}"
+sudo install -d -m 0700 -o "$RUNNER_USER" -g "$RUNNER_USER" "$(dirname "$RUNNER_KUBECONFIG")"
+sudo install -m 0600 -o "$RUNNER_USER" -g "$RUNNER_USER" \
+  /etc/rancher/k3s/k3s.yaml "$RUNNER_KUBECONFIG"
+export KUBECONFIG="$RUNNER_KUBECONFIG"
 
 kubectl get node >/dev/null
 for deployment in auth-service lms-service lab-service chat-service ai-service ai-worker personalize-service recommender-service frontend; do
@@ -72,7 +78,18 @@ else
 fi
 
 sudo ./svc.sh install "$RUNNER_USER" || true
-sudo ./svc.sh start
+
+runner_service="$(<.service)"
+if [[ ! "$runner_service" =~ ^actions\.runner\.[A-Za-z0-9_.@-]+\.service$ ]]; then
+  echo "Unexpected runner service name: ${runner_service}" >&2
+  exit 1
+fi
+drop_in_dir="/etc/systemd/system/${runner_service}.d"
+sudo install -d -m 0755 "$drop_in_dir"
+printf '[Service]\nEnvironment=KUBECONFIG=%s\n' "$RUNNER_KUBECONFIG" \
+  | sudo tee "${drop_in_dir}/10-kubeconfig.conf" >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl restart "$runner_service"
 
 echo "${RUNNER_USER} ALL=(root) NOPASSWD: /usr/local/bin/k3s crictl rmi --prune" \
   | sudo tee /etc/sudoers.d/bdc-actions-runner-k3s-cleanup >/dev/null

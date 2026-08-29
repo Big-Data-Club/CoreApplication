@@ -22,8 +22,16 @@ jobs:
     name: 🚀 Rollout Kubernetes Deployments
     runs-on: [self-hosted, linux]
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    env:
+      KUBECONFIG: ${{ vars.PRODUCTION_KUBECONFIG || '/home/bdc_web/.kube/config' }}
 
     steps:
+      - name: Verify production kubeconfig
+        run: |
+          set -euo pipefail
+          test -r "$KUBECONFIG"
+          kubectl get nodes
+
       - name: Selective Kubernetes Rollout
         run: |
           echo "🚀 Executing Kubernetes Rollout Restart on Self-Hosted Runner..."
