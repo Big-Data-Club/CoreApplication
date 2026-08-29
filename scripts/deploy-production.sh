@@ -57,6 +57,7 @@ declare -A images=(
 # that must accompany a new image. Apply only their selected manifest, then set
 # the immutable image immediately below; unrelated deployments are untouched.
 declare -A manifests=(
+  [ai-service]=k3s/base/ai-service-deployment.yaml
   [chat-service]=k3s/base/chat-service-deployment.yaml
   [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml
   [lab-service]=k3s/base/lab-service-deployment.yaml
@@ -93,6 +94,7 @@ kubectl cluster-info >/dev/null
 # Config changes are safe to apply in place; only deployments selected below
 # are restarted, so unrelated workloads keep their current pods.
 kubectl apply -f k3s/base/configmap.yaml --namespace "$DEPLOY_NAMESPACE"
+kubectl apply -f k3s/base/ingress.yaml --namespace "$DEPLOY_NAMESPACE"
 # Kafka is shared infrastructure for the AI workers. Applying an unchanged
 # StatefulSet is a no-op; applying a changed one performs the controlled
 # one-broker rollout required for heap/probe/resource fixes.

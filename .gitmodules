@@ -4,3 +4,6 @@
 [submodule "da-analytics"]
 	path = da-analytics
 	url = git@github.com:Big-Data-Club/DA-RecommenderSystem.git
+[submodule "ai-service/mcp_skillset"]
+	path = ai-service/mcp_skillset
+	url = https://github.com/Big-Data-Club/BDCHub--MCP_SkillSet.git

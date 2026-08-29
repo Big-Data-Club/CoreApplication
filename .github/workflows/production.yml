@@ -52,6 +52,7 @@ jobs:
               - 'k3s/base/course-blueprint-worker-deployment.yaml'
               - 'k3s/base/kafka-statefulset.yaml'
               - 'k3s/base/configmap.yaml'
+              - 'k3s/base/ingress.yaml'
               - 'scripts/deploy-production.sh'
             recommender:
               - 'recommender-service/**'
@@ -167,7 +168,7 @@ jobs:
       - name: Check out CoreApplication
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Buildx
@@ -218,7 +219,7 @@ jobs:
       - name: Check out deployment scripts
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
           fetch-depth: 1
 
       - name: Verify production kubeconfig
@@ -306,6 +307,19 @@ jobs:
                   await conn.close()
           asyncio.run(main())
           '
+          echo "Applying MCP credential schema"
+          kubectl exec -i -n "$DEPLOY_NAMESPACE" "$POD" -- python -c '
+          import asyncio, os, sys, asyncpg
+          SQL = sys.stdin.read()
+          async def main():
+              conn = await asyncpg.connect(host=os.environ["AI_DB_HOST"], port=int(os.environ["AI_DB_PORT"]), user=os.environ["AI_DB_USER"], password=os.environ["AI_DB_PASSWORD"], database=os.environ["AI_DB_NAME"])
+              try:
+                  async with conn.transaction():
+                      await conn.execute(SQL)
+              finally:
+                  await conn.close()
+          asyncio.run(main())
+          ' < ai-service/migrations/V014__mcp_api_keys.sql
 
       - name: Deploy immutable images and verify rollouts
         env:

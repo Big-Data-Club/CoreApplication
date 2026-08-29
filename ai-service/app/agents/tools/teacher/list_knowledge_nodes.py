@@ -88,35 +88,6 @@ class ListKnowledgeNodesTool(BaseTool):
                 for r in rows
             ]
 
-            # If 0 nodes found AND course_id came from LLM (not session),
-            # check which courses actually have nodes to guide the LLM.
-            if len(nodes) == 0 and not session_course_id:
-                async with get_ai_conn() as conn:
-                    available = await conn.fetch(
-                        """SELECT course_id, COUNT(*) as cnt
-                           FROM knowledge_nodes
-                           GROUP BY course_id
-                           ORDER BY course_id
-                           LIMIT 10"""
-                    )
-                if available:
-                    hint_parts = [
-                        f"course_id={r['course_id']} ({r['cnt']} nodes)"
-                        for r in available
-                    ]
-                    return ToolResult(
-                        status="success",
-                        data={"nodes": [], "count": 0, "available_courses": [
-                            {"course_id": r["course_id"], "node_count": r["cnt"]}
-                            for r in available
-                        ]},
-                        message=(
-                            f"Không tìm thấy chủ đề nào trong course_id={course_id}. "
-                            f"Các khóa học có dữ liệu đã index: {', '.join(hint_parts)}. "
-                            "Hãy hỏi giáo viên để xác nhận đúng khóa học."
-                        ),
-                    )
-
             return ToolResult(
                 status="success",
                 data={"nodes": nodes, "count": len(nodes)},

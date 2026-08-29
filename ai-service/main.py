@@ -95,6 +95,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     logger.info("Starting AI Service", extra={"version": "2.2.0", "event": "startup"})
+    logger.info("MCP server status", extra={"enabled": settings.mcp_enabled})
 
     await init_ai_pool()
     logger.info("AI PostgreSQL pool ready",
@@ -184,3 +185,9 @@ app.include_router(agent_router,      prefix="/ai")
 app.include_router(competency_suggestions_router, prefix="/ai")
 app.include_router(course_blueprints_router, prefix="/ai")
 app.include_router(course_material_routing_router, prefix="/ai")
+
+# ── MCP Server (opt-in, off by default) ───────────────────────────────────────
+if settings.mcp_enabled:
+    from mcp.router import router as mcp_router
+    app.include_router(mcp_router)
+    logger.info("MCP server mounted at /mcp")

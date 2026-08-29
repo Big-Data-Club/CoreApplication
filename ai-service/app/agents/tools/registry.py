@@ -27,6 +27,10 @@ from app.agents.tools.teacher.create_section import CreateSectionTool
 from app.agents.tools.teacher.parse_quiz_questions import ParseQuizQuestionsTool
 from app.agents.tools.teacher.prepare_course_materials import PrepareCourseMaterialsTool
 from app.agents.tools.teacher.create_course_from_materials import CreateCourseFromMaterialsTool
+from app.agents.tools.teacher.mcp_create_course_from_files import McpCreateCourseFromFilesTool
+from app.agents.tools.teacher.mcp_batch_generate_quiz import McpBatchGenerateQuizTool
+from app.agents.tools.teacher.mcp_generate_slide_deck import McpGenerateSlideDeckTool
+from app.agents.tools.teacher.mcp_index_files import McpIndexFilesTool
 
 # ── Mentor Tools ──────────────────────────────────────────────────────────────
 
@@ -64,6 +68,10 @@ _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     CreateSectionTool(),
     PrepareCourseMaterialsTool(),
     CreateCourseFromMaterialsTool(),
+    McpCreateCourseFromFilesTool(),
+    McpBatchGenerateQuizTool(),
+    McpGenerateSlideDeckTool(),
+    McpIndexFilesTool(),
 ]
 
 _MENTOR_ONLY_TOOLS: list[BaseTool] = [

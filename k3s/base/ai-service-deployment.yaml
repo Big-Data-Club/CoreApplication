@@ -114,6 +114,17 @@ spec:
             secretKeyRef:
               name: bdc-secrets
               key: AI_KEY_ENCRYPTION_SECRET
+        # MCP Server Configuration
+        - name: MCP_ENABLED
+          value: "true"
+        - name: MCP_API_KEYS
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MCP_API_KEYS
+              optional: true
+        - name: MCP_RATE_LIMIT_RPM
+          value: "100"
         resources:
           limits:
             cpu: "1.5"

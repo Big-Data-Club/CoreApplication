@@ -59,7 +59,7 @@ class CreateSectionTool(BaseTool):
                 async with httpx.AsyncClient(timeout=10) as client:
                     resp = await client.get(
                         f"{lms_base}/api/v1/courses/{course_id}/sections",
-                        headers={"X-API-Secret": settings.ai_service_secret},
+                        headers={"X-API-Secret": settings.ai_service_secret, "X-User-Id": str(kwargs.get("_user_id") or "")},
                     )
                     if resp.status_code == 200:
                         body = resp.json()
@@ -80,7 +80,7 @@ class CreateSectionTool(BaseTool):
                 resp = await client.post(
                     f"{lms_base}/api/v1/courses/{course_id}/sections",
                     json=payload,
-                    headers={"X-API-Secret": settings.ai_service_secret},
+                    headers={"X-API-Secret": settings.ai_service_secret, "X-User-Id": str(kwargs.get("_user_id") or "")},
                 )
 
             if resp.status_code in (200, 201):
