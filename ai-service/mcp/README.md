@@ -59,6 +59,13 @@ Clients can list owned course resources and the skills catalog from the
 `k3s/base/configmap.yaml`. Deterministic authoring helpers clearly state that
 their input must first be authored by the caller's external model.
 
+Slide payloads use the same structured visual language as Content Studio:
+`flow`, `cycle`, `comparison`, `hierarchy`, or `timeline`, with 2–6 short
+labels. MCP turns it into safe Mermaid; Studio turns it into editable native
+PowerPoint shapes. An optional `illustration_prompt` can be sent to an image
+generator owned by the external client, so BDC neither pays that provider bill
+nor fetches untrusted remote image URLs.
+
 ## Tests
 
 ```bash

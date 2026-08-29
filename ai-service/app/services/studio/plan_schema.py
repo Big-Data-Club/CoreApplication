@@ -12,10 +12,33 @@ so a small model produces the same *structure* as a large one.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
+
+
+def _ensure_dict(value: object) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        return next((item for item in value if isinstance(item, dict)), {})
+    return {}
+
+
+def _extract_plan_json(raw: str) -> object:
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"(?:\{[\s\S]*\}|\[[\s\S]*\])", text)
+        if not match:
+            raise ValueError("model response did not contain JSON")
+        return json.loads(match.group())
 
 
 class PlanSection(BaseModel):
@@ -24,6 +47,8 @@ class PlanSection(BaseModel):
     slide_bullets: list[str] = Field(default_factory=list)
     narration: str = ""           # spoken script (video P1; also enriches docs)
     visual_suggestion: str = ""
+    visual_type: Literal["auto", "flow", "cycle", "comparison", "hierarchy", "timeline"] = "auto"
+    visual_labels: list[str] = Field(default_factory=list)
     duration_est_sec: int = 0
 
     def cleaned(self) -> "PlanSection":
@@ -33,6 +58,11 @@ class PlanSection(BaseModel):
         self.slide_bullets = [strip(b)[:200] for b in (self.slide_bullets or []) if strip(b)][:8]
         self.narration = (self.narration or "").strip()[:6000]
         self.visual_suggestion = strip(self.visual_suggestion)[:300]
+        from app.services.studio.visuals import clean_visual_labels
+        self.visual_labels = clean_visual_labels(
+            self.visual_labels,
+            fallback=self.slide_bullets or self.key_points or [self.title],
+        )
         return self
 
 
@@ -60,20 +90,18 @@ def coerce_plan(raw: object, *, kind: str, fallback_title: str,
       * sections beyond target kept (teacher trims later), empty ones dropped
       * unknown extra fields ignored by the model
     """
-    from app.core.llm import _extract_json, ensure_dict
-
     warnings: list[str] = []
     if isinstance(raw, str):
         try:
-            raw = _extract_json(raw)
+            raw = _extract_plan_json(raw)
         except Exception as exc:
             return None, [f"Failed to parse LLM JSON: {exc}"]
 
-    data = ensure_dict(raw)
+    data = _ensure_dict(raw)
 
     # Some models wrap: {"plan": {...}} / {"sections": [...]} at top level only
     if not data.get("sections"):
-        inner = ensure_dict(data.get("plan"))
+        inner = _ensure_dict(data.get("plan"))
         if inner.get("sections"):
             data = {**data, **inner}
 
@@ -103,6 +131,11 @@ def coerce_plan(raw: object, *, kind: str, fallback_title: str,
                 sec[field] = [str(x) for x in v]
             else:
                 sec[field] = []
+        if not isinstance(sec.get("visual_labels"), list):
+            sec["visual_labels"] = []
+        from app.services.studio.visuals import VISUAL_TYPES
+        if sec.get("visual_type") not in VISUAL_TYPES:
+            sec["visual_type"] = "auto"
         if not str(sec.get("title") or "").strip():
             sec["title"] = f"Mục {i + 1}"
         fixed_sections.append(sec)

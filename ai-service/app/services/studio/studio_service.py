@@ -41,12 +41,16 @@ _PLAN_SYSTEM = (
     '{"title": str, "language": "vi"|"en", "learning_objectives": [str],\n'
     ' "sections": [{"title": str, "key_points": [str], "slide_bullets": [str],\n'
     '               "narration": str, "visual_suggestion": str,\n'
+    '               "visual_type": "flow"|"cycle"|"comparison"|"hierarchy"|"timeline",\n'
+    '               "visual_labels": [str],\n'
     '               "duration_est_sec": int}],\n'
     ' "summary": str}\n'
     "Rules: slide_bullets are concise on-slide lines (<=12 words each); "
     "narration is the spoken script expanding the bullets (3-8 sentences); "
     "key_points are study-note phrasing; visual_suggestion describes one "
-    "supporting figure/diagram. Order sections pedagogically. Write in the "
+    "supporting figure/diagram. Every section MUST include visual_type and 2-6 "
+    "short visual_labels that form an accurate, useful diagram. Vary visual types. "
+    "Order sections pedagogically. Write in the "
     "requested language. Output ONLY JSON."
 )
 
@@ -267,9 +271,18 @@ class StudioService:
         for field in ("title", "narration", "visual_suggestion"):
             if field in patch:
                 sec[field] = str(patch[field])[:6000]
+        if "visual_type" in patch:
+            from app.services.studio.visuals import VISUAL_TYPES
+            candidate = str(patch["visual_type"])
+            if candidate not in VISUAL_TYPES:
+                raise ValueError("invalid visual_type")
+            sec["visual_type"] = candidate
         for field in ("key_points", "slide_bullets"):
             if field in patch and isinstance(patch[field], list):
                 sec[field] = [str(x)[:300] for x in patch[field]][:8]
+        if "visual_labels" in patch and isinstance(patch["visual_labels"], list):
+            from app.services.studio.visuals import clean_visual_labels
+            sec["visual_labels"] = clean_visual_labels(patch["visual_labels"])
         sections[index] = sec
         plan_dict["sections"] = sections
         await self._update(project_id, created_by,

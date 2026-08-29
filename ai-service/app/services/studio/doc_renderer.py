@@ -8,6 +8,7 @@ and downloadable as .md.
 from __future__ import annotations
 
 from app.services.studio.plan_schema import StudioPlan
+from app.services.studio.visuals import mermaid_for_visual
 
 
 def render_plan_to_markdown(plan: StudioPlan) -> str:
@@ -31,6 +32,9 @@ def render_plan_to_markdown(plan: StudioPlan) -> str:
             for p in body_points:
                 lines.append(f"- {p}")
             lines.append("")
+        mermaid = mermaid_for_visual(sec.visual_type, sec.visual_labels)
+        if mermaid:
+            lines.extend(["```mermaid", mermaid, "```", ""])
         if sec.narration and sec.narration not in "\n".join(body_points or []):
             lines.append(sec.narration)
             lines.append("")

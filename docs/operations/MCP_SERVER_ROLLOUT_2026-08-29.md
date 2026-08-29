@@ -45,6 +45,10 @@ from NextAuth and authenticates to AI service with the existing service secret.
 9. Updated CI checkout to fetch submodules recursively. AI changes build an
    immutable image, apply the idempotent MCP schema before rollout, apply the
    ConfigMap and Ingress, set the image by commit SHA, and wait for rollout.
+10. Added a shared visual language for slide decks. Studio produces editable
+    PowerPoint infographics on every content slide and Mermaid in Markdown;
+    MCP produces a sanitized Mermaid diagram for every slide and optionally
+    returns an illustration prompt for the caller's own image-generation tool.
 
 ## Push-only deployment path
 
@@ -82,4 +86,3 @@ After deployment, create a read-only key in **My Account → MCP**, connect a
 client, run `list_my_courses`, and confirm a write tool is denied. Then create a
 write key, preview an operation on an owned course, approve it, and verify the
 audit entry and LMS result.
-
