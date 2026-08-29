@@ -214,7 +214,7 @@ func main() {
 	// only ever produce one DB query per process.
 	userService := service.NewUserService(userRepo, redisClient)
 	orgService := service.NewOrganizationService(orgRepo, userRepo, redisClient)
-	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient)
+	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient, aiClient)
 	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, orgRepo, redisClient)
 	bankRepo := repository.NewQuestionBankRepository(db)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient, bankRepo)
@@ -735,6 +735,9 @@ func main() {
 					aiHandler.ConsolidateGraph)
 
 				aiCourses.GET("/nodes/:nodeId/chunks", aiHandler.GetNodeChunks)
+				aiCourses.DELETE("/nodes",
+					middleware.RequirePermission(permService, "AI_INDEX"),
+					aiHandler.DeleteAllKnowledgeNodes)
 				aiCourses.DELETE("/nodes/:nodeId", aiHandler.DeleteKnowledgeNode)
 
 				// -- Graph Teacher Tools ---------------------------------------

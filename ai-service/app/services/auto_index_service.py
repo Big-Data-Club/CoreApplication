@@ -2568,13 +2568,42 @@ class AutoIndexService:
             )
             node_ids = [r["id"] for r in rows]
             
-        # 2. Delete chunks for content (handles PG and Qdrant chunks)
+        # 2. Delete chunks for content (handles PG and Qdrant chunks).
+        # Qdrant is deleted before PG so a failure remains safely retryable.
         from app.services.rag_service import rag_service
         await rag_service.delete_chunks_for_content(content_id)
-        
-        # 3. Delete nodes (handles PG, Qdrant, and Neo4j nodes)
+
+        # 3. Delete node mirrors first, then the authoritative PG rows.  Do not
+        # swallow mirror failures here: the LMS only deletes the document after
+        # this method succeeds, guaranteeing no document-owned nodes remain.
         if node_ids:
-            await self.delete_nodes_bulk(node_ids)
+            mirror_errors: list[str] = []
+            if settings.use_qdrant:
+                try:
+                    from app.services.qdrant_service import qdrant_service
+                    for node_id in node_ids:
+                        await qdrant_service.delete_node(node_id)
+                except Exception as exc:
+                    mirror_errors.append(f"Qdrant: {exc}")
+            if settings.neo4j_enabled:
+                try:
+                    from app.services.neo4j_service import neo4j_service
+                    driver = neo4j_service._get_driver()
+                    async with driver.session() as session:
+                        await session.run(
+                            "UNWIND $ids AS id MATCH (n:KnowledgeNode {id: id}) DETACH DELETE n",
+                            ids=node_ids,
+                        )
+                except Exception as exc:
+                    mirror_errors.append(f"Neo4j: {exc}")
+            if mirror_errors:
+                raise RuntimeError("; ".join(mirror_errors))
+        async with get_ai_conn() as conn:
+            async with conn.transaction():
+                if node_ids:
+                    await conn.execute("DELETE FROM knowledge_nodes WHERE id = ANY($1)", node_ids)
+                await conn.execute("DELETE FROM content_index_status WHERE content_id = $1", content_id)
+                await conn.execute("DELETE FROM embedding_reindex_jobs WHERE content_id = $1", content_id)
 
     async def delete_course_data(self, course_id: int) -> None:
         """
@@ -2582,6 +2611,8 @@ class AutoIndexService:
         """
         logger.info(f"Deleting course data for course_id={course_id}")
         
+        mirror_errors: list[str] = []
+
         # 1. Delete Qdrant vectors
         if settings.use_qdrant:
             try:
@@ -2589,6 +2620,7 @@ class AutoIndexService:
                 await qdrant_service.delete_by_course(course_id)
             except Exception as e:
                 logger.error(f"Failed to delete course data from Qdrant: {e}")
+                mirror_errors.append(f"Qdrant: {e}")
                 
         # 2. Delete Neo4j nodes/edges
         if settings.neo4j_enabled:
@@ -2602,7 +2634,13 @@ class AutoIndexService:
                     )
             except Exception as e:
                 logger.error(f"Failed to delete course data from Neo4j: {e}")
-                
+                mirror_errors.append(f"Neo4j: {e}")
+
+        # Keep PostgreSQL rows available as a retry key until every external
+        # mirror confirms deletion. All operations above are idempotent.
+        if mirror_errors:
+            raise RuntimeError("; ".join(mirror_errors))
+
         # 3. PostgreSQL cleanup (deletes chunks, nodes, status, jobs, sessions)
         async with get_ai_conn() as conn:
             async with conn.transaction():

@@ -202,6 +202,9 @@ async def process_maintenance_command(payload: dict):
     except Exception as exc:
         logger.error("Maintenance command failed",
                      extra={"command": command, "error": str(exc)})
+        # Do not let the main loop commit a failed destructive command. The
+        # worker will restart and Kafka will replay the uncommitted message.
+        raise
 
 
 # ── AI commands ───────────────────────────────────────────────────────────────

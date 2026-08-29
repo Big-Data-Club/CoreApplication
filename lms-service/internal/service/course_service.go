@@ -11,6 +11,7 @@ import (
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
+	"example/hello/pkg/ai"
 	"example/hello/pkg/cache"
 	"example/hello/pkg/kafka"
 	"example/hello/pkg/logger"
@@ -41,6 +42,7 @@ type CourseService struct {
 	orgRepo        *repository.OrganizationRepository
 	cache          *cache.RedisCache
 	loader         *cache.Loader
+	aiClient       *ai.Client
 }
 
 func NewCourseService(
@@ -49,6 +51,7 @@ func NewCourseService(
 	enrollmentRepo *repository.EnrollmentRepository,
 	orgRepo *repository.OrganizationRepository,
 	c *cache.RedisCache,
+	aiClient *ai.Client,
 ) *CourseService {
 	return &CourseService{
 		courseRepo:     courseRepo,
@@ -57,6 +60,7 @@ func NewCourseService(
 		orgRepo:        orgRepo,
 		cache:          c,
 		loader:         cache.NewLoader(c),
+		aiClient:       aiClient,
 	}
 }
 
@@ -1051,6 +1055,12 @@ func (s *CourseService) DeleteContent(ctx context.Context, contentID int64, user
 		return fmt.Errorf("unauthorized to delete this content")
 	}
 
+	// Remove indexed artifacts first. A successful DELETE response now means
+	// the document and all nodes/chunks sourced from it are gone together.
+	if err := s.aiClient.DeleteContentIndex(ctx, contentID); err != nil {
+		return fmt.Errorf("failed to delete indexed content data: %w", err)
+	}
+
 	if err := s.courseRepo.DeleteContent(ctx, contentID); err != nil {
 		return err
 	}
@@ -1059,15 +1069,6 @@ func (s *CourseService) DeleteContent(ctx context.Context, contentID int64, user
 		cache.KeyContent(contentID),
 		cache.KeySectionContents(content.SectionID),
 	)
-
-	// Publish content deletion event to Kafka maintenance topic
-	deletePayload := map[string]interface{}{
-		"command":    "DELETE_CONTENT",
-		"content_id": contentID,
-	}
-	if err := kafka.PublishEvent(ctx, "lms.maintenance.command", []byte(fmt.Sprintf("content-%d", contentID)), deletePayload); err != nil {
-		logger.Error(fmt.Sprintf("Failed to publish content deletion event for content %d", contentID), err)
-	}
 
 	return nil
 }

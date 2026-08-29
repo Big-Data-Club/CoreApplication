@@ -790,6 +790,43 @@ func (r *CourseRepository) UpdateContentAIIndexStatus(
 	return err
 }
 
+// ResetCourseAIIndexStatuses marks every lecture in a course as unindexed.
+// It returns affected content and section IDs so callers can invalidate caches.
+func (r *CourseRepository) ResetCourseAIIndexStatuses(
+	ctx context.Context,
+	courseID int64,
+) (contentIDs []int64, sectionIDs []int64, err error) {
+	rows, err := r.db.QueryContext(ctx, `
+		UPDATE section_content AS sc
+		SET ai_index_status = 'not_indexed',
+		    ai_index_job_id = NULL,
+		    ai_indexed_at = NULL,
+		    updated_at = CURRENT_TIMESTAMP
+		FROM course_sections AS cs
+		WHERE sc.section_id = cs.id
+		  AND cs.course_id = $1
+		RETURNING sc.id, sc.section_id
+	`, courseID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	seenSections := make(map[int64]struct{})
+	for rows.Next() {
+		var contentID, sectionID int64
+		if err := rows.Scan(&contentID, &sectionID); err != nil {
+			return nil, nil, err
+		}
+		contentIDs = append(contentIDs, contentID)
+		if _, seen := seenSections[sectionID]; !seen {
+			seenSections[sectionID] = struct{}{}
+			sectionIDs = append(sectionIDs, sectionID)
+		}
+	}
+	return contentIDs, sectionIDs, rows.Err()
+}
+
 // GetContentAIIndexStatus lấy trạng thái index và file_path của content.
 func (r *CourseRepository) GetContentAIIndexStatus(
 	ctx context.Context,

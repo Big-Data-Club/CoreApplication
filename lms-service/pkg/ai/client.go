@@ -728,6 +728,18 @@ func (c *Client) DeleteKnowledgeNode(ctx context.Context, nodeID int64) error {
 	return c.delete(ctx, fmt.Sprintf("/ai/knowledge-graph/node/%d", nodeID), &resp)
 }
 
+// DeleteCourseIndex removes every indexed artifact owned by a course.
+func (c *Client) DeleteCourseIndex(ctx context.Context, courseID int64) error {
+	var resp map[string]interface{}
+	return c.delete(ctx, fmt.Sprintf("/ai/auto-index/course/%d", courseID), &resp)
+}
+
+// DeleteContentIndex removes every chunk and knowledge node sourced from one content item.
+func (c *Client) DeleteContentIndex(ctx context.Context, contentID int64) error {
+	var resp map[string]interface{}
+	return c.delete(ctx, fmt.Sprintf("/ai/auto-index/content/%d", contentID), &resp)
+}
+
 // LinkIsolatedNodes triggers an async Kafka job to find zero-edge nodes in a
 // course and connect them via LLM-enriched similarity matching.
 // Returns immediately (202) with a job_id; completion is pushed via ai.graph.status.

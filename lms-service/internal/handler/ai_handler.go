@@ -1214,6 +1214,43 @@ func (h *AIHandler) DeleteKnowledgeNode(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Node deleted successfully"))
 }
 
+// DeleteAllKnowledgeNodes deletes every indexed artifact for a course and
+// returns all of its lectures to the not_indexed state.
+func (h *AIHandler) DeleteAllKnowledgeNodes(c *gin.Context) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid course ID"))
+		return
+	}
+	if err := h.assertCourseOwner(c, courseID); err != nil {
+		return
+	}
+
+	if err := h.aiClient.DeleteCourseIndex(c.Request.Context(), courseID); err != nil {
+		c.JSON(http.StatusBadGateway, dto.NewErrorResponse("ai_error", "Could not delete all indexed course data"))
+		return
+	}
+
+	contentIDs, sectionIDs, err := h.courseRepo.ResetCourseAIIndexStatuses(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Nodes were deleted but lecture statuses could not be reset"))
+		return
+	}
+	for _, contentID := range contentIDs {
+		_ = h.redisCache.Delete(c.Request.Context(), cache.KeyContent(contentID))
+	}
+	for _, sectionID := range sectionIDs {
+		_ = h.redisCache.Delete(c.Request.Context(), cache.KeySectionContents(sectionID))
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{
+		"course_id":       courseID,
+		"deleted_all":     true,
+		"contents_reset":  len(contentIDs),
+		"status":          "not_indexed",
+	}))
+}
+
 // ── Concept Check (Quick Action Panel) ──────────────────────────────────────
 
 // GenerateConceptCheck godoc
