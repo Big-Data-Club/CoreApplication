@@ -6,6 +6,12 @@ metadata:
     app: personalize-service
 spec:
   replicas: 1
+  # DuckDB is an embedded, single-writer database stored on the PVC below.
+  # A default RollingUpdate briefly starts a new pod while the old pod still
+  # owns the file lock, causing the new pod to CrashLoop.  Recreate preserves
+  # the one-writer invariant: stop the old pod, then start its replacement.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: personalize-service
