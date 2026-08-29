@@ -348,18 +348,21 @@ before relying on `dev` images.
 
 This workflow does not set an image tag or build an image. It calls `kubectl
 rollout restart` for one deployment or all known deployments, then asks
-Kubernetes to wait up to 180 seconds per target. It also prunes unused Docker
-images/containerd images in its final cleanup step. A successful run never
-means a new commit reached production: it is only a restart of the image
-already configured in Kubernetes.
+Kubernetes to wait up to 180 seconds per target. Its final maintenance step
+removes completed pod objects and checks node disk usage. It prunes unused K3s
+containerd images only when usage reaches the configured threshold (82% by
+default); it does not prune legacy Docker or active K3s storage. A successful
+run never means a new commit reached production: it is only a restart of the
+image already configured in Kubernetes.
 
 More importantly, the restart and rollout-status commands are followed by
 `|| echo`, so their failures are logged as warnings rather than failing the
 job. A legacy-CD **Success** is therefore not proof that every target became
 ready. Operators must run `kubectl rollout status`, inspect pods/events, and
 check the application explicitly after this workflow. Do not run its manual
-`all` target casually, because it can restart every known workload and trigger
-the image-cache cleanup.
+`all` target casually, because it can restart every known workload. Cleanup is
+threshold-based, but simultaneous image pulls and cold starts can still create
+temporary disk, network, and memory pressure.
 
 Its automatic trigger waits for a successful `CI - Build, Test & Push` run on
 `main` or `develop`. Because `ci.yml` does not run on `main` and uses `dev`
