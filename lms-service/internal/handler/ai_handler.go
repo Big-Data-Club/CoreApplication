@@ -738,10 +738,12 @@ func (h *AIHandler) TriggerContentAutoIndex(c *gin.Context) {
 	}
 
 	// Reject genuine duplicates, but let a record abandoned by a broker or
-	// worker restart be queued again. UpdateContentAIIndexStatus refreshes
-	// UpdatedAt on every transition, so two hours without a heartbeat/status
-	// change is a safe indication that this attempt is no longer alive.
-	if content.AIIndexStatus.String == "processing" && time.Since(content.UpdatedAt) < 2*time.Hour {
+	// worker restart be queued again.  The AI worker heartbeats every five
+	// minutes, while the AI service marks a job stale after 45 minutes. Keep
+	// the LMS guard aligned with that value; the previous two-hour guard left
+	// the Index button unusable long after a deployment interruption.
+	const staleAutoIndexAfter = 45 * time.Minute
+	if content.AIIndexStatus.String == "processing" && time.Since(content.UpdatedAt) < staleAutoIndexAfter {
 		logger.Warn(fmt.Sprintf("Auto-index: Content %d is already processing - rejecting duplicate request", contentID))
 		c.JSON(http.StatusConflict, dto.NewDataResponse(map[string]interface{}{
 			"content_id": contentID,
@@ -932,6 +934,15 @@ func (h *AIHandler) GetContentAutoIndexStatus(c *gin.Context) {
 		return
 	}
 
+	// The AI endpoint turns abandoned pending/processing jobs into `failed`.
+	// Persist that terminal state in LMS as well, otherwise a later retry is
+	// rejected by the LMS-side duplicate guard even though the UI shows retry.
+	if status.Status == "failed" {
+		if dbErr := h.courseRepo.UpdateContentAIIndexStatus(c.Request.Context(), contentID, "failed"); dbErr != nil {
+			logger.Warn(fmt.Sprintf("Auto-index: unable to sync failed status for content %d: %s", contentID, dbErr.Error()))
+		}
+	}
+
 	c.JSON(http.StatusOK, dto.NewDataResponse(status))
 }
 
@@ -979,6 +990,16 @@ func (h *AIHandler) BatchGetContentAutoIndexStatus(c *gin.Context) {
 		}
 		c.JSON(http.StatusOK, dto.NewDataResponse(fallback))
 		return
+	}
+
+	// See GetContentAutoIndexStatus: keep the LMS duplicate guard in sync for
+	// all documents displayed by the teacher's batch polling screen.
+	for _, item := range result {
+		if item != nil && item.Status == "failed" {
+			if dbErr := h.courseRepo.UpdateContentAIIndexStatus(c.Request.Context(), item.ContentID, "failed"); dbErr != nil {
+				logger.Warn(fmt.Sprintf("Auto-index: unable to sync failed status for content %d: %s", item.ContentID, dbErr.Error()))
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(result))
