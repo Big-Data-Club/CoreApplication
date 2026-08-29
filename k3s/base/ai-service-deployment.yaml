@@ -97,11 +97,13 @@ spec:
             secretKeyRef:
               name: bdc-secrets
               key: GROQ_API_KEY
+              optional: true
         - name: OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
               name: bdc-secrets
               key: OPENAI_API_KEY
+              optional: true
         - name: AI_SERVICE_SECRET
           valueFrom:
             secretKeyRef:
@@ -259,11 +261,13 @@ spec:
             secretKeyRef:
               name: bdc-secrets
               key: GROQ_API_KEY
+              optional: true
         - name: OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
               name: bdc-secrets
               key: OPENAI_API_KEY
+              optional: true
         - name: AI_SERVICE_SECRET
           valueFrom:
             secretKeyRef:

@@ -3,6 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: personalize-data-pvc
 spec:
+  storageClassName: local-path
   accessModes:
   - ReadWriteOnce
   resources:
