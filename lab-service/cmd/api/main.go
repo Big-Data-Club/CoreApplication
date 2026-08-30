@@ -81,6 +81,7 @@ func main() {
 	submissionRepo := repository.NewSubmissionRepository(db)
 	testCaseRepo := repository.NewTestCaseRepository(db)
 	leaderboardRepo := repository.NewLeaderboardRepository(db)
+	runtimeTaskRepo := repository.NewRuntimeTaskRepository(db)
 	userRepo := repository.NewUserRepository(db)
 
 	// -- Services ------------------------------------------------
@@ -90,6 +91,7 @@ func main() {
 		submissionRepo, testCaseRepo, labRepo, enrollmentRepo,
 		leaderboardRepo, runtimeRegistry, codingRunner.Available(),
 	)
+	runtimeTaskService := service.NewRuntimeTaskService(runtimeTaskRepo, labRepo, enrollmentRepo, terminalSandbox)
 
 	// -- Handlers ------------------------------------------------
 	labHandler := handler.NewLabHandler(labService, cfg.RuntimeSecurity, terminalSandbox)
@@ -99,6 +101,7 @@ func main() {
 	testCaseHandler := handler.NewTestCaseHandler(testCaseRepo)
 	leaderboardHandler := handler.NewLeaderboardHandler(leaderboardRepo)
 	syncHandler := handler.NewSyncHandler(userRepo)
+	runtimeTaskHandler := handler.NewRuntimeTaskHandler(runtimeTaskService)
 
 	// -- Gin Router ----------------------------------------------
 	if cfg.App.Env == "production" {
@@ -178,6 +181,10 @@ func main() {
 		// Lab Interactive Session & Web Terminal
 		api.POST("/labs/:labId/session/start", labHandler.StartSession)
 		api.GET("/labs/:labId/session/terminal/ws", labHandler.TerminalWS)
+		api.POST("/labs/:labId/runtime-tasks", middleware.RequireRoles("ADMIN"), runtimeTaskHandler.Create)
+		api.DELETE("/runtime-tasks/:taskId", middleware.RequireRoles("ADMIN"), runtimeTaskHandler.Delete)
+		api.GET("/labs/:labId/runtime-tasks/progress", runtimeTaskHandler.Progress)
+		api.POST("/labs/:labId/runtime-tasks/check", runtimeTaskHandler.Check)
 
 		// Lab Sections
 		api.POST("/labs/:labId/sections", middleware.RequireRoles("ADMIN"), labHandler.CreateSection)

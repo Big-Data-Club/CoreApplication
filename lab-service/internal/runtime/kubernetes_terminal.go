@@ -212,6 +212,60 @@ func (s *KubernetesTerminalSandbox) Bridge(ctx context.Context, browser *websock
 	return <-errCh
 }
 
+func (s *KubernetesTerminalSandbox) RunCommand(ctx context.Context, session string, labID, userID int64, command string) (string, bool, error) {
+	if !validPodName(session) {
+		return "", false, fmt.Errorf("invalid terminal session id")
+	}
+	var pod struct {
+		Metadata struct {
+			Labels map[string]string `json:"labels"`
+		} `json:"metadata"`
+	}
+	if err := s.requestJSON(ctx, http.MethodGet, "/api/v1/namespaces/"+s.cfg.Namespace+"/pods/"+session, nil, &pod); err != nil {
+		return "", false, err
+	}
+	if pod.Metadata.Labels["bdc.dev/user-id"] != strconv.FormatInt(userID, 10) || pod.Metadata.Labels["bdc.dev/lab-id"] != strconv.FormatInt(labID, 10) {
+		return "", false, fmt.Errorf("terminal session does not belong to this user or lab")
+	}
+	query := url.Values{"container": {"terminal"}, "command": {"/bin/sh", "-lc", command}, "stdin": {"false"}, "stdout": {"true"}, "stderr": {"true"}, "tty": {"false"}}
+	endpoint := "wss://kubernetes.default.svc/api/v1/namespaces/" + s.cfg.Namespace + "/pods/" + session + "/exec?" + query.Encode()
+	upstream, resp, err := s.dialer.DialContext(ctx, endpoint, http.Header{"Authorization": []string{"Bearer " + s.token}})
+	if err != nil {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return "", false, err
+	}
+	defer upstream.Close()
+	var output strings.Builder
+	for {
+		_, data, err := upstream.ReadMessage()
+		if err != nil {
+			return output.String(), false, err
+		}
+		if len(data) < 1 {
+			continue
+		}
+		switch data[0] {
+		case 1, 2:
+			if output.Len() < 64*1024 {
+				remaining := 64*1024 - output.Len()
+				payload := data[1:]
+				if len(payload) > remaining {
+					payload = payload[:remaining]
+				}
+				output.Write(payload)
+			}
+		case 3:
+			var status struct {
+				Status string `json:"status"`
+			}
+			_ = json.Unmarshal(data[1:], &status)
+			return strings.TrimSpace(output.String()), status.Status == "Success", nil
+		}
+	}
+}
+
 func validPodName(value string) bool {
 	if len(value) < 1 || len(value) > 63 || value[0] < 'a' || value[0] > 'z' {
 		return false
