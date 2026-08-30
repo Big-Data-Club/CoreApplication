@@ -348,6 +348,15 @@ func (s *QuestionBankService) CreateQuizFromBank(
 	if req.AvailableFrom != nil && req.AvailableUntil != nil && !req.AvailableUntil.After(*req.AvailableFrom) {
 		return nil, fmt.Errorf("available_until must be after available_from")
 	}
+	if req.TimeLimitMinutes != nil && *req.TimeLimitMinutes < 0 {
+		return nil, fmt.Errorf("time_limit_minutes must not be negative")
+	}
+	if req.MaxAttempts != nil && *req.MaxAttempts < 1 {
+		return nil, fmt.Errorf("max_attempts must be at least 1")
+	}
+	if req.PassingScore != nil && (*req.PassingScore < 0 || *req.PassingScore > 100) {
+		return nil, fmt.Errorf("passing_score must be between 0 and 100")
+	}
 	if len([]rune(strings.TrimSpace(req.Title))) > 255 {
 		return nil, fmt.Errorf("title must not exceed 255 characters")
 	}
@@ -404,7 +413,13 @@ func (s *QuestionBankService) CreateQuizFromBank(
 			return nil, fmt.Errorf("content is not a quiz")
 		}
 	}
+	createdQuizID := int64(0)
 	cleanup := func() {
+		if createdQuizID > 0 {
+			if err := s.quizRepo.DeleteQuiz(ctx, createdQuizID); err != nil {
+				logger.Error("from-bank: failed to clean up quiz", err)
+			}
+		}
 		if createdContent {
 			if err := s.courseRepo.DeleteContent(ctx, contentID); err != nil {
 				logger.Error("from-bank: failed to clean up quiz content", err)
@@ -473,6 +488,7 @@ func (s *QuestionBankService) CreateQuizFromBank(
 		cleanup()
 		return nil, fmt.Errorf("failed to create quiz: %w", err)
 	}
+	createdQuizID = quiz.ID
 
 	// Copy items -> quiz questions (+options +correct answers).
 	added := 0

@@ -45,6 +45,24 @@ class _ConnectionContext:
 
 
 class QuizBankGenerationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_metadata_suggestion_is_bounded_and_editable(self) -> None:
+        service = QuizGenerationService()
+        with patch.object(
+            quiz_module,
+            "chat_complete_json",
+            new=AsyncMock(return_value={
+                "title": "  Kiểm tra về chỉ mục  ",
+                "description": "Đánh giá kiến thức nền tảng.",
+                "instructions": "Chọn đáp án đúng.",
+            }),
+        ):
+            result = await service.suggest_bank_quiz_metadata(
+                ["Chỉ mục cơ sở dữ liệu dùng để làm gì?"], language="vi"
+            )
+
+        self.assertEqual(result["title"], "Kiểm tra về chỉ mục")
+        self.assertIn("kiến thức", result["description"])
+
     async def test_selected_nodes_are_scoped_by_course(self) -> None:
         conn = types.SimpleNamespace()
         conn.fetch = AsyncMock(return_value=[{"id": 7, "name": "Indexing"}])
