@@ -151,6 +151,20 @@ spec:
           value: "250ms"
         - name: LAB_CODING_SANDBOX_JOB_TTL_SECONDS
           value: "60"
+        - name: LAB_TERMINAL_SANDBOX_ENABLED
+          value: "true"
+        - name: LAB_TERMINAL_SANDBOX_NAMESPACE
+          value: "lab-sandbox"
+        - name: LAB_TERMINAL_SANDBOX_IMAGE
+          value: "phucnhan2809/code-runner:latest"
+        - name: LAB_TERMINAL_SANDBOX_PROVISION_TIMEOUT
+          value: "90s"
+        - name: LAB_TERMINAL_SANDBOX_MAX_SESSION
+          value: "1h"
+        - name: LAB_TERMINAL_SANDBOX_MAX_MEMORY_MB
+          value: "512"
+        - name: LAB_TERMINAL_SANDBOX_MAX_CPU
+          value: "500m"
         volumeMounts:
         - name: hpc-slurm-credentials
           mountPath: /etc/lab-hpc

@@ -14,6 +14,12 @@ func NewTestCaseRepository(db *sql.DB) *TestCaseRepository {
 	return &TestCaseRepository{db: db}
 }
 
+func (r *TestCaseRepository) CountPublicSamples(ctx context.Context, labID int64) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM lab_test_cases WHERE lab_id=$1 AND is_sample=TRUE AND is_hidden=FALSE`, labID).Scan(&count)
+	return count, err
+}
+
 func (r *TestCaseRepository) Create(ctx context.Context, labID int64, req *dto.CreateTestCaseRequest) (*dto.TestCaseResponse, error) {
 	var resp dto.TestCaseResponse
 	err := r.db.QueryRowContext(ctx,

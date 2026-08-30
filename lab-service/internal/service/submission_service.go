@@ -13,12 +13,12 @@ import (
 )
 
 type SubmissionService struct {
-	subRepo      *repository.SubmissionRepository
-	testCaseRepo *repository.TestCaseRepository
-	labRepo      *repository.LabRepository
-	enrollRepo   *repository.EnrollmentRepository
-	leaderboard  *repository.LeaderboardRepository
-	registry     *runtime.Registry
+	subRepo                     *repository.SubmissionRepository
+	testCaseRepo                *repository.TestCaseRepository
+	labRepo                     *repository.LabRepository
+	enrollRepo                  *repository.EnrollmentRepository
+	leaderboard                 *repository.LeaderboardRepository
+	registry                    *runtime.Registry
 	unsafeLocalExecutionEnabled bool
 }
 
@@ -56,6 +56,9 @@ func (s *SubmissionService) RunCode(ctx context.Context, labID, userID int64, re
 	testCases, err := s.testCaseRepo.ListByLab(ctx, labID, true)
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get test cases: %w", err)
+	}
+	if (lab.LabType == "CODING" || lab.LabType == "DATABASE") && len(testCases) == 0 {
+		return nil, http.StatusConflict, fmt.Errorf("this lab has no public sample test case; ask the instructor to configure one")
 	}
 
 	// Build runtime request
@@ -127,16 +130,19 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64,
 		}
 	}
 
-	// Create submission record
-	subID, err := s.subRepo.Create(ctx, labID, userID, req.Language, req.Code, "", "")
-	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create submission: %w", err)
-	}
-
 	// Get ALL test cases
 	testCases, err := s.testCaseRepo.ListByLab(ctx, labID, false)
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get test cases: %w", err)
+	}
+	if (lab.LabType == "CODING" || lab.LabType == "DATABASE") && len(testCases) == 0 {
+		return nil, http.StatusConflict, fmt.Errorf("this lab has no test cases; ask the instructor to configure grading before submitting")
+	}
+
+	// Create a submission only after the lab is known to be gradable.
+	subID, err := s.subRepo.Create(ctx, labID, userID, req.Language, req.Code, "", "")
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create submission: %w", err)
 	}
 
 	// Build runtime request

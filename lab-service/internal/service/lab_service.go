@@ -13,10 +13,11 @@ import (
 type LabService struct {
 	labRepo        *repository.LabRepository
 	enrollmentRepo *repository.EnrollmentRepository
+	testCaseRepo   *repository.TestCaseRepository
 }
 
-func NewLabService(labRepo *repository.LabRepository, enrollmentRepo *repository.EnrollmentRepository) *LabService {
-	return &LabService{labRepo: labRepo, enrollmentRepo: enrollmentRepo}
+func NewLabService(labRepo *repository.LabRepository, enrollmentRepo *repository.EnrollmentRepository, testCaseRepo *repository.TestCaseRepository) *LabService {
+	return &LabService{labRepo: labRepo, enrollmentRepo: enrollmentRepo, testCaseRepo: testCaseRepo}
 }
 
 func (s *LabService) CreateLab(ctx context.Context, req *dto.CreateLabRequest, userID int64) (*dto.LabResponse, int, error) {
@@ -124,6 +125,15 @@ func (s *LabService) PublishLab(ctx context.Context, labID int64, userID int64, 
 	if lab.LabType == "PLANT" || lab.LabType == "ROBOT" {
 		return http.StatusConflict, fmt.Errorf("PLANT and ROBOT labs must publish a validated lab version")
 	}
+	if lab.LabType == "CODING" || lab.LabType == "DATABASE" {
+		count, err := s.testCaseRepo.CountPublicSamples(ctx, labID)
+		if err != nil {
+			return http.StatusInternalServerError, fmt.Errorf("failed to validate sample test cases: %w", err)
+		}
+		if count == 0 {
+			return http.StatusConflict, fmt.Errorf("CODING and DATABASE labs require at least one public sample test case before publishing")
+		}
+	}
 	if err := s.labRepo.Publish(ctx, labID); err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("failed to publish lab: %w", err)
 	}
@@ -202,7 +212,6 @@ func (s *LabService) DeleteContent(ctx context.Context, contentID int64) (int, e
 	}
 	return http.StatusOK, nil
 }
-
 
 // ── Helpers ─────────────────────────────────────────────────────
 

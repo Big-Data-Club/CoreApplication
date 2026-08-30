@@ -16,6 +16,7 @@ import (
 	"lab-service/internal/repository"
 	"lab-service/internal/runtime"
 	"lab-service/internal/service"
+	"lab-service/migrations"
 	"lab-service/pkg/cache"
 	"lab-service/pkg/database"
 	"lab-service/pkg/kafka"
@@ -61,6 +62,10 @@ func main() {
 	// -- Runtime Adapter Registry --------------------------------
 	runtimeRegistry := runtime.NewRegistry()
 	codingRunner := runtime.NewCodingRunner(cfg.RuntimeSecurity.AllowUnsafeLocalExecution, cfg.CodingSandbox)
+	terminalSandbox, err := runtime.NewKubernetesTerminalSandbox(cfg.TerminalSandbox)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Terminal sandbox unavailable: %v", err))
+	}
 	runtimeRegistry.Register(codingRunner)
 	runtimeRegistry.Register(runtime.NewDatabaseRunner(cfg.DatabaseLab))
 	runtimeRegistry.Register(runtime.NewWorkspaceRunner())
@@ -79,7 +84,7 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 
 	// -- Services ------------------------------------------------
-	labService := service.NewLabService(labRepo, enrollmentRepo)
+	labService := service.NewLabService(labRepo, enrollmentRepo, testCaseRepo)
 	experimentService := service.NewExperimentService(experimentRepo, labRepo, enrollmentRepo)
 	submissionService := service.NewSubmissionService(
 		submissionRepo, testCaseRepo, labRepo, enrollmentRepo,
@@ -87,7 +92,7 @@ func main() {
 	)
 
 	// -- Handlers ------------------------------------------------
-	labHandler := handler.NewLabHandler(labService, cfg.RuntimeSecurity)
+	labHandler := handler.NewLabHandler(labService, cfg.RuntimeSecurity, terminalSandbox)
 	experimentHandler := handler.NewExperimentHandler(experimentService)
 	submissionHandler := handler.NewSubmissionHandler(submissionService)
 	enrollmentHandler := handler.NewEnrollmentHandler(enrollmentRepo)
@@ -113,9 +118,10 @@ func main() {
 			"supported_lab_types": []string{"CODING", "HPC", "JUPYTER", "WORKSPACE", "DATABASE", "CUSTOM", "PLANT", "ROBOT", "CHEMISTRY"},
 			"runtime_security": gin.H{
 				"unsafe_local_execution_enabled": cfg.RuntimeSecurity.AllowUnsafeLocalExecution,
-				"unsafe_terminal_enabled": cfg.RuntimeSecurity.AllowUnsafeTerminal,
-				"production_execution_mode": "isolated-worker-required",
-				"coding_sandbox_enabled": codingRunner.Available(),
+				"unsafe_terminal_enabled":        cfg.RuntimeSecurity.AllowUnsafeTerminal,
+				"production_execution_mode":      "isolated-worker-required",
+				"coding_sandbox_enabled":         codingRunner.Available(),
+				"terminal_sandbox_enabled":       terminalSandbox != nil,
 			},
 		})
 	}
@@ -185,14 +191,12 @@ func main() {
 		api.PUT("/content/:contentId", middleware.RequireRoles("ADMIN"), labHandler.UpdateContent)
 		api.DELETE("/content/:contentId", middleware.RequireRoles("ADMIN"), labHandler.DeleteContent)
 
-
 		// Test Cases
 		api.POST("/labs/:labId/test-cases", middleware.RequireRoles("ADMIN"), testCaseHandler.CreateTestCase)
 		api.GET("/labs/:labId/test-cases", testCaseHandler.ListTestCases)
 		api.PUT("/test-cases/:id", middleware.RequireRoles("ADMIN"), testCaseHandler.UpdateTestCase)
 		api.DELETE("/test-cases/:id", middleware.RequireRoles("ADMIN"), testCaseHandler.DeleteTestCase)
 		api.POST("/labs/:labId/test-cases/bulk", middleware.RequireRoles("ADMIN"), testCaseHandler.BulkCreateTestCases)
-
 
 		// Submissions
 		api.POST("/labs/:labId/run", submissionHandler.RunCode)
@@ -256,7 +260,8 @@ func main() {
 }
 
 func runMigrations(db *sql.DB) {
-	// Migrations are applied via init SQL files mounted in Docker
-	// For dev, you can run them manually or use a migration tool
-	logger.Info("Database migrations checked (applied via Docker init scripts)")
+	if err := migrations.Apply(db); err != nil {
+		logger.Fatal("Failed to apply lab database migrations", err)
+	}
+	logger.Info("Lab database migrations are up to date")
 }

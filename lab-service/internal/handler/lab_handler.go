@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"runtime"
+	gort "runtime"
 	"strconv"
 	"time"
 
-	"lab-service/internal/dto"
 	"lab-service/internal/config"
+	"lab-service/internal/dto"
+	labRuntime "lab-service/internal/runtime"
 	"lab-service/internal/service"
 	appLogger "lab-service/pkg/logger"
 
@@ -20,12 +21,13 @@ import (
 )
 
 type LabHandler struct {
-	labService *service.LabService
+	labService      *service.LabService
 	runtimeSecurity config.RuntimeSecurityConfig
+	terminalSandbox *labRuntime.KubernetesTerminalSandbox
 }
 
-func NewLabHandler(labService *service.LabService, runtimeSecurity config.RuntimeSecurityConfig) *LabHandler {
-	return &LabHandler{labService: labService, runtimeSecurity: runtimeSecurity}
+func NewLabHandler(labService *service.LabService, runtimeSecurity config.RuntimeSecurityConfig, terminalSandbox *labRuntime.KubernetesTerminalSandbox) *LabHandler {
+	return &LabHandler{labService: labService, runtimeSecurity: runtimeSecurity, terminalSandbox: terminalSandbox}
 }
 
 func (h *LabHandler) CreateLab(c *gin.Context) {
@@ -260,7 +262,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func (h *LabHandler) StartSession(c *gin.Context) {
-	if !h.runtimeSecurity.AllowUnsafeTerminal {
+	if h.terminalSandbox == nil && !h.runtimeSecurity.AllowUnsafeTerminal {
 		c.JSON(http.StatusServiceUnavailable, dto.NewErrorResponse("sandbox_unavailable", "secure terminal sandbox is not provisioned; host shell execution is disabled"))
 		return
 	}
@@ -269,10 +271,20 @@ func (h *LabHandler) StartSession(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_id", "Invalid lab ID"))
 		return
 	}
-	
+
 	_, _, err = h.labService.GetLab(c.Request.Context(), labID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Lab not found"))
+		return
+	}
+	if h.terminalSandbox != nil {
+		sessionID, expiresAt, err := h.terminalSandbox.Start(c.Request.Context(), labID, c.GetInt64("user_id"))
+		if err != nil {
+			appLogger.Error("terminal sandbox provisioning failed", err)
+			c.JSON(http.StatusServiceUnavailable, dto.NewErrorResponse("sandbox_provision_failed", "Không thể khởi tạo sandbox terminal. Vui lòng thử lại sau."))
+			return
+		}
+		c.JSON(http.StatusOK, dto.NewSuccessResponse("Session provisioned successfully", gin.H{"session_id": sessionID, "expires_at": expiresAt}))
 		return
 	}
 
@@ -282,7 +294,7 @@ func (h *LabHandler) StartSession(c *gin.Context) {
 }
 
 func (h *LabHandler) TerminalWS(c *gin.Context) {
-	if !h.runtimeSecurity.AllowUnsafeTerminal {
+	if h.terminalSandbox == nil && !h.runtimeSecurity.AllowUnsafeTerminal {
 		c.JSON(http.StatusServiceUnavailable, dto.NewErrorResponse("sandbox_unavailable", "secure terminal sandbox is not provisioned; host shell execution is disabled"))
 		return
 	}
@@ -297,6 +309,23 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Lab not found"))
 		return
 	}
+	if h.terminalSandbox != nil {
+		sessionID := c.Query("session_id")
+		if sessionID == "" {
+			c.JSON(http.StatusBadRequest, dto.NewErrorResponse("missing_session", "session_id is required"))
+			return
+		}
+		ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+		if err := h.terminalSandbox.Bridge(c.Request.Context(), ws, sessionID, labID, c.GetInt64("user_id")); err != nil {
+			appLogger.Error("terminal sandbox bridge failed", err)
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("\r\nSandbox terminal disconnected.\r\n"))
+		}
+		return
+	}
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -306,7 +335,7 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 
 	var shellCmd string
 	var args []string
-	if runtime.GOOS == "windows" {
+	if gort.GOOS == "windows" {
 		shellCmd = "powershell.exe"
 		args = []string{"-NoLogo"}
 	} else {
@@ -320,7 +349,7 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 
 	cmd := exec.Command(shellCmd, args...)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
-	
+
 	tempDir, err := os.MkdirTemp("", fmt.Sprintf("bdc-terminal-%d-", labID))
 	if err == nil {
 		cmd.Dir = tempDir

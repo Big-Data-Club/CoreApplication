@@ -12,19 +12,20 @@ import (
 
 // Config holds all configuration for the lab service.
 type Config struct {
-	App      AppConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	CORS     CORSConfig
-	Server   ServerConfig
-	Storage  StorageConfig
-	K8s      K8sConfig
-	SLURM    SLURMConfig
-	Kafka    KafkaConfig
-	DatabaseLab DatabaseLabConfig
+	App             AppConfig
+	Database        DatabaseConfig
+	Redis           RedisConfig
+	JWT             JWTConfig
+	CORS            CORSConfig
+	Server          ServerConfig
+	Storage         StorageConfig
+	K8s             K8sConfig
+	SLURM           SLURMConfig
+	Kafka           KafkaConfig
+	DatabaseLab     DatabaseLabConfig
 	RuntimeSecurity RuntimeSecurityConfig
-	CodingSandbox CodingSandboxConfig
+	CodingSandbox   CodingSandboxConfig
+	TerminalSandbox TerminalSandboxConfig
 }
 
 type AppConfig struct {
@@ -79,13 +80,13 @@ type ServerConfig struct {
 }
 
 type StorageConfig struct {
-	Type          string
-	LocalBasePath string
-	MinIOEndpoint string
+	Type           string
+	LocalBasePath  string
+	MinIOEndpoint  string
 	MinIOAccessKey string
 	MinIOSecretKey string
-	MinIOBucket   string
-	MinIOUseSSL   bool
+	MinIOBucket    string
+	MinIOUseSSL    bool
 }
 
 type K8sConfig struct {
@@ -106,19 +107,19 @@ type K8sConfig struct {
 type SLURMConfig struct {
 	// A profile is provisioned by the platform operator, never supplied by a
 	// browser request.  It identifies one trusted Slurm gateway.
-	Enabled          bool
-	ProfileID        string
-	ProfileLabel     string
-	Transport        string // SSH (currently supported); REST is reserved for slurmrestd.
-	SSHHost          string
-	SSHPort          int
-	SSHUser          string
-	SSHIdentityFile  string
+	Enabled           bool
+	ProfileID         string
+	ProfileLabel      string
+	Transport         string // SSH (currently supported); REST is reserved for slurmrestd.
+	SSHHost           string
+	SSHPort           int
+	SSHUser           string
+	SSHIdentityFile   string
 	SSHKnownHostsFile string
-	CommandTimeout   time.Duration
-	DefaultPartition string
-	DefaultAccount   string
-	DefaultQOS       string
+	CommandTimeout    time.Duration
+	DefaultPartition  string
+	DefaultAccount    string
+	DefaultQOS        string
 	AllowedPartitions []string
 	AllowedAccounts   []string
 	AllowedQOS        []string
@@ -170,15 +171,26 @@ type CodingSandboxConfig struct {
 	JobTTLSeconds    int
 }
 
+type TerminalSandboxConfig struct {
+	Enabled          bool
+	Namespace        string
+	Image            string
+	ProvisionTimeout time.Duration
+	MaxSession       time.Duration
+	MaxMemoryMB      int
+	MaxCPU           string
+	PollInterval     time.Duration
+}
+
 func LoadStorageConfig() StorageConfig {
 	return StorageConfig{
-		Type:          getEnv("STORAGE_TYPE", "minio"),
-		LocalBasePath: getEnv("STORAGE_LOCAL_PATH", "./uploads"),
-		MinIOEndpoint: getEnv("LAB_MINIO_ENDPOINT", getEnv("MINIO_ENDPOINT", "minio:9000")),
+		Type:           getEnv("STORAGE_TYPE", "minio"),
+		LocalBasePath:  getEnv("STORAGE_LOCAL_PATH", "./uploads"),
+		MinIOEndpoint:  getEnv("LAB_MINIO_ENDPOINT", getEnv("MINIO_ENDPOINT", "minio:9000")),
 		MinIOAccessKey: getEnv("LAB_MINIO_ACCESS_KEY", getEnv("MINIO_ACCESS_KEY", "minioadmin")),
 		MinIOSecretKey: getEnv("LAB_MINIO_SECRET_KEY", getEnv("MINIO_SECRET_KEY", "minioadmin123")),
-		MinIOBucket:   getEnv("LAB_MINIO_BUCKET", getEnv("MINIO_BUCKET", "lab-files")),
-		MinIOUseSSL:   getEnv("LAB_MINIO_USE_SSL", getEnv("MINIO_USE_SSL", "false")) == "true",
+		MinIOBucket:    getEnv("LAB_MINIO_BUCKET", getEnv("MINIO_BUCKET", "lab-files")),
+		MinIOUseSSL:    getEnv("LAB_MINIO_USE_SSL", getEnv("MINIO_USE_SSL", "false")) == "true",
 	}
 }
 
@@ -254,29 +266,29 @@ func Load() (*Config, error) {
 			PVCSize:       getEnv("K8S_PVC_SIZE", "1Gi"),
 		},
 		SLURM: SLURMConfig{
-			Enabled:            getEnvAsBool("SLURM_ENABLED", false),
-			ProfileID:          getEnv("SLURM_PROFILE_ID", ""),
-			ProfileLabel:       getEnv("SLURM_PROFILE_LABEL", ""),
-			Transport:          strings.ToUpper(getEnv("SLURM_TRANSPORT", "SSH")),
-			SSHHost:            getEnv("SLURM_SSH_HOST", ""),
-			SSHPort:            getEnvAsInt("SLURM_SSH_PORT", 22),
-			SSHUser:            getEnv("SLURM_SSH_USER", ""),
-			SSHIdentityFile:    getEnv("SLURM_SSH_IDENTITY_FILE", "/etc/lab-hpc/id_ed25519"),
-			SSHKnownHostsFile:  getEnv("SLURM_SSH_KNOWN_HOSTS_FILE", "/etc/lab-hpc/known_hosts"),
-			CommandTimeout:     getEnvAsDuration("SLURM_COMMAND_TIMEOUT", 20*time.Second),
-			DefaultPartition:   getEnv("SLURM_DEFAULT_PARTITION", ""),
-			DefaultAccount:     getEnv("SLURM_DEFAULT_ACCOUNT", ""),
-			DefaultQOS:         getEnv("SLURM_DEFAULT_QOS", ""),
-			AllowedPartitions:  getEnvAsSlice("SLURM_ALLOWED_PARTITIONS", []string{}),
-			AllowedAccounts:    getEnvAsSlice("SLURM_ALLOWED_ACCOUNTS", []string{}),
-			AllowedQOS:         getEnvAsSlice("SLURM_ALLOWED_QOS", []string{}),
-			MaxNodes:           getEnvAsInt("SLURM_MAX_NODES", 1),
-			MaxTasks:           getEnvAsInt("SLURM_MAX_TASKS", 32),
-			MaxCPUsPerTask:     getEnvAsInt("SLURM_MAX_CPUS_PER_TASK", 16),
-			MaxMemoryMB:        getEnvAsInt("SLURM_MAX_MEMORY_MB", 65536),
-			MaxGPUCount:        getEnvAsInt("SLURM_MAX_GPU_COUNT", 0),
-			MaxTime:            getEnv("SLURM_MAX_TIME", "01:00:00"),
-			ScratchDir:         getEnv("SLURM_SCRATCH_DIR", "/scratch/lab-jobs"),
+			Enabled:           getEnvAsBool("SLURM_ENABLED", false),
+			ProfileID:         getEnv("SLURM_PROFILE_ID", ""),
+			ProfileLabel:      getEnv("SLURM_PROFILE_LABEL", ""),
+			Transport:         strings.ToUpper(getEnv("SLURM_TRANSPORT", "SSH")),
+			SSHHost:           getEnv("SLURM_SSH_HOST", ""),
+			SSHPort:           getEnvAsInt("SLURM_SSH_PORT", 22),
+			SSHUser:           getEnv("SLURM_SSH_USER", ""),
+			SSHIdentityFile:   getEnv("SLURM_SSH_IDENTITY_FILE", "/etc/lab-hpc/id_ed25519"),
+			SSHKnownHostsFile: getEnv("SLURM_SSH_KNOWN_HOSTS_FILE", "/etc/lab-hpc/known_hosts"),
+			CommandTimeout:    getEnvAsDuration("SLURM_COMMAND_TIMEOUT", 20*time.Second),
+			DefaultPartition:  getEnv("SLURM_DEFAULT_PARTITION", ""),
+			DefaultAccount:    getEnv("SLURM_DEFAULT_ACCOUNT", ""),
+			DefaultQOS:        getEnv("SLURM_DEFAULT_QOS", ""),
+			AllowedPartitions: getEnvAsSlice("SLURM_ALLOWED_PARTITIONS", []string{}),
+			AllowedAccounts:   getEnvAsSlice("SLURM_ALLOWED_ACCOUNTS", []string{}),
+			AllowedQOS:        getEnvAsSlice("SLURM_ALLOWED_QOS", []string{}),
+			MaxNodes:          getEnvAsInt("SLURM_MAX_NODES", 1),
+			MaxTasks:          getEnvAsInt("SLURM_MAX_TASKS", 32),
+			MaxCPUsPerTask:    getEnvAsInt("SLURM_MAX_CPUS_PER_TASK", 16),
+			MaxMemoryMB:       getEnvAsInt("SLURM_MAX_MEMORY_MB", 65536),
+			MaxGPUCount:       getEnvAsInt("SLURM_MAX_GPU_COUNT", 0),
+			MaxTime:           getEnv("SLURM_MAX_TIME", "01:00:00"),
+			ScratchDir:        getEnv("SLURM_SCRATCH_DIR", "/scratch/lab-jobs"),
 		},
 		Kafka: KafkaConfig{
 			Brokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
@@ -310,6 +322,16 @@ func Load() (*Config, error) {
 			MaxCPU:           getEnv("LAB_CODING_SANDBOX_MAX_CPU", "1"),
 			PollInterval:     getEnvAsDuration("LAB_CODING_SANDBOX_POLL_INTERVAL", 250*time.Millisecond),
 			JobTTLSeconds:    getEnvAsInt("LAB_CODING_SANDBOX_JOB_TTL_SECONDS", 60),
+		},
+		TerminalSandbox: TerminalSandboxConfig{
+			Enabled:          getEnvAsBool("LAB_TERMINAL_SANDBOX_ENABLED", false),
+			Namespace:        getEnv("LAB_TERMINAL_SANDBOX_NAMESPACE", "lab-sandbox"),
+			Image:            getEnv("LAB_TERMINAL_SANDBOX_IMAGE", "phucnhan2809/code-runner:latest"),
+			ProvisionTimeout: getEnvAsDuration("LAB_TERMINAL_SANDBOX_PROVISION_TIMEOUT", 90*time.Second),
+			MaxSession:       getEnvAsDuration("LAB_TERMINAL_SANDBOX_MAX_SESSION", time.Hour),
+			MaxMemoryMB:      getEnvAsInt("LAB_TERMINAL_SANDBOX_MAX_MEMORY_MB", 512),
+			MaxCPU:           getEnv("LAB_TERMINAL_SANDBOX_MAX_CPU", "500m"),
+			PollInterval:     getEnvAsDuration("LAB_TERMINAL_SANDBOX_POLL_INTERVAL", 500*time.Millisecond),
 		},
 	}
 	if cfg.App.Env == "production" {
