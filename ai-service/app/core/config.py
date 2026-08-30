@@ -147,7 +147,7 @@ class Settings(BaseSettings):
 
     # ── MCP Server ─────────────────────────────────────────────────────────────
     # Set MCP_ENABLED=true to activate the MCP server endpoint at /mcp.
-    # Off by default — opt-in to avoid accidental exposure.
+    # Off by default - opt-in to avoid accidental exposure.
     mcp_enabled: bool = False
     # Comma-separated "api_key:user_id" pairs.
     # Example: "bdc_mcp_abc123:42,bdc_mcp_xyz987:7"

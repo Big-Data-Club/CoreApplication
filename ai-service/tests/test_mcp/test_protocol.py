@@ -66,7 +66,7 @@ async def test_ping_returns_empty():
 
 @pytest.mark.asyncio
 async def test_notification_returns_none():
-    """Requests without 'id' are notifications — no response body."""
+    """Requests without 'id' are notifications - no response body."""
     body = {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
     resp = await dispatch(body, USER_ID)
     assert resp is None

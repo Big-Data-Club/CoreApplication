@@ -125,7 +125,7 @@ async def main() -> None:
     elif all(c.similarity < 0.25 for c in vec):
         top = max(vec, key=lambda c: c.similarity)
         print(f"• Vector has data but best score is only {top.similarity:.3f} (<0.25 threshold).")
-        print("  Content exists but phrasing differs — either rephrase, or lower")
+        print("  Content exists but phrasing differs - either rephrase, or lower")
         print("  min_similarity via the planner's retrieval_strategy.")
     if not kw:
         print("• Keyword leg returned nothing even after OR-fallback → wording truly absent.")

@@ -1652,7 +1652,7 @@ async def _update_anchor_from_tool(
     args: dict,
     tool_result: "ToolResult",  # noqa: F821 - runtime type
 ) -> None:
-    """Pin MTM anchor from tool result — unchanged."""
+    """Pin MTM anchor from tool result - unchanged."""
     try:
         if tool_result.status not in ("success",):
             return
@@ -1669,7 +1669,7 @@ async def _maybe_emit_title_update(
     user_message: str,
     turn_id: str,
 ) -> AsyncIterator[AgentEvent]:
-    """Emit title update event on first turn — unchanged."""
+    """Emit title update event on first turn - unchanged."""
     try:
         existing = await mtm.get_title(session_id)
         if existing:

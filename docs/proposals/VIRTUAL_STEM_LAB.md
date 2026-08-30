@@ -413,7 +413,7 @@ Hai lab mẫu này kiểm tra gần như toàn bộ nền tảng mà chưa cần
 
 ## 12. Lộ trình triển khai theo cổng chất lượng
 
-### Giai đoạn 0 — Prototype có thể kiểm chứng
+### Giai đoạn 0 - Prototype có thể kiểm chứng
 
 - Workflow runner tuyến tính, prediction, trial, event log, notebook và dashboard một học sinh.
 - Plant Engine đơn giản cho một cây; robot kinematic 2D cho một thế giới.
@@ -421,7 +421,7 @@ Hai lab mẫu này kiểm tra gần như toàn bộ nền tảng mà chưa cần
 
 **Cổng:** cùng seed tái lập được; giáo viên replay đúng; dữ liệu không mất khi refresh/reconnect.
 
-### Giai đoạn 1 — MVP lớp học
+### Giai đoạn 1 - MVP lớp học
 
 - Visual authoring + validator, lab versioning, nhóm, rubric, class monitor.
 - Plant model calibrated; ROS 2/Gazebo robot worker; telemetry chunking.
@@ -429,7 +429,7 @@ Hai lab mẫu này kiểm tra gần như toàn bộ nền tảng mà chưa cần
 
 **Cổng:** pilot với giáo viên thật; hoàn thành hai lab mẫu; đo usability, learning gain, lỗi mô hình và chi phí/session.
 
-### Giai đoạn 2 — Mở rộng có kiểm soát
+### Giai đoạn 2 - Mở rộng có kiểm soát
 
 - Workflow có nhánh, block coding, collaboration nhóm, source review workflow.
 - Thêm species/model package và robot/world package qua registry có validation.
@@ -437,7 +437,7 @@ Hai lab mẫu này kiểm tra gần như toàn bộ nền tảng mà chưa cần
 
 **Cổng:** mỗi model mới có model card, test suite và người duyệt chuyên môn.
 
-### Giai đoạn 3 — Hybrid/remote lab
+### Giai đoạn 3 - Hybrid/remote lab
 
 - Gắn cảm biến/camera của cây thật và robot thật qua device gateway.
 - So sánh virtual–physical và hiệu chỉnh mô hình.
@@ -479,7 +479,7 @@ Hai lab mẫu này kiểm tra gần như toàn bộ nền tảng mà chưa cần
 
 ## 15. Nguồn nền tảng
 
-- FAO, *Crop evapotranspiration — Guidelines for computing crop water requirements (FAO-56)*: https://www.fao.org/4/X0490E/X0490E00.htm
+- FAO, *Crop evapotranspiration - Guidelines for computing crop water requirements (FAO-56)*: https://www.fao.org/4/X0490E/X0490E00.htm
 - USDA ARS, *OPUS: An Integrated Simulation Model for Transport of Nonpoint-Source Pollutants at the Field Scale*, phần mô phỏng sinh trưởng và stress: https://www.ars.usda.gov/ARSUserFiles/30121500/OPUS/OPUSDocumentation.pdf
 - ROS 2, *Setting up a robot simulation (Gazebo)*: https://docs.ros.org/en/humble/Tutorials/Advanced/Simulators/Gazebo.html
 - Next Generation Science Standards, *Science and Engineering Practices*: https://www.nextgenscience.org/sites/default/files/resource/files/Appendix%20F%20%20Science%20and%20Engineering%20Practices%20in%20the%20NGSS%20-%20FINAL%20060513.pdf

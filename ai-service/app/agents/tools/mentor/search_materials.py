@@ -140,7 +140,7 @@ class SearchMaterialsTool(BaseTool):
                     message=(
                         f"Không tìm thấy tài liệu nào khớp '{query}' trong phạm vi hiện tại. "
                         f"Có thể: (1) nội dung chưa được index, (2) từ khóa khác cách diễn đạt "
-                        f"trong tài liệu — thử từ khóa ngắn hơn hoặc tên khái niệm khác, "
+                        f"trong tài liệu - thử từ khóa ngắn hơn hoặc tên khái niệm khác, "
                         f"(3) tài liệu nằm ở khóa học khác. Có thể thử search_web nếu đây là "
                         f"kiến thức chung."
                     ),

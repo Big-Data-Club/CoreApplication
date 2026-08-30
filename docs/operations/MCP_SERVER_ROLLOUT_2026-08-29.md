@@ -1,4 +1,4 @@
-# MCP server rollout — 2026-08-29
+# MCP server rollout - 2026-08-29
 
 This document records the implementation and production rollout path for the
 BDC Hub MCP server. It is intentionally operational: a normal push to `main`

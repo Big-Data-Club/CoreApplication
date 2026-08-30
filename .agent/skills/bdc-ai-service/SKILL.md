@@ -34,7 +34,7 @@ specific service before changing behaviour.
 
 ## References
 
-- `app/agents/` — agent routing, context and tools.
-- `app/services/` — RAG, graph and domain services.
-- `app/worker/` — consumer/producer contracts.
-- `docs/adr/` — accepted AI/graph/context decisions.
+- `app/agents/` - agent routing, context and tools.
+- `app/services/` - RAG, graph and domain services.
+- `app/worker/` - consumer/producer contracts.
+- `docs/adr/` - accepted AI/graph/context decisions.

@@ -123,7 +123,7 @@ with blank_id and exactly one correct option per blank. Essays have no answer ke
 Return JSON only."""
 
 _USER_TEMPLATE = """Parse the following text and extract all quiz questions as a JSON array.
-Text language may be mixed — preserve the original language in question_text and options.
+Text language may be mixed - preserve the original language in question_text and options.
 Teacher formatting instruction: {instructions}
 
 TEXT TO PARSE:

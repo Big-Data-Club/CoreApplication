@@ -33,11 +33,11 @@ links.
 
 ## Canonical locations
 
-- `README.md` — repository entry point.
-- `CONTRIBUTING.md` — contributor process.
-- `docs/teams/BA_HANDBOOK.md` — BA/product handoff.
-- `docs/DEVELOPER_GUIDE.md` — implementation workflow.
-- `docs/DATA_PLATFORM.md` — Kafka and Lakehouse.
-- `docs/DEVOPS_RUNBOOK.md` — production operations.
-- `docs/TEAM_ASSETS.md` — team asset index.
-- `docs/adr/` — durable architecture decisions.
+- `README.md` - repository entry point.
+- `CONTRIBUTING.md` - contributor process.
+- `docs/teams/BA_HANDBOOK.md` - BA/product handoff.
+- `docs/DEVELOPER_GUIDE.md` - implementation workflow.
+- `docs/DATA_PLATFORM.md` - Kafka and Lakehouse.
+- `docs/DEVOPS_RUNBOOK.md` - production operations.
+- `docs/TEAM_ASSETS.md` - team asset index.
+- `docs/adr/` - durable architecture decisions.

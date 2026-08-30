@@ -277,7 +277,7 @@ def render_section_to_pptx_bytes(section, *, deck_title: str, index: int,
                                  total: int, theme: str = "academic") -> bytes:
     """Single-section mini-deck used for per-section re-render previews."""
     single = StudioPlan(
-        title=f"{deck_title} — {section.title}", sections=[section],
+        title=f"{deck_title} - {section.title}", sections=[section],
         language="vi", learning_objectives=[], summary="",
     )
     data = render_plan_to_pptx_bytes(single, theme=theme)

@@ -33,6 +33,6 @@ history.
 
 ## References
 
-- `pkg/kafka/events.go` — implemented LMS event shapes.
-- `pkg/kafka/consumer.go` — status/graph/micro-interaction consumers.
-- `docs/DATA_PLATFORM.md` — full current topic catalogue.
+- `pkg/kafka/events.go` - implemented LMS event shapes.
+- `pkg/kafka/consumer.go` - status/graph/micro-interaction consumers.
+- `docs/DATA_PLATFORM.md` - full current topic catalogue.

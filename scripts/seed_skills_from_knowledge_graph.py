@@ -107,9 +107,9 @@ def seed() -> None:
         # Names are shared across courses; disambiguate with the course title.
         while name.casefold() in taken_names:
             course_title = course_titles.get(node["course_id"], f"course {node['course_id']}")
-            name = f"{base_name} — {course_title}"
+            name = f"{base_name} - {course_title}"
             if name.casefold() in taken_names:
-                name = f"{base_name} — {course_title} ({suffix})"
+                name = f"{base_name} - {course_title} ({suffix})"
                 suffix += 1
         taken_names.add(name.casefold())
 

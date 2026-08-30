@@ -53,8 +53,8 @@ team documents as authoritative; do not rely on historical assumptions.
 
 ## Primary references
 
-- `README.md` — repository map and team entry points.
-- `CONTRIBUTING.md` — PR and change rules.
-- `docs/DATA_PLATFORM.md` — Lakehouse/topic source of truth.
-- `docs/TEAM_ASSETS.md` — owner and asset catalogue.
-- `docs/DEVOPS_RUNBOOK.md` — K3s and CI/CD operations.
+- `README.md` - repository map and team entry points.
+- `CONTRIBUTING.md` - PR and change rules.
+- `docs/DATA_PLATFORM.md` - Lakehouse/topic source of truth.
+- `docs/TEAM_ASSETS.md` - owner and asset catalogue.
+- `docs/DEVOPS_RUNBOOK.md` - K3s and CI/CD operations.

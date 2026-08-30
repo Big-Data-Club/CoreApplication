@@ -206,7 +206,7 @@ Return ONLY valid JSON. No extra text.\
 def build_cross_batch_relation_prompt(nodes: list["ExtractedNode"], language: str) -> str:
     lang_hint = "Write 'reason' in Vietnamese." if language == "vi" else "Write 'reason' in English."
     node_list = "\n".join(
-        f"[{i}] {n.name_vi or n.name} — {n.description[:200]}"
+        f"[{i}] {n.name_vi or n.name} - {n.description[:200]}"
         for i, n in enumerate(nodes)
     )
     schema = """{
@@ -1797,11 +1797,11 @@ class AutoIndexService:
             # best-matching one (if score >= FALLBACK_CHUNK_TO_NODE_SIMILARITY).
             #
             # Rules that keep the graph professional:
-            #  • Only draw from the unassigned pool — no chunk is given to two nodes.
+            #  • Only draw from the unassigned pool - no chunk is given to two nodes.
             #  • Each rescue node receives exactly ONE chunk (minimum evidence).
             #  • Artifact chunks (images, captions) are excluded.
             #  • The threshold 0.45 is intentionally lower than the primary pass
-            #    (0.52) — just enough to verify some topical overlap exists.
+            #    (0.52) - just enough to verify some topical overlap exists.
             FALLBACK_CHUNK_TO_NODE_SIMILARITY = 0.45
             nodes_with_chunks = {nid for nid in assigned_node_ids if nid is not None}
             zero_chunk_node_indices = [
@@ -1816,7 +1816,7 @@ class AutoIndexService:
                 for node_local_idx in zero_chunk_node_indices:
                     if not unassigned_pool:
                         break  # no more unassigned chunks available
-                    # sims shape: (n_chunks, n_nodes) — column = one node
+                    # sims shape: (n_chunks, n_nodes) - column = one node
                     scores_for_unassigned = [
                         (float(sims[ci, node_local_idx]), ci)
                         for ci in unassigned_pool

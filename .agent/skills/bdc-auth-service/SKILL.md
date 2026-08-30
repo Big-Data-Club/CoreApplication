@@ -32,6 +32,6 @@ guaranteed by this skill.
 
 ## References
 
-- `src/main/java/` — implementation source of truth.
-- `src/main/resources/` — runtime configuration templates.
-- `docs/DATA_PLATFORM.md` — Kafka notification contract.
+- `src/main/java/` - implementation source of truth.
+- `src/main/resources/` - runtime configuration templates.
+- `docs/DATA_PLATFORM.md` - Kafka notification contract.

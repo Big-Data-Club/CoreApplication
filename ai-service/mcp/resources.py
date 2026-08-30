@@ -1,13 +1,13 @@
 """
 ai-service/mcp/resources.py
 
-MCP Resources — exposes BDC courses and documents as MCP Resources.
+MCP Resources - exposes BDC courses and documents as MCP Resources.
 
 MCP Resources allow clients to browse and read content from the server
 before (or without) making tool calls. We expose:
 
-  - bdc://courses/{course_id}        — Course metadata
-  - bdc://courses/{course_id}/docs   — List of uploaded documents for a course
+  - bdc://courses/{course_id}        - Course metadata
+  - bdc://courses/{course_id}/docs   - List of uploaded documents for a course
 
 Clients (e.g. Claude Desktop) can see these resources in the sidebar and
 reference them in prompts without needing to call list_my_courses first.

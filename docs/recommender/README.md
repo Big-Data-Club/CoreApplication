@@ -333,7 +333,7 @@ The following are real gaps, not hidden features:
 
 ## 9. Recommended evolution plan
 
-### Phase 1 — make the existing baseline trustworthy
+### Phase 1 - make the existing baseline trustworthy
 
 - complete impression tracking for every actually visible item;
 - emit `completed` with valid attribution when a recommended activity finishes;
@@ -343,7 +343,7 @@ The following are real gaps, not hidden features:
   metrics; and
 - keep `hybrid-rules-v2` as the production control policy.
 
-### Phase 2 — complete the conversational loop
+### Phase 2 - complete the conversational loop
 
 - map explicit critique into structured turn constraints such as difficulty,
   excluded topic, desired format, and time budget;
@@ -363,7 +363,7 @@ Recommender receives structured constraints and returns a new slate.
 Student confirms one action; the system records accept + started.
 ```
 
-### Phase 3 — build evaluation data products
+### Phase 3 - build evaluation data products
 
 Create reproducible datasets joining:
 
@@ -377,7 +377,7 @@ Prevent label leakage: features must reflect only information known at
 recommendation time. Split evaluation chronologically and by learner where
 appropriate.
 
-### Phase 4 — introduce learned ranking safely
+### Phase 4 - introduce learned ranking safely
 
 Only after event coverage and data quality are demonstrated:
 
@@ -488,8 +488,8 @@ Operational checks should confirm:
 
 Related sources:
 
-- [`DATA_PLATFORM.md`](../DATA_PLATFORM.md) — Kafka and Lakehouse contracts
-- [`teams/BA_HANDBOOK.md`](../teams/BA_HANDBOOK.md) — product stories and acceptance criteria
-- [`teams/DEVELOPER_GUIDE.md`](../teams/DEVELOPER_GUIDE.md) — service boundaries and development workflow
-- [`teams/DEVOPS_RUNBOOK.md`](../teams/DEVOPS_RUNBOOK.md) — deployment and operational guardrails
-- [`recommender-service/README.md`](../../recommender-service/README.md) — concise service-level usage
+- [`DATA_PLATFORM.md`](../DATA_PLATFORM.md) - Kafka and Lakehouse contracts
+- [`teams/BA_HANDBOOK.md`](../teams/BA_HANDBOOK.md) - product stories and acceptance criteria
+- [`teams/DEVELOPER_GUIDE.md`](../teams/DEVELOPER_GUIDE.md) - service boundaries and development workflow
+- [`teams/DEVOPS_RUNBOOK.md`](../teams/DEVOPS_RUNBOOK.md) - deployment and operational guardrails
+- [`recommender-service/README.md`](../../recommender-service/README.md) - concise service-level usage

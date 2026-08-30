@@ -1,4 +1,4 @@
-# BDC Hub — Server Setup & Step-by-Step Deployment Guide
+# BDC Hub - Server Setup & Step-by-Step Deployment Guide
 
 This guide walks through setting up a fresh VM and deploying the full BDC Hub stack:
 **CoreApp (Serverless DB) + Monitoring + Performance Tests**.
@@ -13,13 +13,13 @@ Target Server: `bdc_web@10.1.8.133` (accessed via VPN + SSH)
 |-------------|-------------|
 | OS | Ubuntu 20.04+ or Debian 11+ |
 | CPU | 4 cores |
-| RAM | 8 GB (16 GB recommended — AI service needs ~2–4 GB) |
+| RAM | 8 GB (16 GB recommended - AI service needs ~2–4 GB) |
 | Disk | 40 GB free |
 | Network | Outbound HTTPS to Neon, Cloudflare R2, Qdrant Cloud, Neo4j Aura, Groq API |
 
 ---
 
-## Step 1 — Connect to the Server
+## Step 1 - Connect to the Server
 
 On your local machine, connect via VPN first, then SSH:
 
@@ -29,7 +29,7 @@ ssh bdc_web@10.1.8.133
 
 ---
 
-## Step 2 — Stop & Clean Up Existing Docker Stack
+## Step 2 - Stop & Clean Up Existing Docker Stack
 
 > You do **not** need to uninstall Docker. K3s uses its own container runtime (containerd) independently.
 
@@ -53,7 +53,7 @@ docker ps -a   # should show no running containers
 
 ---
 
-## Step 3 — Install K3s (Lightweight Kubernetes)
+## Step 3 - Install K3s (Lightweight Kubernetes)
 
 K3s installs in a single command and ships Traefik Ingress + `kubectl` automatically:
 
@@ -72,7 +72,7 @@ sudo k3s kubectl get nodes
 
 ---
 
-## Step 4 — Configure kubectl Access (Non-root)
+## Step 4 - Configure kubectl Access (Non-root)
 
 Allow the `bdc_web` user to run `kubectl` without `sudo`:
 
@@ -92,7 +92,7 @@ kubectl get nodes
 
 ---
 
-## Step 5 — Copy K8s Configuration to the Server
+## Step 5 - Copy K8s Configuration to the Server
 
 From your **local machine** (where this repo is checked out):
 
@@ -115,7 +115,7 @@ ls ~/k8s/
 
 ---
 
-## Step 6 — Configure Secrets
+## Step 6 - Configure Secrets
 
 > ⚠️ **All secret values must be Base64-encoded.** Plain text values will not work.
 
@@ -180,7 +180,7 @@ The full mapping from your `.env` file to `secrets.yaml` keys:
 
 ---
 
-## Step 7 — Configure External Database Endpoints (Serverless Overlay)
+## Step 7 - Configure External Database Endpoints (Serverless Overlay)
 
 Edit the serverless configmap to point to your actual managed database hosts:
 
@@ -206,7 +206,7 @@ Also add `QDRANT_API_KEY` to secrets.yaml (Qdrant Cloud API key).
 
 ---
 
-## Step 8 — Deploy CoreApplication (Serverless Mode)
+## Step 8 - Deploy CoreApplication (Serverless Mode)
 
 ```bash
 cd ~/k8s
@@ -240,7 +240,7 @@ kafka-0                                1/1     Running   0          5m
 redis-0                                1/1     Running   0          3m
 ```
 
-> **Note:** `ai-service` and `ai-worker` may take 2–5 minutes to become `Ready` because they download and load the embedding model (`BAAI/bge-m3`) on first start. This is expected — the `startupProbe` allows up to 150 seconds.
+> **Note:** `ai-service` and `ai-worker` may take 2–5 minutes to become `Ready` because they download and load the embedding model (`BAAI/bge-m3`) on first start. This is expected - the `startupProbe` allows up to 150 seconds.
 
 Check service endpoints:
 
@@ -263,7 +263,7 @@ curl https://bdc.hpcc.vn/apiv1/actuator/health
 
 ---
 
-## Step 9 — Deploy Monitoring Stack
+## Step 9 - Deploy Monitoring Stack
 
 ```bash
 cd ~/k8s
@@ -285,7 +285,7 @@ Access Grafana dashboard in your browser:
 https://bdc.hpcc.vn/monitor
 ```
 
-Default login: `admin` / `admin` — **change this immediately** after first login.
+Default login: `admin` / `admin` - **change this immediately** after first login.
 
 Prometheus is reachable internally at `http://prometheus-service:9090`.
 
@@ -306,13 +306,13 @@ All configured targets should show `UP`:
 
 ---
 
-## Step 10 — Deploy BDCHub Frontend (Standalone Repo)
+## Step 10 - Deploy BDCHub Frontend (Standalone Repo)
 
 The `BDCHub---Frontend` repo is a **separate Next.js project** that can be deployed either:
 - As a **K8s Deployment** (add to your cluster)
 - Or as a **Vercel/Netlify static deployment** pointing its API calls back to the K3s VM
 
-### Option A — Deploy as K8s Deployment (recommended for VPN-only access)
+### Option A - Deploy as K8s Deployment (recommended for VPN-only access)
 
 Build and push the Docker image first:
 
@@ -380,7 +380,7 @@ spec:
 EOF
 ```
 
-### Option B — Deploy to Vercel (zero-server)
+### Option B - Deploy to Vercel (zero-server)
 
 ```bash
 cd /home/phucnhan/codespace/bdc/BDCHub---Frontend
@@ -391,7 +391,7 @@ Set environment variables in the Vercel dashboard pointing to your K3s VM's publ
 
 ---
 
-## Step 11 — Performance Testing with k6
+## Step 11 - Performance Testing with k6
 
 The performance tests are located in `BDCHub---Monitoring/performance-tests/`.
 
@@ -408,11 +408,11 @@ The performance tests are located in `BDCHub---Monitoring/performance-tests/`.
 
 | `TEST_TYPE` | Description |
 |-------------|-------------|
-| `smoke` | 1 VU, 1 iteration — quick sanity check |
+| `smoke` | 1 VU, 1 iteration - quick sanity check |
 | `load` | Ramp up to moderate concurrent users over 5 min |
 | `stress` | Ramp up to maximum load to find breaking point |
 
-### Option A — Run with Docker (easiest, from monitoring server or local machine)
+### Option A - Run with Docker (easiest, from monitoring server or local machine)
 
 ```bash
 cd ~/performance-tests  # or /path/to/BDCHub---Monitoring/performance-tests
@@ -444,7 +444,7 @@ docker run --rm -i \
   grafana/k6:latest run /io/k6_multi_role_flow.js
 ```
 
-### Option B — Install k6 natively on the server
+### Option B - Install k6 natively on the server
 
 ```bash
 # Install k6
@@ -512,7 +512,7 @@ kubectl logs <pod-name> --previous
 ```
 
 ### AI service slow to start / `startupProbe` failing
-This is expected on first boot — the model cache is empty and `BAAI/bge-m3` (~1.2 GB) must be downloaded. Wait up to 5 minutes. On subsequent restarts it loads from the emptyDir cache.
+This is expected on first boot - the model cache is empty and `BAAI/bge-m3` (~1.2 GB) must be downloaded. Wait up to 5 minutes. On subsequent restarts it loads from the emptyDir cache.
 
 > **For production:** Pre-bake the model into the Docker image during CI/CD to eliminate this startup delay entirely.
 

@@ -42,7 +42,7 @@ There are two layers to keep separate:
 The infrastructure layer makes an application reachable and gives it runtime
 dependencies. It does not own application data rules. Each application service
 owns its database and must communicate with another service through an API or a
-documented Kafka event—not by querying the other service's database.
+documented Kafka event-not by querying the other service's database.
 
 ## 2. Application layer at a glance
 

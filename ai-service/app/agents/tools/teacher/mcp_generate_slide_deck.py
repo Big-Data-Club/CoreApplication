@@ -69,9 +69,9 @@ class McpGenerateSlideDeckTool(BaseTool):
             if code:
                 block.append(f"```\n{code}\n```")
             if notes:
-                block.append(f"<!-- speaker-notes: {notes.replace('-->', '—>')} -->")
+                block.append(f"<!-- speaker-notes: {notes.replace('-->', '->')} -->")
             if illustration_prompt:
-                block.append(f"<!-- optional-external-image-prompt: {illustration_prompt.replace('-->', '—>')} -->")
+                block.append(f"<!-- optional-external-image-prompt: {illustration_prompt.replace('-->', '->')} -->")
             rendered.append("\n\n".join(block))
 
         return ToolResult(

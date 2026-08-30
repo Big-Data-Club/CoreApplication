@@ -1,4 +1,4 @@
-# BDC Hub — Production DevOps Runbook
+# BDC Hub - Production DevOps Runbook
 
 | Field | Value |
 |---|---|
@@ -27,7 +27,7 @@ Kafka and Redis run in the cluster. This runbook defines how to:
 
 ### Related recovery trajectories
 
-- [Neon PostgreSQL cutover and K3s recovery — 2026-08-29](../operations/NEON_CUTOVER_2026-08-29.md):
+- [Neon PostgreSQL cutover and K3s recovery - 2026-08-29](../operations/NEON_CUTOVER_2026-08-29.md):
   six-database migration, runtime Secret recovery, disk-pressure remediation,
   Redis credential synchronization, and Neon pooler `search_path` repair.
 
@@ -225,7 +225,7 @@ kubectl -n default get deployment/<SERVICE> \
 kubectl -n default rollout history deployment/<SERVICE>
 ```
 
-## 5. Current CI/CD design — source of truth
+## 5. Current CI/CD design - source of truth
 
 The repository has more than one workflow. The following table prevents a
 common operational mistake: assuming every workflow deploys every service.
@@ -268,7 +268,7 @@ The normal `main` release path is `production.yml`:
 changed. Read the outputs of **Select production workloads** before treating a
 workflow run as a release.
 
-#### `production.yml` — the normal `main` production path
+#### `production.yml` - the normal `main` production path
 
 On every push to `main`, the `detect-changes` job always runs. It only selects
 these paths and workloads:
@@ -315,7 +315,7 @@ services. Therefore it is not a safe "redeploy everything" control. Use a
 manual run with an existing immutable `image_tag` and an explicit `services`
 list when an intentional redeploy or rollback is needed.
 
-#### `ci.yml` — quality CI, not the normal main release
+#### `ci.yml` - quality CI, not the normal main release
 
 This workflow runs for pull requests to `main`, `dev`, and `release/*`; pushes
 to `dev` and `release/*`; and manual dispatch. It does **not** run for a push
@@ -328,7 +328,7 @@ separate `docker` output but is not included in `any_change`; it currently
 causes no application build or test.
 
 When `any_change=false`, `build-and-test` and `security-scan` are **Skipped**;
-`ci-summary` runs and records **No Changes — Skipped build**. No image is
+`ci-summary` runs and records **No Changes - Skipped build**. No image is
 built or pushed. When `any_change=true`, the eight-entry matrix is created.
 Only changed services run checkout, tests, application build, and optional
 image push. Matrix entries for unchanged services run the initial "Skip if no
@@ -344,7 +344,7 @@ result, a normal push to `dev` can test and build an application but must show
 configuration behavior, not as a registry outage; fix the branch-name mismatch
 before relying on `dev` images.
 
-#### `cd-production.yml` — legacy restart path
+#### `cd-production.yml` - legacy restart path
 
 This workflow does not set an image tag or build an image. It calls `kubectl
 rollout restart` for one deployment or all known deployments, then asks
@@ -488,7 +488,7 @@ the root cause. Do not simply rerun the workflow repeatedly.
 The deploy script in this repository restores the images for services it
 changed in that invocation. Confirm the state before any manual action.
 
-### 7.2 Immediate triage — read-only first
+### 7.2 Immediate triage - read-only first
 
 ```bash
 export NS=default
@@ -649,7 +649,7 @@ Before defensive load testing, deploy application-level metrics:
 
 Priorities are ordered. Do not start a 20+ VU test until P0 is complete.
 
-### P0 — restore reliable smoke and observability
+### P0 - restore reliable smoke and observability
 
 - [ ] Diagnose and fix the non-2xx result from the Test Course flashcard-due
       route.
@@ -664,7 +664,7 @@ Priorities are ordered. Do not start a 20+ VU test until P0 is complete.
 - [ ] Ensure the Prometheus remote-write receiver change is persisted through
       the Helm values/release process, not only an emergency live patch.
 
-### P1 — make CI/CD deterministic and complete
+### P1 - make CI/CD deterministic and complete
 
 - [ ] Consolidate the three workflow paths or clearly deprecate the legacy
       path. There must be one documented production release authority.
@@ -693,7 +693,7 @@ Priorities are ordered. Do not start a 20+ VU test until P0 is complete.
 - [ ] Add artifact links for pod descriptions, events, and relevant logs when a
       deployment fails.
 
-### P2 — operational resilience
+### P2 - operational resilience
 
 - [ ] Define alerts for pod restarts, unavailable replicas, image pull errors,
       node disk pressure, memory pressure, CPU throttling, and Kafka lag.

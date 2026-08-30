@@ -48,7 +48,7 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public void sendRecruitmentConfirmationEmail(String to, String name, String department) {
-        emailSender.send(to, "BDC Recruitment 2026 — Đã nhận hồ sơ của bạn",
+        emailSender.send(to, "BDC Recruitment 2026 - Đã nhận hồ sơ của bạn",
                 emailTemplateProvider.buildRecruitmentConfirmationHtml(name, department));
     }
 

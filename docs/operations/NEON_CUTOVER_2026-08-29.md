@@ -1,4 +1,4 @@
-# Neon PostgreSQL Cutover and K3s Recovery — 2026-08-29
+# Neon PostgreSQL Cutover and K3s Recovery - 2026-08-29
 
 | Field | Value |
 |---|---|
@@ -62,7 +62,7 @@ The final production checks showed:
 
 ## 3. Actual recovery trajectory
 
-### Step 1 — Establish the production failure mode
+### Step 1 - Establish the production failure mode
 
 After connecting through the approved VPN and SSH path, inspect the node, pods,
 and scheduling events:
@@ -80,7 +80,7 @@ Observed state:
 - the scheduler reported an untolerated taint; and
 - the node carried `node.kubernetes.io/disk-pressure:NoSchedule`.
 
-### Step 2 — Confirm the database migration scope
+### Step 2 - Confirm the database migration scope
 
 Do not infer the database set from the database name at the end of one
 connection string. Query the source catalog:
@@ -97,7 +97,7 @@ The source returned `ai`, `auth`, `chat`, `lab`, `lms`, and `neondb`. A previous
 migration state file listed only `ai`, `auth`, and `lms`, so it was not evidence
 that the whole source had been copied.
 
-### Step 3 — Create fresh dumps and restore every database
+### Step 3 - Create fresh dumps and restore every database
 
 PostgreSQL 17 clients were used because both Neon endpoints reported PostgreSQL
 17.11. For each discovered database:
@@ -129,7 +129,7 @@ pg_restore \
 
 All six restores and table-count comparisons completed successfully.
 
-### Step 4 — Cut K3s over to the new Neon project
+### Step 4 - Cut K3s over to the new Neon project
 
 The shared `bdc-config` ConfigMap was updated so all five service-specific host
 keys referenced the new pooler endpoint:
@@ -151,7 +151,7 @@ The production `.env` on the server was updated as the persistent source for
 the same endpoint and credential values. This prevents a later runtime-secret
 refresh from reverting the live cluster.
 
-### Step 5 — Recover the complete runtime Secret
+### Step 5 - Recover the complete runtime Secret
 
 New pods revealed a second fault unrelated to PostgreSQL. LMS first failed with
 `JWT secret must be at least 32 characters`. Inspection showed that
@@ -192,7 +192,7 @@ rm -f "$runtime_env"
 Never apply `k3s/base/secrets.yaml` to production with its sample values. Do not
 print or commit the generated Secret manifest.
 
-### Step 6 — Remove the disk-pressure cause
+### Step 6 - Remove the disk-pressure cause
 
 The node initially had only about 5.3 GB free and K3s was evicting application
 pods. Host inspection found:
@@ -227,7 +227,7 @@ controller adds it again. In this incident, K3s was restarted after capacity
 was demonstrably healthy so the eviction manager re-evaluated immediately.
 The result was `DiskPressure=False` with no taint.
 
-### Step 7 — Roll out workloads with restored runtime configuration
+### Step 7 - Roll out workloads with restored runtime configuration
 
 The database consumers were restarted so environment variables sourced from
 the ConfigMap and Secret were rebuilt:
@@ -253,7 +253,7 @@ kubectl rollout restart statefulset/redis
 
 Redis used its existing PVC; this restart did not delete Redis data.
 
-### Step 8 — Repair restored `search_path` and recycle Neon pooler sessions
+### Step 8 - Repair restored `search_path` and recycle Neon pooler sessions
 
 Chat connected to the new database but failed its startup migration with:
 
@@ -299,7 +299,7 @@ This is a brief connection interruption. Use it only in an approved cutover and
 expect application pools to reconnect. After recycling, both the pooler and
 direct endpoint returned the standard search path, and Chat became ready.
 
-### Step 9 — Perform final readiness checks
+### Step 9 - Perform final readiness checks
 
 ```bash
 kubectl get deploy

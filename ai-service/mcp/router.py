@@ -4,10 +4,10 @@ ai-service/mcp/router.py
 FastAPI router for the BDC MCP Server.
 
 Endpoints:
-  GET  /mcp/health      — Health check (no auth)
-  GET  /mcp/info        — Server capabilities (no auth, for discovery)
-  POST /mcp             — Main JSON-RPC 2.0 endpoint (requires API key)
-  GET  /mcp/sse         — Optional SSE stream for server-initiated messages
+  GET  /mcp/health      - Health check (no auth)
+  GET  /mcp/info        - Server capabilities (no auth, for discovery)
+  POST /mcp             - Main JSON-RPC 2.0 endpoint (requires API key)
+  GET  /mcp/sse         - Optional SSE stream for server-initiated messages
 
 Transport:
   The primary transport is HTTP POST (Streamable HTTP).
@@ -24,7 +24,7 @@ Content-Type:
 
 Security notes:
   - Auth is enforced by `get_mcp_user_id` FastAPI dependency.
-  - Health and info endpoints are unauthenticated (safe — no data returned).
+  - Health and info endpoints are unauthenticated (safe - no data returned).
   - All other endpoints require a valid MCP API key.
   - CORS is handled at the ai-service level (main.py).
 
@@ -128,7 +128,7 @@ async def mcp_health():
 async def mcp_info():
     """
     Return server metadata and capabilities for discovery.
-    This endpoint is unauthenticated — clients can probe it without a key.
+    This endpoint is unauthenticated - clients can probe it without a key.
     """
     return {
         "serverInfo": MCP_SERVER_INFO,
@@ -316,7 +316,7 @@ async def mcp_jsonrpc(
     user_id: int = Depends(get_mcp_user_id),
 ):
     """
-    MCP Streamable HTTP Transport — main JSON-RPC 2.0 endpoint.
+    MCP Streamable HTTP Transport - main JSON-RPC 2.0 endpoint.
 
     Accepts:
       - Single JSON-RPC request object
@@ -361,7 +361,7 @@ async def mcp_jsonrpc(
                 raise HTTPException(413, "MCP batch is too large")
             responses = await dispatch_batch(body, user_id)
             if not responses:
-                # All notifications — no response body
+                # All notifications - no response body
                 return JSONResponse(status_code=204, content=None)
 
             # Record metrics for batch
@@ -379,7 +379,7 @@ async def mcp_jsonrpc(
             response = await dispatch(body, user_id)
 
             if response is None:
-                # Notification — no id, no response body
+                # Notification - no id, no response body
                 _record_request(method, True)
                 return JSONResponse(status_code=204, content=None)
 
@@ -427,7 +427,7 @@ async def _sse_keepalive(
     user_id: int,
 ) -> AsyncGenerator[str, None]:
     """
-    SSE generator — yields periodic keepalive pings.
+    SSE generator - yields periodic keepalive pings.
 
     Currently we have no server-initiated messages, so this just
     maintains the connection and pings every 30s.

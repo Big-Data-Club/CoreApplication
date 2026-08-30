@@ -1,19 +1,19 @@
 """
 ai-service/mcp/server.py
 
-MCP Protocol Handler — JSON-RPC 2.0 over HTTP (Streamable HTTP Transport).
+MCP Protocol Handler - JSON-RPC 2.0 over HTTP (Streamable HTTP Transport).
 
 Implements MCP specification 2025-03-26.
 Reference: https://spec.modelcontextprotocol.io/specification/2025-03-26/
 
 Supported MCP methods:
-  initialize          — Capability negotiation handshake
-  notifications/initialized — Client acknowledgement (no-op server side)
-  ping                — Keep-alive
-  tools/list          — List all exposed BDC tools
-  tools/call          — Execute a tool
-  resources/list      — List available resources (courses, docs)
-  resources/read      — Read a resource by URI
+  initialize          - Capability negotiation handshake
+  notifications/initialized - Client acknowledgement (no-op server side)
+  ping                - Keep-alive
+  tools/list          - List all exposed BDC tools
+  tools/call          - Execute a tool
+  resources/list      - List available resources (courses, docs)
+  resources/read      - Read a resource by URI
 
 Error codes (JSON-RPC 2.0 standard + MCP extensions):
   -32700  Parse error
@@ -203,7 +203,7 @@ async def dispatch(body: dict, user_id: int) -> dict | None:
     if jsonrpc != "2.0":
         return _invalid_request(request_id, "jsonrpc must be '2.0'")
 
-    # Notifications (no id) — handle fire-and-forget, return None
+    # Notifications (no id) - handle fire-and-forget, return None
     is_notification = "id" not in body
     if is_notification:
         if method == "notifications/initialized":

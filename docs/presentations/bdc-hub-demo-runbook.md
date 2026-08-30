@@ -1,4 +1,4 @@
-# BDC Hub — Demo Runbook
+# BDC Hub - Demo Runbook
 
 ## Mục tiêu
 
@@ -27,13 +27,13 @@ Mỗi màn hình chỉ cần trả lời một câu: **người dùng vừa gi�
 
 | Thời lượng | Role | Thao tác | Câu nói chính |
 |---|---|---|---|
-| 0:00–0:40 | — | Mở dashboard/slide 1 | “Ta bắt đầu từ bài toán vận hành việc học, không bắt đầu từ model.” |
+| 0:00–0:40 | - | Mở dashboard/slide 1 | “Ta bắt đầu từ bài toán vận hành việc học, không bắt đầu từ model.” |
 | 0:40–1:20 | Admin | Mở LLM Registry | “Model được bind theo task; key, fallback và usage được quản trị tập trung.” |
 | 1:20–3:40 | Teacher | Upload file, mở trạng thái index | “Request trả job nhanh; worker xử lý dài ở phía sau.” |
 | 3:40–5:20 | Teacher | Tạo course/quiz draft, chỉnh một mục, approve | “AI tạo draft có source; teacher vẫn là người quyết định publish.” |
 | 5:20–7:30 | Student | Mở course đã index, hỏi Mentor, làm concept check/flashcard | “Câu trả lời dùng learning context của course, không phải trả lời kiến thức chung.” |
 | 7:30–8:40 | Student | Mở Discover và dashboard | “Recommendation có lý do: mục tiêu, level, progress, activity và nội dung mới.” |
-| 8:40–10:00 | — | Quay lại slide Closing | “Ba lớp: LMS, AI, Data tạo flywheel cải tiến trải nghiệm học.” |
+| 8:40–10:00 | - | Quay lại slide Closing | “Ba lớp: LMS, AI, Data tạo flywheel cải tiến trải nghiệm học.” |
 
 ## Câu chuyển giữa các phần
 
