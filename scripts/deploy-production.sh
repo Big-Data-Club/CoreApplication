@@ -87,6 +87,33 @@ rollback_on_error() {
 }
 trap rollback_on_error ERR
 
+diagnose_rollout() {
+  local deployment="$1"
+  echo "Deployment ${deployment} did not become ready; diagnostics follow." >&2
+  kubectl describe "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" >&2 || true
+  kubectl get pods --namespace "$DEPLOY_NAMESPACE" -l "app=${deployment}" -o wide >&2 || true
+  while IFS= read -r pod; do
+    [[ -z "$pod" ]] && continue
+    echo "--- ${pod}: previous/current logs ---" >&2
+    kubectl logs --namespace "$DEPLOY_NAMESPACE" "$pod" --all-containers --tail=150 >&2 || true
+    kubectl logs --namespace "$DEPLOY_NAMESPACE" "$pod" --all-containers --previous --tail=150 >&2 || true
+  done < <(kubectl get pods --namespace "$DEPLOY_NAMESPACE" -l "app=${deployment}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+}
+
+clear_terminating_pods() {
+  local deployment="$1"
+  local pods=()
+  mapfile -t pods < <(
+    kubectl get pods --namespace "$DEPLOY_NAMESPACE" -l "app=${deployment}" \
+      -o custom-columns=NAME:.metadata.name,DELETING:.metadata.deletionTimestamp --no-headers 2>/dev/null \
+      | awk '$2 != "<none>" && $2 != "" { print $1 }'
+  )
+  if ((${#pods[@]})); then
+    echo "Removing ${#pods[@]} pod(s) already marked Terminating for ${deployment}." >&2
+    kubectl delete pod --namespace "$DEPLOY_NAMESPACE" --grace-period=0 --force "${pods[@]}" >&2 || true
+  fi
+}
+
 kubectl cluster-info >/dev/null
 ./scripts/k3s-maintenance.sh \
   --namespace "$DEPLOY_NAMESPACE" \
@@ -157,9 +184,21 @@ for deployment in "${deployments[@]}"; do
 done
 
 for deployment in "${deployments[@]}"; do
-  kubectl rollout status "deployment/${deployment}" \
+  if ! kubectl rollout status "deployment/${deployment}" \
     --namespace "$DEPLOY_NAMESPACE" \
-    --timeout "$ROLLOUT_TIMEOUT"
+    --timeout "$ROLLOUT_TIMEOUT"; then
+    # A pod with deletionTimestamp is already being removed.  On a constrained
+    # single-node K3s host it can otherwise hold a rollout hostage forever.
+    # Never force-delete a live pod; only retry after clearing such stale
+    # terminating objects, then emit actionable diagnostics on a real failure.
+    clear_terminating_pods "$deployment"
+    if ! kubectl rollout status "deployment/${deployment}" \
+      --namespace "$DEPLOY_NAMESPACE" \
+      --timeout 2m; then
+      diagnose_rollout "$deployment"
+      exit 1
+    fi
+  fi
 done
 
 trap - ERR

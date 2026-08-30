@@ -45,7 +45,7 @@ disk_path=/var/lib/rancher/k3s
 disk_used="$(df -P "$disk_path" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')"
 [[ "$disk_used" =~ ^[0-9]+$ ]] || { echo "Cannot determine K3s disk usage" >&2; exit 1; }
 
-if [[ "$phase" == post && "$disk_used" -ge "$disk_threshold" ]]; then
+if [[ "$disk_used" -ge "$disk_threshold" ]]; then
   echo "K3s disk usage is ${disk_used}% (threshold ${disk_threshold}%); pruning unused containerd images."
   if command -v k3s >/dev/null 2>&1 && sudo -n /usr/local/bin/k3s crictl rmi --prune; then
     echo "Unused K3s images pruned."
