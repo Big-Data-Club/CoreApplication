@@ -706,9 +706,9 @@ func (h *QuizHandler) UploadQuestionImage(c *gin.Context) {
 		return
 	}
 
-	if file.Size > 5*1024*1024 {
+	if file.Size > 25*1024*1024 {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("file_too_large", 
-			"Image must be smaller than 5MB"))
+			"Image must be smaller than 25MB"))
 		return
 	}
 
