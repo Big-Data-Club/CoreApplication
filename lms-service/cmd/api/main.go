@@ -380,6 +380,16 @@ func main() {
 			flexSections.GET("/:sectionId/content", courseHandler.ListContent)
 			flexSections.PUT("/:sectionId/content/reorder", courseHandler.ReorderContents)
 		}
+		// Content mutations made by the internal AI/MCP service must use the
+		// same service-secret boundary as content creation.  The MCP adapter
+		// verifies course ownership before it reaches this route; normal browser
+		// traffic still uses JWT through the auth group below.
+		flexContent := v1.Group("/content")
+		flexContent.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		flexContent.Use(middleware.LoadLocalRoles(userRepo, redisClient))
+		{
+			flexContent.PUT("/:contentId", courseHandler.UpdateContent)
+		}
 
 		// Protected routes - require authentication
 		auth := v1.Group("")
@@ -529,7 +539,6 @@ func main() {
 			{
 				content.GET("/:contentId", courseHandler.GetContent)
 				content.GET("/:contentId/quiz", quizHandler.GetQuizByContentID)
-				content.PUT("/:contentId", courseHandler.UpdateContent)
 				content.DELETE("/:contentId", courseHandler.DeleteContent)
 				// -- Progress tracking (Student) ---------------------------
 				content.POST("/:contentId/complete", progressHandler.MarkComplete)
