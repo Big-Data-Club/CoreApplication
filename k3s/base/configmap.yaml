@@ -106,7 +106,10 @@ data:
   # not the source of truth for document indexing, so keep it disabled until
   # connectivity is restored.
   NEO4J_ENABLED: "false"
-  YOUTUBE_WHISPER_FALLBACK: "true"
+  # YouTube audio downloads are not a reliable server-side fallback: YouTube
+  # increasingly requires a per-video Proof-of-Origin token.  Index published
+  # captions; ask the owner to upload the source video when captions are absent.
+  YOUTUBE_WHISPER_FALLBACK: "false"
   LLM_PROVIDER: "groq"
   APP_PUBLIC_URL: "https://bdc.hpcc.vn"
   CORS_ALLOWED_ORIGINS: "https://bdc.hpcc.vn,http://localhost:3000"

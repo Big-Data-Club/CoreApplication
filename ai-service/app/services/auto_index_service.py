@@ -733,6 +733,9 @@ class AutoIndexService:
     ) -> tuple[str, list[DocumentChunk]]:
         if file_type == "youtube":
             return await self._extract_youtube(file_url)
+        if file_type == "video":
+            from app.services.video_index_service import video_index_service
+            return await video_index_service.extract(file_bytes)
         if file_type == "text":
             from app.core.vlm import describe_image_url
             text     = file_bytes.decode("utf-8", errors="replace")
@@ -816,8 +819,6 @@ class AutoIndexService:
                 except Exception as exc:
                     logger.error("Extract %s failed: %s", file_type, exc, exc_info=True)
                     return []
-            if file_type == "video":
-                return []
             text = file_bytes.decode("utf-8", errors="replace")
             chunker = PDFChunker(chunk_size=settings.chunk_size, overlap=settings.chunk_overlap)
             raw = chunker._split_text(text)

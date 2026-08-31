@@ -263,12 +263,21 @@ class VideoTranscriptChunker:
     """
     Chunk video transcripts with timestamp metadata.
     Supports Whisper-style transcripts (SRT or JSON with timestamps).
-    Groups segments into ~2-minute chunks for meaningful context.
+    Builds retrieval units around a complete spoken idea rather than arbitrary
+    fixed windows.  Every unit retains an exact playable time range.
     """
 
-    def __init__(self, segment_duration_sec: int = 120, overlap_sec: int = 15):
+    def __init__(
+        self,
+        segment_duration_sec: int = 90,
+        overlap_sec: int = 12,
+        min_segment_duration_sec: int = 35,
+        target_chars: int = 1_200,
+    ):
         self.segment_duration = segment_duration_sec
         self.overlap = overlap_sec
+        self.min_segment_duration = min_segment_duration_sec
+        self.target_chars = target_chars
 
     def chunk_whisper_json(self, transcript: dict) -> list[DocumentChunk]:
         """
@@ -279,47 +288,63 @@ class VideoTranscriptChunker:
         if not segments:
             return []
 
-        chunks: list[DocumentChunk] = []
-        chunk_index = 0
-        current_text = ""
-        current_start = segments[0]["start"]
-        current_end = segments[0]["end"]
-
+        normalized: list[dict] = []
         for seg in segments:
-            segment_text = sanitize_text(seg.get("text", "").strip())
-            seg_start = seg.get("start", 0)
-            seg_end = seg.get("end", seg_start)
+            text = sanitize_text(str(seg.get("text", "")).strip())
+            if not text:
+                continue
+            try:
+                start = max(0.0, float(seg.get("start", 0)))
+                end = max(start, float(seg.get("end", start)))
+            except (TypeError, ValueError):
+                continue
+            normalized.append({"text": text, "start": start, "end": end})
+        normalized.sort(key=lambda seg: (seg["start"], seg["end"]))
+        if not normalized:
+            return []
 
-            # If adding this segment exceeds the chunk duration, flush
-            if seg_end - current_start > self.segment_duration and current_text:
-                chunks.append(DocumentChunk(
-                    text=current_text.strip(),
-                    index=chunk_index,
-                    source_type="video",
-                    start_time_sec=int(current_start),
-                    end_time_sec=int(current_end),
-                    language=detect_language(current_text),
-                ))
-                chunk_index += 1
-                overlap_start = max(current_start, seg_end - self.overlap)
-                current_text = segment_text
-                current_start = overlap_start
-                current_end = seg_end
-            else:
-                current_text = (current_text + " " + segment_text).strip()
-                current_end = seg_end
+        chunks: list[DocumentChunk] = []
+        current: list[dict] = []
 
-        # Flush last chunk
-        if current_text.strip():
+        def flush() -> None:
+            if not current:
+                return
+            text = " ".join(part["text"] for part in current).strip()
+            if not text:
+                return
             chunks.append(DocumentChunk(
-                text=current_text.strip(),
-                index=chunk_index,
+                text=text,
+                index=len(chunks),
                 source_type="video",
-                start_time_sec=int(current_start),
-                end_time_sec=int(current_end),
-                language=detect_language(current_text),
+                start_time_sec=int(current[0]["start"]),
+                end_time_sec=max(int(current[-1]["end"]), int(current[0]["start"]) + 1),
+                language=detect_language(text),
             ))
 
+        for segment in normalized:
+            if not current:
+                current.append(segment)
+                continue
+
+            current_start = current[0]["start"]
+            current_text_len = sum(len(part["text"]) + 1 for part in current)
+            duration = segment["end"] - current_start
+            has_min_context = segment["start"] - current_start >= self.min_segment_duration
+            at_sentence_boundary = bool(re.search(r"[.!?。！？…]['\"]?$", current[-1]["text"]))
+            should_flush = has_min_context and (
+                duration > self.segment_duration
+                or (current_text_len >= self.target_chars and at_sentence_boundary)
+            )
+            if should_flush:
+                flush()
+                # Retain actual preceding spoken segments as overlap.  The old
+                # implementation changed only the timestamp, producing a
+                # misleading deep link without any overlapping text.
+                overlap_from = current[-1]["end"] - self.overlap
+                current = [part for part in current if part["end"] >= overlap_from]
+            current.append(segment)
+
+        flush()
         return chunks
 
     def chunk_srt(self, srt_content: str) -> list[DocumentChunk]:
@@ -374,7 +399,7 @@ def format_timestamp(seconds: int) -> str:
 class MarkdownChunker(PDFChunker):   # type: ignore[name-defined]
     """
     Semantic chunker for Markdown text (TEXT content type).
- 
+
     Pipeline (async path):
       1. Protect code blocks (replaced with placeholders during processing)
       2. Replace image references with VLM descriptions (async, concurrent)
@@ -811,4 +836,3 @@ def _extract_breadcrumb(text: str) -> str | None:
 def _strip_breadcrumb_prefix(text: str) -> str:
     """Drop a leading `[breadcrumb]\\n` so concatenated parent text is clean."""
     return _BREADCRUMB_RE.sub("", text.strip()).lstrip("\n").strip()
- 

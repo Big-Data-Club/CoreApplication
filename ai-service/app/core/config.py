@@ -124,6 +124,19 @@ class Settings(BaseSettings):
     document_index_stale_after_minutes: int = 45
     document_index_max_poll_interval_ms: int = 10_800_000  # 3 hours
 
+    # ── Uploaded-video indexing ──────────────────────────────────────────────
+    # Audio is the primary source.  Vision is bounded to a handful of frames
+    # and may be disabled on a resource-constrained deployment.
+    video_max_input_bytes: int = 500 * 1024 * 1024
+    video_max_duration_sec: int = 2 * 60 * 60
+    video_ffmpeg_timeout_sec: int = 20 * 60
+    video_whisper_model: str = "base"
+    video_chunk_target_sec: int = 90
+    video_chunk_overlap_sec: int = 12
+    video_visual_index_enabled: bool = True
+    video_keyframe_interval_sec: int = 90
+    video_max_keyframes: int = 8
+
     # ── Agent Memory ───────────────────────────────────────────────────────────
     stm_overflow_threshold: int = 3000        # tokens before STM overflow warning
     ltm_min_score: float = 0.3                # minimum cosine similarity for LTM recall
