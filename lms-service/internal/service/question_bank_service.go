@@ -258,6 +258,19 @@ func (s *QuestionBankService) UpdateItem(
 	if req.Difficulty != "" && !bankValidDifficulties[strings.ToUpper(req.Difficulty)] {
 		return nil, fmt.Errorf("invalid difficulty %q", req.Difficulty)
 	}
+	if req.QuestionText != nil {
+		text := strings.TrimSpace(*req.QuestionText)
+		if len([]rune(text)) < 3 || len([]rune(text)) > 10000 {
+			return nil, fmt.Errorf("question_text must be between 3 and 10000 characters")
+		}
+		req.QuestionText = &text
+	}
+	if err := validateBankJSONArray(req.AnswerOptions, "answer_options"); err != nil {
+		return nil, err
+	}
+	if err := validateBankJSONArray(req.CorrectAnswers, "correct_answers"); err != nil {
+		return nil, err
+	}
 	if req.BloomLevel != nil && *req.BloomLevel != "" {
 		b := strings.ToLower(strings.TrimSpace(*req.BloomLevel))
 		if !bankValidBlooms[b] {
@@ -280,6 +293,20 @@ func (s *QuestionBankService) UpdateItem(
 		return nil, err
 	}
 	return ToBankItemResponse(item), nil
+}
+
+func validateBankJSONArray(raw *json.RawMessage, field string) error {
+	if raw == nil {
+		return nil
+	}
+	var values []json.RawMessage
+	if !json.Valid(*raw) || json.Unmarshal(*raw, &values) != nil {
+		return fmt.Errorf("%s must be a valid JSON array", field)
+	}
+	if len(values) > 50 {
+		return fmt.Errorf("%s has too many entries", field)
+	}
+	return nil
 }
 
 func (s *QuestionBankService) DeleteItem(ctx context.Context, itemID, userID int64, userRole string) error {

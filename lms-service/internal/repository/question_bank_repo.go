@@ -255,6 +255,9 @@ func (r *QuestionBankRepository) Update(ctx context.Context, itemID int64, req d
 	} else if req.NodeID != nil {
 		sets = append(sets, "node_id = "+addArg(*req.NodeID))
 	}
+	if req.QuestionText != nil {
+		sets = append(sets, "question_text = "+addArg(*req.QuestionText))
+	}
 	if req.Difficulty != "" {
 		sets = append(sets, "difficulty = "+addArg(req.Difficulty))
 	}
@@ -272,6 +275,20 @@ func (r *QuestionBankRepository) Update(ctx context.Context, itemID int64, req d
 	}
 	if req.Explanation != nil {
 		sets = append(sets, "explanation = "+addArg(*req.Explanation))
+	}
+	if req.AnswerOptions != nil {
+		value, err := jsonText([]byte(*req.AnswerOptions), "[]", "answer_options")
+		if err != nil {
+			return nil, err
+		}
+		sets = append(sets, "answer_options = "+addArg(value)+"::jsonb")
+	}
+	if req.CorrectAnswers != nil {
+		value, err := jsonText([]byte(*req.CorrectAnswers), "[]", "correct_answers")
+		if err != nil {
+			return nil, err
+		}
+		sets = append(sets, "correct_answers = "+addArg(value)+"::jsonb")
 	}
 
 	args = append(args, itemID)

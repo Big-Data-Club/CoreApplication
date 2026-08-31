@@ -32,14 +32,19 @@ type CreateBankItemRequest struct {
 
 // UpdateBankItemRequest - partial update (all optional).
 type UpdateBankItemRequest struct {
-	NodeID      *int64    `json:"node_id"` // null clears the link (dangling)
-	ClearNode   bool      `json:"clear_node"`
-	Difficulty  string    `json:"difficulty"`
-	BloomLevel  *string   `json:"bloom_level"`
-	Points      *float64  `json:"points"`
-	Status      *string   `json:"status"`
-	Tags        *[]string `json:"tags"`
-	Explanation *string   `json:"explanation"`
+	NodeID         *int64           `json:"node_id"` // null clears the link (dangling)
+	ClearNode      bool             `json:"clear_node"`
+	QuestionText   *string          `json:"question_text"`
+	Difficulty     string           `json:"difficulty"`
+	BloomLevel     *string          `json:"bloom_level"`
+	Points         *float64         `json:"points"`
+	Status         *string          `json:"status"`
+	Tags           *[]string        `json:"tags"`
+	Explanation    *string          `json:"explanation"`
+	// Raw JSON keeps PATCH semantics: omitted is distinct from an intentional
+	// empty array, and repository code sends it as text rather than bytea.
+	AnswerOptions  *json.RawMessage `json:"answer_options"`
+	CorrectAnswers *json.RawMessage `json:"correct_answers"`
 }
 
 // BankListQuery - filter/sort/pagination for GET list.
