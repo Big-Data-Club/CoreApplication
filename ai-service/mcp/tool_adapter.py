@@ -54,11 +54,13 @@ SAFE_DEFAULT_TOOLS = {
     "mcp_create_course_from_files",
     "mcp_batch_generate_quiz",
     "mcp_generate_slide_deck",
+    "mcp_create_lesson",
 }
 WRITE_TOOLS = {
     "create_course_section",
     "mcp_index_files",
     "mcp_create_course_from_files",
+    "mcp_create_lesson",
 }
 
 
@@ -234,7 +236,7 @@ async def call_mcp_tool(
     )
 
     course_id = arguments.get("course_id")
-    if tool_name in {"list_knowledge_nodes", "search_course_materials", "create_course_section", "mcp_index_files", "mcp_batch_generate_quiz"}:
+    if tool_name in {"list_knowledge_nodes", "search_course_materials", "create_course_section", "mcp_index_files", "mcp_batch_generate_quiz", "mcp_create_lesson"}:
         if not isinstance(course_id, int) or course_id <= 0:
             return _tool_result_to_mcp(ToolResult(
                 status="error",

@@ -31,6 +31,7 @@ from app.agents.tools.teacher.mcp_create_course_from_files import McpCreateCours
 from app.agents.tools.teacher.mcp_batch_generate_quiz import McpBatchGenerateQuizTool
 from app.agents.tools.teacher.mcp_generate_slide_deck import McpGenerateSlideDeckTool
 from app.agents.tools.teacher.mcp_index_files import McpIndexFilesTool
+from app.agents.tools.teacher.mcp_create_lesson import McpCreateLessonTool
 
 # ── Mentor Tools ──────────────────────────────────────────────────────────────
 
@@ -72,6 +73,7 @@ _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     McpBatchGenerateQuizTool(),
     McpGenerateSlideDeckTool(),
     McpIndexFilesTool(),
+    McpCreateLessonTool(),
 ]
 
 _MENTOR_ONLY_TOOLS: list[BaseTool] = [
