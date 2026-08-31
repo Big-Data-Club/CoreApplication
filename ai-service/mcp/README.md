@@ -54,10 +54,22 @@ OpenCode (`opencode.json`):
 
 ## Resources and tools
 
-Clients can list owned course resources and the skills catalog from the
+Clients can list authorized course resources and the skills catalog from the
 `BDCHub--MCP_SkillSet` submodule. The production allowlist is defined in
 `k3s/base/configmap.yaml`. Deterministic authoring helpers clearly state that
 their input must first be authored by the caller's external model.
+
+`list_accessible_courses` is the read entrypoint for both teachers and learners:
+it returns owned/co-taught courses and accepted enrollments. Knowledge-node and
+material search accept either access type, while course mutations still require
+owner/co-teacher access and a write-scoped key.
+
+For local knowledge, the MCP client reads only user-selected local files and can
+combine them with read-only LMS search. The remote server never receives a local
+path or file automatically. A teacher may explicitly approve sending derived
+Markdown to `mcp_create_lesson`; the source file remains local. Note that a cloud
+model provider can still receive selected excerpts, so truly device-only work
+requires a local model and parser.
 
 Slide payloads use the same structured visual language as Content Studio:
 `flow`, `cycle`, `comparison`, `hierarchy`, or `timeline`, with 2–6 short

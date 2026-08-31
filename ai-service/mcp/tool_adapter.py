@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 SAFE_DEFAULT_TOOLS = {
+    "list_accessible_courses",
     "list_my_courses",
     "list_knowledge_nodes",
     "search_course_materials",
@@ -60,6 +61,18 @@ WRITE_TOOLS = {
     "create_course_section",
     "mcp_index_files",
     "mcp_create_course_from_files",
+    "mcp_create_lesson",
+}
+
+COURSE_READ_TOOLS = {
+    "list_knowledge_nodes",
+    "search_course_materials",
+}
+
+COURSE_OWNER_TOOLS = {
+    "create_course_section",
+    "mcp_index_files",
+    "mcp_batch_generate_quiz",
     "mcp_create_lesson",
 }
 
@@ -236,19 +249,28 @@ async def call_mcp_tool(
     )
 
     course_id = arguments.get("course_id")
-    if tool_name in {"list_knowledge_nodes", "search_course_materials", "create_course_section", "mcp_index_files", "mcp_batch_generate_quiz", "mcp_create_lesson"}:
+    if tool_name in COURSE_READ_TOOLS | COURSE_OWNER_TOOLS:
         if not isinstance(course_id, int) or course_id <= 0:
             return _tool_result_to_mcp(ToolResult(
                 status="error",
                 data={"error": "course_id_required"},
                 message="A valid course_id is required for this MCP tool.",
             ))
-        if not await _user_owns_course(user_id, course_id):
+        has_access = (
+            await _user_can_read_course(user_id, course_id)
+            if tool_name in COURSE_READ_TOOLS
+            else await _user_owns_course(user_id, course_id)
+        )
+        if not has_access:
             await _audit(user_id, tool_name, False, {"course_id": course_id, "reason": "forbidden"})
             return _tool_result_to_mcp(ToolResult(
                 status="error",
                 data={"error": "forbidden"},
-                message="You may only use this tool with a course you own or co-teach.",
+                message=(
+                    "This course is not readable by your account."
+                    if tool_name in COURSE_READ_TOOLS
+                    else "You may only use this tool with a course you own or co-teach."
+                ),
             ))
 
     try:
@@ -280,26 +302,21 @@ async def call_mcp_tool(
 
 async def _user_owns_course(user_id: int, course_id: int) -> bool:
     """Resolve authorization through LMS instead of trusting caller-supplied IDs."""
-    import httpx
-
-    headers = {
-        "X-API-Secret": settings.ai_service_secret,
-        "X-User-Id": str(user_id),
-    }
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"{settings.lms_service_url.rstrip('/')}/api/v1/courses/my",
-                params={"page": 1, "page_size": 100},
-                headers=headers,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        data = payload.get("data", payload) if isinstance(payload, dict) else payload
-        courses = data.get("items", []) if isinstance(data, dict) else data
-        return any(int(item.get("id", 0)) == course_id for item in courses if isinstance(item, dict))
+        from mcp.course_access import user_owns_course
+        return await user_owns_course(user_id, course_id)
     except Exception as exc:
         logger.warning("MCP ownership check failed closed: %s", exc)
+        return False
+
+
+async def _user_can_read_course(user_id: int, course_id: int) -> bool:
+    """Allow read-only MCP knowledge tools for owners/co-teachers and enrolled students."""
+    try:
+        from mcp.course_access import user_can_read_course
+        return await user_can_read_course(user_id, course_id)
+    except Exception as exc:
+        logger.warning("MCP course read-access check failed closed: %s", exc)
         return False
 
 

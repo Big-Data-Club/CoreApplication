@@ -9,8 +9,8 @@ before (or without) making tool calls. We expose:
   - bdc://courses/{course_id}        - Course metadata
   - bdc://courses/{course_id}/docs   - List of uploaded documents for a course
 
-Clients (e.g. Claude Desktop) can see these resources in the sidebar and
-reference them in prompts without needing to call list_my_courses first.
+Clients (e.g. Claude Desktop) can see owned/co-taught and accepted-enrollment
+resources in the sidebar without needing to call a discovery tool first.
 
 Implementation notes:
   - Resources are read-only (MCP resources/read is a GET analogue).
@@ -77,17 +77,8 @@ async def list_mcp_resources(user_id: int) -> list[dict]:
     # Attempt to fetch courses from LMS service.
     # Gracefully return empty list if LMS is unreachable.
     try:
-        lms_base = settings.lms_service_url.rstrip("/")
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{lms_base}/api/v1/courses/my",
-                params={"page": 1, "page_size": 100},
-                headers={"X-API-Secret": settings.ai_service_secret, "X-User-Id": str(user_id)},
-            )
-            resp.raise_for_status()
-            payload = resp.json()
-            data = payload.get("data", payload) if isinstance(payload, dict) else payload
-            courses: list[dict] = data.get("items", []) if isinstance(data, dict) else data
+        from mcp.course_access import list_accessible_courses
+        courses = await list_accessible_courses(user_id)
 
         for course in courses:
             cid = course.get("id")
@@ -164,8 +155,8 @@ async def read_mcp_resource(uri: str, user_id: int) -> dict:
 async def _read_course_resource(course_id: int, user_id: int) -> str:
     """Fetch course details from LMS and return as JSON string."""
     try:
-        from mcp.tool_adapter import _user_owns_course
-        if not await _user_owns_course(user_id, course_id):
+        from mcp.tool_adapter import _user_can_read_course
+        if not await _user_can_read_course(user_id, course_id):
             raise ValueError("Course not found or not available to this credential")
         lms_base = settings.lms_service_url.rstrip("/")
         async with httpx.AsyncClient(timeout=10.0) as client:

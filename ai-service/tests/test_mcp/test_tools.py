@@ -228,3 +228,33 @@ async def test_call_mcp_tool_rejects_reserved_arguments():
         result = await call_mcp_tool("some_tool", {"_user_id": 999}, USER_ID)
     assert result["isError"] is True
     assert "reserved" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_enrolled_student_can_use_course_read_tool():
+    success_result = ToolResult(status="success", data={"chunks": []}, message="Done")
+    with (
+        patch("mcp.tool_adapter._is_allowed", return_value=True),
+        patch("mcp.tool_adapter.get_tool_by_name", return_value=MagicMock()),
+        patch("mcp.tool_adapter._user_can_read_course", new=AsyncMock(return_value=True)),
+        patch("mcp.tool_adapter._user_owns_course", new=AsyncMock(return_value=False)),
+        patch("mcp.tool_adapter._audit", new=AsyncMock()),
+        patch("mcp.tool_adapter.execute_tool", new=AsyncMock(return_value=success_result)),
+    ):
+        result = await call_mcp_tool("search_course_materials", {"course_id": 58, "query": "paging"}, USER_ID)
+
+    assert result["isError"] is False
+
+
+@pytest.mark.asyncio
+async def test_enrolled_student_cannot_use_course_owner_tool():
+    with (
+        patch("mcp.tool_adapter._is_allowed", return_value=True),
+        patch("mcp.tool_adapter.get_tool_by_name", return_value=MagicMock()),
+        patch("mcp.tool_adapter._user_owns_course", new=AsyncMock(return_value=False)),
+        patch("mcp.tool_adapter._audit", new=AsyncMock()),
+    ):
+        result = await call_mcp_tool("mcp_create_lesson", {"course_id": 58}, USER_ID)
+
+    assert result["isError"] is True
+    assert "own or co-teach" in result["content"][0]["text"]

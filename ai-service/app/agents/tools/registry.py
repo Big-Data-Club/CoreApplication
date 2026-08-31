@@ -32,6 +32,7 @@ from app.agents.tools.teacher.mcp_batch_generate_quiz import McpBatchGenerateQui
 from app.agents.tools.teacher.mcp_generate_slide_deck import McpGenerateSlideDeckTool
 from app.agents.tools.teacher.mcp_index_files import McpIndexFilesTool
 from app.agents.tools.teacher.mcp_create_lesson import McpCreateLessonTool
+from app.agents.tools.shared.list_accessible_courses import ListAccessibleCoursesTool
 
 # ── Mentor Tools ──────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ from app.agents.tools.mentor.save_to_notebook import SaveToNotebookTool
 from app.agents.tools.teacher.list_my_courses import ListMyCoursesTool
 
 _SHARED_TOOLS: list[BaseTool] = [
+    ListAccessibleCoursesTool(),
     ListKnowledgeNodesTool(),
     SearchMaterialsTool(),
     SearchWebTool(),
