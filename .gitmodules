@@ -7,3 +7,6 @@
 [submodule "ai-service/mcp_skillset"]
 	path = ai-service/mcp_skillset
 	url = https://github.com/Big-Data-Club/BDCHub--MCP_SkillSet.git
+[submodule "data-warehouse"]
+	path = data-warehouse
+	url = https://github.com/Big-Data-Club/BDCHub---DataWarehouse.git
