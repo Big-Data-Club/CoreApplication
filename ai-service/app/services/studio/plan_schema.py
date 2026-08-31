@@ -49,6 +49,9 @@ class PlanSection(BaseModel):
     visual_suggestion: str = ""
     visual_type: Literal["auto", "flow", "cycle", "comparison", "hierarchy", "timeline"] = "auto"
     visual_labels: list[str] = Field(default_factory=list)
+    illustration_prompt: str = ""
+    alt_text: str = ""
+    source_refs: list[str] = Field(default_factory=list)
     duration_est_sec: int = 0
 
     def cleaned(self) -> "PlanSection":
@@ -58,6 +61,12 @@ class PlanSection(BaseModel):
         self.slide_bullets = [strip(b)[:200] for b in (self.slide_bullets or []) if strip(b)][:8]
         self.narration = (self.narration or "").strip()[:6000]
         self.visual_suggestion = strip(self.visual_suggestion)[:300]
+        self.illustration_prompt = strip(self.illustration_prompt)[:1000]
+        self.alt_text = strip(self.alt_text)[:500]
+        self.source_refs = [
+            ref for ref in (strip(str(value)).upper() for value in self.source_refs)
+            if re.fullmatch(r"S\d{1,3}", ref)
+        ][:8]
         from app.services.studio.visuals import clean_visual_labels
         self.visual_labels = clean_visual_labels(
             self.visual_labels,
@@ -133,6 +142,8 @@ def coerce_plan(raw: object, *, kind: str, fallback_title: str,
                 sec[field] = []
         if not isinstance(sec.get("visual_labels"), list):
             sec["visual_labels"] = []
+        if not isinstance(sec.get("source_refs"), list):
+            sec["source_refs"] = []
         from app.services.studio.visuals import VISUAL_TYPES
         if sec.get("visual_type") not in VISUAL_TYPES:
             sec["visual_type"] = "auto"

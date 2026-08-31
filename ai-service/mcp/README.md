@@ -78,6 +78,13 @@ PowerPoint shapes. An optional `illustration_prompt` can be sent to an image
 generator owned by the external client, so BDC neither pays that provider bill
 nor fetches untrusted remote image URLs.
 
+Long Studio inputs are budgeted against the smallest configured fallback model.
+When raw sources do not fit, every source is mapped into labelled evidence cards
+before the final plan call; the UI reports raw/used/budget token estimates. MCP
+clients follow the same workflow locally through `bdc-slide-designer` and
+`bdc-report-writer`. `mcp_generate_report` formats sourced report sections into
+safe Markdown and Mermaid without spending BDC gateway tokens.
+
 ## Tests
 
 ```bash

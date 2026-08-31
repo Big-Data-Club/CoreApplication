@@ -30,6 +30,7 @@ from app.agents.tools.teacher.create_course_from_materials import CreateCourseFr
 from app.agents.tools.teacher.mcp_create_course_from_files import McpCreateCourseFromFilesTool
 from app.agents.tools.teacher.mcp_batch_generate_quiz import McpBatchGenerateQuizTool
 from app.agents.tools.teacher.mcp_generate_slide_deck import McpGenerateSlideDeckTool
+from app.agents.tools.teacher.mcp_generate_report import McpGenerateReportTool
 from app.agents.tools.teacher.mcp_index_files import McpIndexFilesTool
 from app.agents.tools.teacher.mcp_create_lesson import McpCreateLessonTool
 from app.agents.tools.shared.list_accessible_courses import ListAccessibleCoursesTool
@@ -74,6 +75,7 @@ _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     McpCreateCourseFromFilesTool(),
     McpBatchGenerateQuizTool(),
     McpGenerateSlideDeckTool(),
+    McpGenerateReportTool(),
     McpIndexFilesTool(),
     McpCreateLessonTool(),
 ]

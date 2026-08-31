@@ -28,6 +28,8 @@ class McpGenerateSlideDeckTool(BaseTool):
                         "visual_type": {"type": "string", "enum": ["auto", "flow", "cycle", "comparison", "hierarchy", "timeline"], "default": "auto"},
                         "visual_labels": {"type": "array", "minItems": 2, "maxItems": 6, "items": {"type": "string", "maxLength": 80}},
                         "illustration_prompt": {"type": "string", "maxLength": 1000, "description": "Optional prompt the external client may use with its own image generator."},
+                        "alt_text": {"type": "string", "maxLength": 500},
+                        "source_refs": {"type": "array", "maxItems": 12, "items": {"type": "string", "maxLength": 200}},
                     },
                     "required": ["title", "bullets"],
                 },
@@ -61,7 +63,9 @@ class McpGenerateSlideDeckTool(BaseTool):
             visual_type = resolve_visual_type(visual_type, labels)
             mermaid = mermaid_for_visual(visual_type, labels)
             illustration_prompt = str(raw.get("illustration_prompt") or "")[:1000]
-            normalized.append({"slide_number": index, "title": slide_title, "bullets": bullets, "speaker_notes": notes, "code_snippet": code, "visual_type": visual_type, "visual_labels": labels, "mermaid_diagram": mermaid, "illustration_prompt": illustration_prompt})
+            alt_text = str(raw.get("alt_text") or "").strip()[:500]
+            source_refs = [str(value).strip()[:200] for value in (raw.get("source_refs") or []) if str(value).strip()][:12]
+            normalized.append({"slide_number": index, "title": slide_title, "bullets": bullets, "speaker_notes": notes, "code_snippet": code, "visual_type": visual_type, "visual_labels": labels, "mermaid_diagram": mermaid, "illustration_prompt": illustration_prompt, "alt_text": alt_text, "source_refs": source_refs})
             block = [f"## {slide_title}"]
             if mermaid:
                 block.append(f"```mermaid\n{mermaid}\n```")
@@ -72,6 +76,10 @@ class McpGenerateSlideDeckTool(BaseTool):
                 block.append(f"<!-- speaker-notes: {notes.replace('-->', '->')} -->")
             if illustration_prompt:
                 block.append(f"<!-- optional-external-image-prompt: {illustration_prompt.replace('-->', '->')} -->")
+            if alt_text:
+                block.append(f"*Visual description: {alt_text}*")
+            if source_refs:
+                block.append("Sources: " + "; ".join(source_refs))
             rendered.append("\n\n".join(block))
 
         return ToolResult(

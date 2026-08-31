@@ -35,8 +35,14 @@ def render_plan_to_markdown(plan: StudioPlan) -> str:
         mermaid = mermaid_for_visual(sec.visual_type, sec.visual_labels)
         if mermaid:
             lines.extend(["```mermaid", mermaid, "```", ""])
+        if sec.alt_text:
+            lines.extend([f"*Mô tả hình: {sec.alt_text}*", ""])
+        if sec.illustration_prompt:
+            lines.extend([f"> Gợi ý ảnh (chưa tạo): {sec.illustration_prompt}", ""])
         if sec.narration and sec.narration not in "\n".join(body_points or []):
             lines.append(sec.narration)
             lines.append("")
+        if sec.source_refs:
+            lines.extend([f"Nguồn tham chiếu: {', '.join(sec.source_refs)}", ""])
 
     return "\n".join(lines).strip() + "\n"

@@ -4,6 +4,7 @@ import asyncio
 from io import BytesIO
 
 from app.agents.tools.teacher.mcp_generate_slide_deck import McpGenerateSlideDeckTool
+from app.agents.tools.teacher.mcp_generate_report import McpGenerateReportTool
 from app.services.studio.doc_renderer import render_plan_to_markdown
 from app.services.studio.plan_schema import PlanSection, StudioPlan
 from app.services.studio.plan_schema import coerce_plan
@@ -64,3 +65,26 @@ def test_mcp_deck_has_visual_on_every_slide():
     assert result.status == "success"
     assert result.data["visual_coverage"] == "1/1"
     assert "```mermaid" in result.data["reveal_markdown"]
+
+
+def test_mcp_report_has_grounding_visual_and_non_blocking_image_prompt():
+    result = asyncio.run(McpGenerateReportTool().execute(
+        title="Architecture report",
+        executive_summary="A grounded summary.",
+        sections=[{
+            "heading": "Data flow",
+            "body_markdown": "The event crosses the validated pipeline.",
+            "key_findings": ["Validation precedes persistence"],
+            "visual_type": "flow",
+            "visual_labels": ["Client", "Validation", "Storage"],
+            "alt_text": "Three stages from client to storage.",
+            "illustration_prompt": "Minimal academic pipeline illustration",
+            "source_refs": ["LOCAL-01 §Data flow", "LMS-S3"],
+        }],
+    ))
+    assert result.status == "success"
+    assert result.data["visual_coverage"] == "1/1"
+    markdown = result.data["report_markdown"]
+    assert "```mermaid" in markdown
+    assert "Gợi ý ảnh (chưa tạo)" in markdown
+    assert "LOCAL-01" in markdown
