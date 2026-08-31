@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: auth-uploads-pvc
+  labels:
+    app: auth-service
+    component: uploads
+spec:
+  # The K3s local-path provisioner keeps profile uploads across pod rollouts.
+  # This workload has one replica, so ReadWriteOnce is the appropriate mode.
+  storageClassName: local-path
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

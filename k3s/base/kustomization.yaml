@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
 - configmap.yaml
+- auth-uploads-pvc.yaml
 - auth-service-deployment.yaml
 - lms-service-deployment.yaml
 - lab-service-deployment.yaml

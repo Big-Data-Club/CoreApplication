@@ -42,6 +42,8 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class UserServiceImpl implements UserService {
 
+    private static final long MAX_PROFILE_PICTURE_BYTES = 1024L * 1024L;
+
     private final UserRepository     userRepository;
     private final OrganizationMemberRepository organizationMemberRepository;
     private final RoleRepository     roleRepository;
@@ -396,6 +398,9 @@ public class UserServiceImpl implements UserService {
     private void validateImageFile(MultipartFile file) {
         if (file.isEmpty()) {
             throw new BadRequestException("File is empty");
+        }
+        if (file.getSize() > MAX_PROFILE_PICTURE_BYTES) {
+            throw new BadRequestException("Ảnh đại diện phải nhỏ hơn hoặc bằng 1 MB");
         }
         String ct = file.getContentType();
         if (ct == null || !ct.startsWith("image/")) {
