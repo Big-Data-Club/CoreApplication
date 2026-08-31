@@ -1,7 +1,12 @@
 """Validate quiz packages authored by an external MCP client model."""
 from __future__ import annotations
 
+import httpx
+
 from app.agents.tools.base_tool import BaseTool, ToolResult
+from app.core.config import get_settings
+
+settings = get_settings()
 
 
 class McpBatchGenerateQuizTool(BaseTool):
@@ -76,8 +81,63 @@ class McpBatchGenerateQuizTool(BaseTool):
             total += len(clean_questions)
             normalized.append({"node_id": int(quiz["node_id"]), "title": str(quiz.get("title") or "Quiz")[:200], "questions": clean_questions})
 
+        try:
+            bank_items = await _save_to_question_bank(
+                course_id=course_id,
+                user_id=int(kwargs.get("_user_id") or 0),
+                quizzes=normalized,
+            )
+        except ValueError as exc:
+            return ToolResult(status="error", data={"error": "question_bank_save_failed"}, message=str(exc))
+        except Exception:
+            return ToolResult(
+                status="error", data={"error": "question_bank_save_failed"},
+                message="Questions were validated but could not be saved to the LMS Question Bank.",
+            )
+
         return ToolResult(
             status="success",
-            data={"course_id": course_id, "quizzes": normalized, "question_count": total, "state": "VALIDATED_DRAFT"},
-            message=f"Validated {total} externally authored questions. Review them before publishing in LMS.",
+            data={
+                "course_id": course_id, "quizzes": normalized,
+                "question_count": total, "bank_item_ids": [item.get("id") for item in bank_items if isinstance(item, dict)],
+                "state": "SAVED_TO_QUESTION_BANK_DRAFT",
+            },
+            message=f"Saved {len(bank_items)} externally authored questions as drafts in the LMS Question Bank. Review and select them to assemble a quiz.",
         )
+
+
+async def _save_to_question_bank(*, course_id: int, user_id: int, quizzes: list[dict]) -> list[dict]:
+    items: list[dict] = []
+    for quiz in quizzes:
+        for question in quiz["questions"]:
+            items.append({
+                "node_id": quiz["node_id"],
+                "question_type": "SINGLE_CHOICE",
+                "question_text": question["question"],
+                "explanation": question["explanation"],
+                "points": 10,
+                "difficulty": "MEDIUM",
+                "answer_options": [
+                    {"option_text": option, "is_correct": index == question["correct_index"], "order_index": index}
+                    for index, option in enumerate(question["options"])
+                ],
+                "correct_answers": [],
+                "settings": {},
+                "tags": ["mcp", "external-ai"],
+                "source": "AI_GENERATED",
+                "status": "DRAFT",
+            })
+    headers = {"X-API-Secret": settings.ai_service_secret, "X-User-Id": str(user_id)}
+    url = f"{settings.lms_service_url.rstrip('/')}/api/v1/courses/{course_id}/question-bank"
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(url, json={"items": items}, headers=headers)
+    if response.status_code not in (200, 201):
+        try:
+            body = response.json()
+            message = body.get("message") or body.get("error") or response.text
+        except ValueError:
+            message = response.text
+        raise ValueError(f"LMS Question Bank rejected the draft (HTTP {response.status_code}): {message[:500]}")
+    body = response.json()
+    data = body.get("data", body) if isinstance(body, dict) else body
+    return data if isinstance(data, list) else []

@@ -359,6 +359,26 @@ func main() {
 			flexCourses.POST("/:courseId/sections", courseHandler.CreateSection)
 			flexCourses.GET("/:courseId/sections", courseHandler.ListSections)
 			flexCourses.GET("/my", courseHandler.ListMyCourses)
+			// MCP writes are authorized by its own course-owner gate and call
+			// through the AI service using X-API-Secret. Keep their LMS routes
+			// on the same service-or-JWT boundary as sections.
+			flexCourses.POST("/:courseId/question-bank", questionBankHandler.CreateItems)
+			flexCourses.GET("/:courseId/question-bank", questionBankHandler.ListItems)
+			flexCourses.GET("/:courseId/question-bank/stats", questionBankHandler.Stats)
+			flexCourses.POST("/:courseId/question-bank/generate", questionBankHandler.GenerateToBank)
+			flexCourses.POST("/:courseId/question-bank/create-quiz", questionBankHandler.CreateQuizFromBank)
+			flexCourses.POST("/:courseId/question-bank/suggest-quiz", questionBankHandler.SuggestQuizMetadata)
+		}
+		flexSections := v1.Group("/sections")
+		flexSections.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		flexSections.Use(middleware.LoadLocalRoles(userRepo, redisClient))
+		{
+			flexSections.GET("/:sectionId", courseHandler.GetSection)
+			flexSections.PUT("/:sectionId", courseHandler.UpdateSection)
+			flexSections.DELETE("/:sectionId", courseHandler.DeleteSection)
+			flexSections.POST("/:sectionId/content", courseHandler.CreateContent)
+			flexSections.GET("/:sectionId/content", courseHandler.ListContent)
+			flexSections.PUT("/:sectionId/content/reorder", courseHandler.ReorderContents)
 		}
 
 		// Protected routes - require authentication
@@ -445,14 +465,6 @@ func main() {
 			auth.POST("/course-blueprints/:blueprintId/cancel", courseBlueprintHandler.Cancel)
 			courses := auth.Group("/courses")
 			{
-				// Question bank (Thư viện đề thi)
-				courses.POST("/:courseId/question-bank", questionBankHandler.CreateItems)
-				courses.GET("/:courseId/question-bank", questionBankHandler.ListItems)
-				courses.GET("/:courseId/question-bank/stats", questionBankHandler.Stats)
-				courses.POST("/:courseId/question-bank/generate", questionBankHandler.GenerateToBank)
-				courses.POST("/:courseId/question-bank/create-quiz", questionBankHandler.CreateQuizFromBank)
-				courses.POST("/:courseId/question-bank/suggest-quiz", questionBankHandler.SuggestQuizMetadata)
-
 				courses.POST("/:courseId/material-routing", courseBlueprintHandler.CreateMaterialRouting)
 				courses.GET("/:courseId/material-routing/:routingId", courseBlueprintHandler.GetMaterialRouting)
 				courses.POST("/:courseId/material-routing/apply", courseBlueprintHandler.ApplyMaterialRouting)
@@ -510,19 +522,6 @@ func main() {
 			flashcards := auth.Group("/flashcards")
 			{
 				flashcards.POST("/:flashcardId/review", flashcardHandler.ReviewFlashcard)
-			}
-
-			// SECTION MANAGEMENT
-			sections := auth.Group("/sections")
-			{
-				sections.GET("/:sectionId", courseHandler.GetSection)
-				sections.PUT("/:sectionId", courseHandler.UpdateSection)
-				sections.DELETE("/:sectionId", courseHandler.DeleteSection)
-
-				// Content management
-				sections.POST("/:sectionId/content", courseHandler.CreateContent)
-				sections.GET("/:sectionId/content", courseHandler.ListContent)
-				sections.PUT("/:sectionId/content/reorder", courseHandler.ReorderContents)
 			}
 
 			// CONTENT MANAGEMENT

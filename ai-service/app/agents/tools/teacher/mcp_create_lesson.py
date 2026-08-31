@@ -233,7 +233,7 @@ async def _create_lesson_content(*, section_id: int, user_id: int, payload: dict
             if listed.status_code == 404:
                 raise ValueError("Section not found.")
             if listed.status_code != 200:
-                raise ValueError("Could not inspect the target section.")
+                raise ValueError(f"Could not inspect the target section (LMS HTTP {listed.status_code}): {_response_error(listed)}")
             body = listed.json()
             items = body.get("data", body) if isinstance(body, dict) else body
             order_index = len(items) if isinstance(items, list) else 0
