@@ -72,7 +72,7 @@ class McpCreateCourseFromFilesTool(BaseTool):
             "source_names": {
                 "type": "array", "maxItems": 50,
                 "items": {"type": "string", "maxLength": 255},
-                "description": "Optional display-only provenance. Never send local paths, URLs, file bytes or credentials.",
+                "description": "Accepted for backward compatibility and discarded. Never send local paths, URLs, file bytes or credentials.",
             },
         },
         "required": ["plan"],
