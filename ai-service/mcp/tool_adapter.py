@@ -63,6 +63,7 @@ WRITE_TOOLS = {
     "mcp_index_files",
     "mcp_create_course_from_files",
     "mcp_create_lesson",
+    "mcp_batch_generate_quiz",
 }
 
 COURSE_READ_TOOLS = {

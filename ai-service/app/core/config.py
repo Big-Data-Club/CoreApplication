@@ -169,9 +169,11 @@ class Settings(BaseSettings):
     mcp_rate_limit_rpm: int = 100
     # Empty uses the conservative built-in allowlist; it never means "all".
     mcp_allowed_tools: str = "list_my_courses,list_knowledge_nodes,search_course_materials,create_course_section,mcp_index_files,mcp_create_course_from_files,mcp_batch_generate_quiz,mcp_generate_slide_deck,mcp_create_lesson"
-    mcp_max_body_bytes: int = 262144
+    # Large externally-authored quiz/report payloads remain schema-bounded, but
+    # need more room than the former 256 KiB transport limit.
+    mcp_max_body_bytes: int = 1048576
     mcp_max_batch_size: int = 20
-    mcp_tool_timeout_seconds: int = 45
+    mcp_tool_timeout_seconds: int = 120
 
     def __init__(self, **values):
         super().__init__(**values)

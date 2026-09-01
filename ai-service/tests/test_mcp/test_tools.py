@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.agents.tools.base_tool import ToolResult
 from mcp.tool_adapter import (
+    WRITE_TOOLS,
     _tool_result_to_mcp,
     call_mcp_tool,
     get_mcp_tool_list,
@@ -30,6 +31,10 @@ from mcp.tool_adapter import (
 
 
 USER_ID = 42
+
+
+def test_quiz_creation_requires_write_scoped_key():
+    assert "mcp_batch_generate_quiz" in WRITE_TOOLS
 
 
 # ── _tool_result_to_mcp ──────────────────────────────────────────────────────

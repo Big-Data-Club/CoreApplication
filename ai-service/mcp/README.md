@@ -16,7 +16,9 @@ and use their own Claude, Codex, or OpenCode model for reasoning.
 - Writes require a write-scoped key and the MCP server instructs clients to ask
   for explicit confirmation immediately before the call.
 - Slide, quiz, and blueprint content is authored by the external client model.
-  BDC validates, formats, or stores a reviewable draft without calling its LLM.
+  BDC validates and persists only the explicitly approved result without calling
+  its LLM. The quiz tool can retain Question Bank drafts or assemble complete
+  scheduled quizzes with attempt limits; publication remains explicit.
 
 ## Client configuration
 
@@ -84,6 +86,14 @@ before the final plan call; the UI reports raw/used/budget token estimates. MCP
 clients follow the same workflow locally through `bdc-slide-designer` and
 `bdc-report-writer`. `mcp_generate_report` formats sourced report sections into
 safe Markdown and Mermaid without spending BDC gateway tokens.
+
+For complete assessment authoring, `mcp_batch_generate_quiz` accepts
+`quiz_settings` with the target section, duration, attempt limit, passing score,
+timezone-aware availability window, shuffle behavior, and explicit publication
+state. Its standard ladder requires exactly ten explained questions (1–4
+remember, 5–7 understand/apply, 8–10 analyze/calculate); advanced questions
+retain lesson `source_refs` for review. A write-scoped key and course ownership
+are required.
 
 ## Tests
 
