@@ -47,6 +47,10 @@ class StatusRequest(BaseModel):
     owner_id: int
 
 
+class AppliedRequest(StatusRequest):
+    course_id: int = Field(gt=0)
+
+
 def _verify(request: Request) -> None:
     if request.headers.get("X-AI-Secret", "") != settings.ai_service_secret:
         raise HTTPException(status_code=403, detail="Unauthorized internal call")
@@ -73,6 +77,37 @@ def _dto(row) -> dict:
         "processing_stage": row.get("processing_stage") if hasattr(row, "get") else row["processing_stage"],
         "progress_pct": row.get("progress_pct") if hasattr(row, "get") else row["progress_pct"],
     }
+
+
+def _validate_external_mcp_plan(plan: object) -> dict:
+    """Validate legacy MCP curriculum without requiring uploaded material IDs."""
+    errors: list[dict[str, str]] = []
+    if not isinstance(plan, dict):
+        return {"valid": False, "errors": [{"code": "invalid_plan", "message": "Course plan must be an object."}]}
+    title = str(plan.get("title") or "").strip()
+    chapters = plan.get("chapters")
+    if not 3 <= len(title) <= 255:
+        errors.append({"code": "invalid_title", "message": "Course title must contain 3–255 characters."})
+    if not isinstance(chapters, list) or not 1 <= len(chapters) <= 50:
+        errors.append({"code": "invalid_chapters", "message": "Course requires 1–50 chapters."})
+        chapters = []
+    lesson_count = 0
+    for chapter_index, chapter in enumerate(chapters, 1):
+        if not isinstance(chapter, dict) or not 3 <= len(str(chapter.get("title") or "").strip()) <= 255:
+            errors.append({"code": "invalid_chapter", "message": f"Chapter {chapter_index} requires a 3–255 character title."})
+            continue
+        lessons = chapter.get("lessons", [])
+        if not isinstance(lessons, list):
+            errors.append({"code": "invalid_lessons", "message": f"Chapter {chapter_index} lessons must be an array."})
+            continue
+        lesson_count += len(lessons)
+        for lesson_index, lesson in enumerate(lessons, 1):
+            lesson_title = lesson if isinstance(lesson, str) else lesson.get("title") if isinstance(lesson, dict) else ""
+            if not 3 <= len(str(lesson_title or "").strip()) <= 255:
+                errors.append({"code": "invalid_lesson", "message": f"Chapter {chapter_index}, lesson {lesson_index} requires a valid title."})
+    if lesson_count > 300:
+        errors.append({"code": "too_many_lessons", "message": "A course supports at most 300 lessons in one blueprint."})
+    return {"valid": not errors, "errors": errors, "lesson_count": lesson_count, "state": "DRAFT", "author": "external_mcp_client"}
 
 
 @router.post("", status_code=202)
@@ -166,23 +201,47 @@ async def approve_draft(blueprint_id: UUID, body: StatusRequest, request: Reques
     # response or a BFF/frontend race.  Returning the already-approved draft
     # makes the operation idempotent and prevents a harmless retry becoming a
     # misleading 502 during course materialisation.
-    if row["status"] == "APPROVED":
+    if row["status"] in {"APPROVED", "APPLIED"}:
         return _dto(row)
     if row["status"] != "DRAFT":
         raise HTTPException(409, "Blueprint is no longer awaiting approval")
-    manifest = json.loads(row["source_manifest"]) if isinstance(row["source_manifest"], str) else row["source_manifest"]
-    governance_manifest = json.loads(row["governance_manifest"]) if isinstance(row["governance_manifest"], str) else row["governance_manifest"]
     plan_payload = json.loads(row["plan"]) if isinstance(row["plan"], str) else row["plan"]
-    report = validate_plan(
-        CoursePlan.model_validate(plan_payload), {item["id"] for item in manifest},
-        set(governance_manifest.get("allowed_organization_ids", [])),
-        set(governance_manifest.get("allowed_co_teacher_ids", [])),
-    )
+    if row["origin"] == "chatbot":
+        report = _validate_external_mcp_plan(plan_payload)
+    else:
+        manifest = json.loads(row["source_manifest"]) if isinstance(row["source_manifest"], str) else row["source_manifest"]
+        governance_manifest = json.loads(row["governance_manifest"]) if isinstance(row["governance_manifest"], str) else row["governance_manifest"]
+        report = validate_plan(
+            CoursePlan.model_validate(plan_payload), {item["id"] for item in manifest},
+            set(governance_manifest.get("allowed_organization_ids", [])),
+            set(governance_manifest.get("allowed_co_teacher_ids", [])),
+        )
     if not report["valid"]:
         raise HTTPException(422, {"message": "Complete valid ownership settings before approval", "validation": report})
     async with get_ai_conn() as conn:
         updated = await conn.fetchrow(
             "UPDATE course_blueprints SET status='APPROVED' WHERE id=$1 RETURNING *", blueprint_id)
+    return _dto(updated)
+
+
+@router.post("/{blueprint_id}/applied")
+async def mark_applied(blueprint_id: UUID, body: AppliedRequest, request: Request):
+    """Record the LMS course created from this blueprint; safe to retry."""
+    _verify(request)
+    row = await _row_or_404(blueprint_id)
+    if row["owner_id"] != body.owner_id:
+        raise HTTPException(403, "Blueprint belongs to another teacher")
+    if row["status"] == "APPLIED":
+        if row["applied_course_id"] != body.course_id:
+            raise HTTPException(409, "Blueprint was applied to a different course")
+        return _dto(row)
+    if row["status"] != "APPROVED":
+        raise HTTPException(409, "Blueprint must be approved before it can be marked applied")
+    async with get_ai_conn() as conn:
+        updated = await conn.fetchrow(
+            "UPDATE course_blueprints SET status='APPLIED', applied_course_id=$2 WHERE id=$1 RETURNING *",
+            blueprint_id, body.course_id,
+        )
     return _dto(updated)
 
 

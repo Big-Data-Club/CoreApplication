@@ -13,7 +13,7 @@ data:
   # MCP Server Defaults
   MCP_ENABLED: "true"
   MCP_RATE_LIMIT_RPM: "100"
-  MCP_ALLOWED_TOOLS: "list_accessible_courses,list_my_courses,list_knowledge_nodes,search_course_materials,create_course_section,mcp_index_files,mcp_create_course_from_files,mcp_batch_generate_quiz,mcp_generate_slide_deck,mcp_generate_report,mcp_create_lesson"
+  MCP_ALLOWED_TOOLS: "list_accessible_courses,list_my_courses,list_knowledge_nodes,search_course_materials,create_course_section,mcp_index_files,mcp_create_course_from_files,mcp_apply_course_blueprint,mcp_batch_generate_quiz,mcp_generate_slide_deck,mcp_generate_report,mcp_create_lesson"
   MCP_MAX_BODY_BYTES: "2097152"
   MCP_MAX_BATCH_SIZE: "20"
   MCP_TOOL_TIMEOUT_SECONDS: "120"

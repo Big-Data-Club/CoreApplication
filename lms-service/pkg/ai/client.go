@@ -1033,6 +1033,15 @@ func (c *Client) ApproveCourseBlueprint(ctx context.Context, id string, ownerID 
 	}
 	return resp, nil
 }
+
+func (c *Client) MarkCourseBlueprintApplied(ctx context.Context, id string, ownerID, courseID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	if err := c.post(ctx, "/ai/course-blueprints/"+id+"/applied", map[string]int64{"owner_id": ownerID, "course_id": courseID}, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (c *Client) CancelCourseBlueprint(ctx context.Context, id string, ownerID int64, result interface{}) error {
 	return c.post(ctx, "/ai/course-blueprints/"+id+"/cancel", map[string]int64{"owner_id": ownerID}, result)
 }

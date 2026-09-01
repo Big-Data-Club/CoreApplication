@@ -37,6 +37,10 @@ def test_quiz_creation_requires_write_scoped_key():
     assert "mcp_batch_generate_quiz" in WRITE_TOOLS
 
 
+def test_blueprint_materialization_requires_write_scoped_key():
+    assert "mcp_apply_course_blueprint" in WRITE_TOOLS
+
+
 # ── _tool_result_to_mcp ──────────────────────────────────────────────────────
 
 def test_tool_result_to_mcp_success():

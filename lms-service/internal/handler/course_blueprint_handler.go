@@ -70,28 +70,53 @@ func (h *CourseBlueprintHandler) Apply(c *gin.Context) {
 	bytes, _ := json.Marshal(result)
 	type document struct { ID string `json:"id"`; Filename string `json:"filename"`; FilePath string `json:"file_path"`; ContentType string `json:"content_type"` }
 	var blueprint struct {
-		Documents []document `json:"documents"`
+		Documents json.RawMessage `json:"documents"`
+		AppliedCourseID int64 `json:"applied_course_id"`
 		Plan struct {
 			Title, Description, Category, Level string
 			Governance struct { OrganizationID int64 `json:"organization_id"`; Visibility string `json:"visibility"`; ThumbnailURL string `json:"thumbnail_url"` } `json:"governance"`
-			Chapters []struct { Title, Description string; MaterialIDs []string `json:"material_ids"` } `json:"chapters"`
+			Chapters []struct { Title, Description string; MaterialIDs []string `json:"material_ids"`; Lessons []json.RawMessage `json:"lessons"` } `json:"chapters"`
 		} `json:"plan"`
 	}
 	if err := json.Unmarshal(bytes, &blueprint); err != nil { c.JSON(502, dto.NewErrorResponse("ai_error", "Blueprint response không hợp lệ")); return }
+	if blueprint.AppliedCourseID > 0 { c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{"course_id": blueprint.AppliedCourseID, "blueprint": result, "already_applied": true})); return }
+	if blueprint.Plan.Level == "" { blueprint.Plan.Level = "ALL_LEVELS" }
+	if blueprint.Plan.Governance.Visibility == "" { blueprint.Plan.Governance.Visibility = "ORG_ONLY" }
 	userID, role := c.GetInt64("user_id"), getRoleFromContext(c)
 	created, err := h.courses.CreateCourse(c.Request.Context(), &dto.CreateCourseRequest{Title: blueprint.Plan.Title, Description: blueprint.Plan.Description, Category: blueprint.Plan.Category, Level: blueprint.Plan.Level, ThumbnailURL: blueprint.Plan.Governance.ThumbnailURL, OrgID: blueprint.Plan.Governance.OrganizationID, Visibility: blueprint.Plan.Governance.Visibility}, userID)
 	if err != nil { c.JSON(422, dto.NewErrorResponse("materialize_error", err.Error())); return }
 	rollback := func(cause error) { _ = h.courses.DeleteCourse(c.Request.Context(), created.ID, userID, "SYSTEM_ROLLBACK", ""); c.JSON(500, dto.NewErrorResponse("materialize_error", fmt.Sprintf("Không thể tạo đầy đủ course: %v", cause))) }
+	var documents []document
+	if len(blueprint.Documents) > 0 && string(blueprint.Documents) != "null" {
+		// Legacy MCP blueprints stored a display-name object instead of LMS
+		// documents. Only a real array is eligible for document materialisation.
+		_ = json.Unmarshal(blueprint.Documents, &documents)
+	}
 	files := map[string]document{}
-	for _, file := range blueprint.Documents { files[file.ID] = file }
+	for _, file := range documents { files[file.ID] = file }
 	for sectionIndex, chapter := range blueprint.Plan.Chapters {
 		section, err := h.courses.CreateSection(c.Request.Context(), created.ID, &dto.CreateSectionRequest{Title: chapter.Title, Description: chapter.Description, OrderIndex: sectionIndex}, userID, role); if err != nil { rollback(err); return }
-		for contentIndex, materialID := range chapter.MaterialIDs {
+		contentIndex := 0
+		for _, materialID := range chapter.MaterialIDs {
 			file, ok := files[materialID]; if !ok { rollback(fmt.Errorf("tài liệu %s không tồn tại", materialID)); return }
 			_, err = h.courses.CreateContent(c.Request.Context(), section.ID, &dto.CreateContentRequest{Type: "DOCUMENT", Title: file.Filename, OrderIndex: contentIndex, Metadata: map[string]interface{}{"file_path": file.FilePath, "file_name": file.Filename, "file_type": file.ContentType, "blueprint_id": c.Param("blueprintId")}}, userID, role)
 			if err != nil { rollback(err); return }
+			contentIndex++
+		}
+		for lessonIndex, rawLesson := range chapter.Lessons {
+			var item struct { Title string `json:"title"`; Description string `json:"description"`; Markdown string `json:"markdown"`; Content string `json:"content"` }
+			if err := json.Unmarshal(rawLesson, &item); err != nil {
+				var plainTitle string
+				if stringErr := json.Unmarshal(rawLesson, &plainTitle); stringErr != nil { rollback(fmt.Errorf("bài học %d trong chương %s không hợp lệ", lessonIndex+1, chapter.Title)); return }
+				item.Title = plainTitle
+			}
+			markdown := item.Markdown; if markdown == "" { markdown = item.Content }; if markdown == "" { markdown = item.Description }
+			_, err = h.courses.CreateContent(c.Request.Context(), section.ID, &dto.CreateContentRequest{Type: "TEXT", Title: item.Title, Description: item.Description, OrderIndex: contentIndex, Metadata: map[string]interface{}{"content": markdown, "blueprint_id": c.Param("blueprintId"), "source": "MCP_BLUEPRINT"}}, userID, role)
+			if err != nil { rollback(err); return }
+			contentIndex++
 		}
 	}
+	if _, err := h.ai.MarkCourseBlueprintApplied(c.Request.Context(), c.Param("blueprintId"), userID, created.ID); err != nil { rollback(fmt.Errorf("không thể ghi nhận blueprint đã áp dụng: %w", err)); return }
 	c.JSON(http.StatusCreated, dto.NewDataResponse(map[string]interface{}{"course_id": created.ID, "blueprint": result}))
 }
 

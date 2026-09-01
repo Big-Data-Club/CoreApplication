@@ -53,6 +53,7 @@ SAFE_DEFAULT_TOOLS = {
     "create_course_section",
     "mcp_index_files",
     "mcp_create_course_from_files",
+    "mcp_apply_course_blueprint",
     "mcp_batch_generate_quiz",
     "mcp_generate_slide_deck",
     "mcp_generate_report",
@@ -62,6 +63,7 @@ WRITE_TOOLS = {
     "create_course_section",
     "mcp_index_files",
     "mcp_create_course_from_files",
+    "mcp_apply_course_blueprint",
     "mcp_create_lesson",
     "mcp_batch_generate_quiz",
 }

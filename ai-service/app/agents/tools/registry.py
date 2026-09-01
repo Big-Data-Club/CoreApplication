@@ -28,6 +28,7 @@ from app.agents.tools.teacher.parse_quiz_questions import ParseQuizQuestionsTool
 from app.agents.tools.teacher.prepare_course_materials import PrepareCourseMaterialsTool
 from app.agents.tools.teacher.create_course_from_materials import CreateCourseFromMaterialsTool
 from app.agents.tools.teacher.mcp_create_course_from_files import McpCreateCourseFromFilesTool
+from app.agents.tools.teacher.mcp_apply_course_blueprint import McpApplyCourseBlueprintTool
 from app.agents.tools.teacher.mcp_batch_generate_quiz import McpBatchGenerateQuizTool
 from app.agents.tools.teacher.mcp_generate_slide_deck import McpGenerateSlideDeckTool
 from app.agents.tools.teacher.mcp_generate_report import McpGenerateReportTool
@@ -73,6 +74,7 @@ _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     PrepareCourseMaterialsTool(),
     CreateCourseFromMaterialsTool(),
     McpCreateCourseFromFilesTool(),
+    McpApplyCourseBlueprintTool(),
     McpBatchGenerateQuizTool(),
     McpGenerateSlideDeckTool(),
     McpGenerateReportTool(),
