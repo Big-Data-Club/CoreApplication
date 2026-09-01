@@ -77,6 +77,11 @@ def _get_redis() -> aioredis.Redis:
     return _redis_client
 
 
+async def get_cache() -> aioredis.Redis:
+    """Return the shared Redis client for callers needing generic cache access."""
+    return _get_redis()
+
+
 async def close_cache() -> None:
     global _redis_client
     if _redis_client:
