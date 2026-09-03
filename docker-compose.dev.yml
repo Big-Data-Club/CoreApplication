@@ -1,0 +1,323 @@
+# Chạy:  docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+
+x-common-healthcheck: &common-healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
+x-common-logging: &common-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ── CSDL của auth-service ──────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: dev-postgres-auth
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [app-network]
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 384M }
+
+  # ── CSDL của lms-service ───────────────────────────────────────────────────
+  postgres-lms:
+    image: postgres:15-alpine
+    container_name: dev-postgres-lms
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LMS_POSTGRES_DB:-lms_db}
+      POSTGRES_USER: ${LMS_POSTGRES_USER:-lms_user}
+      POSTGRES_PASSWORD: ${LMS_POSTGRES_PASSWORD:-lms_password}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "${LMS_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - postgres_lms_data:/var/lib/postgresql/data
+    networks: [app-network]
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD-SHELL", "pg_isready -U $${LMS_POSTGRES_USER} -d $${LMS_POSTGRES_DB}"]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 384M }
+
+  # ── Áp schema cho lms_db, chạy một lần rồi thoát ───────────────────────────
+  # lms-service không tự chạy migration (không có goose/flyway, Dockerfile cũng
+  # không copy thư mục migrations), nên phải áp tay các file V0xx__*.sql theo thứ tự.
+  lms-migrate:
+    image: postgres:15-alpine
+    container_name: dev-lms-migrate
+    restart: "no"
+    depends_on:
+      postgres-lms:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${LMS_POSTGRES_PASSWORD:-lms_password}
+      PGUSER: ${LMS_POSTGRES_USER:-lms_user}
+      PGDATABASE: ${LMS_POSTGRES_DB:-lms_db}
+    volumes:
+      - ./lms-service/migrations:/migrations:ro
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        for f in /migrations/*.sql; do
+          echo "==> $$f"
+          psql -h postgres-lms -v ON_ERROR_STOP=1 -f "$$f"
+        done
+        echo "Da ap xong toan bo migration cua lms_db"
+    networks: [app-network]
+    logging: *common-logging
+
+  # ── Cache của lms-service ──────────────────────────────────────────────────
+  redis-lms:
+    image: redis:7-alpine
+    container_name: dev-redis-lms
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly no
+      --save ""
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks: [app-network]
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 160M }
+
+  # ── Lưu trữ tệp, thay cho S3 ───────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: dev-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_BROWSER: "on"
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console web
+    volumes:
+      - minio_data:/data
+    networks: [app-network]
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 384M }
+
+  # ── Tạo sẵn bucket lms-files rồi thoát ─────────────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: dev-minio-init
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing local/lms-files
+        echo "Bucket lms-files da san sang"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    networks: [app-network]
+    logging: *common-logging
+
+  # ── Auth & Management, Spring Boot ─────────────────────────────────────────
+  # Hibernate ddl-auto=update nên schema tự tạo, không cần migration thủ công.
+  backend:
+    build:
+      context: ./auth-and-management-service
+      dockerfile: Dockerfile
+    image: bdc-backend:dev
+    container_name: dev-auth-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      SPRING_JPA_SHOW_SQL: false
+      LMS_API_URL: http://lms-backend:8081
+      LMS_API_SECRET: ${LMS_API_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
+      EMAIL: ${EMAIL:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      LOGGING_LEVEL_ROOT: ${LOG_LEVEL:-INFO}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
+      JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=70.0 -XX:+UseG1GC"
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - upload_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [app-network]
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider",
+             "http://localhost:8080/actuator/health/liveness"]
+      start_period: 90s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 1024M }
+
+  # ── LMS Service, Go/Gin ────────────────────────────────────────────────────
+  lms-backend:
+    build:
+      context: ./lms-service
+      dockerfile: Dockerfile
+    image: bdc-lms:dev
+    container_name: dev-lms-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_PORT: 8081
+      APP_NAME: "LMS Service"
+      GIN_MODE: debug
+      LMS_SYNC_SECRET: ${LMS_SYNC_SECRET}
+      DB_HOST: postgres-lms
+      DB_PORT: 5432
+      DB_USER: ${LMS_POSTGRES_USER:-lms_user}
+      DB_PASSWORD: ${LMS_POSTGRES_PASSWORD:-lms_password}
+      DB_NAME: ${LMS_POSTGRES_DB:-lms_db}
+      DB_SSL_MODE: disable
+      DB_MAX_OPEN_CONNS: 25
+      DB_MAX_IDLE_CONNS: 5
+      DB_CONN_MAX_LIFETIME: 5m
+      DB_CONN_MAX_IDLE_TIME: 10m
+      REDIS_HOST: redis-lms
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: 0
+      REDIS_POOL_SIZE: 10
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_HOURS: 1
+      STORAGE_TYPE: ${STORAGE_TYPE:-minio}
+      UPLOAD_MAX_SIZE: 104857600
+      UPLOAD_DIR: /app/uploads
+      ALLOWED_VIDEO_FORMATS: "mp4,avi,mov,mkv,webm,flv"
+      ALLOWED_DOCUMENT_FORMATS: "pdf,doc,docx,ppt,pptx,xls,xlsx,txt"
+      ALLOWED_IMAGE_FORMATS: "jpg,jpeg,png,gif,webp,svg"
+      AUTH_SERVICE_URL: http://backend:8080
+      AUTH_SERVICE_TIMEOUT: 10s
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001
+      CORS_ALLOWED_METHODS: "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+      CORS_ALLOWED_HEADERS: "Authorization,Content-Type,Accept"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_BUCKET: lms-files
+      MINIO_USE_SSL: "false"
+      GOMAXPROCS: 2
+    ports:
+      - "${LMS_PORT:-8081}:8081"
+    volumes:
+      - lms_upload_data:/app/uploads
+    depends_on:
+      postgres-lms:
+        condition: service_healthy
+      lms-migrate:
+        condition: service_completed_successfully
+      redis-lms:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks: [app-network]
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider",
+             "http://localhost:8081/health"]
+      start_period: 45s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 512M }
+
+  # ── Frontend, Next.js ──────────────────────────────────────────────────────
+  # context trỏ ra ../frontend vì repo frontend nằm cạnh backend, không phải submodule.
+  # Build lần đầu mất vài phút và ngốn RAM, nên khởi động riêng sau khi backend đã xanh.
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+    image: bdc-frontend:dev
+    container_name: dev-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
+      BACKEND_URL: http://backend:8080
+      LMS_API_URL: http://lms-backend:8081
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+      NEXT_TELEMETRY_DISABLED: 1
+    ports:
+      - "3000:3001"
+    depends_on:
+      backend:
+        condition: service_healthy
+      lms-backend:
+        condition: service_healthy
+    networks: [app-network]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits: { cpus: '1.5', memory: 768M }
+
+volumes:
+  postgres_data:
+  postgres_lms_data:
+  minio_data:
+  upload_data:
+  lms_upload_data:
+
+networks:
+  app-network:
+    driver: bridge
