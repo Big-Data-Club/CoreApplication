@@ -1,6 +1,6 @@
 [submodule "frontend"]
 	path = frontend
-	url = https://github.com/Big-Data-Club/BDCHub---Frontend
+	url = https://github.com/datn-hk252/frontend.git
 [submodule "da-analytics"]
 	path = da-analytics
 	url = git@github.com:Big-Data-Club/DA-RecommenderSystem.git
