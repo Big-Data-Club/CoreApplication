@@ -62,6 +62,11 @@ services:
   # ── Áp schema cho lms_db, chạy một lần rồi thoát ───────────────────────────
   # lms-service không tự chạy migration (không có goose/flyway, Dockerfile cũng
   # không copy thư mục migrations), nên phải áp tay các file V0xx__*.sql theo thứ tự.
+  #
+  # Ghi tên file đã áp vào bảng schema_migrations để lần chạy sau bỏ qua. Không
+  # có bảng này thì `up` lần thứ hai sẽ hỏng: phần lớn file dùng IF NOT EXISTS
+  # nhưng V009 thì không, nên ALTER TABLE ADD COLUMN logs báo lỗi khi lặp lại.
+  # Vì lms-backend đợi service_completed_successfully, hỏng ở đây là chặn luôn lms.
   lms-migrate:
     image: postgres:15-alpine
     container_name: dev-lms-migrate
@@ -73,6 +78,7 @@ services:
       PGPASSWORD: ${LMS_POSTGRES_PASSWORD:-lms_password}
       PGUSER: ${LMS_POSTGRES_USER:-lms_user}
       PGDATABASE: ${LMS_POSTGRES_DB:-lms_db}
+      PGHOST: postgres-lms
     volumes:
       - ./lms-service/migrations:/migrations:ro
     entrypoint:
@@ -80,11 +86,18 @@ services:
       - -c
       - |
         set -e
+        psql -v ON_ERROR_STOP=1 -q -c "CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());"
         for f in /migrations/*.sql; do
-          echo "==> $$f"
-          psql -h postgres-lms -v ON_ERROR_STOP=1 -f "$$f"
+          name=$$(basename "$$f")
+          if [ "$$(psql -tAc "SELECT 1 FROM schema_migrations WHERE filename='$$name'")" = "1" ]; then
+            echo "-- bo qua $$name (da ap truoc do)"
+            continue
+          fi
+          echo "==> $$name"
+          psql -v ON_ERROR_STOP=1 -f "$$f"
+          psql -v ON_ERROR_STOP=1 -q -c "INSERT INTO schema_migrations (filename) VALUES ('$$name');"
         done
-        echo "Da ap xong toan bo migration cua lms_db"
+        echo "lms_db da o trang thai moi nhat"
     networks: [app-network]
     logging: *common-logging
 
@@ -174,6 +187,13 @@ services:
       SPRING_JPA_SHOW_SQL: false
       LMS_API_URL: http://lms-backend:8081
       LMS_API_SECRET: ${LMS_API_SECRET}
+      # Ba biến dưới đây không có giá trị mặc định trong application.yaml, thiếu là
+      # Spring sập ngay lúc tạo bean AdminLlmService. Vẫn phải khai dù không chạy
+      # ai-service: giá trị chỉ được gán vào trường String, không có kết nối nào lúc
+      # khởi động. Mọi chức năng quản trị LLM sẽ lỗi khi gọi, đó là điều chấp nhận được.
+      AI_SERVICE_URL: http://ai-service:8000
+      AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-dev-ai-service-secret}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
