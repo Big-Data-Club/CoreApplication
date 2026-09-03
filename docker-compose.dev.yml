@@ -13,6 +13,39 @@ x-common-logging: &common-logging
     max-file: "3"
 
 services:
+  # ── Reverse proxy ──────────────────────────────────────────────────────────
+  # Bắt buộc phải có, không lược bỏ được. Frontend gọi API bằng đường dẫn tương đối
+  # trên chính origin của nó: /apiv1 (31 chỗ), /files (25), /lmsapiv1 (17),
+  # /uploads (7). Traefik là thứ bắt các tiền tố đó rồi viết lại và chuyển tới đúng
+  # service. Thiếu nó thì mọi lời gọi rơi vào Next.js và trả 404.
+  # Luật định tuyến giữ nguyên từ docker-compose.yml gốc để khỏi lệch với môi trường
+  # triển khai thật.
+  traefik:
+    image: traefik:v3.6
+    container_name: dev-traefik
+    restart: unless-stopped
+    command:
+      - "--api.insecure=false"
+      - "--ping=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=backend_app-network"
+      - "--entrypoints.web.address=:3000"
+      - "--log.level=INFO"
+    ports:
+      - "3000:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [app-network]
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      start_period: 10s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 192M }
+
   # ── CSDL của auth-service ──────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
@@ -223,6 +256,20 @@ services:
     deploy:
       resources:
         limits: { cpus: '2.0', memory: 1024M }
+    labels:
+      # /apiv1/... -> auth-service:8080/...   (cắt bỏ tiền tố)
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.rule=Host(`localhost`) && PathPrefix(`/apiv1`)"
+      - "traefik.http.routers.backend.priority=10"
+      - "traefik.http.services.backend.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.strip-apiv1.stripprefix.prefixes=/apiv1"
+      - "traefik.http.routers.backend.middlewares=strip-apiv1"
+      # /uploads/... -> auth-service:8080/uploads/...  (giữ nguyên đường dẫn)
+      - "traefik.http.routers.uploads.entrypoints=web"
+      - "traefik.http.routers.uploads.rule=Host(`localhost`) && PathPrefix(`/uploads`)"
+      - "traefik.http.routers.uploads.priority=10"
+      - "traefik.http.routers.uploads.service=backend"
 
   # ── LMS Service, Go/Gin ────────────────────────────────────────────────────
   lms-backend:
@@ -295,6 +342,24 @@ services:
     deploy:
       resources:
         limits: { cpus: '2.0', memory: 512M }
+    labels:
+      # /lmsapiv1/xxx -> lms-service:8081/api/v1/xxx
+      - "traefik.enable=true"
+      - "traefik.http.routers.lms.entrypoints=web"
+      - "traefik.http.routers.lms.rule=Host(`localhost`) && PathPrefix(`/lmsapiv1`)"
+      - "traefik.http.routers.lms.priority=10"
+      - "traefik.http.services.lms.loadbalancer.server.port=8081"
+      - "traefik.http.middlewares.rewrite-lms.replacepathregex.regex=^/lmsapiv1/(.*)"
+      - "traefik.http.middlewares.rewrite-lms.replacepathregex.replacement=/api/v1/$$1"
+      - "traefik.http.routers.lms.middlewares=rewrite-lms"
+      # /files/xxx -> lms-service:8081/api/v1/files/serve/xxx
+      - "traefik.http.routers.files.entrypoints=web"
+      - "traefik.http.routers.files.rule=Host(`localhost`) && PathPrefix(`/files`)"
+      - "traefik.http.routers.files.priority=10"
+      - "traefik.http.routers.files.service=lms"
+      - "traefik.http.middlewares.rewrite-files.replacepathregex.regex=^/files/(.*)"
+      - "traefik.http.middlewares.rewrite-files.replacepathregex.replacement=/api/v1/files/serve/$$1"
+      - "traefik.http.routers.files.middlewares=rewrite-files"
 
   # ── Frontend, Next.js ──────────────────────────────────────────────────────
   # context trỏ ra ../frontend vì repo frontend nằm cạnh backend, không phải submodule.
@@ -318,8 +383,11 @@ services:
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
       NEXT_TELEMETRY_DISABLED: 1
-    ports:
-      - "3000:3001"
+    # Không publish cổng trực tiếp nữa: Traefik giữ cổng 3000 và chuyển tiếp vào đây.
+    # Frontend phải đi qua proxy thì các tiền tố /apiv1, /lmsapiv1, /files, /uploads
+    # mới được viết lại đúng.
+    expose:
+      - "3001"
     depends_on:
       backend:
         condition: service_healthy
@@ -330,6 +398,13 @@ services:
     deploy:
       resources:
         limits: { cpus: '1.5', memory: 768M }
+    labels:
+      # priority 1: luật bắt tất cả, chạy sau các router API ở priority 10
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.routers.frontend.rule=Host(`localhost`)"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3001"
 
 volumes:
   postgres_data:
