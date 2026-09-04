@@ -13,13 +13,6 @@ x-common-logging: &common-logging
     max-file: "3"
 
 services:
-  # ── Reverse proxy ──────────────────────────────────────────────────────────
-  # Bắt buộc phải có, không lược bỏ được. Frontend gọi API bằng đường dẫn tương đối
-  # trên chính origin của nó: /apiv1 (31 chỗ), /files (25), /lmsapiv1 (17),
-  # /uploads (7). Traefik là thứ bắt các tiền tố đó rồi viết lại và chuyển tới đúng
-  # service. Thiếu nó thì mọi lời gọi rơi vào Next.js và trả 404.
-  # Luật định tuyến giữ nguyên từ docker-compose.yml gốc để khỏi lệch với môi trường
-  # triển khai thật.
   traefik:
     image: traefik:v3.6
     container_name: dev-traefik
@@ -92,14 +85,6 @@ services:
       resources:
         limits: { cpus: '1.0', memory: 384M }
 
-  # ── Áp schema cho lms_db, chạy một lần rồi thoát ───────────────────────────
-  # lms-service không tự chạy migration (không có goose/flyway, Dockerfile cũng
-  # không copy thư mục migrations), nên phải áp tay các file V0xx__*.sql theo thứ tự.
-  #
-  # Ghi tên file đã áp vào bảng schema_migrations để lần chạy sau bỏ qua. Không
-  # có bảng này thì `up` lần thứ hai sẽ hỏng: phần lớn file dùng IF NOT EXISTS
-  # nhưng V009 thì không, nên ALTER TABLE ADD COLUMN logs báo lỗi khi lặp lại.
-  # Vì lms-backend đợi service_completed_successfully, hỏng ở đây là chặn luôn lms.
   lms-migrate:
     image: postgres:15-alpine
     container_name: dev-lms-migrate
@@ -203,7 +188,6 @@ services:
     logging: *common-logging
 
   # ── Auth & Management, Spring Boot ─────────────────────────────────────────
-  # Hibernate ddl-auto=update nên schema tự tạo, không cần migration thủ công.
   backend:
     build:
       context: ./auth-and-management-service
@@ -219,14 +203,7 @@ services:
       SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-update}
       SPRING_JPA_SHOW_SQL: false
       LMS_API_URL: http://lms-backend:8081
-      # Cùng lấy từ LMS_SYNC_SECRET với biến cùng tên của lms-backend. auth gửi giá trị
-      # này trong header X-Sync-Secret, lms so sánh với biến của nó; lệch nhau là mọi
-      # lệnh đồng bộ trả 401 mà không có triệu chứng nào khác ngoài dòng log.
       LMS_API_SECRET: ${LMS_SYNC_SECRET}
-      # Ba biến dưới đây không có giá trị mặc định trong application.yaml, thiếu là
-      # Spring sập ngay lúc tạo bean AdminLlmService. Vẫn phải khai dù không chạy
-      # ai-service: giá trị chỉ được gán vào trường String, không có kết nối nào lúc
-      # khởi động. Mọi chức năng quản trị LLM sẽ lỗi khi gọi, đó là điều chấp nhận được.
       AI_SERVICE_URL: http://ai-service:8000
       AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-dev-ai-service-secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -260,7 +237,6 @@ services:
       resources:
         limits: { cpus: '2.0', memory: 1024M }
     labels:
-      # /apiv1/... -> auth-service:8080/...   (cắt bỏ tiền tố)
       - "traefik.enable=true"
       - "traefik.http.routers.backend.entrypoints=web"
       - "traefik.http.routers.backend.rule=Host(`localhost`) && PathPrefix(`/apiv1`)"
@@ -268,7 +244,6 @@ services:
       - "traefik.http.services.backend.loadbalancer.server.port=8080"
       - "traefik.http.middlewares.strip-apiv1.stripprefix.prefixes=/apiv1"
       - "traefik.http.routers.backend.middlewares=strip-apiv1"
-      # /uploads/... -> auth-service:8080/uploads/...  (giữ nguyên đường dẫn)
       - "traefik.http.routers.uploads.entrypoints=web"
       - "traefik.http.routers.uploads.rule=Host(`localhost`) && PathPrefix(`/uploads`)"
       - "traefik.http.routers.uploads.priority=10"
@@ -335,9 +310,6 @@ services:
         condition: service_healthy
       backend:
         condition: service_started
-      # lms-service thoát ngay lúc khởi động nếu chưa kiểm tra được bucket lms-files,
-      # nên phải chờ minio-init tạo xong bucket. Thiếu dòng này thì lệnh
-      # "up lms-backend" (không kèm tên minio) sẽ làm nó crash-loop.
       minio-init:
         condition: service_completed_successfully
     networks: [app-network]
@@ -370,8 +342,6 @@ services:
       - "traefik.http.routers.files.middlewares=rewrite-files"
 
   # ── Frontend, Next.js ──────────────────────────────────────────────────────
-  # context trỏ ra ../frontend vì repo frontend nằm cạnh backend, không phải submodule.
-  # Build lần đầu mất vài phút và ngốn RAM, nên khởi động riêng sau khi backend đã xanh.
   frontend:
     build:
       context: ../frontend
@@ -391,9 +361,6 @@ services:
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
       NEXT_TELEMETRY_DISABLED: 1
-    # Không publish cổng trực tiếp nữa: Traefik giữ cổng 3000 và chuyển tiếp vào đây.
-    # Frontend phải đi qua proxy thì các tiền tố /apiv1, /lmsapiv1, /files, /uploads
-    # mới được viết lại đúng.
     expose:
       - "3001"
     depends_on:
@@ -407,7 +374,6 @@ services:
       resources:
         limits: { cpus: '1.5', memory: 768M }
     labels:
-      # priority 1: luật bắt tất cả, chạy sau các router API ở priority 10
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.entrypoints=web"
       - "traefik.http.routers.frontend.rule=Host(`localhost`)"
