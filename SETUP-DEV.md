@@ -42,22 +42,38 @@ docker compose -f docker-compose.dev.yml --env-file .env.dev up -d frontend
 | http://localhost:9001 | MinIO console |
 | localhost:5433 / 5434 | PostgreSQL của auth / lms |
 
-## Cấp quyền LMS cho tài khoản mới
+## Quyền LMS của tài khoản
 
-Đăng nhập lần đầu sẽ báo **"Không thể truy cập LMS"**. Đây không phải lỗi: hai
-service dùng hai cơ sở dữ liệu riêng, và `lms_db.user_roles` chỉ được điền khi
-auth-service đồng bộ sang. Cấp tay bằng endpoint đồng bộ có sẵn:
+Hai service dùng hai cơ sở dữ liệu riêng. Muốn vào được `/lms`, tài khoản phải
+có dòng trong `lms_db.user_roles`, do auth-service đẩy sang.
 
-```bash
-curl -X POST http://localhost:8081/api/v1/sync/user \
-  -H "Content-Type: application/json" \
-  -H "X-Sync-Secret: dev-lms-sync-secret" \
-  -d '{"user_id":1,"email":"admin@local.dev","full_name":"Quan tri vien","roles":["ADMIN"]}'
+Việc này **tự động**. Auth-service đồng bộ toàn bộ tài khoản sang LMS lúc khởi
+động, và đồng bộ từng tài khoản mỗi khi tạo, duyệt, đổi vai trò hay bật lại.
+Log của `dev-auth-service` sẽ có dòng:
+
+```
+Startup LMS sync completed for 1/1 users
 ```
 
-`user_id` phải trùng id bên `auth_db`. Vai trò hợp lệ: `ADMIN`, `TEACHER`,
-`STUDENT`. Cấp xong phải **đăng xuất rồi đăng nhập lại**, vì phiên NextAuth giữ
-vai trò từ lúc đăng nhập.
+Nếu dòng đó báo `did not become ready` thì lms-service chưa lên kịp trong hai
+phút. Khởi động lại auth-service là nó thử lại:
+
+```bash
+docker compose -f docker-compose.dev.yml --env-file .env.dev restart backend
+```
+
+Kiểm tra kết quả:
+
+```bash
+docker exec dev-postgres-lms psql -U lms_user -d lms_db -c "SELECT u.email, r.role FROM users u JOIN user_roles r ON r.user_id = u.id;"
+```
+
+Vai trò hợp lệ: `ADMIN`, `TEACHER`, `STUDENT`. Nếu vừa đổi vai trò của một
+tài khoản đang đăng nhập thì phải **đăng xuất rồi đăng nhập lại**, vì phiên
+NextAuth giữ vai trò từ lúc đăng nhập.
+
+> Trước đây phải gọi tay `POST /api/v1/sync/user`. Đó là lỗi có sẵn trong repo
+> gốc, đã sửa ở nhánh `fix/lms-role-sync`.
 
 ## Những gì đã lược bỏ và hệ quả
 
