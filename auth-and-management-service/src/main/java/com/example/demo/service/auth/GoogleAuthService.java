@@ -43,6 +43,10 @@ public class GoogleAuthService {
     private final OrganizationMemberRepository organizationMemberRepository;
     private final OrganizationSyncService organizationSyncService;
     private final PasswordEncoder passwordEncoder;
+    // Deliberately unused here. Accounts created below are pendingApproval=true, and an
+    // account earns its LMS role when an admin approves it (UserServiceImpl.approveUser)
+    // or activates it (UserServiceImpl.toggleActive). Syncing at registration would hand
+    // a role to an account nobody has vetted yet.
     private final UserSyncService userSyncService;
 
     @Value("${google.client-id}")

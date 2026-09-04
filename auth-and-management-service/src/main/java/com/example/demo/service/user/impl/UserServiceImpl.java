@@ -314,6 +314,19 @@ public class UserServiceImpl implements UserService {
         user.setActive(!user.getActive());
         var saved = userRepository.save(user);
         log.info("User {} active status toggled to: {}", user.getEmail(), user.getActive());
+
+        // Activating here bypasses approveUser(), the only other route that turns an
+        // account usable. Without this the user can log in but holds no role in LMS.
+        // Deactivation sends nothing: the sync payload has no active flag, and pushing
+        // it would just recreate the account on the LMS side.
+        if (Boolean.TRUE.equals(saved.getActive())) {
+            userSyncService.syncUser(saved)
+                    .exceptionally(ex -> {
+                        log.error("LMS sync failed for activated user {}: {}",
+                                  saved.getEmail(), ex.getMessage());
+                        return null;
+                    });
+        }
         return UserResponse.fromEntity(saved);
     }
 

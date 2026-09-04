@@ -67,6 +67,16 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception e) {
             log.error("Startup user sync to chat failed: {}", e.getMessage());
         }
+
+        // The admin seeded above never goes through a path that syncs it to LMS, so on a
+        // fresh database it can log in but has no role there. Runs asynchronously and
+        // waits for lms-service on its own thread, so startup is not held up.
+        log.info("Triggering automatic startup sync of existing users to lms-service...");
+        try {
+            userSyncService.syncUsersToLms(userRepository.findAll());
+        } catch (Exception e) {
+            log.error("Startup user sync to LMS failed: {}", e.getMessage());
+        }
     }
 
     private void seedOrganizations() {

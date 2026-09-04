@@ -40,6 +40,10 @@ public class UserSyncService {
 
     private static final int MAX_RETRIES = 3;
 
+    // How long the startup sync waits for lms-service to answer /health.
+    private static final int  STARTUP_PROBE_ATTEMPTS    = 24;
+    private static final long STARTUP_PROBE_INTERVAL_MS = 5_000;
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     @Async("syncExecutor")
@@ -77,6 +81,63 @@ public class UserSyncService {
                 .thenRun(() -> log.info("LMS bulk sync completed for {} users", users.size())),
             chatFuture
         );
+    }
+
+    /**
+     * Push every known account to LMS once, at application startup.
+     *
+     * <p>The admin seeded by {@code DataInitializer} is written straight through the
+     * repository and so passes none of the code paths that call {@link #syncUser}. On a
+     * fresh database it is the only account LMS has never heard of, and logging in with
+     * it lands on "Không thể truy cập LMS" until somebody POSTs /api/v1/sync/user by hand.
+     *
+     * <p>More patient than {@link #syncUsers}: compose starts lms-service after
+     * auth-service, so the three attempts over three seconds that {@link #withRetry}
+     * allows are usually spent before LMS is listening. Probe /health first, then push.
+     */
+    @Async("syncExecutor")
+    public CompletableFuture<Void> syncUsersToLms(List<User> users) {
+        if (users.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        if (!waitForLms()) {
+            log.error("LMS did not become ready within {}s; skipping startup sync. "
+                      + "Existing accounts will have no LMS role until the next user update.",
+                      STARTUP_PROBE_ATTEMPTS * STARTUP_PROBE_INTERVAL_MS / 1000);
+            return CompletableFuture.completedFuture(null);
+        }
+
+        int synced = 0;
+        for (var user : users) {
+            try {
+                withRetry(() -> doPost(lmsApiUrl + "/api/v1/sync/user", buildLmsPayload(user),
+                                       lmsApiSecret),
+                          "lms-startup-sync " + user.getEmail());
+                synced++;
+            } catch (Exception ex) {
+                log.error("Startup LMS sync failed for {}: {}", user.getEmail(), ex.getMessage());
+            }
+        }
+        log.info("Startup LMS sync completed for {}/{} users", synced, users.size());
+        return CompletableFuture.completedFuture(null);
+    }
+
+    /** Poll lms-service /health until it answers 2xx. Returns false once patience runs out. */
+    private boolean waitForLms() {
+        for (int attempt = 1; attempt <= STARTUP_PROBE_ATTEMPTS; attempt++) {
+            try {
+                if (restTemplate.getForEntity(lmsApiUrl + "/health", String.class)
+                                .getStatusCode().is2xxSuccessful()) {
+                    return true;
+                }
+            } catch (RestClientException ex) {
+                // lms-service is not up yet; container DNS may not even resolve.
+                log.debug("Waiting for lms-service ({}/{}): {}",
+                          attempt, STARTUP_PROBE_ATTEMPTS, ex.getMessage());
+            }
+            sleep(STARTUP_PROBE_INTERVAL_MS);
+        }
+        return false;
     }
 
     @Async("syncExecutor")

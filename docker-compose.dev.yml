@@ -219,7 +219,10 @@ services:
       SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-update}
       SPRING_JPA_SHOW_SQL: false
       LMS_API_URL: http://lms-backend:8081
-      LMS_API_SECRET: ${LMS_API_SECRET}
+      # Cùng lấy từ LMS_SYNC_SECRET với biến cùng tên của lms-backend. auth gửi giá trị
+      # này trong header X-Sync-Secret, lms so sánh với biến của nó; lệch nhau là mọi
+      # lệnh đồng bộ trả 401 mà không có triệu chứng nào khác ngoài dòng log.
+      LMS_API_SECRET: ${LMS_SYNC_SECRET}
       # Ba biến dưới đây không có giá trị mặc định trong application.yaml, thiếu là
       # Spring sập ngay lúc tạo bean AdminLlmService. Vẫn phải khai dù không chạy
       # ai-service: giá trị chỉ được gán vào trường String, không có kết nối nào lúc
@@ -332,6 +335,11 @@ services:
         condition: service_healthy
       backend:
         condition: service_started
+      # lms-service thoát ngay lúc khởi động nếu chưa kiểm tra được bucket lms-files,
+      # nên phải chờ minio-init tạo xong bucket. Thiếu dòng này thì lệnh
+      # "up lms-backend" (không kèm tên minio) sẽ làm nó crash-loop.
+      minio-init:
+        condition: service_completed_successfully
     networks: [app-network]
     healthcheck:
       <<: *common-healthcheck
