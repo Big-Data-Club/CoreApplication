@@ -27,6 +27,8 @@ public class UserResponse {
     private String     profilePicture;
     private String     organization;
     private java.util.List<String> organizations;
+    private java.time.LocalDateTime createdAt;
+    private java.time.LocalDateTime updatedAt;
 
     public static UserResponse fromEntity(User user) {
         java.util.List<String> orgList = new java.util.ArrayList<>();
@@ -61,6 +63,8 @@ public class UserResponse {
                 .pendingApproval(user.getPendingApproval())
                 .organization(user.getOrganization())
                 .organizations(organizations)
+                .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt())
                 .build();
     }
 }

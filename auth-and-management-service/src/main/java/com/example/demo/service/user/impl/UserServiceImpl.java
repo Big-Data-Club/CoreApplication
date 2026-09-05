@@ -67,7 +67,7 @@ public class UserServiceImpl implements UserService {
         int safePage = Math.max(0, page);
         int safePageSize = Math.min(100, Math.max(1, pageSize));
         Set<String> sortableFields = Set.of(
-                "id", "name", "role", "team", "organization", "totalScore", "active");
+                "id", "name", "role", "team", "type", "organization", "totalScore", "active", "createdAt");
         String safeSortBy = sortableFields.contains(sortBy) ? sortBy : "id";
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDirection)
                 ? Sort.Direction.ASC : Sort.Direction.DESC;

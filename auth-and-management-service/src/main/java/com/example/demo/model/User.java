@@ -5,6 +5,7 @@ import com.example.demo.enums.AuthProvider;
 import com.example.demo.enums.UserTeam;
 import jakarta.persistence.*;
 import lombok.*;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashSet;
@@ -96,6 +97,27 @@ public class User {
     @JsonIgnore
     @Builder.Default
     private List<OrganizationMember> organizationMembers = new ArrayList<>();
+
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+        if (updatedAt == null) {
+            updatedAt = LocalDateTime.now();
+        }
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
 
     public Set<String> effectiveRoles() {
         LinkedHashSet<String> result = new LinkedHashSet<>();
