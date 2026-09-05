@@ -57,6 +57,7 @@ declare -A images=(
 # that must accompany a new image. Apply only their selected manifest, then set
 # the immutable image immediately below; unrelated deployments are untouched.
 declare -A manifests=(
+  [auth-service]=k3s/base/auth-service-deployment.yaml
   [ai-service]=k3s/base/ai-service-deployment.yaml
   [chat-service]=k3s/base/chat-service-deployment.yaml
   [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml

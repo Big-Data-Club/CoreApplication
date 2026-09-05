@@ -45,7 +45,7 @@ spec:
               key: POSTGRES_PASSWORD
         # Java Spring Boot datasource setup
         - name: SPRING_DATASOURCE_URL
-          value: "jdbc:postgresql://$(POSTGRES_HOST):5432/$(POSTGRES_DB)?sslmode=$(AI_DB_SSL)"
+          value: "jdbc:postgresql://$(POSTGRES_HOST):5432/$(POSTGRES_DB)?sslmode=$(AI_DB_SSL)&prepareThreshold=0"
         - name: SPRING_DATASOURCE_USERNAME
           value: "$(POSTGRES_USER)"
         - name: SPRING_DATASOURCE_PASSWORD

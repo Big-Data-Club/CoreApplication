@@ -43,6 +43,9 @@ spring:
       max-lifetime: 240000
       leak-detection-threshold: 60000
       keepalive-time: 60000
+      data-source-properties:
+        prepareThreshold: 0
+        preparedStatementCacheQueries: 0
 
   # JPA / Hibernate Configuration
   jpa:
