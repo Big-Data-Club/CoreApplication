@@ -51,7 +51,8 @@ public class AuthController {
                     "role",         user.getRole(),
                     "token",        at,
                     "refreshToken", rt,
-                    "expiresIn",    expirationMs
+                    "expiresIn",    expirationMs,
+                    "profilePicture", user.getProfilePicture() != null ? user.getProfilePicture() : ""
                 ));
     }
 
@@ -170,7 +171,8 @@ public class AuthController {
                     "role",      user.getRole(),
                     "token",     at,
                     "refreshToken", rt,
-                    "expiresIn", expirationMs
+                    "expiresIn", expirationMs,
+                    "profilePicture", user.getProfilePicture() != null ? user.getProfilePicture() : ""
                 ));
     }
 
