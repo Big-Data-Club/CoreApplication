@@ -364,6 +364,10 @@ func main() {
 		flexCourses.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 		flexCourses.Use(middleware.LoadLocalRoles(userRepo, redisClient))
 		{
+			// MCP creates the private course draft before it can create its
+			// sections and lessons. Keep this on the service-or-JWT boundary so
+			// the AI service's X-API-Secret is accepted for that first request.
+			flexCourses.POST("", courseHandler.CreateCourse)
 			flexCourses.POST("/:courseId/sections", courseHandler.CreateSection)
 			flexCourses.GET("/:courseId/sections", courseHandler.ListSections)
 			flexCourses.GET("/my", courseHandler.ListMyCourses)
@@ -490,9 +494,6 @@ func main() {
 				courses.GET("", courseHandler.ListPublishedCourses)
 				courses.GET("/categories", courseHandler.GetCategories)
 				courses.GET("/:courseId", courseHandler.GetCourse)
-
-				// Teacher/Admin only - Create course
-				courses.POST("", courseHandler.CreateCourse)
 
 				// Teacher/Admin only - Update/Delete/Publish course
 				courses.PUT("/:courseId", courseHandler.UpdateCourse)
