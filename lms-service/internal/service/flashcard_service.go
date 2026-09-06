@@ -62,6 +62,15 @@ func (s *FlashcardService) GenerateFlashcards(ctx context.Context, studentID, co
 	if err != nil {
 		logger.Error("Failed to track Flashcard generation job in Redis", err)
 	}
+	// The SSE endpoint uses this separate, durable owner record. The worker's
+	// status updates overwrite ai_job:<id>, so ownership must not live there.
+	ownerData, _ := json.Marshal(map[string]int64{
+		"student_id": studentID,
+		"course_id":  courseID,
+	})
+	if err := s.redisCache.Set(ctx, "ai_job_owner:"+jobID, ownerData, 24*time.Hour); err != nil {
+		logger.Error("Failed to record Flashcard generation job owner", err)
+	}
 
 	err = kafka.PublishEvent(ctx, "lms.ai.command", []byte(jobID), event)
 	if err != nil {

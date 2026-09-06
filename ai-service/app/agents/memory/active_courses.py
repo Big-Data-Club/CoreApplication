@@ -58,8 +58,13 @@ settings = get_settings()
 _CACHE: dict[tuple[int, str], tuple[float, dict]] = {}
 _TTL_SECONDS = 60.0
 
-# Caps to keep the prompt block bounded.
-_MAX_COURSES = 12
+# The LMS list endpoint is paginated.  Keep enough courses in the
+# authoritative anchor to validate the course currently open in the browser;
+# a smaller list here made valid older courses look as though they were not
+# owned by their creator.  Knowledge-node hydration remains deliberately
+# smaller because it is only prompt enrichment, not an authorization check.
+_MAX_COURSES = 100
+_MAX_COURSES_WITH_NODES = 12
 _MAX_NODES_PER_COURSE = 25
 
 
@@ -118,8 +123,11 @@ async def load_active_courses(
     courses = courses[:_MAX_COURSES]
 
     if include_nodes:
-        for c in courses:
+        for c in courses[:_MAX_COURSES_WITH_NODES]:
             c["nodes"] = await _fetch_course_nodes(c["id"])
+        for c in courses[_MAX_COURSES_WITH_NODES:]:
+            # `None` means deliberately not hydrated (not "has no nodes").
+            c["nodes"] = None
     else:
         for c in courses:
             c.setdefault("nodes", None)
@@ -282,6 +290,7 @@ async def _fetch_teacher_courses(user_id: int) -> list[dict]:
     async with httpx.AsyncClient(timeout=8.0) as client:
         resp = await client.get(
             f"{lms_base}/api/v1/courses/my",
+            params={"page": 1, "page_size": _MAX_COURSES},
             headers=_lms_headers(user_id),
         )
         if resp.status_code != 200:

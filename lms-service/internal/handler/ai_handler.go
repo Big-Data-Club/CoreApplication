@@ -70,6 +70,79 @@ func (h *AIHandler) GetJobStatus() gin.HandlerFunc {
 	}
 }
 
+// StreamJobStatus pushes Kafka-backed AI job updates to the browser via SSE.
+// It is intentionally restricted to jobs created for the authenticated student.
+// Unlike polling, a completed flashcard generation is delivered immediately by
+// the LMS Kafka consumer through Redis Pub/Sub.
+func (h *AIHandler) StreamJobStatus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		jobID := c.Param("jobId")
+		studentID := c.MustGet("user_id").(int64)
+
+		ownerData, err := h.redisCache.Get(c.Request.Context(), "ai_job_owner:"+jobID)
+		if err != nil || ownerData == "" {
+			c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Job not found or unavailable for streaming"))
+			return
+		}
+		var owner struct {
+			StudentID int64 `json:"student_id"`
+		}
+		if err := json.Unmarshal([]byte(ownerData), &owner); err != nil || owner.StudentID != studentID {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "You cannot stream this job"))
+			return
+		}
+
+		pubsub, err := h.redisCache.Subscribe(c.Request.Context(), "ai_job_events:"+jobID)
+		if err != nil {
+			logger.Error("Failed to subscribe to AI job events", err)
+			c.JSON(http.StatusServiceUnavailable, dto.NewErrorResponse("stream_unavailable", "Live job updates are temporarily unavailable"))
+			return
+		}
+		defer pubsub.Close()
+
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache, no-transform")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Status(http.StatusOK)
+
+		emit := func(raw string) bool {
+			c.SSEvent("status", json.RawMessage(raw))
+			c.Writer.Flush()
+			var event kafka.AIJobStatusEvent
+			return json.Unmarshal([]byte(raw), &event) == nil && (event.Status == "completed" || event.Status == "failed")
+		}
+
+		// Subscribe first, then send the current durable state. This closes the
+		// race where a Kafka completion arrives between an initial GET and SUBSCRIBE.
+		if current, getErr := h.redisCache.Get(c.Request.Context(), "ai_job:"+jobID); getErr == nil && current != "" {
+			if emit(current) {
+				return
+			}
+		}
+
+		messages := pubsub.Channel()
+		heartbeat := time.NewTicker(20 * time.Second)
+		defer heartbeat.Stop()
+		for {
+			select {
+			case <-c.Request.Context().Done():
+				return
+			case message, ok := <-messages:
+				if !ok {
+					return
+				}
+				if emit(message.Payload) {
+					return
+				}
+			case <-heartbeat.C:
+				c.SSEvent("ping", map[string]string{"status": "connected"})
+				c.Writer.Flush()
+			}
+		}
+	}
+}
+
 // ── Phase 1: Error Diagnosis ──────────────────────────────────────────────────
 
 // DiagnoseWrongAnswer godoc

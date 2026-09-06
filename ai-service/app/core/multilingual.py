@@ -136,13 +136,58 @@ async def multilingual_search(
       Translate -> dual search -> RRF merge.
     """
     if settings.use_native_multilingual:
-        # Native bge-m3 path 
-        return await search_fn(
+        # Native bge-m3 path. Most Vietnamese ↔ English retrieval works in one
+        # vector space, so keep the normal request fast and model-only first.
+        native_results = await search_fn(
             query=query,
             top_k=top_k,
             min_similarity=min_similarity,
             **search_kwargs,
         )
+        if native_results:
+            return native_results
+
+        # A cross-lingual embedding is not a guarantee that an abbreviated or
+        # multi-concept Vietnamese query will exceed a hard cosine threshold.
+        # Only after a true zero-result search, use a small threshold relaxation
+        # and a translated query. This makes already-indexed English material
+        # discoverable without paying translation latency on the normal path.
+        original_query, translated_query = await expand_query_bilingual(query)
+        fallback_threshold = max(0.10, min_similarity - 0.10)
+        if translated_query.lower() == original_query.lower():
+            return await search_fn(
+                query=original_query,
+                top_k=top_k,
+                min_similarity=fallback_threshold,
+                **search_kwargs,
+            )
+
+        original_results, translated_results = await asyncio.gather(
+            search_fn(
+                query=original_query,
+                top_k=top_k * 2,
+                min_similarity=fallback_threshold,
+                **search_kwargs,
+            ),
+            search_fn(
+                query=translated_query,
+                top_k=top_k * 2,
+                min_similarity=fallback_threshold,
+                **search_kwargs,
+            ),
+        )
+        logger.info(
+            "BGE-M3 zero-result fallback: original=%d translated=%d | '%s' -> '%s'",
+            len(original_results), len(translated_results),
+            original_query[:80], translated_query[:80],
+        )
+        if not translated_results:
+            return original_results[:top_k]
+        if not original_results:
+            return translated_results[:top_k]
+        return reciprocal_rank_fusion(
+            [original_results, translated_results], id_fn=id_fn,
+        )[:top_k]
 
     # Translation + RRF path (nomic-ai fallback) 
     fetch_k = top_k * 2

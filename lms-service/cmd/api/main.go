@@ -177,7 +177,15 @@ func main() {
 		// Serialize and store into Redis
 		data, _ := json.Marshal(event)
 		redisKey := "ai_job:" + event.JobID
-		return redisClient.Set(ctx, redisKey, data, 24*time.Hour) // Keep for 24 hours
+		if err := redisClient.Set(ctx, redisKey, data, 24*time.Hour); err != nil {
+			return err
+		}
+		if err := redisClient.Publish(ctx, "ai_job_events:"+event.JobID, string(data)); err != nil {
+			// The saved Redis value keeps polling/status recovery possible; a
+			// transient Pub/Sub failure must not fail the Kafka consumer offset.
+			logger.Warn(fmt.Sprintf("Failed to publish live AI job event %s: %v", event.JobID, err))
+		}
+		return nil
 	})
 
 	// "Compact Graph" cascade: when AI merges nodes, repoint our own node_id columns.
@@ -674,9 +682,11 @@ func main() {
 				aiGroup.POST("/knowledge-graph/link-global",
 					aiHandler.TriggerGlobalLinking)
 
-				// System-wide Polling Endpoint for AI Jobs
+				// Durable status lookup and live SSE stream for AI jobs.
 				aiGroup.GET("/jobs/:jobId/status",
 					aiHandler.GetJobStatus())
+				aiGroup.GET("/jobs/:jobId/stream",
+					aiHandler.StreamJobStatus())
 
 				// Quick Action Panel - Concept Check
 				aiGroup.POST("/concept-check",

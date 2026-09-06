@@ -94,17 +94,34 @@ async def list_accessible_courses(user_id: int) -> list[dict[str, Any]]:
 
 
 async def user_owns_course(user_id: int, course_id: int) -> bool:
-    """Fail-closed owner/co-teacher authorization check for write operations."""
+    """Fail-closed owner/co-teacher authorization check for write operations.
+
+    This deliberately follows LMS pagination instead of assuming the first
+    page represents all courses. It is also used to verify a course ID sent by
+    the currently open LMS route, so an older course must not be mistaken for
+    an inaccessible one simply because the teacher owns many courses.
+    """
     base = settings.lms_service_url.rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"{base}/api/v1/courses/my",
-                params={"page": 1, "page_size": 100},
-                headers=_headers(user_id),
-            )
-            response.raise_for_status()
-        return any(int(item.get("id", 0)) == course_id for item in _unwrap_items(response.json()))
+            page = 1
+            while True:
+                response = await client.get(
+                    f"{base}/api/v1/courses/my",
+                    params={"page": page, "page_size": 100},
+                    headers=_headers(user_id),
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if any(int(item.get("id", 0)) == course_id for item in _unwrap_items(payload)):
+                    return True
+
+                data = payload.get("data") if isinstance(payload, dict) else None
+                pagination = data.get("pagination") if isinstance(data, dict) else None
+                total_pages = pagination.get("total_pages") if isinstance(pagination, dict) else None
+                if not isinstance(total_pages, int) or page >= total_pages:
+                    return False
+                page += 1
     except Exception:
         return False
 

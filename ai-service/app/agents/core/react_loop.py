@@ -348,11 +348,11 @@ async def run_react_loop(
     )
 
     # The browser/panel pointed at a specific course that failed verification.
-    # That is often just a stale anchor cache (fresh enrolment, role switch,
-    # LMS hiccup). Re-fetch the authoritative list once before asking the
-    # user to pick a course they may demonstrably be viewing.
+    # Refresh the anchor first. If it is still absent, verify the exact course
+    # ID through the ownership gate instead of making a teacher re-select the
+    # course that is visibly open in their workspace.
     hinted_course_id = _as_positive_int(course_id) or context_resolution.snapshot.course_id
-    if context_resolution.status == "needs_course_choice" and hinted_course_id:
+    if context_resolution.status in ("needs_course_choice", "needs_course_navigation") and hinted_course_id:
         logger.info(
             "Course hint %s failed verification; refreshing active courses",
             hinted_course_id,
@@ -370,6 +370,45 @@ async def run_react_loop(
             agent_type=agent_type,
             explicit_course_id=course_id,
         )
+        if context_resolution.status in ("needs_course_choice", "needs_course_navigation") and agent_type == "teacher":
+            try:
+                from mcp.course_access import user_owns_course
+
+                owns_hinted_course = await user_owns_course(user_id, hinted_course_id)
+            except Exception:  # noqa: BLE001 - fail closed below
+                logger.exception("Could not verify hinted course ownership id=%s", hinted_course_id)
+                owns_hinted_course = False
+
+            if owns_hinted_course:
+                # The ID is now independently authorized. Add the smallest
+                # possible anchor record so the normal resolver and all later
+                # tool-scope checks use the same verified context.
+                known_ids = {
+                    _as_positive_int(item.get("id"))
+                    for item in active_courses.get("courses", [])
+                    if isinstance(item, dict)
+                }
+                if hinted_course_id not in known_ids:
+                    active_courses = {
+                        **active_courses,
+                        "courses": [
+                            *(active_courses.get("courses") or []),
+                            {
+                                "id": hinted_course_id,
+                                "title": context_resolution.snapshot.course_name or f"Khóa học #{hinted_course_id}",
+                                "role": "owner",
+                                "nodes": None,
+                            },
+                        ],
+                    }
+                context_resolution = resolve_turn_context(
+                    message=user_message,
+                    page_context=page_context,
+                    user_context=user_context,
+                    active_courses=active_courses,
+                    agent_type=agent_type,
+                    explicit_course_id=course_id,
+                )
 
     yield AgentEvent(
         type=AgentEventType.CONTEXT,

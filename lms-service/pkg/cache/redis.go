@@ -191,6 +191,23 @@ func (c *RedisCache) Set(ctx context.Context, key string, value interface{}, exp
 	return c.client.Set(ctx, key, value, expiration).Err()
 }
 
+// Publish sends a transient event to every local process subscribed to channel.
+// Durable job state must still be stored separately with Set before publishing.
+func (c *RedisCache) Publish(ctx context.Context, channel string, value interface{}) error {
+	return c.client.Publish(ctx, channel, value).Err()
+}
+
+// Subscribe returns a Redis Pub/Sub subscription. Call Close when the client
+// disconnects so long-lived SSE requests do not leak connections.
+func (c *RedisCache) Subscribe(ctx context.Context, channel string) (*redis.PubSub, error) {
+	pubsub := c.client.Subscribe(ctx, channel)
+	if _, err := pubsub.Receive(ctx); err != nil {
+		_ = pubsub.Close()
+		return nil, err
+	}
+	return pubsub, nil
+}
+
 // Delete removes key from cache
 func (c *RedisCache) Delete(ctx context.Context, keys ...string) error {
 	return c.client.Del(ctx, keys...).Err()

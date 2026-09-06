@@ -61,6 +61,17 @@ Clients can list authorized course resources and the skills catalog from the
 `k3s/base/configmap.yaml`. Deterministic authoring helpers clearly state that
 their input must first be authored by the caller's external model.
 
+For every readable course, MCP also exposes `bdc://courses/{course_id}/contents`.
+It lists sections and individual material URIs. Reading
+`bdc://courses/{course_id}/contents/{content_id}` returns the Markdown for a
+TEXT lesson or the normalized text extracted when a DOCUMENT was indexed. This
+is intended for analysis without exposing the storage object path or downloading
+arbitrary binary files. Long documents are paged with `offset_chars` and
+`limit_chars` (default 80,000 characters; maximum 200,000). If a document has
+not been indexed, the resource reports that no extracted text is available.
+Teachers/owners/co-teachers and learners with an accepted enrollment receive
+the same read-only material access; all other requests fail closed.
+
 `list_accessible_courses` is the read entrypoint for both teachers and learners:
 it returns owned/co-taught courses and accepted enrollments. Knowledge-node and
 material search accept either access type, while course mutations still require
