@@ -86,6 +86,19 @@ class ExecutionPlan(BaseModel):
             "'dashboard_recommendation' (on dashboard asking what to do next)"
         )
     )
+    page_context_relevance: str = Field(
+        default="related",
+        description=(
+            "Semantic relation between the user's message and the currently open "
+            "lesson/page. One of: "
+            "'lesson_is_subject' (the question is about the open lesson itself: "
+            "summaries, goals, deictic references like 'this lesson'/'bài này', "
+            "or a concept the open content directly covers), "
+            "'related' (question touches the open lesson's subject area), "
+            "'unrelated' (clearly a different topic than the open lesson), "
+            "'no_open_lesson' (no page/lesson context exists)."
+        )
+    )
     operation: str = Field(
         default="content_qa",
         description=(
@@ -221,6 +234,22 @@ Planning Rules:
    - Dashboard (pageType=dashboard or no open lesson) + "what to study next?" -> recommendation_engine, personalization+lakehouse required, scope='none', graph_expansion_needed=false.
    - Lesson view (pageType=lesson) + "explain this" -> stay_in_context, content_qa, scope='content', graph_expansion_needed=true.
    - Asking about topic not in current lesson -> pivot_new_topic, scope='course' or 'global', graph_expansion_needed=true.
+
+1b. **Page Context Relevance** (semantic classification, no keyword matching):
+   - Compare the MEANING of the user's question with the Current Content Title/Topic in the UI context.
+   - The question is about the open lesson itself (summary, goals, key points, "this lesson/page",
+     "bài này/trang này", review/practice the open content) -> page_context_relevance='lesson_is_subject'
+     and operational_intent='stay_in_context'.
+   - The question asks about a concept that the open lesson directly covers (e.g. lesson title/topic
+     mentions X and the user asks "what is X?", "how to code X?") -> page_context_relevance='lesson_is_subject'.
+   - The question belongs to the same subject area but a different lesson -> page_context_relevance='related'.
+   - The question is clearly about a different topic with no connection to the open lesson ->
+     page_context_relevance='unrelated' and operational_intent='pivot_new_topic'.
+   - No lesson/page context in the UI context block -> page_context_relevance='no_open_lesson'.
+   - When in doubt between 'lesson_is_subject' and 'unrelated', prefer keeping the lesson context
+     ('lesson_is_subject' or 'related') - dropping the open lesson context makes the agent unable
+     to answer questions like "tóm tắt bài này".
+
    - Greetings/chitchat -> general_chat, scope='none', graph_expansion_needed=false.
    - Request recommendation/next steps ("nên học gì tiếp theo?", "gợi ý bài tiếp theo") -> recommendation_engine, user_intent='recommendation', personalization+lakehouse required, scope='none', selected_tools=['get_recommendations'].
    - Share study preferences ("tôi thích thực hành", "tôi muốn học nâng cao") -> recommendation_engine, user_intent='elicitation', personalization+lakehouse required, scope='none'.
@@ -340,9 +369,10 @@ async def generate_plan(
             task=TASK_AGENT_ROUTER,
         )
         logger.info(
-            "AgentPlan v2: intent=%s op_intent=%s operation=%s scope=%s "
+            "AgentPlan v2: intent=%s op_intent=%s page_rel=%s operation=%s scope=%s "
             "tools=%s graph=%s weakness=%s node='%s' ambiguous=%s",
-            plan.user_intent, plan.operational_intent, plan.operation,
+            plan.user_intent, plan.operational_intent, plan.page_context_relevance,
+            plan.operation,
             plan.retrieval_strategy.scope, plan.selected_tools,
             plan.graph_expansion_needed, plan.user_weakness_relevant,
             plan.primary_node_name, plan.is_ambiguous,
@@ -353,6 +383,10 @@ async def generate_plan(
         return ExecutionPlan(
             user_intent="other",
             operational_intent="global_search",
+            # Fail open to the lesson on screen: dropping the only grounding
+            # context during a planner outage breaks "tóm tắt bài này" style
+            # questions far more often than keeping it.
+            page_context_relevance="related",
             operation="content_qa",
             retrieval_strategy=RetrievalStrategy(
                 scope="course" if current_course_id else "global",

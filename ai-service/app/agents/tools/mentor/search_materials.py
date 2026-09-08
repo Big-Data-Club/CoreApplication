@@ -78,51 +78,64 @@ class SearchMaterialsTool(BaseTool):
             user_weakness_relevant = getattr(execution_plan, "user_weakness_relevant", False)
 
         try:
-            # ── GraphRAG path (default) ─────────────────────────────────────
-            if settings.graphrag_enabled and graph_expansion_needed:
-                from app.services.graphrag_service import graphrag_service
-                from app.agents.core.context_formatter import graphrag_context_formatter
+            # ── Retrieval runner (reused for the low-similarity retry) ──────
+            async def _retrieve(effective_min_similarity: float):
+                # ── GraphRAG path (default) ────────────────────────────────
+                if settings.graphrag_enabled and graph_expansion_needed:
+                    from app.services.graphrag_service import graphrag_service
+                    from app.agents.core.context_formatter import graphrag_context_formatter
 
-                # Fetch weak nodes if mastery is relevant
-                weak_node_ids: list[int] = []
-                if user_weakness_relevant and user_id:
-                    try:
-                        from app.agents.memory.ltm import ltm
-                        weak_node_ids = await ltm.get_weak_nodes(
-                            user_id=user_id,
-                            course_id=course_id,
-                            threshold=0.5,
-                        )
-                    except Exception as exc:
-                        logger.debug("get_weak_nodes failed (non-fatal): %s", exc)
+                    # Fetch weak nodes if mastery is relevant
+                    weak_node_ids: list[int] = []
+                    if user_weakness_relevant and user_id:
+                        try:
+                            from app.agents.memory.ltm import ltm
+                            weak_node_ids = await ltm.get_weak_nodes(
+                                user_id=user_id,
+                                course_id=course_id,
+                                threshold=0.5,
+                            )
+                        except Exception as exc:
+                            logger.debug("get_weak_nodes failed (non-fatal): %s", exc)
 
-                ctx = await graphrag_service.retrieve(
-                    query=query,
-                    course_id=course_id,
-                    content_id=content_id,
-                    top_k=top_k,
-                    min_similarity=min_similarity,
-                    expansion_enabled=expansion_enabled,
-                    max_expansion_level=max_expansion_level,
-                    user_id=user_id,
-                    weak_node_ids=weak_node_ids or None,
-                )
-                chunks = ctx.ranked_chunks
-                graph_meta = graphrag_context_formatter.format_for_tool_result(ctx)
+                    ctx = await graphrag_service.retrieve(
+                        query=query,
+                        course_id=course_id,
+                        content_id=content_id,
+                        top_k=top_k,
+                        min_similarity=effective_min_similarity,
+                        expansion_enabled=expansion_enabled,
+                        max_expansion_level=max_expansion_level,
+                        user_id=user_id,
+                        weak_node_ids=weak_node_ids or None,
+                    )
+                    return ctx.ranked_chunks, graphrag_context_formatter.format_for_tool_result(ctx)
 
-            else:
-                # ── Standard RAG fallback ───────────────────────────────────
+                # ── Standard RAG fallback ──────────────────────────────────
                 from app.services.rag_service import rag_service
-                chunks, resolved_scope = await rag_service.search_hierarchical(
+                chunks, _resolved_scope = await rag_service.search_hierarchical(
                     query=query,
                     course_id=course_id,
                     content_id=content_id,
                     top_k=top_k,
-                    min_similarity=min_similarity,
+                    min_similarity=effective_min_similarity,
                     expansion_enabled=expansion_enabled,
                     max_expansion_level=max_expansion_level,
                 )
-                graph_meta = {"graph_expanded": False}
+                return chunks, {"graph_expanded": False}
+
+            chunks, graph_meta = await _retrieve(min_similarity)
+
+            # One bounded retry at a lower threshold: the planner's default
+            # (0.25) regularly filters out the only relevant chunks for short
+            # or paraphrased student queries.
+            if not chunks and min_similarity > 0.10:
+                retry_similarity = max(0.10, min_similarity - 0.15)
+                logger.info(
+                    "search_course_materials retry with min_similarity=%.2f (was %.2f)",
+                    retry_similarity, min_similarity,
+                )
+                chunks, graph_meta = await _retrieve(retry_similarity)
 
             logger.info(
                 "search_course_materials query='%s' chunks=%d graph_expanded=%s",
@@ -130,20 +143,16 @@ class SearchMaterialsTool(BaseTool):
             )
 
             if not chunks:
+                diagnostics = await self._diagnose_index(course_id, content_id)
                 return ToolResult(
                     status="success",
                     data={
                         "chunks": [],
                         "query": query,
                         "graph": graph_meta,
+                        "index_diagnostics": diagnostics,
                     },
-                    message=(
-                        f"Không tìm thấy tài liệu nào khớp '{query}' trong phạm vi hiện tại. "
-                        f"Có thể: (1) nội dung chưa được index, (2) từ khóa khác cách diễn đạt "
-                        f"trong tài liệu - thử từ khóa ngắn hơn hoặc tên khái niệm khác, "
-                        f"(3) tài liệu nằm ở khóa học khác. Có thể thử search_web nếu đây là "
-                        f"kiến thức chung."
-                    ),
+                    message=self._empty_result_message(query, course_id, content_id, diagnostics),
                 )
 
             # Resolve document titles
@@ -199,3 +208,69 @@ class SearchMaterialsTool(BaseTool):
                 data={"error": str(e)},
                 message=f"Lỗi tìm kiếm: {e}",
             )
+
+    @staticmethod
+    async def _diagnose_index(
+        course_id: int | None,
+        content_id: int | None,
+    ) -> dict:
+        """Count ready chunks in the current scope so an empty search can
+        distinguish 'not indexed' from 'indexed but nothing matched'."""
+        from app.core.database import get_ai_conn
+
+        try:
+            async with get_ai_conn() as conn:
+                content_chunks = 0
+                if content_id:
+                    row = await conn.fetchrow(
+                        "SELECT COUNT(*) AS n FROM document_chunks "
+                        "WHERE content_id = $1 AND status = 'ready'",
+                        content_id,
+                    )
+                    content_chunks = row["n"] if row else 0
+                course_chunks = 0
+                if course_id:
+                    row = await conn.fetchrow(
+                        "SELECT COUNT(*) AS n FROM document_chunks "
+                        "WHERE course_id = $1 AND status = 'ready'",
+                        course_id,
+                    )
+                    course_chunks = row["n"] if row else 0
+                return {"content_chunks": content_chunks, "course_chunks": course_chunks}
+        except Exception as exc:
+            logger.warning("index diagnostics failed (non-fatal): %s", exc)
+            return {"content_chunks": None, "course_chunks": None}
+
+    @staticmethod
+    def _empty_result_message(
+        query: str,
+        course_id: int | None,
+        content_id: int | None,
+        diagnostics: dict,
+    ) -> str:
+        """Explain WHY nothing was found, grounded in real chunk counts, so
+        the agent picks the right next step instead of always guessing."""
+        content_chunks = diagnostics.get("content_chunks")
+        course_chunks = diagnostics.get("course_chunks")
+
+        if content_chunks is not None and content_id and content_chunks > 0:
+            return (
+                f"Không có đoạn nào trong bài học hiện tại (content_id={content_id}, "
+                f"đã index {content_chunks} đoạn) khớp đủ ngưỡng với '{query}'. "
+                f"Nên DÙNG TRỰC TIẾP nội dung bài học đang mở trong page_context "
+                f"(nếu có) để trả lời thay vì tìm kiếm thêm; hoặc thử từ khóa "
+                f"ngắn hơn/tên khái niệm đúng như trong tài liệu."
+            )
+        if course_chunks is not None and course_id and course_chunks > 0:
+            return (
+                f"Bài học hiện tại (content_id={content_id}) chưa được index, "
+                f"nhưng khóa học (course_id={course_id}) có {course_chunks} đoạn "
+                f"đã index. Hãy tìm lại với từ khóa ngắn hơn ở phạm vi khóa học, "
+                f"hoặc dùng nội dung bài học trong page_context nếu có."
+            )
+        return (
+            f"Không tìm thấy tài liệu nào khớp '{query}' trong phạm vi hiện tại "
+            f"(không có chunk nào đã index trong scope). Có thể: (1) nội dung chưa "
+            f"được index, (2) tài liệu nằm ở khóa học khác. Có thể thử search_web "
+            f"nếu đây là kiến thức chung."
+        )

@@ -75,9 +75,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
 
     # Never request more than this many input + output tokens in one upstream
-    # call. The default leaves headroom below the 12K TPM tier that previously
-    # rejected a 12,249-token section overview request.
-    llm_request_token_budget: int = 10000
+    # call. Sized for the current gateway catalogue (gpt-oss: 131K context);
+    # the old 10K cap starved ReAct turns - the gateway clamped completion
+    # tokens to (budget - prompt), so tool-heavy iterations truncated
+    # immediately. Override per environment if any provider still enforces a
+    # low TPM tier.
+    llm_request_token_budget: int = 30000
     llm_min_completion_tokens: int = 128
 
     # Google Gemini

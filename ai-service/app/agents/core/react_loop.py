@@ -43,7 +43,7 @@ from app.agents.tools.base_tool import ToolResult
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-MAX_ITERATIONS = 5
+MAX_ITERATIONS = 7
 MAX_CLARIFICATIONS_PER_SESSION = 2
 
 
@@ -370,16 +370,25 @@ async def run_react_loop(
             agent_type=agent_type,
             explicit_course_id=course_id,
         )
-        if context_resolution.status in ("needs_course_choice", "needs_course_navigation") and agent_type == "teacher":
+        if context_resolution.status in ("needs_course_choice", "needs_course_navigation") and hinted_course_id:
+            # Independently authorize the hinted course instead of making the
+            # user re-select a course that is visibly open on their screen.
+            # Teachers verify ownership (write-grade); mentors verify read
+            # access (owner/co-teacher or accepted learner).
             try:
-                from mcp.course_access import user_owns_course
+                if agent_type == "teacher":
+                    from mcp.course_access import user_owns_course
 
-                owns_hinted_course = await user_owns_course(user_id, hinted_course_id)
+                    hinted_authorized = await user_owns_course(user_id, hinted_course_id)
+                else:
+                    from mcp.course_access import user_can_read_course
+
+                    hinted_authorized = await user_can_read_course(user_id, hinted_course_id)
             except Exception:  # noqa: BLE001 - fail closed below
-                logger.exception("Could not verify hinted course ownership id=%s", hinted_course_id)
-                owns_hinted_course = False
+                logger.exception("Could not verify hinted course access id=%s", hinted_course_id)
+                hinted_authorized = False
 
-            if owns_hinted_course:
+            if hinted_authorized:
                 # The ID is now independently authorized. Add the smallest
                 # possible anchor record so the normal resolver and all later
                 # tool-scope checks use the same verified context.
@@ -396,7 +405,7 @@ async def run_react_loop(
                             {
                                 "id": hinted_course_id,
                                 "title": context_resolution.snapshot.course_name or f"Khóa học #{hinted_course_id}",
-                                "role": "owner",
+                                "role": "owner" if agent_type == "teacher" else "student",
                                 "nodes": None,
                             },
                         ],
@@ -549,6 +558,8 @@ async def run_react_loop(
             "personalization_enabled": execution_plan.personalization_enabled,
             "lakehouse_required": execution_plan.lakehouse_required,
             "reasoning": execution_plan.reasoning,
+            # Page-context semantic classification (planner v2)
+            "page_context_relevance": getattr(execution_plan, "page_context_relevance", None),
             # GraphRAG v2 signals
             "graph_expansion_needed": getattr(execution_plan, "graph_expansion_needed", False),
             "user_weakness_relevant": getattr(execution_plan, "user_weakness_relevant", False),
@@ -582,7 +593,17 @@ async def run_react_loop(
     )
 
     # Build ContextScopeDecision and CourseScope adapters for backwards compatibility
-    is_pivot = execution_plan.operational_intent in ("pivot_new_topic", "global_search")
+    # Page-context suppression is driven by the planner's semantic classification
+    # (page_context_relevance), not inferred from operational_intent alone: a
+    # concept question about the open lesson ("OpenMP là gì?" on an OpenMP
+    # lesson) must keep the lesson context even though it looks like a
+    # standalone knowledge query.
+    page_relevance = getattr(execution_plan, "page_context_relevance", "related")
+    is_pivot = (
+        bool(page_context or system_context)
+        and page_relevance == "unrelated"
+        and execution_plan.operational_intent in ("pivot_new_topic", "global_search")
+    )
     use_page = bool(page_context and not is_pivot)
     use_sys = bool(system_context and not is_pivot)
 
@@ -591,7 +612,10 @@ async def run_react_loop(
         use_system_context=use_sys,
         effective_page_context=page_context if use_page else None,
         effective_system_context=system_context if use_sys else None,
-        reason=f"Unified plan operational_intent: {execution_plan.operational_intent}",
+        reason=(
+            f"Unified plan operational_intent={execution_plan.operational_intent} "
+            f"page_context_relevance={page_relevance}"
+        ),
         intent_weight=None,
         suggested_search_topic=user_message if is_pivot else None,
     )
