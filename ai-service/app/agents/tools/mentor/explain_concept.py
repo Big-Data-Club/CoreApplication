@@ -36,8 +36,8 @@ class ExplainConceptTool(BaseTool):
                 "description": "The concept to explain.",
             },
             "course_id": {
-                "type": "integer",
-                "description": "The course ID for context.",
+                "type": ["integer", "null"],
+                "description": "Optional: the course ID for context.",
             },
             "depth": {
                 "type": "string",
@@ -53,7 +53,7 @@ class ExplainConceptTool(BaseTool):
                 "default": "vi",
             },
         },
-        "required": ["concept", "course_id"],
+        "required": ["concept"],
     }
 
     async def execute(self, **kwargs) -> ToolResult:
@@ -226,15 +226,23 @@ class ExplainConceptTool(BaseTool):
                 f"End with 1-2 thought-provoking questions to deepen understanding."
             )
 
-            explanation = await chat_complete(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Explain: {concept}"},
-                ],
-                temperature=0.4,
-                max_tokens=1800,
-                task=TASK_CHAT,
-            )
+            try:
+                import asyncio
+                explanation = await asyncio.wait_for(
+                    chat_complete(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"Explain: {concept}"},
+                        ],
+                        temperature=0.4,
+                        max_tokens=600,
+                        task=TASK_CHAT,
+                    ),
+                    timeout=12.0,
+                )
+            except Exception as e:
+                logger.warning("Internal chat_complete in explain_concept timed out or failed (%s); returning materials for agent to explain", e)
+                explanation = f"Khái niệm: {concept}. Đã trích xuất tài liệu từ Knowledge Graph và tài liệu khóa học."
 
             # Structured sources so the ReAct loop can turn them into
             # verifiable references (the parent stamps stable ref indices).

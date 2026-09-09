@@ -1265,11 +1265,12 @@ class RAGService:
                     return chunks, "section"
 
         # 3. Course level
-        if max_expansion_level in ("course", "global") and lms_course_id:
-            logger.info("Hierarchical RAG: Level 3 (Course course_id=%s)", lms_course_id)
+        effective_course_id = lms_course_id or course_id
+        if effective_course_id:
+            logger.info("Hierarchical RAG: Level 3 (Course course_id=%s)", effective_course_id)
             chunks = await self.search_multilingual(
                 query=query,
-                course_id=lms_course_id,
+                course_id=effective_course_id,
                 top_k=top_k,
                 min_similarity=min_similarity,
             )

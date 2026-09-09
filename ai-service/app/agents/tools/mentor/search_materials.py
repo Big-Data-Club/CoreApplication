@@ -254,12 +254,16 @@ class SearchMaterialsTool(BaseTool):
         course_chunks = diagnostics.get("course_chunks")
 
         if content_chunks is not None and content_id and content_chunks > 0:
+            if course_chunks is not None and course_id and course_chunks > content_chunks:
+                return (
+                    f"Bài học hiện tại (content_id={content_id}, {content_chunks} đoạn) không đề cập đến '{query}'. "
+                    f"Toàn khóa học (course_id={course_id}) có {course_chunks} đoạn đã index. "
+                    f"Hãy thử tìm kiếm lại ở phạm vi khóa học (bỏ lọc content_id) hoặc giải thích khái niệm dựa trên kiến thức chung."
+                )
             return (
                 f"Không có đoạn nào trong bài học hiện tại (content_id={content_id}, "
                 f"đã index {content_chunks} đoạn) khớp đủ ngưỡng với '{query}'. "
-                f"Nên DÙNG TRỰC TIẾP nội dung bài học đang mở trong page_context "
-                f"(nếu có) để trả lời thay vì tìm kiếm thêm; hoặc thử từ khóa "
-                f"ngắn hơn/tên khái niệm đúng như trong tài liệu."
+                f"Nên dùng nội dung bài học đang mở nếu có, hoặc thử từ khóa ngắn hơn."
             )
         if course_chunks is not None and course_id and course_chunks > 0:
             return (
