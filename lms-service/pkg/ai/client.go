@@ -762,6 +762,29 @@ func (c *Client) GetLinkIsolatedStatus(ctx context.Context, courseID int64) (map
 	return resp, nil
 }
 
+// LinkAllNodes triggers an async Kafka job to scan all nodes in a course,
+// connect disjoint components/clusters and low-connectivity nodes via LLM enrichment.
+// Returns immediately (202) with a job_id; completion is pushed via ai.graph.status.
+func (c *Client) LinkAllNodes(ctx context.Context, courseID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	path := fmt.Sprintf("/ai/knowledge-graph/%d/link-all", courseID)
+	if err := c.post(ctx, path, nil, &resp); err != nil {
+		return nil, fmt.Errorf("ai.LinkAllNodes: %w", err)
+	}
+	return resp, nil
+}
+
+// GetLinkAllStatus checks the current status of the full graph linking job for a course.
+func (c *Client) GetLinkAllStatus(ctx context.Context, courseID int64) (map[string]interface{}, error) {
+	var resp map[string]interface{}
+	path := fmt.Sprintf("/ai/knowledge-graph/%d/link-all/status", courseID)
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("ai.GetLinkAllStatus: %w", err)
+	}
+	return resp, nil
+}
+
+
 // GraphEdgeRequest is the payload for creating or updating a graph edge.
 type GraphEdgeRequest struct {
 	SourceNodeID  int64   `json:"source_node_id"`

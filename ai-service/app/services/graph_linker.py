@@ -88,6 +88,48 @@ Trả về kiểu JSON:
 }}
 """
 
+INTRA_COURSE_LINK_SYSTEM_PROMPT = """\
+Bạn là chuyên gia thiết kế chương trình đào tạo và sơ đồ tri thức (Knowledge Graph).
+Nhiệm vụ: Xác định mối quan hệ học tập logic giữa hai khái niệm kiến thức trong cùng một khóa học.
+Chỉ trả về JSON hợp lệ, không thêm text khác.\
+"""
+
+INTRA_COURSE_LINK_PROMPT_TEMPLATE = """\
+PHÂN TÍCH QUAN HỆ TRI THỨC TRONG CÙNG KHÓA HỌC:
+
+[KHÁI NIỆM A] (Khóa học ID: {course_id})
+- Tên: {name_a}
+- Mô tả: {desc_a}
+
+[KHÁI NIỆM B] (Khóa học ID: {course_id})
+- Tên: {name_b}
+- Mô tả: {desc_b}
+
+Dựa trên lộ trình học tập, hãy xác định xem giữa hai khái niệm này có mối quan hệ trực tiếp nào không?
+Các loại quan hệ hợp lệ:
+- "prerequisite"  : Một khái niệm là nền tảng cần học trước khái niệm kia (direction: a_to_b nếu A cần trước B, b_to_a nếu B cần trước A).
+- "extends"       : Một khái niệm là phần nâng cao, mở rộng hoặc chuyên sâu của khái niệm kia (direction: a_to_b nếu B mở rộng từ A, b_to_a nếu A mở rộng từ B).
+- "related"       : Có liên quan mật thiết hoặc bổ trợ cho nhau cùng trong chủ đề.
+- "equivalent"    : Là cùng một khái niệm, từ đồng nghĩa hoặc thuật ngữ tương đương.
+- "contrasts_with": Hai khái niệm đối lập, thường so sánh đối chiếu (VD: SQL vs NoSQL).
+
+- direction: "a_to_b" | "b_to_a" | "bidirectional"
+- strength: 0.6 -> 1.0 (mức độ tin cậy của liên kết)
+- reason: Giải thích ngắn gọn lý do bằng tiếng Việt (1 câu).
+
+Nếu KHÔNG có liên hệ trực tiếp trong chương trình, trả về "connected": false.
+
+Trả về kiểu JSON:
+{{
+  "connected": true,
+  "relation_type": "...",
+  "strength": 0.0,
+  "reason": "...",
+  "direction": "..."
+}}
+"""
+
+
 
 @dataclass
 class NodeInfo:
@@ -230,6 +272,160 @@ async def link_global_graph() -> int:
     return total_new_edges
 
 
+async def link_all_nodes_for_course(course_id: int) -> int:
+    """Intelligently link all knowledge nodes within a course using graph structure
+    analysis and parallel LLM semantic enrichment.
+
+    Solves the problem of fragmented course graphs (disconnected clusters/islands)
+    by identifying candidate connections across components and poorly connected nodes.
+
+    Pipeline:
+      1. Fetch all nodes for this course (with embeddings from Qdrant/PostgreSQL).
+      2. Read existing intra-course edges to build graph connectivity and find
+         connected components (islands).
+      3. Compute pairwise cosine similarity between all candidate node pairs.
+      4. Score and prioritize candidate pairs:
+         - Bridges between different components receive highest priority.
+         - Nodes with low degree (<= 1) receive extra boost.
+         - Filter candidate pairs with similarity >= LINK_ALL_THRESHOLD (~0.45).
+      5. Select top candidates within budget (MAX_LINK_ALL_LLM_PAIRS = 60) with component diversity.
+      6. Parallel LLM classification using intra-course curriculum prompt.
+      7. Dual-write confirmed relationships to Neo4j AND PostgreSQL.
+    """
+    LINK_ALL_MIN_SIM = 0.45
+    MAX_LINK_ALL_LLM_PAIRS = 60
+    MAX_BRIDGES_PER_COMPONENT_PAIR = 3
+
+    # 1. Fetch all nodes for this course
+    all_nodes = await _fetch_nodes_for_course(course_id)
+    if len(all_nodes) < 2:
+        logger.info("[link-all] course %d: not enough nodes to link (%d)", course_id, len(all_nodes))
+        return 0
+
+    logger.info("[link-all] course %d: analyzing %d nodes for full graph linking", course_id, len(all_nodes))
+
+    # 2. Fetch existing relations from PostgreSQL
+    async with get_ai_conn() as conn:
+        edge_rows = await conn.fetch(
+            "SELECT source_node_id, target_node_id FROM knowledge_node_relations WHERE course_id = $1",
+            course_id,
+        )
+
+    existing_undirected = set()
+    adj: dict[int, set[int]] = {n.id: set() for n in all_nodes}
+    for r in edge_rows:
+        src, tgt = r["source_node_id"], r["target_node_id"]
+        existing_undirected.add(frozenset([src, tgt]))
+        if src in adj and tgt in adj:
+            adj[src].add(tgt)
+            adj[tgt].add(src)
+
+    # 3. Find connected components (islands)
+    comp_map: dict[int, int] = {}
+    comp_id = 0
+    visited = set()
+    for n in all_nodes:
+        if n.id not in visited:
+            comp_id += 1
+            queue = [n.id]
+            visited.add(n.id)
+            while queue:
+                curr = queue.pop(0)
+                comp_map[curr] = comp_id
+                for neighbor in adj.get(curr, set()):
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+
+    degrees = {n.id: len(adj.get(n.id, set())) for n in all_nodes}
+    logger.info(
+        "[link-all] course %d: found %d connected component(s) across %d nodes",
+        course_id, comp_id, len(all_nodes),
+    )
+
+    # 4. Compute pairwise cosine similarity matrix
+    emb_matrix = np.array([n.embedding for n in all_nodes], dtype=np.float32)
+    norms = np.linalg.norm(emb_matrix, axis=1, keepdims=True) + 1e-8
+    norm_emb = emb_matrix / norms
+    sim_matrix = norm_emb @ norm_emb.T
+
+    # 5. Build candidate pairs
+    candidates = []
+    comp_pair_counts: dict[frozenset, int] = {}
+
+    for i in range(len(all_nodes)):
+        node_a = all_nodes[i]
+        for j in range(i + 1, len(all_nodes)):
+            node_b = all_nodes[j]
+            # Skip if already directly connected
+            if frozenset([node_a.id, node_b.id]) in existing_undirected:
+                continue
+
+            sim = float(sim_matrix[i, j])
+            if sim < LINK_ALL_MIN_SIM:
+                continue
+
+            comp_a = comp_map.get(node_a.id, 0)
+            comp_b = comp_map.get(node_b.id, 0)
+            is_cross_comp = (comp_a != comp_b)
+
+            # Priority scoring:
+            # - Cross-component pairs get +0.15 to connect islands
+            # - Degree-0 nodes get +0.10, degree-1 get +0.05
+            priority = sim
+            if is_cross_comp:
+                priority += 0.15
+            if degrees.get(node_a.id, 0) == 0 or degrees.get(node_b.id, 0) == 0:
+                priority += 0.10
+            elif degrees.get(node_a.id, 0) == 1 or degrees.get(node_b.id, 0) == 1:
+                priority += 0.05
+
+            candidates.append({
+                "node_a": node_a,
+                "node_b": node_b,
+                "sim": sim,
+                "priority": priority,
+                "comp_pair": frozenset([comp_a, comp_b]) if is_cross_comp else None,
+            })
+
+    if not candidates:
+        logger.info("[link-all] course %d: no candidate pairs above threshold %.2f", course_id, LINK_ALL_MIN_SIM)
+        return 0
+
+    # Sort candidates by priority descending
+    candidates.sort(key=lambda x: x["priority"], reverse=True)
+
+    # Filter with diversity cap so one pair of components doesn't starve the others
+    selected_pairs: list[tuple[NodeInfo, NodeInfo, float]] = []
+    for c in candidates:
+        cp = c["comp_pair"]
+        if cp is not None:
+            if comp_pair_counts.get(cp, 0) >= MAX_BRIDGES_PER_COMPONENT_PAIR:
+                continue
+            comp_pair_counts[cp] = comp_pair_counts.get(cp, 0) + 1
+
+        selected_pairs.append((c["node_a"], c["node_b"], c["sim"]))
+        if len(selected_pairs) >= MAX_LINK_ALL_LLM_PAIRS:
+            break
+
+    logger.info(
+        "[link-all] course %d: selected %d candidate pairs for LLM enrichment",
+        course_id, len(selected_pairs),
+    )
+
+    # 6. LLM classification & dual-write upsert
+    edges_created = await _process_and_upsert_pairs(
+        selected_pairs,
+        limit=len(selected_pairs),
+        cross_course=False,
+        intra_course=True,
+        course_id=course_id,
+    )
+
+    logger.info("[link-all] course %d: created %d new edge(s)", course_id, edges_created)
+    return edges_created
+
+
 async def link_isolated_nodes_for_course(course_id: int) -> int:
     """Find all zero-edge nodes in a course and connect them via LLM-enriched linking.
 
@@ -307,8 +503,14 @@ async def link_isolated_nodes_for_course(course_id: int) -> int:
         course_id, len(top_pairs), len(isolated_nodes),
     )
 
-    # 4. LLM enrichment + write to Neo4j (also writes to PG via upsert_relationships_batch)
-    edges_created = await _process_and_upsert_pairs(top_pairs, limit=len(top_pairs))
+    # 4. LLM enrichment + write to Neo4j and PG
+    edges_created = await _process_and_upsert_pairs(
+        top_pairs,
+        limit=len(top_pairs),
+        cross_course=False,
+        intra_course=True,
+        course_id=course_id,
+    )
 
     logger.info(
         "[link-isolated] course %d: created %d new edge(s) for previously isolated nodes",
@@ -319,9 +521,12 @@ async def link_isolated_nodes_for_course(course_id: int) -> int:
 
 async def _process_and_upsert_pairs(
     candidate_pairs: list[tuple[NodeInfo, NodeInfo, float]], 
-    limit: int
+    limit: int,
+    cross_course: bool = True,
+    intra_course: bool = False,
+    course_id: int | None = None,
 ) -> int:
-    """Classify pairs via LLM and write to Neo4j."""
+    """Classify pairs via LLM and dual-write to Neo4j and PostgreSQL."""
     # Pick top scoring candidates
     top_pairs = sorted(candidate_pairs, key=lambda x: x[2], reverse=True)[:limit]
     
@@ -329,7 +534,7 @@ async def _process_and_upsert_pairs(
     
     async def enrich(node_a, node_b, sim):
         async with semaphore:
-            return await _llm_enrich_pair(node_a, node_b, sim)
+            return await _llm_enrich_pair(node_a, node_b, sim, intra_course=intra_course)
 
     results = await asyncio.gather(
         *[enrich(a, b, sim) for a, b, sim in top_pairs],
@@ -352,21 +557,53 @@ async def _process_and_upsert_pairs(
             source, target = node_b, node_a
 
         if direction == "bidirectional":
-            for src_id, tgt_id in [(node_a.id, node_b.id), (node_b.id, node_a.id)]:
+            for src, tgt in [(node_a, node_b), (node_b, node_a)]:
                 edges_to_create.append({
-                    "source_id": src_id, "target_id": tgt_id,
+                    "source_id": src.id, "target_id": tgt.id,
+                    "source_course_id": src.course_id, "target_course_id": tgt.course_id,
                     "rel_type": rel_type, "strength": strength,
-                    "auto_generated": True, "cross_course": True, "reason": reason
+                    "auto_generated": True, "cross_course": cross_course, "reason": reason
                 })
         else:
             edges_to_create.append({
                 "source_id": source.id, "target_id": target.id,
+                "source_course_id": source.course_id, "target_course_id": target.course_id,
                 "rel_type": rel_type, "strength": strength,
-                "auto_generated": True, "cross_course": True, "reason": reason
+                "auto_generated": True, "cross_course": cross_course, "reason": reason
             })
 
     if edges_to_create:
-        await neo4j_service.upsert_relationships_batch(edges_to_create)
+        # 1. Dual-write to Neo4j
+        if settings.neo4j_enabled:
+            try:
+                await neo4j_service.upsert_relationships_batch(edges_to_create)
+            except Exception as neo_err:
+                logger.warning("Failed to upsert relationships to Neo4j: %s", neo_err)
+
+        # 2. Dual-write to PostgreSQL knowledge_node_relations
+        try:
+            async with get_ai_conn() as conn:
+                async with conn.transaction():
+                    for edge in edges_to_create:
+                        cid = course_id or edge.get("source_course_id") or edge.get("target_course_id") or 0
+                        await conn.execute(
+                            """
+                            INSERT INTO knowledge_node_relations
+                                (course_id, source_node_id, target_node_id, relation_type, strength, auto_generated)
+                            VALUES ($1, $2, $3, $4, $5, $6)
+                            ON CONFLICT (source_node_id, target_node_id, relation_type) DO UPDATE
+                                SET strength = GREATEST(knowledge_node_relations.strength, EXCLUDED.strength)
+                            """,
+                            cid,
+                            edge["source_id"],
+                            edge["target_id"],
+                            edge["rel_type"].lower(),
+                            edge["strength"],
+                            edge["auto_generated"],
+                        )
+        except Exception as pg_err:
+            logger.error("Failed to upsert relationships to PostgreSQL: %s", pg_err)
+
     return len(edges_to_create)
 
 
@@ -454,7 +691,6 @@ async def _fetch_other_course_nodes(course_id: int) -> list[NodeInfo]:
             name=r.payload.get("name", ""),
             description=r.payload.get("description", ""),
             embedding=r.vector,
-            task=TASK_GRAPH_LINK,
         )
         for r in records if r.vector
     ]
@@ -483,18 +719,34 @@ def _find_candidate_pairs(
     return pairs
 
 
-async def _llm_enrich_pair(node_a: NodeInfo, node_b: NodeInfo, sim: float) -> dict | None:
-    prompt = LINKER_PROMPT_TEMPLATE.format(
-        course_a=f"Course ID {node_a.course_id}", 
-        name_a=node_a.name, 
-        desc_a=(node_a.description or "")[:400],
-        course_b=f"Course ID {node_b.course_id}", 
-        name_b=node_b.name, 
-        desc_b=(node_b.description or "")[:400],
-    )
+async def _llm_enrich_pair(
+    node_a: NodeInfo,
+    node_b: NodeInfo,
+    sim: float,
+    intra_course: bool = False,
+) -> dict | None:
+    if intra_course:
+        sys_prompt = INTRA_COURSE_LINK_SYSTEM_PROMPT
+        prompt = INTRA_COURSE_LINK_PROMPT_TEMPLATE.format(
+            course_id=node_a.course_id,
+            name_a=node_a.name,
+            desc_a=(node_a.description or "")[:400],
+            name_b=node_b.name,
+            desc_b=(node_b.description or "")[:400],
+        )
+    else:
+        sys_prompt = LINKER_SYSTEM_PROMPT
+        prompt = LINKER_PROMPT_TEMPLATE.format(
+            course_a=f"Course ID {node_a.course_id}", 
+            name_a=node_a.name, 
+            desc_a=(node_a.description or "")[:400],
+            course_b=f"Course ID {node_b.course_id}", 
+            name_b=node_b.name, 
+            desc_b=(node_b.description or "")[:400],
+        )
     try:
         return await chat_complete_json(
-            messages=[{"role": "system", "content": LINKER_SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+            messages=[{"role": "system", "content": sys_prompt}, {"role": "user", "content": prompt}],
             model=settings.chat_model,
             temperature=0.05,
         )

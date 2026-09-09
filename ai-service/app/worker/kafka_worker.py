@@ -158,6 +158,32 @@ async def process_graph_command(payload: dict):
                 set_job_status(cid, job_id, "failed", error=str(exc))
                 raise
 
+        elif command == "LINK_ALL_NODES":
+            from app.services.graph_linker import link_all_nodes_for_course
+            from app.services.graph_job_tracker import set_job_status
+            if course_id is None:
+                await publish_graph_event(command, "failed", error="missing course_id",
+                                          course_id=course_id, job_id=job_id)
+                return
+            cid = int(course_id)
+            set_job_status(cid, job_id, "processing")
+            await publish_graph_event(command, "processing", course_id=cid, job_id=job_id)
+            try:
+                count = await link_all_nodes_for_course(cid)
+                set_job_status(cid, job_id, "completed", edges_created=count)
+                await publish_graph_event(
+                    command, "completed",
+                    result_count=count,
+                    course_id=cid, job_id=job_id,
+                )
+                logger.info(
+                    "Link-all complete",
+                    extra={"course_id": cid, "edges_created": count},
+                )
+            except Exception as exc:
+                set_job_status(cid, job_id, "failed", error=str(exc))
+                raise
+
         else:
             logger.warning("Unknown graph command", extra={"command": command})
 

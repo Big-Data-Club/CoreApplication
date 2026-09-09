@@ -1471,6 +1471,55 @@ func (h *AIHandler) GetLinkIsolatedStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewDataResponse(result))
 }
 
+// LinkAllNodes godoc
+// @Summary      Link All Knowledge Nodes
+// @Description  Triggers an async AI job to scan all nodes in a course, connect disjoint clusters and isolated concepts.
+// @Tags         AI - Knowledge Graph
+// @Produce      json
+// @Param        courseId path int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/link-all [post]
+func (h *AIHandler) LinkAllNodes(c *gin.Context) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_course_id", "invalid courseId"))
+		return
+	}
+
+	result, err := h.aiClient.LinkAllNodes(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusAccepted, dto.NewDataResponse(result))
+}
+
+// GetLinkAllStatus godoc
+// @Summary      Get Link All Nodes Status
+// @Description  Queries the status of the full graph linking job for a course.
+// @Tags         AI - Knowledge Graph
+// @Produce      json
+// @Param        courseId path int true "Course ID"
+// @Security     BearerAuth
+// @Router       /courses/{courseId}/ai/link-all/status [get]
+func (h *AIHandler) GetLinkAllStatus(c *gin.Context) {
+	courseID, err := strconv.ParseInt(c.Param("courseId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_course_id", "invalid courseId"))
+		return
+	}
+
+	result, err := h.aiClient.GetLinkAllStatus(c.Request.Context(), courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("ai_error", err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.NewDataResponse(result))
+}
+
+
 // UpsertGraphEdge godoc
 // @Summary      Create or update a knowledge graph edge
 // @Description  Idempotent: creates a new directed edge or updates strength/type

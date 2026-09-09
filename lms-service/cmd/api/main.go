@@ -761,6 +761,11 @@ func main() {
 				aiCourses.DELETE("/nodes/:nodeId", aiHandler.DeleteKnowledgeNode)
 
 				// -- Graph Teacher Tools ---------------------------------------
+				aiCourses.POST("/link-all",
+					middleware.RequirePermission(permService, "AI_INDEX"),
+					aiHandler.LinkAllNodes)
+				aiCourses.GET("/link-all/status",
+					aiHandler.GetLinkAllStatus)
 				aiCourses.POST("/link-isolated",
 					middleware.RequirePermission(permService, "AI_INDEX"),
 					aiHandler.LinkIsolatedNodes)

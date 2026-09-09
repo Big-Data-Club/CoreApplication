@@ -592,6 +592,13 @@ class LinkIsolatedResponse(BaseModel):
     message: str = "Isolated node linking queued. You will be notified when complete."
 
 
+class LinkAllResponse(BaseModel):
+    job_id: str
+    course_id: int
+    status: str = "queued"
+    message: str = "Full graph auto-linking queued. You will be notified when complete."
+
+
 class EdgeUpsertRequest(BaseModel):
     source_node_id: int
     target_node_id: int
@@ -658,6 +665,52 @@ async def get_link_isolated_status(course_id: int, request: Request):
     _verify(request)
     from app.services.graph_job_tracker import get_job_status
     return get_job_status(course_id)
+
+
+@graph_router.post("/{course_id}/link-all", response_model=LinkAllResponse)
+async def trigger_link_all_nodes(course_id: int, request: Request):
+    """Trigger an async Kafka job that analyzes the entire course knowledge graph,
+    connects disjoint clusters/islands, and links poorly connected nodes using LLM enrichment.
+
+    Returns 202 immediately. Prevents duplicate concurrent executions for the same course.
+    """
+    _verify(request)
+
+    from app.services.graph_job_tracker import get_job_status, set_job_status
+    current = get_job_status(course_id)
+    if current["status"] in ("queued", "processing"):
+        return LinkAllResponse(
+            job_id=current["job_id"],
+            course_id=course_id,
+            status=current["status"],
+            message="Một tiến trình liên kết đồ thị đang được thực hiện cho khóa học này.",
+        )
+
+    import uuid
+    job_id = f"link-all-{course_id}-{uuid.uuid4().hex[:8]}"
+    set_job_status(course_id, job_id, "queued")
+
+    from app.worker.kafka_producer import get_kafka_producer
+    producer = await get_kafka_producer()
+    await producer.send_and_wait(
+        "lms.graph.command",
+        value={
+            "command":   "LINK_ALL_NODES",
+            "course_id": course_id,
+            "job_id":    job_id,
+        },
+    )
+
+    return LinkAllResponse(job_id=job_id, course_id=course_id, status="queued")
+
+
+@graph_router.get("/{course_id}/link-all/status")
+async def get_link_all_status(course_id: int, request: Request):
+    """Check the status of the full graph linking job for a course."""
+    _verify(request)
+    from app.services.graph_job_tracker import get_job_status
+    return get_job_status(course_id)
+
 
 
 @graph_router.post("/edge", response_model=EdgeUpsertResponse)
