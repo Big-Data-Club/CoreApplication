@@ -73,12 +73,14 @@ jobs:
               - 'lab-service/**'
               - 'k3s/base/lab-service-deployment.yaml'
               - 'k3s/base/lab-sandbox-policy.yaml'
+              - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
               # Keep the lab production selector itself deployable.
               - '.github/workflows/production.yml'
             chat:
               - 'chat-service/**'
               - 'k3s/base/chat-service-deployment.yaml'
+              - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
               # Keep a workflow fix deployable: this file controls the chat
               # production selection itself.
@@ -248,6 +250,38 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           kubectl patch serviceaccount default --namespace "$DEPLOY_NAMESPACE" \
             --type merge -p '{"imagePullSecrets":[{"name":"dockerhub-registry"}]}'
+
+      - name: Sync migrated Neon credentials
+        env:
+          DEPLOY_NAMESPACE: default
+          NEON_DB_USER: neondb_owner
+          NEON_DB_PASSWORD: ${{ secrets.NEON_TARGET_DB_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$NEON_DB_PASSWORD" || {
+            echo "Missing required production secret: NEON_TARGET_DB_PASSWORD" >&2
+            exit 1
+          }
+          patch_file="$(mktemp)"
+          trap 'rm -f "$patch_file"' EXIT
+          python3 - "$patch_file" <<'PY'
+          import base64
+          import json
+          import os
+          import sys
+
+          user_keys = ["POSTGRES_USER", "LMS_POSTGRES_USER", "LAB_POSTGRES_USER", "CHAT_POSTGRES_USER", "AI_POSTGRES_USER"]
+          password_keys = ["POSTGRES_PASSWORD", "LMS_POSTGRES_PASSWORD", "LAB_POSTGRES_PASSWORD", "CHAT_POSTGRES_PASSWORD", "AI_POSTGRES_PASSWORD"]
+          encode = lambda value: base64.b64encode(value.encode()).decode()
+          data = {key: encode(os.environ["NEON_DB_USER"]) for key in user_keys}
+          data.update({key: encode(os.environ["NEON_DB_PASSWORD"]) for key in password_keys})
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump({"data": data}, handle)
+          PY
+          chmod 600 "$patch_file"
+          kubectl -n "$DEPLOY_NAMESPACE" patch secret bdc-secrets \
+            --type=merge --patch-file "$patch_file"
 
       - name: Apply AI schema migrations before rollout
         # The current ai-service pod already has the DB credentials and
