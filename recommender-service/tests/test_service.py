@@ -26,6 +26,41 @@ class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
             response.items[0].tracking_token,
         ))
 
+    async def test_healthy_learner_gets_no_mentor_filler(self):
+        """A learner with no struggles and good accuracy should not receive
+        filler suggestions — only the meaningful course continuation."""
+        service = RecommendationService()
+        service.profile = AsyncMock(return_value=({
+            "struggle_nodes": [],
+            "check_accuracy": 0.9,
+            "completed_lessons": 5,
+        }, False))
+        response = await service.recommend(RecommendationRequest(
+            user_id=42,
+            context={"course_id": 38, "role": "student"},
+        ))
+
+        actions = [item.action for item in response.items]
+        self.assertNotIn("ask_mentor", actions)
+        self.assertNotIn("practice_quick_check", actions)
+        self.assertEqual(actions, ["continue_course"])
+
+    async def test_struggling_learner_still_gets_mentor_support(self):
+        service = RecommendationService()
+        service.profile = AsyncMock(return_value=({
+            "struggle_nodes": [11],
+            "check_accuracy": 0.5,
+            "completed_lessons": 3,
+        }, False))
+        response = await service.recommend(RecommendationRequest(
+            user_id=42,
+            limit=4,
+            context={"course_id": 38, "role": "student"},
+        ))
+
+        actions = [item.action for item in response.items]
+        self.assertIn("ask_mentor", actions)
+
     async def test_missing_course_requests_clarification(self):
         response = await RecommendationService().recommend(RecommendationRequest(user_id=42))
         self.assertTrue(response.clarification_needed)

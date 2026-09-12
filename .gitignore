@@ -120,3 +120,5 @@ temp/
 server/
 
 __pycache__/
+# Python virtualenvs
+.venv/

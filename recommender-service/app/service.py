@@ -445,7 +445,10 @@ class RecommendationService:
             min(minutes, 25),
             [ReasonFact(code="course_progress", value=completed)],
         ))
-        if not prefer_practice:
+        # Mentoring is only a meaningful suggestion while the learner actually
+        # needs support; as an unconditional item it reads as filler.
+        needs_support = bool(struggles) or (accuracy < 0.60 and completed > 0)
+        if needs_support and not prefer_practice:
             candidates.append(self._item(
                 request, len(candidates) + 1, 0.52, "ask_mentor",
                 "Trao đổi với AI Mentor",
