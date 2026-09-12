@@ -20,6 +20,21 @@ from app.agents.tools.base_tool import BaseTool, ToolResult, sanitize_query
 logger = logging.getLogger(__name__)
 
 
+def format_course_label(course_name: str | None, course_id: int | None) -> str:
+    """Human-facing course reference: name first, then the id.
+
+    Example: `Khóa học "Distributed Systems" (course_id=73)`.
+    """
+    name = (course_name or "").strip()
+    if name and course_id:
+        return f'"{name}" (course_id={course_id})'
+    if name:
+        return f'"{name}"'
+    if course_id:
+        return f"(course_id={course_id})"
+    return "khóa học"
+
+
 class SearchMaterialsTool(BaseTool):
     name = "search_course_materials"
     description = (
@@ -27,7 +42,9 @@ class SearchMaterialsTool(BaseTool):
         "Returns relevant document excerpts from indexed course content, enriched "
         "with concept relationships and prerequisite signals. Use when the student "
         "asks a knowledge question and you need to find the answer in the "
-        "course materials, or when you want to reference specific content."
+        "course materials, or when you want to reference specific content. "
+        "Keep `query` short (2-8 keywords, one concept at a time); for "
+        "multi-concept questions run several narrow searches instead of one long one."
     )
     parameters = {
         "type": "object",
@@ -58,6 +75,7 @@ class SearchMaterialsTool(BaseTool):
         content_id: int | None = kwargs.get("_content_id") or kwargs.get("content_id")
         node_id: int | None = kwargs.get("_node_id") or kwargs.get("node_id")
         user_id: int | None = kwargs.get("_user_id")
+        course_name: str | None = kwargs.get("_course_name")
         top_k = kwargs.get("top_k", 3)
 
         execution_plan = kwargs.get("execution_plan")
@@ -79,7 +97,7 @@ class SearchMaterialsTool(BaseTool):
 
         try:
             # ── Retrieval runner (reused for the low-similarity retry) ──────
-            async def _retrieve(effective_min_similarity: float):
+            async def _retrieve(effective_min_similarity: float, effective_content_id: int | None = content_id):
                 # ── GraphRAG path (default) ────────────────────────────────
                 if settings.graphrag_enabled and graph_expansion_needed:
                     from app.services.graphrag_service import graphrag_service
@@ -101,7 +119,7 @@ class SearchMaterialsTool(BaseTool):
                     ctx = await graphrag_service.retrieve(
                         query=query,
                         course_id=course_id,
-                        content_id=content_id,
+                        content_id=effective_content_id,
                         top_k=top_k,
                         min_similarity=effective_min_similarity,
                         expansion_enabled=expansion_enabled,
@@ -116,7 +134,7 @@ class SearchMaterialsTool(BaseTool):
                 chunks, _resolved_scope = await rag_service.search_hierarchical(
                     query=query,
                     course_id=course_id,
-                    content_id=content_id,
+                    content_id=effective_content_id,
                     top_k=top_k,
                     min_similarity=effective_min_similarity,
                     expansion_enabled=expansion_enabled,
@@ -125,17 +143,30 @@ class SearchMaterialsTool(BaseTool):
                 return chunks, {"graph_expanded": False}
 
             chunks, graph_meta = await _retrieve(min_similarity)
+            search_threshold = min_similarity
 
             # One bounded retry at a lower threshold: the planner's default
             # (0.25) regularly filters out the only relevant chunks for short
             # or paraphrased student queries.
-            if not chunks and min_similarity > 0.10:
-                retry_similarity = max(0.10, min_similarity - 0.15)
+            if not chunks and search_threshold > 0.10:
+                search_threshold = max(0.10, min_similarity - 0.15)
                 logger.info(
                     "search_course_materials retry with min_similarity=%.2f (was %.2f)",
-                    retry_similarity, min_similarity,
+                    search_threshold, min_similarity,
                 )
-                chunks, graph_meta = await _retrieve(retry_similarity)
+                chunks, graph_meta = await _retrieve(search_threshold)
+
+            # Lesson-scope miss with a wider indexed course: widen the search
+            # ourselves instead of bouncing the question back to the agent
+            # for a manual retry it may never make.
+            widened_scope = False
+            if not chunks and content_id and course_id:
+                logger.info(
+                    "search_course_materials lesson-scope miss (content_id=%s), widening to course_id=%s",
+                    content_id, course_id,
+                )
+                chunks, graph_meta = await _retrieve(search_threshold, effective_content_id=None)
+                widened_scope = True
 
             logger.info(
                 "search_course_materials query='%s' chunks=%d graph_expanded=%s",
@@ -152,7 +183,9 @@ class SearchMaterialsTool(BaseTool):
                         "graph": graph_meta,
                         "index_diagnostics": diagnostics,
                     },
-                    message=self._empty_result_message(query, course_id, content_id, diagnostics),
+                    message=self._empty_result_message(
+                        query, course_id, content_id, diagnostics, course_name,
+                    ),
                 )
 
             # Resolve document titles
@@ -170,6 +203,11 @@ class SearchMaterialsTool(BaseTool):
                 except Exception as db_err:
                     logger.warning("Failed to fetch content titles: %s", db_err)
 
+            def _scope_of(chunk) -> str:
+                if widened_scope or (content_id and chunk.content_id and chunk.content_id != content_id):
+                    return "course"
+                return "lesson"
+
             results = [
                 {
                     "text": c.chunk_text,
@@ -178,10 +216,18 @@ class SearchMaterialsTool(BaseTool):
                     "page_number": c.page_number,
                     "content_id": c.content_id,
                     "node_id": c.node_id,
-                    "title": titles.get(c.content_id) or "Tài liệu học tập"
+                    "title": titles.get(c.content_id) or "Tài liệu học tập",
+                    "source_scope": _scope_of(c),
                 }
                 for c in chunks
             ]
+
+            scope_prefix = ""
+            if widened_scope:
+                scope_prefix = (
+                    f"Bài học hiện tại (content_id={content_id}) không đề cập đến '{query}'. "
+                    f"Đã tự động mở rộng phạm vi sang toàn khóa học. "
+                )
 
             return ToolResult(
                 status="success",
@@ -190,9 +236,17 @@ class SearchMaterialsTool(BaseTool):
                     "query": query,
                     "count": len(results),
                     "graph": graph_meta,
+                    "widened_scope": widened_scope,
                 },
                 message=(
-                    f"Tìm thấy {len(results)} đoạn tài liệu liên quan."
+                    scope_prefix
+                    + f"Tìm thấy {len(results)} đoạn tài liệu liên quan"
+                    + (
+                        f" trong khóa học {format_course_label(course_name, course_id)}"
+                        if (widened_scope or not content_id) and course_id
+                        else " trong bài học hiện tại"
+                    )
+                    + "."
                     + (
                         f" (Mở rộng từ {graph_meta.get('seed_node_count', 0)} khái niệm "
                         f"sang {graph_meta.get('expanded_node_count', 0)} khái niệm liên quan qua Knowledge Graph.)"
@@ -247,18 +301,21 @@ class SearchMaterialsTool(BaseTool):
         course_id: int | None,
         content_id: int | None,
         diagnostics: dict,
+        course_name: str | None = None,
     ) -> str:
         """Explain WHY nothing was found, grounded in real chunk counts, so
         the agent picks the right next step instead of always guessing."""
         content_chunks = diagnostics.get("content_chunks")
         course_chunks = diagnostics.get("course_chunks")
+        course_label = format_course_label(course_name, course_id)
 
         if content_chunks is not None and content_id and content_chunks > 0:
             if course_chunks is not None and course_id and course_chunks > content_chunks:
                 return (
                     f"Bài học hiện tại (content_id={content_id}, {content_chunks} đoạn) không đề cập đến '{query}'. "
-                    f"Toàn khóa học (course_id={course_id}) có {course_chunks} đoạn đã index. "
-                    f"Hãy thử tìm kiếm lại ở phạm vi khóa học (bỏ lọc content_id) hoặc giải thích khái niệm dựa trên kiến thức chung."
+                    f"Toàn khóa học {course_label} có {course_chunks} đoạn đã index mà vẫn không khớp. "
+                    f"Hãy thử lại với từ khóa ngắn hơn, tách từng khái niệm ra tìm riêng, "
+                    f"hoặc giải thích khái niệm dựa trên kiến thức chung."
                 )
             return (
                 f"Không có đoạn nào trong bài học hiện tại (content_id={content_id}, "
@@ -268,8 +325,8 @@ class SearchMaterialsTool(BaseTool):
         if course_chunks is not None and course_id and course_chunks > 0:
             return (
                 f"Bài học hiện tại (content_id={content_id}) chưa được index, "
-                f"nhưng khóa học (course_id={course_id}) có {course_chunks} đoạn "
-                f"đã index. Hãy tìm lại với từ khóa ngắn hơn ở phạm vi khóa học, "
+                f"nhưng khóa học {course_label} có {course_chunks} đoạn "
+                f"đã index mà vẫn không khớp. Hãy tìm lại với từ khóa ngắn hơn, "
                 f"hoặc dùng nội dung bài học trong page_context nếu có."
             )
         return (

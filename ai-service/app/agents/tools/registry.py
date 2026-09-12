@@ -139,12 +139,14 @@ async def execute_tool(
     content_id: int | None = None,
     node_id: int | None = None,
     execution_plan: Any | None = None,
+    course_name: str | None = None,
 ) -> ToolResult:
     """
     Execute a tool by name with the given arguments.
 
-    Injects _user_id, _course_id, and _session_id into kwargs so tools can access
-    the calling user's context without requiring them as explicit LLM parameters.
+    Injects _user_id, _course_id, _course_name, and _session_id into kwargs so
+    tools can access the calling user's context without requiring them as
+    explicit LLM parameters.
     """
     tool = get_tool_by_name(name)
     if not tool:
@@ -158,6 +160,8 @@ async def execute_tool(
     arguments["_user_id"] = user_id
     if course_id is not None:
         arguments["_course_id"] = course_id
+    if course_name:
+        arguments["_course_name"] = course_name
     if session_id is not None:
         arguments["_session_id"] = session_id
     if content_id is not None:

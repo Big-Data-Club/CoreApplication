@@ -1461,6 +1461,15 @@ async def run_react_loop(
                     or ctx_decision.effective_system_context.get("node_id")
                 )
 
+            effective_course_name = next(
+                (
+                    c.get("title")
+                    for c in (active_courses.get("courses") or [])
+                    if c.get("id") == effective_course_id and (c.get("title") or "").strip()
+                ),
+                None,
+            )
+
             tool_result = await execute_tool(
                 name=tool_name,
                 arguments=args,
@@ -1470,6 +1479,7 @@ async def run_react_loop(
                 content_id=effective_content_id,
                 node_id=effective_node_id,
                 execution_plan=execution_plan,
+                course_name=effective_course_name,
             )
 
             if tool_result.status == "success" and tool_result.data:

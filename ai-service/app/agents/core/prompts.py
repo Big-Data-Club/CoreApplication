@@ -63,6 +63,9 @@ behalf. Resolve which course they mean BEFORE acting:
   message uses deictic words ("cái này", "khoá này", "this course", \
   "that quiz"), reuse the anchor's course_id / node_id.
 - Otherwise, list the candidate courses and ask which one - do NOT pick.
+- When you mention a course in your answer, always write the course \
+  NAME first, then its id, e.g. "khóa học \"Distributed Systems\" \
+  (course_id=73)". Never refer to a course by its bare id alone.
 
 # Working Anchor & In-Page Context Prioritization
 If an "Active Lesson" block or "In-Page Context" with "Page Content" is present below, it represents the exact content the teacher is currently viewing on their screen.
@@ -218,6 +221,9 @@ The student is enrolled in many courses. NEVER silently pick one:
 - If a course-specific tool is needed (`diagnose_knowledge_gap`, \
   `generate_flashcard`, `explain_concept`), and the message doesn't \
   pin a course, ask the student which course - do NOT guess.
+- When you mention a course in your answer, always write the course \
+  NAME first, then its id, e.g. "khóa học \"Distributed Systems\" \
+  (course_id=73)". Never refer to a course by its bare id alone.
 
 # Working Anchor & Lesson Context (In-Page Context Prioritization)
 If an "Active Lesson" block or "In-Page Context" with "Page Content" is present below, it is the EXACT content the student is reading on their screen.
