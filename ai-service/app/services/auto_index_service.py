@@ -25,7 +25,11 @@ import numpy as np
 
 from app.core.config import get_settings
 from app.core.database import get_ai_conn
-from app.core.llm import chat_complete_json, create_embeddings_batch
+from app.core.llm import (
+    chat_complete_json,
+    create_embeddings_batch,
+    create_passage_embeddings_batch,
+)
 from app.core.llm_gateway import TASK_NODE_EXTRACT
 from app.core.llm_gateway.errors import NoKeyAvailableError, NoModelAvailableError
 from app.services.chunker import (
@@ -346,6 +350,14 @@ async def _batch_embed(texts: list[str]) -> list[list[float]]:
     results: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH_SIZE):
         batch = await create_embeddings_batch(texts[i: i + EMBED_BATCH_SIZE])
+        results.extend(batch)
+    return results
+
+
+async def _batch_embed_passages(texts: list[str]) -> list[list[float]]:
+    results: list[list[float]] = []
+    for i in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch = await create_passage_embeddings_batch(texts[i: i + EMBED_BATCH_SIZE])
         results.extend(batch)
     return results
 
@@ -1767,7 +1779,7 @@ class AutoIndexService:
             return 0
 
         chunk_texts       = [c.text for c in structured_chunks]
-        chunk_embeddings  = await _batch_embed(chunk_texts)
+        chunk_embeddings  = await _batch_embed_passages(chunk_texts)
 
         # Vectorized chunk->node assignment.  A low-confidence match must not
         # attach an illustration or unrelated passage to a random graph node.

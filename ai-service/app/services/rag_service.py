@@ -520,7 +520,7 @@ class RAGService:
         if not clean_query:
             return []
 
-        conditions = ["status = 'ready'", "chunk_level = 'child'"]
+        conditions = ["status = 'ready'", "(chunk_level = 'child' OR chunk_level IS NULL)"]
         params = []
         
         # Param 1: tsquery input (words joined with &)
@@ -566,7 +566,9 @@ class RAGService:
         # the row even when the concept is clearly present. Fall back to an
         # OR-query (any token) ranked by how many tokens actually match.
         if not rows and len(words) > 1:
-            or_tsquery = " | ".join(words)
+            clean_words = [re.sub(r'[^\w\u00C0-\u1EF9]', '', w) for w in words]
+            clean_words = [w for w in clean_words if w]
+            or_tsquery = " | ".join(clean_words) if clean_words else " | ".join(words)
             like_patterns = [f"%{w}%" for w in words]
 
             fallback_params: list = []
@@ -583,7 +585,7 @@ class RAGService:
             p_words_array = next_arg(words)
             p_like_any = next_arg(like_patterns)
 
-            conds_fb = ["status = 'ready'", "chunk_level = 'child'"]
+            conds_fb = ["status = 'ready'", "(chunk_level = 'child' OR chunk_level IS NULL)"]
             if course_id is not None:
                 conds_fb.append(f"course_id = {next_arg(course_id)}")
             if node_id is not None:
@@ -606,7 +608,7 @@ class RAGService:
                 WHERE {where_fb}
                   AND (
                     to_tsvector('simple', chunk_text)
-                      @@ plainto_tsquery('simple', {p_or_tsquery})
+                      @@ to_tsquery('simple', {p_or_tsquery})
                     OR chunk_text ILIKE ANY({p_like_any}::text[])
                   )
                 ORDER BY rank DESC, id
@@ -1192,6 +1194,8 @@ class RAGService:
         min_similarity: float = 0.25,
         expansion_enabled: bool = True,
         max_expansion_level: str = "global",
+        content_ids: list[int] | None = None,
+        **kwargs,
     ) -> tuple[list[RetrievedChunk], str]:
         """
         Hierarchical search: Lesson -> Section/Module -> Course -> Global KB.
@@ -1200,7 +1204,7 @@ class RAGService:
         import httpx
         top_k = top_k or settings.top_k_chunks
         
-        # 1. Lesson level
+        # 1. Lesson level or scoped content_ids
         if content_id:
             logger.info("Hierarchical RAG: Level 1 (Lesson content_id=%d)", content_id)
             chunks = await self.search_multilingual(
@@ -1210,8 +1214,19 @@ class RAGService:
                 top_k=top_k,
                 min_similarity=min_similarity,
             )
-            if chunks and any(c.similarity >= min_similarity for c in chunks):
+            if chunks:
                 return chunks, "content"
+        elif content_ids:
+            logger.info("Hierarchical RAG: Level 1 (Scoped content_ids count=%d)", len(content_ids))
+            chunks = await self.search_multilingual(
+                query=query,
+                course_id=course_id,
+                content_ids=content_ids,
+                top_k=top_k,
+                min_similarity=min_similarity,
+            )
+            if chunks:
+                return chunks, "content_ids"
 
         if not expansion_enabled:
             return [], "none"
@@ -1261,7 +1276,7 @@ class RAGService:
                     top_k=top_k,
                     min_similarity=min_similarity,
                 )
-                if chunks and any(c.similarity >= min_similarity for c in chunks):
+                if chunks:
                     return chunks, "section"
 
         # 3. Course level
@@ -1274,7 +1289,7 @@ class RAGService:
                 top_k=top_k,
                 min_similarity=min_similarity,
             )
-            if chunks and any(c.similarity >= min_similarity for c in chunks):
+            if chunks:
                 return chunks, "course"
 
         # 4. Global KB level
