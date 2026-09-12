@@ -30,4 +30,6 @@ public class UpdateUserRequest {
     private String profilePicture;
 
     private String organization;
+    
+    private Boolean emailNotificationsEnabled;
 }

@@ -54,6 +54,11 @@ public class KafkaNotificationConsumer {
                 log.warn("User not found in database for ID: {}", userId);
                 return;
             }
+
+            if (Boolean.FALSE.equals(user.getEmailNotificationsEnabled())) {
+                log.info("User {} (ID: {}) has disabled email notifications. Skipping struggle email.", user.getEmail(), userId);
+                return;
+            }
             
             String courseName = fetchCourseName(courseId);
             String finalMessage = alertMessage;
@@ -86,9 +91,14 @@ public class KafkaNotificationConsumer {
                 "<p>Hãy truy cập ngay vào hệ thống học tập để ôn luyện lại kiến thức và tiếp tục chặng đường học tập của mình nhé!</p>" +
                 "<div style='text-align: center; margin-top: 30px;'>" +
                 "  <a href='%s' style='background: linear-gradient(90deg, #3b82f6, #8b5cf6); color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 8px; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3); display: inline-block;'>Quay Lại Học Tập Ngay</a>" +
+                "</div>" +
+                "<div style='margin-top: 35px; padding-top: 20px; border-top: 1px dashed #334155; font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.6;'>" +
+                "  <p style='margin: 0 0 6px 0;'>Bạn nhận được email này vì đã đăng ký tài khoản học tập tại <strong style='color: #cbd5e1;'>BDC Hub</strong>.</p>" +
+                "  <p style='margin: 0;'>Nếu bạn muốn tắt thông báo, truy cập vào <a href='%s/myaccount' target='_blank' style='color: #38bdf8; text-decoration: underline; font-weight: 600;'>Tài khoản của tôi (My Account)</a>, tại mục <strong>Thông tin tài khoản</strong>, gạt tắt tuỳ chọn <em>\"Nhận email thông báo &amp; nhắc nhở học tập\"</em> rồi nhấn <strong>Lưu thay đổi</strong>.</p>" +
                 "</div>",
                 user.getName(),
                 finalMessage,
+                "https://bdc.hpcc.vn",
                 "https://bdc.hpcc.vn"
             );
             

@@ -26,6 +26,7 @@ public class UserResponse {
     private Boolean      pendingApproval;
     private String     profilePicture;
     private String     organization;
+    private Boolean    emailNotificationsEnabled;
     private java.util.List<String> organizations;
     private java.time.LocalDateTime createdAt;
     private java.time.LocalDateTime updatedAt;
@@ -62,6 +63,7 @@ public class UserResponse {
                 .authProvider(user.getAuthProvider())
                 .pendingApproval(user.getPendingApproval())
                 .organization(user.getOrganization())
+                .emailNotificationsEnabled(user.getEmailNotificationsEnabled() != null ? user.getEmailNotificationsEnabled() : true)
                 .organizations(organizations)
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())

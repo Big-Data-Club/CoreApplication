@@ -116,12 +116,12 @@ async def run_notification_detector():
                     except (ValueError, TypeError):
                         node_id = None
 
-                # Check if notification was recently sent (24h cooldown)
+                # Check if notification was recently sent (10 days cooldown: 240 hours)
                 recently_sent = lakehouse_service.has_notification_been_sent_recently(
                     user_id=int(user_id),
                     alert_type=alert_type,
                     node_id=node_id,
-                    cooldown_hours=24
+                    cooldown_hours=240
                 )
                 
                 if not recently_sent:

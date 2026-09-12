@@ -1407,12 +1407,12 @@ class LakehouseService:
                 logger.error(f"Failed to get skills needing review: {e}")
                 return []
 
-    def has_notification_been_sent_recently(self, user_id: int, alert_type: str, node_id: Optional[int], cooldown_hours: int = 24) -> bool:
+    def has_notification_been_sent_recently(self, user_id: int, alert_type: str, node_id: Optional[int], cooldown_hours: int = 240) -> bool:
         from datetime import timedelta
         cutoff_time = datetime.now() - timedelta(hours=cooldown_hours)
         with self.lock:
             try:
-                # Global per-user cooldown to prevent sending more than 1 email per day
+                # Global per-user cooldown to prevent sending more than 1 email per cooldown window (default 10 days)
                 res = self.conn.execute("""
                     SELECT COUNT(*) FROM sent_notifications
                     WHERE user_id = ? AND sent_at > ?

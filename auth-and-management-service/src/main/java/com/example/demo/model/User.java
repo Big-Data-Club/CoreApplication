@@ -88,6 +88,10 @@ public class User {
     @Builder.Default
     private Boolean pendingApproval = false;
 
+    @Column(name = "email_notifications_enabled", nullable = false)
+    @Builder.Default
+    private Boolean emailNotificationsEnabled = true;
+
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
     @JsonIgnore
     @Builder.Default
