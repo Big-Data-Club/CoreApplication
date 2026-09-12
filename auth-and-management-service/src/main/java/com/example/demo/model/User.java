@@ -88,7 +88,7 @@ public class User {
     @Builder.Default
     private Boolean pendingApproval = false;
 
-    @Column(name = "email_notifications_enabled", nullable = false)
+    @Column(name = "email_notifications_enabled", nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
     @Builder.Default
     private Boolean emailNotificationsEnabled = true;
 

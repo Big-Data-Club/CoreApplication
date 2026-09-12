@@ -52,8 +52,12 @@ public class DataInitializer implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_type_check");
             jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_team_check");
             log.info("Successfully dropped check constraints.");
+
+            log.info("Ensuring email_notifications_enabled column exists on users table...");
+            jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE");
+            log.info("Successfully ensured email_notifications_enabled column.");
         } catch (Exception e) {
-            log.error("Failed to drop check constraints: {}", e.getMessage());
+            log.error("Failed to apply database schema updates: {}", e.getMessage());
         }
         seedOrganizations();
         seedRoles();
