@@ -18,6 +18,7 @@ boundary.
 | Product / Backend / Frontend | Virtual STEM Lab proposal | [VIRTUAL_STEM_LAB.md](proposals/VIRTUAL_STEM_LAB.md) | target journeys, scientific-model boundaries, rollout gates |
 | Backend / QA | Virtual STEM foundation API | [VIRTUAL_STEM_API.md](../lab-service/docs/VIRTUAL_STEM_API.md) | implemented version, run, trial and evidence contracts |
 | Frontend | UI repository | `frontend/` submodule | Next.js UI, BFF/route handlers; follow submodule rules |
+| Mobile / Presence | DutyLog repository | `dutylog/` submodule | React Native mobile app and Go service for room presence and duty verification |
 | QA | Service tests | `*_service` test directories | regression and contract coverage |
 | QA/DevOps | k6 performance assets | [performance-tests/](../performance-tests/README.md) | approved smoke/load workflow and test Jobs |
 | DevOps | Deployment and operations | [DEVOPS_RUNBOOK.md](teams/DEVOPS_RUNBOOK.md) | K3s access, CI/CD, troubleshooting, incident process |

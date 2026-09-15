@@ -10,3 +10,6 @@
 [submodule "data-warehouse"]
 	path = data-warehouse
 	url = https://github.com/Big-Data-Club/BDCHub---DataWarehouse.git
+[submodule "dutylog"]
+	path = dutylog
+	url = https://github.com/Big-Data-Club/BDCHub---DutyLog.git
