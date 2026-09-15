@@ -90,6 +90,7 @@ class ChatRequest(BaseModel):
     active_courses: Optional[list[ActiveCourseHint]] = None
     page_context: Optional[dict] = None
     system_context: Optional[SystemContext] = None
+    chat_mode: str = Field(default="standard", pattern="^(flash|standard|deep)$")
 
 
 class RenameSessionRequest(BaseModel):
@@ -130,7 +131,7 @@ async def chat_endpoint(
     const response = await fetch('/api/ai/agents/chat', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-AI-Secret': '...'},
-        body: JSON.stringify({message: "Explain OOP", agent_type: "mentor", user_id: 1}),
+        body: JSON.stringify({message: "Explain OOP", agent_type: "mentor", user_id: 1, chat_mode: "flash"}),
     });
     const reader = response.body.getReader();
     // Read SSE events...
@@ -139,8 +140,8 @@ async def chat_endpoint(
     _verify_secret(x_ai_secret)
 
     logger.info(
-        "Chat request: user=%d, agent=%s, msg='%s'",
-        body.user_id, body.agent_type, body.message[:60],
+        "Chat request: user=%d, agent=%s, mode=%s, msg='%s'",
+        body.user_id, body.agent_type, body.chat_mode, body.message[:60],
     )
 
     async def event_stream():
@@ -159,6 +160,7 @@ async def chat_endpoint(
                 active_courses_hint=active_hint,
                 page_context=body.page_context,
                 system_context=body.system_context.model_dump() if body.system_context else None,
+                chat_mode=body.chat_mode,
             ):
                 yield event.to_sse()
         except Exception as exc:

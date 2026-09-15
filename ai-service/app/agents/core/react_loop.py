@@ -302,6 +302,7 @@ async def run_react_loop(
     user_context: dict | None = None,
     page_context: dict | None = None,
     system_context: dict | None = None,
+    chat_mode: str = "standard",
 ) -> AsyncIterator[AgentEvent]:
     """
     Execute the full ReAct loop for a single user turn.
@@ -316,6 +317,7 @@ async def run_react_loop(
         agent_type: "teacher" or "mentor".
         user_message: The user's raw message text.
         course_id: Optional course context.
+        chat_mode: "flash" (fast, no tools), "standard" (course-scoped RAG), "deep" (full research).
 
     Yields:
         AgentEvent objects in chronological order.
@@ -323,9 +325,13 @@ async def run_react_loop(
     turn_id = uuid.uuid4().hex[:8]
     start_time = time.monotonic()
 
+    mode = (chat_mode or "standard").lower()
+    if mode not in ("flash", "standard", "deep"):
+        mode = "standard"
+
     logger.info(
-        "ReAct start: session=%s user=%d agent=%s msg='%s'",
-        session_id[:8], user_id, agent_type, user_message[:80],
+        "ReAct start: session=%s user=%d agent=%s mode=%s msg='%s'",
+        session_id[:8], user_id, agent_type, mode, user_message[:80],
     )
 
     # -- Step 1.5: Load active courses ----------------------------------------
@@ -829,7 +835,7 @@ async def run_react_loop(
         or _is_teacher_authoring_request(effective_user_request)
     )
 
-    if score >= 0.45 and not teacher_action_request:
+    if mode == "deep" and score >= 0.45 and not teacher_action_request:
         logger.info(
             "Spawning multi-agent: score=%.3f reasons=%s",
             score, breakdown.get("triggered_by", []),
@@ -856,6 +862,7 @@ async def run_react_loop(
                 "toolActivities": [],
                 "context": context_resolution.as_dict(),
                 "references": multi_agent_refs,
+                "chat_mode": mode,
                 "model": getattr(orchestrator, "answered_model", None),
                 "multiAgentLogs": orchestrator.multi_agent_logs,
                 "critiqueReport": orchestrator.critique_report,
@@ -907,6 +914,7 @@ async def run_react_loop(
                     "text": final_answer,
                     "iterations": 1,
                     "intent": intent_type,
+                    "chat_mode": mode,
                     "model": getattr(orchestrator, "answered_model", None),
                     "references": multi_agent_refs or None,
                     "message_id": saved_message_id,
@@ -1129,6 +1137,48 @@ async def run_react_loop(
     focused_schemas, tools_were_gated = select_tool_schemas(
         tool_schemas, execution_plan.selected_tools,
     )
+
+    # Mode-based constraints:
+    # - flash: 0 tools, 1 iteration, direct response
+    # - standard: internal course & KG tools only (exclude external web tools), max 3 iterations
+    # - deep: full tool catalogue (including web search/fetch), MAX_ITERATIONS (7)
+    if mode == "flash":
+        max_loop_iterations = 1
+        tool_schemas = []
+        focused_schemas = []
+        tools_were_gated = False
+        if messages and messages[0]["role"] == "system":
+            messages[0]["content"] += (
+                "\n\n[CHẾ ĐỘ FLASH ĐANG BẬT]\n"
+                "Hãy trả lời trực tiếp, nhanh gọn và súc tích bằng tri thức của bạn hoặc ngữ cảnh bài học hiện có. "
+                "Tuyệt đối không gọi công cụ nào và không suy luận vòng vo."
+            )
+    elif mode == "standard":
+        max_loop_iterations = 3
+        # Exclude external web tools to prevent runaway web scraping loops
+        tool_schemas = [
+            s for s in tool_schemas
+            if (s.get("function", {}).get("name") or s.get("name")) not in ("search_web", "fetch_page")
+        ]
+        focused_schemas = [
+            s for s in focused_schemas
+            if (s.get("function", {}).get("name") or s.get("name")) not in ("search_web", "fetch_page")
+        ]
+        if messages and messages[0]["role"] == "system":
+            messages[0]["content"] += (
+                "\n\n[CHẾ ĐỘ TIÊU CHUẨN ĐANG BẬT]\n"
+                "Ưu tiên tra cứu tài liệu và Knowledge Graph trong khóa học hiện tại. "
+                "Bám sát nội dung bài học, giải thích rõ ràng, chính xác."
+            )
+    else:  # deep
+        max_loop_iterations = MAX_ITERATIONS
+        if messages and messages[0]["role"] == "system":
+            messages[0]["content"] += (
+                "\n\n[CHẾ ĐỘ DEEP THINKING ĐANG BẬT]\n"
+                "Thực hiện suy luận sâu, đối chiếu đa nguồn từ giáo trình nội bộ đến tài liệu mở rộng. "
+                "Nếu cần thiết, có thể tra cứu web và tổng hợp phân tích đa chiều."
+            )
+
     if tools_were_gated:
         yield AgentEvent(
             type=AgentEventType.THINKING,
@@ -1149,6 +1199,7 @@ async def run_react_loop(
     assistant_metadata: dict = {
         "toolActivities": [],
         "references": [],
+        "chat_mode": mode,
         # Persist the verified decision so reopened conversations explain the
         # scope they were grounded in, without retaining raw lesson content.
         "context": context_resolution.as_dict(),
@@ -1163,11 +1214,11 @@ async def run_react_loop(
     # -- Step 5: ReAct Iterations ----------------------------------------------
     final_text = ""
 
-    for iteration in range(MAX_ITERATIONS):
+    for iteration in range(max_loop_iterations):
         iter_start = time.monotonic()
         iter_id = f"{turn_id}-{iteration}"
 
-        logger.debug("ReAct iteration %d/%d", iteration + 1, MAX_ITERATIONS)
+        logger.debug("ReAct iteration %d/%d (mode=%s)", iteration + 1, max_loop_iterations, mode)
 
         gateway = get_gateway()
         req = ChatRequest(
@@ -1246,7 +1297,7 @@ async def run_react_loop(
                 "tool call validation failed" in err_str
                 or "did not match schema" in err_str
             )
-            if is_tool_validation and iteration < MAX_ITERATIONS - 1:
+            if is_tool_validation and iteration < max_loop_iterations - 1:
                 logger.warning(
                     "Tool-call validation failed on iter %d; retrying. err=%s",
                     iteration + 1, err_str[:200],
@@ -1302,7 +1353,7 @@ async def run_react_loop(
                 "═══ CoT [session=%s iter=%d/%d len=%d] ═══\n%s\n═══ END CoT ═══",
                 session_id[:8],
                 iteration + 1,
-                MAX_ITERATIONS,
+                max_loop_iterations,
                 len(full_thought),
                 full_thought,
             )
@@ -1349,6 +1400,7 @@ async def run_react_loop(
                     "text": collected_text,
                     "iterations": iteration + 1,
                     "intent": intent_type,
+                    "chat_mode": mode,
                     "model": answered_model,
                     "references": ref_ledger.references if ref_ledger else None,
                     "message_id": saved_message_id,
@@ -1610,6 +1662,7 @@ async def run_react_loop(
                         "text": tool_result.message,
                         "iterations": iteration + 1,
                         "reason": "hitl_pending",
+                        "chat_mode": mode,
                         "model": answered_model,
                         "references": ref_ledger.references if ref_ledger else None,
                         "message_id": saved_message_id,
@@ -1701,9 +1754,10 @@ async def run_react_loop(
         type=AgentEventType.DONE,
         data={
             "text": fallback,
-            "iterations": MAX_ITERATIONS,
+            "iterations": max_loop_iterations,
             "reason": "max_iterations",
             "incomplete": True,
+            "chat_mode": mode,
             "model": answered_model,
             "references": ref_ledger.references if ref_ledger else None,
             "message_id": saved_message_id,

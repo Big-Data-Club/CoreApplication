@@ -37,6 +37,7 @@ async def handle_chat_message(
     active_courses_hint: list[dict] | None = None,
     page_context: dict | None = None,
     system_context: dict | None = None,
+    chat_mode: str = "standard",
 ) -> AsyncIterator[AgentEvent]:
     """
     Top-level entry point for processing a chat message.
@@ -100,8 +101,8 @@ async def handle_chat_message(
         session_id = session_data["session_id"]
 
     logger.info(
-        "Chat session: id=%s, user=%d, agent=%s, turn=%d",
-        session_id[:8], user_id, agent_type, session_data.get("turn_count", 0),
+        "Chat session: id=%s, user=%d, agent=%s, mode=%s, turn=%d",
+        session_id[:8], user_id, agent_type, chat_mode, session_data.get("turn_count", 0),
     )
 
     # ── 2. Emit session event (tells frontend the session ID) ────────────────
@@ -110,6 +111,7 @@ async def handle_chat_message(
         data={
             "session_id": session_id,
             "agent_type": agent_type,
+            "chat_mode": chat_mode,
             "is_new": session_data.get("turn_count", 0) == 0,
         },
         session_id=session_id,
@@ -131,5 +133,6 @@ async def handle_chat_message(
         user_context=user_context,
         page_context=page_context,
         system_context=system_context,
+        chat_mode=chat_mode,
     ):
         yield event
