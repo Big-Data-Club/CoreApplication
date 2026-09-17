@@ -20,6 +20,9 @@ public class OrgMemberResponse {
     @JsonProperty("org_role")
     private String orgRole;
 
+    @JsonProperty("student_code")
+    private String studentCode;
+
     @JsonProperty("joined_at")
     private LocalDateTime joinedAt;
 }

@@ -279,6 +279,7 @@ public class OrganizationServiceImpl implements OrganizationService {
                 .userID(member.getUser().getId())
                 .fullName(member.getUser().getName())
                 .email(member.getUser().getEmail())
+                .studentCode(member.getUser().getCode())
                 .orgRole(member.getOrgRole())
                 .joinedAt(member.getJoinedAt())
                 .build();
