@@ -329,7 +329,10 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - app-network
+      app-network:
+        aliases:
+          - auth-and-management-service
+          - auth-service
     healthcheck:
       <<: *common-healthcheck
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider",
@@ -989,6 +992,75 @@ services:
     labels:
       - "service.type=recommender"
       - "service.name=recommender-service"
+
+  dutylog-service:
+    build:
+      context: ./dutylog/backend
+      dockerfile: Dockerfile
+    image: ${DOCKER_USERNAME}/bdc-dutylog:${IMAGE_TAG:-latest}
+    container_name: dutylog-service
+    restart: unless-stopped
+    environment:
+      PORT: "8086"
+      ENVIRONMENT: ${APP_ENV:-development}
+      DB_HOST: postgres-lms
+      DB_PORT: 5432
+      DB_USER: ${LMS_POSTGRES_USER:-lms_user}
+      DB_PASSWORD: ${LMS_POSTGRES_PASSWORD:-lms_password}
+      DB_NAME: ${LMS_POSTGRES_DB:-lms_db}
+      DB_SSL_MODE: disable
+      REDIS_HOST: redis-lms
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: 4
+      JWT_SECRET: ${JWT_SECRET}
+      QR_SECRET: your_dev_qr_secret
+      AUTH_SERVICE_URL: http://auth-and-management-service:8080
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_PRESENCE_TOPIC: dutylog.presence.v1
+      DB_MAX_OPEN_CONNS: 25
+      DB_MAX_IDLE_CONNS: 5
+    ports:
+      - "${DUTYLOG_PORT:-8086}:8086"
+    depends_on:
+      backend:
+        condition: service_started
+      redis-lms:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      app-network:
+        aliases:
+          - dutylog
+          - dutylog-service
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8086/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 96M
+    labels:
+      - "service.type=backend"
+      - "service.name=dutylog-service"
+      - "traefik.enable=true"
+      - "traefik.http.routers.dutylog.entrypoints=web"
+      - "traefik.http.routers.dutylog.rule=(Host(`bdc.hpcc.vn`) || Host(`localhost`)) && PathPrefix(`/dutylogapiv1`)"
+      - "traefik.http.routers.dutylog.priority=10"
+      - "traefik.http.services.dutylog.loadbalancer.server.port=8086"
+      - "traefik.http.middlewares.rewrite-dutylog.replacepathregex.regex=^/dutylogapiv1/(.*)"
+      - "traefik.http.middlewares.rewrite-dutylog.replacepathregex.replacement=/api/v1/$$1"
+      - "traefik.http.middlewares.dutylog-compress.compress=true"
+      - "traefik.http.routers.dutylog.middlewares=rewrite-dutylog,dutylog-compress"
 
   # Object Storage
   minio:

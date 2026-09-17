@@ -27,6 +27,7 @@ data:
   LMS_SERVICE_URL: "http://lms-service:8081"
   CHAT_API_URL: "http://chat-service:8083"
   AUTH_SERVICE_URL: "http://auth-service:8080"
+  DUTYLOG_SERVICE_URL: "http://dutylog-service:8086"
   
   # Message Broker & Cache endpoints
   KAFKA_BROKERS: "kafka-service:9092"
@@ -38,6 +39,7 @@ data:
   LAB_POSTGRES_HOST: "ep-gentle-wildflower-ax4utgdf-pooler.c-4.us-east-2.aws.neon.tech"
   CHAT_POSTGRES_HOST: "ep-gentle-wildflower-ax4utgdf-pooler.c-4.us-east-2.aws.neon.tech"
   AI_POSTGRES_HOST: "ep-gentle-wildflower-ax4utgdf-pooler.c-4.us-east-2.aws.neon.tech"
+  DUTYLOG_POSTGRES_HOST: "ep-gentle-wildflower-ax4utgdf-pooler.c-4.us-east-2.aws.neon.tech"
   QDRANT_URL: "https://9676b48e-2801-42d5-9005-cc7dd0a2c775.eu-central-1-0.aws.cloud.qdrant.io:6333"
   NEO4J_URI: "neo4j+s://ac1a6436.databases.neo4j.io"
   NEO4J_USERNAME: "ac1a6436"
@@ -55,6 +57,7 @@ data:
   LMS_PORT: "8081"
   LAB_PORT: "8082"
   CHAT_PORT: "8083"
+  DUTYLOG_PORT: "8086"
 
   # HikariCP Connection Pool (Java)
   HIKARI_MAX_POOL_SIZE: "10"

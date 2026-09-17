@@ -140,6 +140,29 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: bdc-ingress-dutylog
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-compress@kubernetescrd,
+      default-rewrite-dutylog@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
+      - path: /dutylogapiv1
+        pathType: Prefix
+        backend:
+          service:
+            name: dutylog-service
+            port:
+              number: 8086
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
   name: bdc-ingress-personalize
   namespace: default
   annotations:
@@ -291,6 +314,18 @@ metadata:
 spec:
   replacePathRegex:
     regex: "^/chatapiv1/(.*)"
+    replacement: "/api/v1/$1"
+
+---
+# ── Traefik Middleware: Rewrite /dutylogapiv1 → /api/v1 ─────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rewrite-dutylog
+  namespace: default
+spec:
+  replacePathRegex:
+    regex: "^/dutylogapiv1/(.*)"
     replacement: "/api/v1/$1"
 
 ---

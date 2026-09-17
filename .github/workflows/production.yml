@@ -85,6 +85,12 @@ jobs:
               # Keep a workflow fix deployable: this file controls the chat
               # production selection itself.
               - '.github/workflows/production.yml'
+            dutylog:
+              - 'dutylog/**'
+              - 'k3s/base/dutylog-service-deployment.yaml'
+              - 'k3s/base/configmap.yaml'
+              - 'scripts/deploy-production.sh'
+              - '.github/workflows/production.yml'
 
       - id: select
         env:
@@ -95,6 +101,7 @@ jobs:
           LMS_CHANGED: ${{ steps.changes.outputs.lms }}
           LAB_CHANGED: ${{ steps.changes.outputs.lab }}
           CHAT_CHANGED: ${{ steps.changes.outputs.chat }}
+          DUTYLOG_CHANGED: ${{ steps.changes.outputs.dutylog }}
           MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
           MANUAL_SERVICES: ${{ inputs.services }}
         shell: bash
@@ -143,6 +150,10 @@ jobs:
           if [[ "${CHAT_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-chat","context":"chat-service"}')
             services+=(chat-service)
+          fi
+          if [[ "${DUTYLOG_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-dutylog","context":"dutylog/backend"}')
+            services+=(dutylog-service)
           fi
 
           if [[ ${#items[@]} -eq 0 ]]; then
@@ -256,6 +267,8 @@ jobs:
           DEPLOY_NAMESPACE: default
           NEON_DB_USER: neondb_owner
           NEON_DB_PASSWORD: ${{ secrets.NEON_TARGET_DB_PASSWORD }}
+          DUTYLOG_POSTGRES_DB: ${{ vars.DUTYLOG_POSTGRES_DB || 'dutylog' }}
+          DUTYLOG_QR_SECRET: ${{ secrets.DUTYLOG_QR_SECRET }}
         shell: bash
         run: |
           set -euo pipefail
@@ -271,11 +284,18 @@ jobs:
           import os
           import sys
 
-          user_keys = ["POSTGRES_USER", "LMS_POSTGRES_USER", "LAB_POSTGRES_USER", "CHAT_POSTGRES_USER", "AI_POSTGRES_USER"]
-          password_keys = ["POSTGRES_PASSWORD", "LMS_POSTGRES_PASSWORD", "LAB_POSTGRES_PASSWORD", "CHAT_POSTGRES_PASSWORD", "AI_POSTGRES_PASSWORD"]
+          user_keys = ["POSTGRES_USER", "LMS_POSTGRES_USER", "LAB_POSTGRES_USER", "CHAT_POSTGRES_USER", "AI_POSTGRES_USER", "DUTYLOG_POSTGRES_USER"]
+          password_keys = ["POSTGRES_PASSWORD", "LMS_POSTGRES_PASSWORD", "LAB_POSTGRES_PASSWORD", "CHAT_POSTGRES_PASSWORD", "AI_POSTGRES_PASSWORD", "DUTYLOG_POSTGRES_PASSWORD"]
           encode = lambda value: base64.b64encode(value.encode()).decode()
           data = {key: encode(os.environ["NEON_DB_USER"]) for key in user_keys}
           data.update({key: encode(os.environ["NEON_DB_PASSWORD"]) for key in password_keys})
+          # DutyLog DB name (separate Neon branch)
+          dutylog_db = os.environ.get("DUTYLOG_POSTGRES_DB", "dutylog")
+          data["DUTYLOG_POSTGRES_DB"] = encode(dutylog_db)
+          # QR signing secret
+          qr_secret = os.environ.get("DUTYLOG_QR_SECRET", "")
+          if qr_secret:
+              data["DUTYLOG_QR_SECRET"] = encode(qr_secret)
           with open(sys.argv[1], "w", encoding="utf-8") as handle:
               json.dump({"data": data}, handle)
           PY

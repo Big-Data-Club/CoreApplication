@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dutylog-service
+  labels:
+    app: dutylog-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dutylog-service
+  template:
+    metadata:
+      labels:
+        app: dutylog-service
+    spec:
+      containers:
+      - name: dutylog-service
+        image: phucnhan2809/bdc-dutylog:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8086
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        - name: PORT
+          value: "8086"
+        - name: DB_HOST
+          value: "$(DUTYLOG_POSTGRES_HOST)"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_SSL_MODE
+          value: "$(AI_DB_SSL)"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: DUTYLOG_POSTGRES_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: DUTYLOG_POSTGRES_PASSWORD
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: DUTYLOG_POSTGRES_DB
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: REDIS_PASSWORD
+        - name: REDIS_DB
+          value: "4"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: JWT_SECRET
+        - name: QR_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: DUTYLOG_QR_SECRET
+        - name: AUTH_SERVICE_URL
+          value: "$(AUTH_SERVICE_URL)"
+        - name: KAFKA_BROKERS
+          value: "$(KAFKA_BROKERS)"
+        - name: KAFKA_PRESENCE_TOPIC
+          value: "dutylog.presence.v1"
+        resources:
+          limits:
+            cpu: "1.0"
+            memory: 512Mi
+          requests:
+            cpu: "0.1"
+            memory: 128Mi
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8086
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8086
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dutylog-service
+  labels:
+    app: dutylog-service
+spec:
+  ports:
+  - name: http
+    port: 8086
+    targetPort: 8086
+    protocol: TCP
+  selector:
+    app: dutylog-service

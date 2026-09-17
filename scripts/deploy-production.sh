@@ -17,6 +17,7 @@ deployments=(
   course-blueprint-worker
   personalize-service
   recommender-service
+  dutylog-service
 )
 
 # A deployment job may roll out only the workloads whose image was published.
@@ -38,6 +39,7 @@ declare -A containers=(
   [personalize-service]=personalize-service
   [recommender-service]=recommender-service
   [frontend]=frontend
+  [dutylog-service]=dutylog-service
 )
 
 declare -A images=(
@@ -51,6 +53,7 @@ declare -A images=(
   [personalize-service]=bdc-personalize
   [recommender-service]=bdc-recommender
   [frontend]=bdc-frontend
+  [dutylog-service]=bdc-dutylog
 )
 
 # Some workloads have deployment-level configuration (env, probes, resources)
@@ -62,6 +65,7 @@ declare -A manifests=(
   [chat-service]=k3s/base/chat-service-deployment.yaml
   [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml
   [lab-service]=k3s/base/lab-service-deployment.yaml
+  [dutylog-service]=k3s/base/dutylog-service-deployment.yaml
 )
 
 updated=()
