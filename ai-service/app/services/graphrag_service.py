@@ -161,6 +161,8 @@ class GraphRAGService:
                 expansion_enabled=expansion_enabled,
                 max_expansion_level=max_expansion_level,
                 content_ids=content_ids,
+                skip_rerank=True,
+                skip_hydration=True,
             )
         except Exception as exc:
             logger.error("GraphRAG Phase 1 (standard retrieval) failed: %s", exc)
@@ -170,8 +172,34 @@ class GraphRAGService:
         ctx.total_candidates = len(raw_chunks)
 
         if not settings.graphrag_enabled or not settings.neo4j_enabled:
-            # Feature-flag off: return standard results as-is
-            ctx.ranked_chunks = raw_chunks[:top_k]
+            # Feature-flag off: rerank and hydrate standard results
+            if settings.use_reranker and raw_chunks:
+                try:
+                    from app.core.embeddings import rerank_chunks
+                    raw_chunks = await rerank_chunks(
+                        query=query,
+                        chunks=raw_chunks,
+                        text_fn=lambda c: c.chunk_text,
+                        top_k=top_k,
+                    )
+                except Exception as exc:
+                    logger.warning("Reranker fallback failed: %s", exc)
+                    raw_chunks = raw_chunks[:top_k]
+            else:
+                raw_chunks = raw_chunks[:top_k]
+
+            if raw_chunks and settings.use_hierarchical_chunks:
+                try:
+                    raw_chunks = await rag_service.hydrate_parents(raw_chunks)
+                except Exception as exc:
+                    logger.warning("Parent hydration failed: %s", exc)
+            if raw_chunks:
+                try:
+                    raw_chunks = await rag_service.enrich_chunks_with_graph_context(raw_chunks)
+                except Exception as exc:
+                    logger.warning("Graph context enrichment failed: %s", exc)
+
+            ctx.ranked_chunks = raw_chunks
             return ctx
 
         # ── Phase 2: Graph expansion (Neo4j) ─────────────────────────────────
@@ -179,7 +207,33 @@ class GraphRAGService:
         ctx.seed_node_ids = seed_node_ids
 
         if not seed_node_ids:
-            ctx.ranked_chunks = raw_chunks[:top_k]
+            if settings.use_reranker and raw_chunks:
+                try:
+                    from app.core.embeddings import rerank_chunks
+                    raw_chunks = await rerank_chunks(
+                        query=query,
+                        chunks=raw_chunks,
+                        text_fn=lambda c: c.chunk_text,
+                        top_k=top_k,
+                    )
+                except Exception as exc:
+                    logger.warning("Reranker fallback failed: %s", exc)
+                    raw_chunks = raw_chunks[:top_k]
+            else:
+                raw_chunks = raw_chunks[:top_k]
+
+            if raw_chunks and settings.use_hierarchical_chunks:
+                try:
+                    raw_chunks = await rag_service.hydrate_parents(raw_chunks)
+                except Exception as exc:
+                    logger.warning("Parent hydration failed: %s", exc)
+            if raw_chunks:
+                try:
+                    raw_chunks = await rag_service.enrich_chunks_with_graph_context(raw_chunks)
+                except Exception as exc:
+                    logger.warning("Graph context enrichment failed: %s", exc)
+
+            ctx.ranked_chunks = raw_chunks
             return ctx
 
         graph_data, prereq_chain = await asyncio.gather(
@@ -303,6 +357,19 @@ class GraphRAGService:
                 all_chunks = all_chunks[:top_k]
         else:
             all_chunks = all_chunks[:top_k]
+
+        # Hydrate parents and enrich graph context ONLY on the final trimmed top_k chunks
+        if all_chunks and settings.use_hierarchical_chunks:
+            try:
+                all_chunks = await rag_service.hydrate_parents(all_chunks)
+            except Exception as exc:
+                logger.warning("GraphRAG parent hydration failed: %s", exc)
+
+        if all_chunks:
+            try:
+                all_chunks = await rag_service.enrich_chunks_with_graph_context(all_chunks)
+            except Exception as exc:
+                logger.warning("GraphRAG context enrichment failed: %s", exc)
 
         ctx.ranked_chunks = all_chunks
         logger.info(

@@ -389,17 +389,22 @@ class RAGService:
         
         query_vector = await self._get_query_embedding(query)
 
+        import re
         # 1. Vector Search Task
         async def run_vector():
             if settings.use_qdrant:
                 from app.services.qdrant_service import qdrant_service
+                # When reranker is active, avoid dropping border-line factual candidates early
+                effective_score_threshold = (
+                    min(min_similarity, 0.15) if settings.use_reranker else min_similarity
+                )
                 scored = await qdrant_service.search_chunks(
                     query_vector=query_vector,
                     course_id=course_id,
                     node_id=node_id,
                     content_id=content_id,
                     top_k=fetch_k,
-                    score_threshold=min_similarity,
+                    score_threshold=effective_score_threshold,
                     content_ids=content_ids,
                 )
                 return [self._scored_point_to_chunk(p) for p in scored]
@@ -428,9 +433,15 @@ class RAGService:
 
         # Execute searches in parallel
         vector_chunks, keyword_chunks = await asyncio.gather(run_vector(), run_keyword())
-        
+
+        # Determine if query has exact factual tokens (numbers, code, acronyms, quotes)
+        has_exact_fact = bool(re.search(r'"[^"]+"|\b\d+\b|\b[A-Z]{2,}\b', query))
+        keyword_weight = 1.4 if has_exact_fact else 1.0
+
         # 3. Merge results using Reciprocal Rank Fusion (RRF)
-        merged_chunks = self._rrf_merge(vector_chunks, keyword_chunks, top_k=top_k)
+        merged_chunks = self._rrf_merge(
+            vector_chunks, keyword_chunks, top_k=top_k, keyword_weight=keyword_weight
+        )
         return merged_chunks
 
     async def _get_query_embedding(self, query: str) -> list[float]:
@@ -513,24 +524,54 @@ class RAGService:
         top_k: int = 10,
         content_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
-        """Perform a lexical/keyword search on PostgreSQL combining tsvector + ILIKE."""
+        """Perform a fast lexical/keyword search on PostgreSQL combining GIN-indexed tsvector + trigram ILIKE."""
         import re
-        # Sanitize query by removing special tsquery characters to prevent query parsing errors
-        clean_query = re.sub(r'[!&|():*<>]', ' ', query).strip()
-        if not clean_query:
+
+        stopwords = {
+            "là", "gì", "như", "thế", "nào", "sao", "cho", "biết", "bao", "nhiêu",
+            "các", "những", "của", "trong", "và", "với", "được", "có", "một", "về",
+            "để", "ra", "ở", "tại", "khi", "ai", "đâu", "hãy", "giúp", "tôi", "em",
+            "bạn", "tìm", "kiếm", "hỏi", "giải", "thích",
+            "what", "is", "are", "the", "a", "an", "how", "why", "when", "where",
+            "which", "who", "whom", "can", "could", "would", "should", "tell",
+            "me", "about", "explain", "describe", "find",
+        }
+
+        # Extract quoted exact phrases
+        quoted_phrases = [p.strip() for p in re.findall(r'"([^"]+)"', query) if p.strip()]
+
+        # Sanitize query by removing special tsquery characters
+        clean_query = re.sub(r'[!&|():*<>"\'`]', ' ', query).strip()
+        if not clean_query and not quoted_phrases:
             return []
 
+        all_words = [w for w in clean_query.split() if w]
+        # Filter out question stopwords to focus on core informational terms
+        key_words = [w for w in all_words if w.lower() not in stopwords]
+        if not key_words:
+            key_words = all_words
+
+        # Extract exact patterns: numbers, uppercase acronyms, identifiers, or explicit quotes
+        exact_tokens = quoted_phrases + re.findall(r'\b\d+\b|\b[A-Z]{2,}\b|\b[a-zA-Z0-9_\-\.]{3,}\b', query)
+        exact_patterns = [f"%{tok}%" for tok in set(exact_tokens) if len(tok) >= 2]
+        if not exact_patterns and clean_query:
+            exact_patterns = [f"%{clean_query}%"]
+
         conditions = ["status = 'ready'", "(chunk_level = 'child' OR chunk_level IS NULL)"]
-        params = []
-        
-        # Param 1: tsquery input (words joined with &)
-        words = [w for w in clean_query.split() if w]
-        tsquery_str = " & ".join(words)
+        params: list = []
+
+        # Param 1: tsquery string. If key_words <= 3, join with &; else join with | for broad recall
+        clean_key_words = [re.sub(r'[^\w\u00C0-\u1EF9]', '', w) for w in key_words]
+        clean_key_words = [w for w in clean_key_words if w]
+        if len(clean_key_words) <= 3:
+            tsquery_str = " & ".join(clean_key_words) if clean_key_words else " & ".join(all_words)
+        else:
+            tsquery_str = " | ".join(clean_key_words)
+
         params.append(tsquery_str)
-        
-        # Param 2: ILIKE input for exact substring matching
-        params.append(f"%{query}%")
-        
+        # Param 2: Exact patterns for trigram ILIKE ANY
+        params.append(exact_patterns[:10])
+
         idx = 3
         if course_id is not None:
             conditions.append(f"course_id = ${idx}"); params.append(course_id); idx += 1
@@ -540,18 +581,18 @@ class RAGService:
             conditions.append(f"content_id = ${idx}"); params.append(content_id); idx += 1
         elif content_ids:
             conditions.append(f"content_id = ANY(${idx})"); params.append(content_ids); idx += 1
-            
+
         where = " AND ".join(conditions)
         sql = f"""
             SELECT id, chunk_text, content_id, node_id,
                    source_type, page_number, start_time_sec, end_time_sec, language,
-                   (CASE WHEN chunk_text ILIKE $2 THEN 2.0 ELSE 0.0 END) +
-                   ts_rank(to_tsvector('simple', chunk_text), plainto_tsquery('simple', $1)) AS rank
+                   (CASE WHEN chunk_text ILIKE ANY($2) THEN 3.0 ELSE 0.0 END) +
+                   ts_rank_cd(to_tsvector('simple', chunk_text), to_tsquery('simple', $1)) AS rank
             FROM document_chunks
             WHERE {where}
               AND (
-                to_tsvector('simple', chunk_text) @@ plainto_tsquery('simple', $1)
-                OR chunk_text ILIKE $2
+                to_tsvector('simple', chunk_text) @@ to_tsquery('simple', $1)
+                OR chunk_text ILIKE ANY($2)
               )
             ORDER BY rank DESC, id
             LIMIT ${idx}
@@ -559,63 +600,18 @@ class RAGService:
         params.append(top_k)
 
         async with get_ai_conn() as conn:
-            rows = await conn.fetch(sql, *params)
+            try:
+                rows = await conn.fetch(sql, *params)
+            except Exception as exc:
+                logger.warning("Primary tsquery failed (%s), falling back to plainto_tsquery", exc)
+                params[0] = " ".join(key_words)
+                fallback_sql = sql.replace("to_tsquery('simple', $1)", "plainto_tsquery('simple', $1)")
+                try:
+                    rows = await conn.fetch(fallback_sql, *params)
+                except Exception as fb_exc:
+                    logger.error("Keyword search fallback failed: %s", fb_exc)
+                    return []
 
-        # Vietnamese queries are long AND-phrases ("phương pháp ra quyết
-        # định"): plainto_tsquery ANDs every word, so one missing token kills
-        # the row even when the concept is clearly present. Fall back to an
-        # OR-query (any token) ranked by how many tokens actually match.
-        if not rows and len(words) > 1:
-            clean_words = [re.sub(r'[^\w\u00C0-\u1EF9]', '', w) for w in words]
-            clean_words = [w for w in clean_words if w]
-            or_tsquery = " | ".join(clean_words) if clean_words else " | ".join(words)
-            like_patterns = [f"%{w}%" for w in words]
-
-            fallback_params: list = []
-            f_idx = 1
-
-            def next_arg(value):
-                nonlocal f_idx
-                placeholder = f"${f_idx}"
-                fallback_params.append(value)
-                f_idx += 1
-                return placeholder
-
-            p_or_tsquery = next_arg(or_tsquery)
-            p_words_array = next_arg(words)
-            p_like_any = next_arg(like_patterns)
-
-            conds_fb = ["status = 'ready'", "(chunk_level = 'child' OR chunk_level IS NULL)"]
-            if course_id is not None:
-                conds_fb.append(f"course_id = {next_arg(course_id)}")
-            if node_id is not None:
-                conds_fb.append(f"node_id = {next_arg(node_id)}")
-            if content_id is not None:
-                conds_fb.append(f"content_id = {next_arg(content_id)}")
-            elif content_ids:
-                conds_fb.append(f"content_id = ANY({next_arg(content_ids)})")
-
-            where_fb = " AND ".join(conds_fb)
-            limit_ph = next_arg(top_k)
-
-            or_sql = f"""
-                SELECT id, chunk_text, content_id, node_id,
-                       source_type, page_number, start_time_sec, end_time_sec, language,
-                       (SELECT COUNT(*)
-                          FROM unnest({p_words_array}::text[]) w
-                         WHERE chunk_text ILIKE '%' || w || '%')::float AS rank
-                FROM document_chunks
-                WHERE {where_fb}
-                  AND (
-                    to_tsvector('simple', chunk_text)
-                      @@ to_tsquery('simple', {p_or_tsquery})
-                    OR chunk_text ILIKE ANY({p_like_any}::text[])
-                  )
-                ORDER BY rank DESC, id
-                LIMIT {limit_ph}
-            """
-            rows = await conn.fetch(or_sql, *fallback_params)
-            
         return [
             RetrievedChunk(
                 chunk_id=r["id"],
@@ -638,6 +634,7 @@ class RAGService:
         keyword_results: list[RetrievedChunk],
         top_k: int,
         k: int = 60,
+        keyword_weight: float = 1.0,
     ) -> list[RetrievedChunk]:
         """Merge vector and keyword results using Reciprocal Rank Fusion (RRF)."""
         scores: dict[int, float] = {}
@@ -649,10 +646,10 @@ class RAGService:
             scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
             items[cid] = item
 
-        # 2. Process keyword results
+        # 2. Process keyword results (with keyword_weight boost for exact factual queries)
         for rank, item in enumerate(keyword_results):
             cid = item.chunk_id
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            scores[cid] = scores.get(cid, 0.0) + keyword_weight / (k + rank + 1)
             if cid not in items:
                 # If a chunk only came from keyword search, assign it a default
                 # high similarity (e.g. 0.75) so it survives min_similarity checks
@@ -805,20 +802,22 @@ class RAGService:
         top_k: int | None = None,
         min_similarity: float = 0.25,
         content_ids: list[int] | None = None,
+        skip_rerank: bool = False,
+        skip_hydration: bool = False,
     ) -> list[RetrievedChunk]:
         from app.core.multilingual import multilingual_search
         top_k = top_k or settings.top_k_chunks
         candidates = await multilingual_search(
             search_fn=self.search,
             query=query,
-            top_k=top_k if not settings.use_reranker else settings.rerank_fetch_k,
+            top_k=top_k if (not settings.use_reranker or skip_rerank) else settings.rerank_fetch_k,
             id_fn=lambda c: c.chunk_id,
             min_similarity=min_similarity,
             course_id=course_id, node_id=node_id, content_id=content_id,
             content_ids=content_ids,
         )
         # Determine final ranked chunks
-        if not candidates or not settings.use_reranker:
+        if skip_rerank or not candidates or not settings.use_reranker:
             final_chunks = candidates[:top_k]
         else:
             from app.core.embeddings import rerank_chunks
@@ -828,14 +827,14 @@ class RAGService:
             )
 
         # 1. Hydrate parent passages if hierarchical chunking is active
-        if final_chunks and settings.use_hierarchical_chunks:
+        if not skip_hydration and final_chunks and settings.use_hierarchical_chunks:
             try:
                 final_chunks = await self.hydrate_parents(final_chunks)
             except Exception as exc:
                 logger.warning("Parent hydration failed in search_multilingual: %s", exc)
 
         # 2. Enrich with Knowledge Graph context (prerequisites and related nodes)
-        if final_chunks:
+        if not skip_hydration and final_chunks:
             try:
                 final_chunks = await self.enrich_chunks_with_graph_context(final_chunks)
             except Exception as exc:
@@ -1195,6 +1194,8 @@ class RAGService:
         expansion_enabled: bool = True,
         max_expansion_level: str = "global",
         content_ids: list[int] | None = None,
+        skip_rerank: bool = False,
+        skip_hydration: bool = False,
         **kwargs,
     ) -> tuple[list[RetrievedChunk], str]:
         """
@@ -1203,6 +1204,11 @@ class RAGService:
         """
         import httpx
         top_k = top_k or settings.top_k_chunks
+
+        extra_search_kwargs = {}
+        if skip_rerank or skip_hydration:
+            extra_search_kwargs["skip_rerank"] = skip_rerank
+            extra_search_kwargs["skip_hydration"] = skip_hydration
         
         # 1. Lesson level or scoped content_ids
         if content_id:
@@ -1213,6 +1219,7 @@ class RAGService:
                 content_id=content_id,
                 top_k=top_k,
                 min_similarity=min_similarity,
+                **extra_search_kwargs,
             )
             if chunks:
                 return chunks, "content"
@@ -1224,6 +1231,7 @@ class RAGService:
                 content_ids=content_ids,
                 top_k=top_k,
                 min_similarity=min_similarity,
+                **extra_search_kwargs,
             )
             if chunks:
                 return chunks, "content_ids"
@@ -1275,6 +1283,7 @@ class RAGService:
                     content_ids=sibling_content_ids,
                     top_k=top_k,
                     min_similarity=min_similarity,
+                    **extra_search_kwargs,
                 )
                 if chunks:
                     return chunks, "section"
@@ -1288,6 +1297,7 @@ class RAGService:
                 course_id=effective_course_id,
                 top_k=top_k,
                 min_similarity=min_similarity,
+                **extra_search_kwargs,
             )
             if chunks:
                 return chunks, "course"
@@ -1299,6 +1309,7 @@ class RAGService:
                 query=query,
                 top_k=top_k,
                 min_similarity=min_similarity,
+                **extra_search_kwargs,
             )
             return chunks, "global"
 
