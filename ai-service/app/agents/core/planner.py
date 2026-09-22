@@ -38,8 +38,8 @@ class RetrievalStrategy(BaseModel):
         description="One of: 'content', 'section', 'course', 'cross_course', 'global', 'none'"
     )
     depth: int = Field(
-        default=3,
-        description="Number of chunks to fetch (top_k)"
+        default=6,
+        description="Number of chunks to fetch (top_k). Use 4 for factual/keyword queries, 6 for concept explanations, 8 for deep reviews."
     )
     min_similarity: float = Field(
         default=0.25,
@@ -267,9 +267,13 @@ Planning Rules:
    - matched_course_id: set if user explicitly names or implies a specific course from the active courses list.
    - requires_tool: true only if the user explicitly asks for a system action (generate quiz, create flashcard, etc.).
 
-4. **Retrieval Scope & Expansion**:
+4. **Retrieval Scope, Expansion & Depth**:
    - Start narrow (content if in a lesson, course if viewing course), enable expansion to global as fallback.
    - For recommendation or general chitchat, set scope='none'.
+   - Set adaptive retrieval depth (top_k chunks):
+     * Factual query (exact port, status code, error, numbers, short definition): depth=4
+     * Concept explanation / tutorial / homework question: depth=6
+     * Deep review / comprehensive overview / multi-topic synthesis: depth=8
 
 Return compact valid JSON matching the schema. ``reasoning`` must be one short
 decision summary; never reveal chain-of-thought.

@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     # RAG
     chunk_size: int = 500
     chunk_overlap: int = 50
-    top_k_chunks: int = 3
+    top_k_chunks: int = 6
     use_native_multilingual: bool = True
 
     # Hierarchical chunking (parent-child). Children are embedded and indexed
@@ -117,6 +117,7 @@ class Settings(BaseSettings):
     # children with wider context for the LLM.
     use_hierarchical_chunks: bool = True
     parent_chunk_max_chars: int = 6000
+    max_hydrated_chunk_chars: int = 1200
 
     # Kafka worker tuning
     reindex_batch_size: int = 5

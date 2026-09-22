@@ -59,8 +59,8 @@ class SearchMaterialsTool(BaseTool):
             },
             "top_k": {
                 "type": "integer",
-                "description": "Number of results to return. Default: 3.",
-                "default": 3,
+                "description": "Number of results to return. Default: 6.",
+                "default": 6,
             },
         },
         "required": ["query"],
@@ -76,7 +76,7 @@ class SearchMaterialsTool(BaseTool):
         node_id: int | None = kwargs.get("_node_id") or kwargs.get("node_id")
         user_id: int | None = kwargs.get("_user_id")
         course_name: str | None = kwargs.get("_course_name")
-        top_k = kwargs.get("top_k", 3)
+        top_k = kwargs.get("top_k") or settings.top_k_chunks
 
         execution_plan = kwargs.get("execution_plan")
         expansion_enabled = True

@@ -128,6 +128,22 @@ def _resolve_max_tokens(intent_type: str, has_page_context: bool) -> int:
 # [PATCH 2] Smart tool result truncation
 # -----------------------------------------------------------------------------
 
+def _trim_text_at_sentence_boundary(text: str, max_chars: int = 1200) -> str:
+    """Trim text to max_chars without cutting words or mid-sentence."""
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars]
+    boundaries = [cut.rfind("\n\n"), cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind(";\n")]
+    valid = [b for b in boundaries if b > max_chars // 2]
+    if valid:
+        best_cut = max(valid)
+        return text[:best_cut + 1].strip()
+    last_space = cut.rfind(" ")
+    if last_space > max_chars // 2:
+        return text[:last_space].strip() + "…"
+    return cut.strip() + "…"
+
+
 def _smart_truncate_tool_result(
     tool_name: str,
     result_content: str,
@@ -136,7 +152,7 @@ def _smart_truncate_tool_result(
     """
     Truncate tool results semantically instead of using a hard character limit.
 
-    - search_course_materials: keep chunks intact, cut at boundaries
+    - search_course_materials: compact graph metadata, trim chunk texts at sentence boundaries
     - diagnose_knowledge_gap: keep weaknesses + prerequisite_chains
     - explain_concept: trim each text chunk
     - fallback: cut at the newline closest to the limit
@@ -148,16 +164,38 @@ def _smart_truncate_tool_result(
         data = json.loads(result_content)
 
         if tool_name in ("search_course_materials", "explain_concept"):
-            chunks = data.get("data", {}).get("chunks", [])
+            inner_data = data.get("data", {})
+            # Compact the graph field if present to prioritize actual chunk content
+            graph_info = inner_data.get("graph")
+            if isinstance(graph_info, dict):
+                compact_graph = {
+                    "graph_expanded": graph_info.get("graph_expanded", False),
+                    "prereq_path": graph_info.get("prereq_path", [])[:3],
+                    "concept_relationships": [
+                        {
+                            "concept": rel.get("concept"),
+                            "related": [r.get("name") for r in rel.get("related_to", [])[:2]]
+                        }
+                        for rel in (graph_info.get("concept_relationships") or [])[:3]
+                    ]
+                }
+                inner_data["graph"] = compact_graph
+
+            chunks = inner_data.get("chunks", [])
             kept, char_count = [], 0
+            per_chunk_target = 1200
             for chunk in chunks:
+                if isinstance(chunk, dict) and "text" in chunk:
+                    chunk["text"] = _trim_text_at_sentence_boundary(chunk["text"], per_chunk_target)
                 chunk_json = json.dumps(chunk, ensure_ascii=False)
-                if char_count + len(chunk_json) > int(limit * 0.85):
+                if char_count + len(chunk_json) > int(limit * 0.95):
                     break
                 kept.append(chunk)
                 char_count += len(chunk_json)
-            data.setdefault("data", {})["chunks"] = kept
-            data["data"]["_truncated"] = f"showing {len(kept)}/{len(chunks)} chunks"
+            inner_data["chunks"] = kept
+            if len(kept) < len(chunks):
+                inner_data["_truncated"] = f"showing {len(kept)}/{len(chunks)} chunks"
+            data["data"] = inner_data
             return json.dumps(data, ensure_ascii=False)
 
         if tool_name == "diagnose_knowledge_gap":
@@ -1688,8 +1726,9 @@ async def run_react_loop(
             result_content = json.dumps(
                 result_summary, ensure_ascii=False, default=str,
             )
+            tool_limit = 8000 if tool_name in ("search_course_materials", "explain_concept") else 4000
             result_content = _smart_truncate_tool_result(
-                tool_name, result_content, limit=4000
+                tool_name, result_content, limit=tool_limit
             )
 
             messages.append({

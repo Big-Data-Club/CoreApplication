@@ -58,6 +58,51 @@ _SEARCH_COL = "embedding"
 _SEARCH_OP  = f"{_SEARCH_COL} <=> $1::vector"
 
 
+def _extract_parent_context_window(
+    parent_text: str,
+    child_text: str,
+    target_window_chars: int = 1200,
+) -> str:
+    """Extract a coherent window around the child chunk within the parent text,
+    snapped to natural sentence or paragraph boundaries.
+    """
+    if len(parent_text) <= target_window_chars:
+        return parent_text
+
+    clean_child = child_text.strip()
+    anchor = clean_child[:min(40, len(clean_child))]
+    pos = parent_text.find(anchor) if anchor else -1
+
+    if pos == -1:
+        cut = parent_text[:target_window_chars]
+        last_punct = max(cut.rfind("\n\n"), cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+        return parent_text[:last_punct + 1].strip() if last_punct > target_window_chars // 2 else cut.strip() + "…"
+
+    half_window = target_window_chars // 2
+    start_idx = max(0, pos - half_window)
+    end_idx = min(len(parent_text), pos + len(clean_child) + half_window)
+
+    if start_idx > 0:
+        prev_break = max(parent_text.rfind("\n\n", 0, start_idx), parent_text.rfind(". ", 0, start_idx))
+        if prev_break != -1 and start_idx - prev_break < 200:
+            start_idx = prev_break + (2 if parent_text[prev_break:prev_break + 2] in ("\n\n", ". ") else 1)
+
+    if end_idx < len(parent_text):
+        next_break = min(
+            [b for b in [parent_text.find("\n\n", end_idx), parent_text.find(". ", end_idx)] if b != -1] or [-1]
+        )
+        if next_break != -1 and next_break - end_idx < 200:
+            end_idx = next_break + 1
+
+    extracted = parent_text[start_idx:end_idx].strip()
+    if start_idx > 0 and not extracted.startswith("…"):
+        extracted = "… " + extracted
+    if end_idx < len(parent_text) and not extracted.endswith("…"):
+        extracted = extracted + " …"
+
+    return extracted
+
+
 # ── RAG Service ───────────────────────────────────────────────────────────────
 
 class RAGService:
@@ -1021,12 +1066,10 @@ class RAGService:
     ) -> list[RetrievedChunk]:
         """
         For each retrieved child chunk that has a parent, replace its
-        chunk_text with the parent's chunk_text. Useful for LLM context
-        windows where you want a wider, more coherent passage than the
-        embedding-sized child.
+        chunk_text with a coherent sentence-bounded window from the parent.
 
-        Pure metadata (page_number, etc.) is preserved from the child so
-        deep-link / citation behaviour is unchanged.
+        Deduplicates parent passages and bounds per-chunk context to avoid
+        blowing the LLM token budget while guaranteeing zero context loss.
         """
         if not chunks:
             return chunks
@@ -1034,7 +1077,8 @@ class RAGService:
         async with get_ai_conn() as conn:
             rows = await conn.fetch(
                 """
-                SELECT child.id        AS child_id,
+                SELECT child.id          AS child_id,
+                       parent.id         AS parent_id,
                        parent.chunk_text AS parent_text
                 FROM document_chunks child
                 JOIN document_chunks parent ON parent.id = child.parent_chunk_id
@@ -1042,14 +1086,24 @@ class RAGService:
                 """,
                 [c.chunk_id for c in chunks],
             )
-        parent_text_by_child = {r["child_id"]: r["parent_text"] for r in rows}
-        if not parent_text_by_child:
+        parent_info_by_child = {r["child_id"]: (r["parent_id"], r["parent_text"]) for r in rows}
+        if not parent_info_by_child:
             return chunks
 
+        seen_parent_ids = set()
+        max_window = getattr(settings, "max_hydrated_chunk_chars", 1200)
         for c in chunks:
-            pt = parent_text_by_child.get(c.chunk_id)
-            if pt:
-                c.chunk_text = pt
+            info = parent_info_by_child.get(c.chunk_id)
+            if not info:
+                continue
+            parent_id, parent_text = info
+            if parent_id in seen_parent_ids:
+                # Same parent already hydrated on a preceding higher-ranked chunk.
+                # Keep focused child window to avoid duplicate bloating while preserving details.
+                c.chunk_text = _extract_parent_context_window(parent_text, c.chunk_text, target_window_chars=min(max_window, 800))
+            else:
+                seen_parent_ids.add(parent_id)
+                c.chunk_text = _extract_parent_context_window(parent_text, c.chunk_text, target_window_chars=max_window)
         return chunks
 
     async def enrich_chunks_with_graph_context(

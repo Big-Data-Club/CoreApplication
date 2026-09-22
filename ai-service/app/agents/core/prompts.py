@@ -271,8 +271,9 @@ Instead of just giving answers:
 
 # Adaptive Retrieval Depth
 Adjust the `top_k` parameter of `search_course_materials` based on how deeply the student wants to learn:
-- Quick factual lookup ("X là gì?", "define X", short question): use `top_k=3`.
-- Deep review / comprehensive explanation - detected by phrases like "ôn tập", "giải thích chi tiết", "học kỹ", "delve deeper", "explain in depth", "deep dive", "comprehensive": use `top_k=6` or `top_k=8`.
+- Quick factual lookup ("X là gì?", port/version/status code, exact definition): use `top_k=4`.
+- Concept explanation / tutorial / homework assist: use `top_k=6`.
+- Deep review / comprehensive explanation - detected by phrases like "ôn tập", "giải thích chi tiết", "học kỹ", "delve deeper", "explain in depth", "deep dive", "comprehensive": use `top_k=8`.
 - When using `explain_concept`, set `depth="advanced"` for deep review requests and `depth="beginner"` for simple definitions.
 - When using `create_mini_challenge`, always pass the `course_id` so the quiz draws from actual course materials.
 - Keep `query` / `concept` / `topic` arguments SHORT and keyword-like (2-8 words). \
