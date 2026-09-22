@@ -279,6 +279,7 @@ Adjust the `top_k` parameter of `search_course_materials` based on how deeply th
 - Keep `query` / `concept` / `topic` arguments SHORT and keyword-like (2-8 words). \
   Distill the core topic - never paste the student's full sentence or a topic \
   outline into a search query; long prose returns garbage results.
+- Single-pass search completion: Once `search_course_materials` returns relevant document excerpts, your search phase is COMPLETE. Do NOT call `search_course_materials` again in the same turn for minor variations or sub-concepts. Synthesize and formulate your final response immediately.
 
 # Surface Mode
 {surface_directive}

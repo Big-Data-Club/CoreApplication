@@ -176,9 +176,10 @@ class GraphRAGService:
             if settings.use_reranker and raw_chunks:
                 try:
                     from app.core.embeddings import rerank_chunks
+                    candidate_limit = min(len(raw_chunks), top_k + 4)
                     raw_chunks = await rerank_chunks(
                         query=query,
-                        chunks=raw_chunks,
+                        chunks=raw_chunks[:candidate_limit],
                         text_fn=lambda c: c.chunk_text,
                         top_k=top_k,
                     )
@@ -210,9 +211,10 @@ class GraphRAGService:
             if settings.use_reranker and raw_chunks:
                 try:
                     from app.core.embeddings import rerank_chunks
+                    candidate_limit = min(len(raw_chunks), top_k + 4)
                     raw_chunks = await rerank_chunks(
                         query=query,
-                        chunks=raw_chunks,
+                        chunks=raw_chunks[:candidate_limit],
                         text_fn=lambda c: c.chunk_text,
                         top_k=top_k,
                     )
@@ -346,9 +348,10 @@ class GraphRAGService:
         if settings.use_reranker and all_chunks:
             try:
                 from app.core.embeddings import rerank_chunks
+                candidate_limit = min(len(all_chunks), top_k + 4)
                 all_chunks = await rerank_chunks(
                     query=query,
-                    chunks=all_chunks,
+                    chunks=all_chunks[:candidate_limit],
                     text_fn=lambda c: c.chunk_text,
                     top_k=top_k,
                 )

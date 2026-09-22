@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import json
 import logging
+import re
 import time
 import uuid
 from typing import AsyncIterator
@@ -53,6 +55,85 @@ def _val(obj: Any, key: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
+
+def _parse_tool_arguments(raw: Any) -> dict | None:
+    """Robustly parse tool arguments from LLM output, handling markdown,
+    single quotes, trailing commas, and unquoted keys.
+    """
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return None
+
+    s = raw.strip()
+    if not s or s in ("{}", "null", "None"):
+        return {}
+
+    # 1. Standard json.loads
+    try:
+        val = json.loads(s)
+        if isinstance(val, dict):
+            return val
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Strip markdown fences: ```json ... ``` or ``` ... ```
+    cleaned = re.sub(r"^```(?:json)?\s*", "", s, flags=re.MULTILINE)
+    cleaned = re.sub(r"\s*```\s*$", "", cleaned, flags=re.MULTILINE).strip()
+    try:
+        val = json.loads(cleaned)
+        if isinstance(val, dict):
+            return val
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Regex search for outermost {...}
+    match = re.search(r"\{[\s\S]*\}", cleaned)
+    if match:
+        candidate = match.group(0)
+        try:
+            val = json.loads(candidate)
+            if isinstance(val, dict):
+                return val
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            val = ast.literal_eval(candidate)
+            if isinstance(val, dict):
+                return {str(k): v for k, v in val.items()}
+        except Exception:
+            pass
+
+        try:
+            fixed = re.sub(r",\s*([\}\]])", r"\1", candidate)
+            fixed = re.sub(r"([\{,]\s*)([a-zA-Z_]\w*)\s*:", r'\1"\2":', fixed)
+            val = json.loads(fixed)
+            if isinstance(val, dict):
+                return val
+        except Exception:
+            pass
+
+    # 4. Fallback: Key-value pattern like `query="something", top_k=6`
+    kv_matches = re.findall(
+        r'(\w+)\s*=\s*(?:["\'](.*?)["\']|(\d+)|(true|false))', s, flags=re.IGNORECASE,
+    )
+    if kv_matches:
+        res = {}
+        for key, str_val, num_val, bool_val in kv_matches:
+            if str_val:
+                res[key] = str_val
+            elif num_val:
+                res[key] = int(num_val)
+            elif bool_val:
+                res[key] = bool_val.lower() == "true"
+        if res:
+            return res
+
+    return None
 
 
 def _is_teacher_authoring_request(message: str) -> bool:
@@ -1251,12 +1332,18 @@ async def run_react_loop(
 
     # -- Step 5: ReAct Iterations ----------------------------------------------
     final_text = ""
+    executed_search_tools: set[str] = set()
 
     for iteration in range(max_loop_iterations):
         iter_start = time.monotonic()
         iter_id = f"{turn_id}-{iteration}"
 
         logger.debug("ReAct iteration %d/%d (mode=%s)", iteration + 1, max_loop_iterations, mode)
+
+        active_tool_schemas = [
+            s for s in (focused_schemas if (tools_were_gated and iteration == 0) else tool_schemas)
+            if (s.get("function", {}).get("name") or s.get("name")) not in executed_search_tools
+        ]
 
         gateway = get_gateway()
         req = ChatRequest(
@@ -1266,9 +1353,9 @@ async def run_react_loop(
             max_tokens=max_tokens,          # dynamic
             json_mode=False,
             extra={
-                "tools": focused_schemas if (tools_were_gated and iteration == 0) else tool_schemas,
+                "tools": active_tool_schemas,
                 "tool_choice": "auto",
-            } if tool_schemas else {},
+            } if active_tool_schemas else {},
         )
 
         collected_text = ""
@@ -1476,20 +1563,23 @@ async def run_react_loop(
             if not tool_name:
                 continue
 
-            try:
-                args = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                if args is None:
-                    args = {}
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Failed to parse tool args: name=%s, raw='%s'",
-                    tool_name, tc["arguments"][:200],
-                )
-                args = None
-            if args is not None and not isinstance(args, dict):
-                args = None
-
+            args = _parse_tool_arguments(tc.get("arguments"))
             if args is None:
+                if executed_search_tools:
+                    logger.warning(
+                        "Malformed tool call '%s' in post-retrieval iter %d; model already has materials. Prompting synthesis.",
+                        tool_name, iteration + 1,
+                    )
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"] or f"invalid-{tool_name}",
+                        "content": json.dumps(
+                            {"status": "info", "message": "Search completed. Synthesize your final answer directly for the student using the materials already retrieved above."},
+                            ensure_ascii=False,
+                        ),
+                    })
+                    continue
+
                 # Malformed arguments must be fed back to the model as the
                 # tool response - otherwise this tool_call_id dangles (strict
                 # providers reject that) and the model never learns why.
@@ -1736,6 +1826,11 @@ async def run_react_loop(
                 "tool_call_id": tc["id"],
                 "content": result_content,
             })
+
+            if tool_name in ("search_course_materials", "search_web") and tool_result.status == "success":
+                chunks = (tool_result.data or {}).get("chunks")
+                if chunks:
+                    executed_search_tools.add(tool_name)
 
             logger.info(
                 "Tool result: %s -> %s (%d chars)",

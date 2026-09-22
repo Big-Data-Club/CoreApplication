@@ -81,7 +81,7 @@ class SearchMaterialsTool(BaseTool):
         execution_plan = kwargs.get("execution_plan")
         expansion_enabled = True
         max_expansion_level = "global"
-        min_similarity = 0.25
+        min_similarity = 0.15
         graph_expansion_needed = settings.graphrag_enabled
         user_weakness_relevant = False
 
@@ -89,7 +89,7 @@ class SearchMaterialsTool(BaseTool):
             strategy = execution_plan.retrieval_strategy
             expansion_enabled = strategy.expansion_enabled
             max_expansion_level = strategy.max_expansion_level
-            min_similarity = strategy.min_similarity
+            min_similarity = min(strategy.min_similarity, 0.15)
             top_k = strategy.depth or top_k
             # GraphRAG signals from Planner v2
             graph_expansion_needed = getattr(execution_plan, "graph_expansion_needed", settings.graphrag_enabled)
@@ -143,29 +143,15 @@ class SearchMaterialsTool(BaseTool):
                 return chunks, {"graph_expanded": False}
 
             chunks, graph_meta = await _retrieve(min_similarity)
-            search_threshold = min_similarity
 
-            # One bounded retry at a lower threshold: the planner's default
-            # (0.25) regularly filters out the only relevant chunks for short
-            # or paraphrased student queries.
-            if not chunks and search_threshold > 0.10:
-                search_threshold = max(0.10, min_similarity - 0.15)
-                logger.info(
-                    "search_course_materials retry with min_similarity=%.2f (was %.2f)",
-                    search_threshold, min_similarity,
-                )
-                chunks, graph_meta = await _retrieve(search_threshold)
-
-            # Lesson-scope miss with a wider indexed course: widen the search
-            # ourselves instead of bouncing the question back to the agent
-            # for a manual retry it may never make.
+            # Lesson-scope miss with a wider indexed course: widen directly to course scope
             widened_scope = False
             if not chunks and content_id and course_id:
                 logger.info(
                     "search_course_materials lesson-scope miss (content_id=%s), widening to course_id=%s",
                     content_id, course_id,
                 )
-                chunks, graph_meta = await _retrieve(search_threshold, effective_content_id=None)
+                chunks, graph_meta = await _retrieve(min_similarity, effective_content_id=None)
                 widened_scope = True
 
             logger.info(

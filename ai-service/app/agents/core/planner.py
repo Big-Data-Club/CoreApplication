@@ -42,7 +42,7 @@ class RetrievalStrategy(BaseModel):
         description="Number of chunks to fetch (top_k). Use 4 for factual/keyword queries, 6 for concept explanations, 8 for deep reviews."
     )
     min_similarity: float = Field(
-        default=0.25,
+        default=0.15,
         description="Minimum similarity score threshold"
     )
     expansion_enabled: bool = Field(
@@ -394,8 +394,8 @@ async def generate_plan(
             operation="content_qa",
             retrieval_strategy=RetrievalStrategy(
                 scope="course" if current_course_id else "global",
-                depth=3,
-                min_similarity=0.25,
+                depth=6,
+                min_similarity=0.15,
                 expansion_enabled=True,
                 max_expansion_level="global",
             ),

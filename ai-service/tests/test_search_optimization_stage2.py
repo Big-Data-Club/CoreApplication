@@ -143,3 +143,34 @@ async def test_hydrate_parents_deduplication():
         # Both chunks should have received parent-derived contextual text
         assert "Indexing" in hydrated[0].chunk_text or "database" in hydrated[0].chunk_text.lower()
         assert "B-trees" in hydrated[1].chunk_text or "database" in hydrated[1].chunk_text.lower()
+
+
+def test_parse_tool_arguments_robust_recovery():
+    """Verify _parse_tool_arguments parses diverse LLM formats without raising JSONDecodeError."""
+    from app.agents.core.react_loop import _parse_tool_arguments
+
+    # Empty / None
+    assert _parse_tool_arguments("") == {}
+    assert _parse_tool_arguments(None) == {}
+    assert _parse_tool_arguments("{}") == {}
+    assert _parse_tool_arguments("null") == {}
+
+    # Valid JSON
+    assert _parse_tool_arguments('{"query": "kafka", "top_k": 6}') == {"query": "kafka", "top_k": 6}
+
+    # Single-quoted Python dict
+    assert _parse_tool_arguments("{'query': 'kafka', 'top_k': 6}") == {"query": "kafka", "top_k": 6}
+
+    # Markdown fenced code block
+    fenced = '```json\n{"query": "kafka", "top_k": 6}\n```'
+    assert _parse_tool_arguments(fenced) == {"query": "kafka", "top_k": 6}
+
+    # Trailing commas
+    assert _parse_tool_arguments('{"query": "kafka", "top_k": 6,}') == {"query": "kafka", "top_k": 6}
+
+    # Unquoted keys (Llama 3 common glitch)
+    assert _parse_tool_arguments('{query: "kafka", top_k: 6}') == {"query": "kafka", "top_k": 6}
+
+    # Key-value syntax (query="kafka", top_k=6)
+    assert _parse_tool_arguments('query="kafka", top_k=6') == {"query": "kafka", "top_k": 6}
+
