@@ -36,7 +36,7 @@ mapfile -t completed_pods < <(
     -o name 2>/dev/null || true
 )
 if ((${#completed_pods[@]})); then
-  kubectl -n "$namespace" delete "${completed_pods[@]}" --wait=false >/dev/null
+  kubectl -n "$namespace" delete "${completed_pods[@]}" --ignore-not-found --wait=false >/dev/null
   echo "K3s maintenance (${phase}): removed ${#completed_pods[@]} completed pod object(s)."
 fi
 
