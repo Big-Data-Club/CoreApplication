@@ -4,11 +4,13 @@ metadata:
   name: bdc-config
 data:
   # Ghi đè các DB host trỏ ra ngoài SaaS (Neon, Qdrant Cloud, Neo4j Aura, Cloudflare R2)
-  POSTGRES_HOST: "neon-auth-postgres-host.neon.tech"
-  LMS_POSTGRES_HOST: "neon-lms-postgres-host.neon.tech"
-  LAB_POSTGRES_HOST: "neon-lab-postgres-host.neon.tech"
-  CHAT_POSTGRES_HOST: "neon-chat-postgres-host.neon.tech"
-  AI_POSTGRES_HOST: "neon-ai-postgres-host.neon.tech"
+  # All logical databases in the current Neon project use this pooled endpoint.
+  # Database names and credentials remain in the runtime Secret, never in Git.
+  POSTGRES_HOST: "ep-blue-hall-b3tha0c8-pooler.c-4.ap-southeast-1.aws.neon.tech"
+  LMS_POSTGRES_HOST: "ep-blue-hall-b3tha0c8-pooler.c-4.ap-southeast-1.aws.neon.tech"
+  LAB_POSTGRES_HOST: "ep-blue-hall-b3tha0c8-pooler.c-4.ap-southeast-1.aws.neon.tech"
+  CHAT_POSTGRES_HOST: "ep-blue-hall-b3tha0c8-pooler.c-4.ap-southeast-1.aws.neon.tech"
+  AI_POSTGRES_HOST: "ep-blue-hall-b3tha0c8-pooler.c-4.ap-southeast-1.aws.neon.tech"
   
   QDRANT_URL: "https://your-qdrant-cloud-cluster.qdrant.tech:6333"
   NEO4J_URI: "bolt+s://your-neo4j-aura-dbid.databases.neo4j.io:7687"
