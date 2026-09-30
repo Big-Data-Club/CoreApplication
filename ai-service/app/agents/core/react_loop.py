@@ -39,7 +39,7 @@ from app.agents.tools.registry import (
     get_tool_schemas, get_tool_by_name, execute_tool,
 )
 from app.core.config import get_settings
-from app.core.llm_gateway import get_gateway, ChatRequest, TASK_AGENT_REACT
+from app.core.llm_gateway import get_gateway, ChatRequest, TASK_AGENT_FLASH, TASK_AGENT_REACT
 from app.agents.tools.base_tool import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -1423,7 +1423,7 @@ async def run_react_loop(
 
         gateway = get_gateway()
         req = ChatRequest(
-            task=TASK_AGENT_REACT,
+            task=TASK_AGENT_FLASH if mode == "flash" else TASK_AGENT_REACT,
             messages=messages,
             temperature=0.3,
             max_tokens=max_tokens,          # dynamic

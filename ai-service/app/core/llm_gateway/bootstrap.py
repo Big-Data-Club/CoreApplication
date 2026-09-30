@@ -21,6 +21,7 @@ from app.core.llm_gateway.freemodel_providers import _DEFAULT_FREEMODEL_PROVIDER
 from app.core.llm_gateway.registry import get_registry
 from app.core.llm_gateway.types import (
     ALL_TASK_CODES,
+    TASK_AGENT_FLASH,
     TASK_AGENT_REACT,
     TASK_AGENT_ROUTER,
     TASK_CHAT,
@@ -487,6 +488,12 @@ async def bootstrap_llm_registry() -> None:
     )
     oss_model_id = models_by_name.get("openai/gpt-oss-120b") or chat_model_id
     default_model_id = terra_model_id or oss_model_id
+    # Flash has an independent binding so an operator can tune its latency
+    # without weakening the tool-capable ReAct model.  The 8B Groq model is a
+    # deliberately fast default; the normal text model remains a fallback.
+    flash_model_id = _model_id_by_provider(
+        "llama-3.1-8b-instant", ("groq",),
+    ) or default_model_id
 
     default_bindings: list[tuple[str, int, int]] = [
         (TASK_CHAT,             default_model_id, 10),
@@ -502,6 +509,7 @@ async def bootstrap_llm_registry() -> None:
         (TASK_MICRO_LESSON_GEN, default_model_id, 10),
         (TASK_MICRO_QUIZ_GEN,   default_model_id, 10),
         (TASK_AGENT_REACT,      default_model_id, 10),
+        (TASK_AGENT_FLASH,      flash_model_id, 10),
         (TASK_VLM_DESCRIBE,     vlm_model_id, 10),
         (TASK_SECTION_OVERVIEW_GEN, default_model_id, 10),
         (TASK_COURSE_BLUEPRINT, default_model_id, 10),
@@ -524,7 +532,15 @@ async def bootstrap_llm_registry() -> None:
             enabled=True,
             notes=f"seeded-default:{model_id}",
         )
-        if terra_model_id and oss_model_id and model_id == terra_model_id and task_code != TASK_VLM_DESCRIBE:
+        if task_code == TASK_AGENT_FLASH and flash_model_id != default_model_id:
+            await registry.upsert_binding(
+                task_code=task_code,
+                model_id=default_model_id,
+                priority=priority + 10,
+                enabled=True,
+                notes=f"seeded-fallback:{default_model_id}",
+            )
+        elif terra_model_id and oss_model_id and model_id == terra_model_id and task_code != TASK_VLM_DESCRIBE:
             await registry.upsert_binding(
                 task_code=task_code,
                 model_id=oss_model_id,

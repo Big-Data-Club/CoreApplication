@@ -15,6 +15,7 @@ TASK_MICRO_QUIZ_GEN   = "micro_quiz_gen"   # generating micro-quizzes from chunk
 TASK_DIAGNOSIS        = "diagnosis"         # error diagnosis for wrong answers
 TASK_FLASHCARD_GEN    = "flashcard_gen"
 TASK_AGENT_REACT      = "agent_react"       # teacher/mentor tool-calling loop
+TASK_AGENT_FLASH      = "agent_flash"       # direct, latency-first teacher/mentor reply
 TASK_AGENT_ROUTER     = "agent_router"      # tiny classifier used to pick agent
 TASK_CLARIFICATION    = "clarification"
 TASK_GRAPH_LINK       = "graph_link"        # knowledge graph relation extraction
@@ -35,7 +36,7 @@ TASK_CONTENT_STUDIO     = "content_studio"
 ALL_TASK_CODES: tuple[str, ...] = (
     TASK_CHAT, TASK_QUIZ_GEN, TASK_MICRO_LESSON_GEN, TASK_MICRO_QUIZ_GEN,
     TASK_DIAGNOSIS, TASK_FLASHCARD_GEN,
-    TASK_AGENT_REACT, TASK_AGENT_ROUTER, TASK_CLARIFICATION,
+    TASK_AGENT_REACT, TASK_AGENT_FLASH, TASK_AGENT_ROUTER, TASK_CLARIFICATION,
     TASK_GRAPH_LINK, TASK_MEMORY_COMPRESS, TASK_LANGUAGE_DETECT,
     TASK_NODE_EXTRACT, TASK_VLM_DESCRIBE, TASK_SECTION_OVERVIEW_GEN,
     TASK_COURSE_BLUEPRINT, TASK_CONTENT_STUDIO,
