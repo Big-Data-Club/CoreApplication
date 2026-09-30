@@ -221,11 +221,13 @@ async def _pdf_to_markdown(
     pending_images: list[ExtractedImage] = []
 
     for pr in page_results:
-        if not pr.markdown.strip():
-            continue
-
-        # Collect page images either way
+        # Collect page images first — even text-empty pages can hold figures
+        # (e.g. image-only scans with VLM disabled). Dropping them here
+        # loses images before thin-page merging ever sees them.
         page_imgs = images_by_page.get(pr.page_no, [])
+        if not pr.markdown.strip():
+            pending_images.extend(page_imgs)
+            continue
 
         if _is_page_thin(pr.markdown):
             # Save thin page content for merging into the next real section
@@ -251,9 +253,17 @@ async def _pdf_to_markdown(
             out_parts.append(f"\n\n![{alt}]({img.url})\n")
         pending_images.clear()
 
-    # Flush any trailing thin pages (rare - last pages are usually thin)
-    if pending_thin:
-        out_parts.append("\n\n" + "\n".join(pending_thin))
+    # Flush any trailing thin pages (rare - last pages are usually thin).
+    # Pending images must be flushed too, otherwise figures on trailing
+    # copyright/closing pages are silently dropped from the index.
+    if pending_thin or pending_images:
+        if pending_thin:
+            out_parts.append("\n\n" + "\n".join(pending_thin))
+        for img in pending_images:
+            alt = img.caption_hint or "Hình minh họa"
+            out_parts.append(f"\n\n![{alt}]({img.url})\n")
+        pending_images.clear()
+        pending_thin.clear()
 
     return ConvertedDocument(
         markdown="".join(out_parts).strip(),

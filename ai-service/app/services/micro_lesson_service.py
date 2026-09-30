@@ -278,31 +278,92 @@ class MicroLessonService:
                 source_content_id
             )
             
-            # 3. Fetch chunks in order
+            # 3. Fetch chunks in order (chunk_index needed to rescue
+            # unassigned image chunks whose node_id IS NULL — see below)
             chunks_rows = await conn.fetch(
-                "SELECT node_id, chunk_text FROM document_chunks WHERE content_id=$1 ORDER BY chunk_index",
+                "SELECT node_id, chunk_text, chunk_index FROM document_chunks "
+                "WHERE content_id=$1 ORDER BY chunk_index",
                 source_content_id
             )
-            
+
             # Organize data
-            node_map = {}
+            node_map: dict[int, dict] = {}
             for row in nodes_rows:
                 node_map[row["id"]] = {
                     "node": {
-                        "id": row["id"], 
-                        "name": row["name"], 
+                        "id": row["id"],
+                        "name": row["name"],
                         "description": row["description"],
                         "min_chunk_idx": row["min_chunk_idx"]
                     },
                     "chunks": [],
+                    "chunk_indexes": [],
                 }
-            
+
+            # Chunks without a node (artifact/image-only chunks get
+            # node_id=NULL in auto-index) that still contain Markdown
+            # images. They must not be dropped or micro-lessons lose figures.
+            unassigned_images: list[tuple[int, str]] = []
             for row in chunks_rows:
                 nid = row["node_id"]
+                text = row["chunk_text"] or ""
+                cidx = row["chunk_index"]
                 if nid in node_map:
-                    node_map[nid]["chunks"].append(row["chunk_text"])
-            
-            # Keep only nodes that actually have chunks mapped to them
+                    node_map[nid]["chunks"].append(text)
+                    try:
+                        node_map[nid]["chunk_indexes"].append(int(cidx))
+                    except (TypeError, ValueError):
+                        pass
+                else:
+                    # Skip hierarchical parent rows (negative index) — their
+                    # child rows already carry the same image URLs and
+                    # including both would duplicate figures.
+                    if cidx is not None and int(cidx) < 0:
+                        continue
+                    if "![" in text and "](" in text:
+                        try:
+                            unassigned_images.append((int(cidx), text))
+                        except (TypeError, ValueError):
+                            unassigned_images.append((999999, text))
+
+            # Attach each orphan image chunk to the nearest node by
+            # chunk_index distance so figures stay with surrounding context.
+            if unassigned_images:
+                existing_urls = {
+                    u
+                    for item in node_map.values()
+                    for t in item["chunks"]
+                    for u in re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", t)
+                }
+                # Node anchor = mean of its assigned chunk indexes
+                # (falls back to min_chunk_idx when empty).
+                def _anchor(nid: int) -> float:
+                    idxs = node_map[nid]["chunk_indexes"]
+                    if idxs:
+                        return sum(idxs) / len(idxs)
+                    try:
+                        return float(node_map[nid]["node"]["min_chunk_idx"])
+                    except (TypeError, ValueError):
+                        return 999999.0
+
+                anchors = {nid: _anchor(nid) for nid in node_map}
+                for cidx, text in sorted(unassigned_images):
+                    urls = re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", text)
+                    fresh = [u for u in urls if u not in existing_urls]
+                    if not fresh:
+                        continue
+                    best_nid = min(anchors, key=lambda nid: abs(anchors[nid] - cidx))
+                    node_map[best_nid]["chunks"].append(text)
+                    node_map[best_nid]["chunk_indexes"].append(cidx)
+                    existing_urls.update(fresh)
+
+            # Keep only nodes that actually have chunks mapped to them.
+            # Re-sort chunks by original document order after rescue.
+            for item in node_map.values():
+                if item["chunks"] and item.get("chunk_indexes") and len(item["chunk_indexes"]) == len(item["chunks"]):
+                    ordered = sorted(zip(item["chunk_indexes"], item["chunks"]), key=lambda p: p[0])
+                    item["chunks"] = [t for _, t in ordered]
+                item.pop("chunk_indexes", None)
             valid_items = [n for n in node_map.values() if n["chunks"]]
             if not valid_items:
                 return []
@@ -358,8 +419,10 @@ class MicroLessonService:
         markdown_doc = "\n\n".join(chunks)
         truncated = _truncate_markdown(markdown_doc, max_chars=15_000)
 
-        # Extract image URLs
-        valid_image_urls = sorted(list({u for u in re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", truncated)}))
+        # Extract image URLs from the FULL doc, not just the truncated
+        # window — truncation keeps head+tail and would otherwise drop
+        # figures sitting in the middle of a long node.
+        valid_image_urls = sorted({u for u in re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", markdown_doc)})
         image_lines = "\n".join(f"- {url}" for url in valid_image_urls)
 
         target_words = target_minutes * WORDS_PER_MINUTE

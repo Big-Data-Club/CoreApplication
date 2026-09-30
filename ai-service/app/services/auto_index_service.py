@@ -1076,10 +1076,10 @@ class AutoIndexService:
             return False
         substantive = [
             c for c in evidence
-            if len(c.text.strip()) >= MIN_NODE_EVIDENCE_CHARS
-            and "[mô tả hình ảnh:" not in c.text.lower()
-            and "[hình ảnh:" not in c.text.lower()
-            and "[image:" not in c.text.lower()
+            # Mixed text+figure chunks count: strip image markdown/captions
+            # first, then require real explanatory text. Pure figures stay
+            # excluded so plots alone never become curriculum nodes.
+            if len(AutoIndexService._strip_image_content(c.text)) >= MIN_NODE_EVIDENCE_CHARS
         ]
         return bool(substantive)
 
@@ -1873,14 +1873,40 @@ class AutoIndexService:
         return stored
 
     @staticmethod
+    def _strip_image_content(text: str) -> str:
+        """Return text without image markdown / VLM captions for length checks."""
+        import re
+        cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", text)
+        cleaned = re.sub(r"\[mô tả hình ảnh:.*?\]", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+        cleaned = re.sub(r"\[hình ảnh:.*?\]", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+        cleaned = re.sub(r"\[image:.*?\]", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+        # Drop heading breadcrumb prefix like "[A > B]" injected by chunker
+        cleaned = re.sub(r"^\[[^\]\n]{1,200}\]\n?", " ", cleaned.strip())
+        return cleaned.strip()
+
+    @staticmethod
     def _is_artifact_chunk(chunk: DocumentChunk) -> bool:
-        text = chunk.text.lower().strip()
-        return (
-            chunk.source_type == "image"
-            or "[mô tả hình ảnh:" in text
-            or "[hình ảnh:" in text
-            or "[image:" in text
+        # Image-only chunks stay unassigned (node_id=NULL) so they don't
+        # become standalone concepts — but MIXED text+figure chunks must
+        # stay assignable, otherwise micro-lessons lose every figure.
+        if chunk.source_type == "image":
+            return True
+        text = (chunk.text or "").strip()
+        if not text:
+            return True
+        lower = text.lower()
+        has_image = (
+            "[mô tả hình ảnh:" in lower
+            or "[hình ảnh:" in lower
+            or "[image:" in lower
+            or "![" in text
         )
+        if not has_image:
+            return False
+        real_text = AutoIndexService._strip_image_content(text)
+        # Keep pure figures / captions unassigned; anything with >=80
+        # chars of real explanation is a normal content chunk.
+        return len(real_text) < 80
 
     async def _build_and_link_parents(
         self,
