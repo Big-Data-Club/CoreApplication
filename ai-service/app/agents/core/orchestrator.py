@@ -118,10 +118,13 @@ async def handle_chat_message(
     )
 
     # ── 3. Ensure LTM collection exists (idempotent, first call only) ────────
-    try:
-        await ltm.ensure_collection()
-    except Exception as exc:
-        logger.warning("LTM collection init failed (non-fatal): %s", exc)
+    # Flash replies do not read or write long-term memory.  Avoid making their
+    # first token depend on Qdrant availability or a cold collection check.
+    if chat_mode != "flash":
+        try:
+            await ltm.ensure_collection()
+        except Exception as exc:
+            logger.warning("LTM collection init failed (non-fatal): %s", exc)
 
     # ── 4. Delegate to ReAct loop ────────────────────────────────────────────
     async for event in run_react_loop(

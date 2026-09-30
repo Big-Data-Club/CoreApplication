@@ -22,7 +22,7 @@ from app.agents.memory.lesson_dossier import (
     format_lesson_dossier,
     load_lesson_dossier,
 )
-from app.agents.core.prompts import build_system_prompt
+from app.agents.core.prompts import build_flash_system_prompt, build_system_prompt
 from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
 )
@@ -203,6 +203,25 @@ def _resolve_max_tokens(intent_type: str, has_page_context: bool) -> int:
     if intent_type == "progress_advice":
         return 2500
     return 2048
+
+
+def _compact_flash_context(context: dict | None, max_text_chars: int = 1600) -> dict | None:
+    """Keep only enough page context for a fast, grounded reply.
+
+    The browser can attach a full lesson body to every turn.  That is useful
+    for retrieval modes, but it turns a flash request into a large prompt and
+    increases time-to-first-token substantially.  IDs and titles remain
+    intact for authorization and grounding; only untrusted free text is
+    bounded for this explicit no-retrieval mode.
+    """
+    if not context:
+        return None
+    compact = dict(context)
+    for key in ("contentBody", "content_body", "lesson_text", "content"):
+        value = compact.get(key)
+        if isinstance(value, str) and len(value) > max_text_chars:
+            compact[key] = value[:max_text_chars] + "…"
+    return compact
 
 
 # -----------------------------------------------------------------------------
@@ -624,7 +643,7 @@ async def run_react_loop(
         return
 
     # -- Step 1: Unified Planning Layer ----------------------------------------
-    from app.agents.core.planner import generate_plan
+    from app.agents.core.planner import ExecutionPlan, RetrievalStrategy, generate_plan
     from app.agents.core.scope_resolver import CourseScope, ContextScopeDecision
     from app.agents.core.router import classify_intent
 
@@ -641,15 +660,44 @@ async def run_react_loop(
         history=history_turns,
     )
 
-    execution_plan = await generate_plan(
-        user_message=effective_user_request,
-        active_courses=active_courses,
-        agent_type=agent_type,
-        current_course_id=context_resolution.course_id or course_id,
-        page_context=page_context,
-        system_context=system_context,
-        history=history_turns,
-    )
+    if mode == "flash":
+        # Flash is an explicit latency-first contract.  The old implementation
+        # still waited for a 2K-token planner completion, memory retrieval and
+        # an optional clarification completion before it made its only answer
+        # call.  Use deterministic scope validation above, then answer in one
+        # bounded model pass with no tools or background lookups.
+        execution_plan = ExecutionPlan(
+            user_intent="other",
+            operational_intent="stay_in_context" if page_context else "global_search",
+            page_context_relevance="related" if page_context else "no_open_lesson",
+            operation="general_chat",
+            retrieval_strategy=RetrievalStrategy(
+                scope="none",
+                depth=0,
+                min_similarity=1.0,
+                expansion_enabled=False,
+                max_expansion_level="none",
+            ),
+            selected_tools=[],
+            personalization_enabled=False,
+            lakehouse_required=False,
+            reasoning="Flash mode uses a direct bounded response.",
+            intent="general_chat",
+            is_ambiguous=False,
+            requires_tool=False,
+            graph_expansion_needed=False,
+            user_weakness_relevant=False,
+        )
+    else:
+        execution_plan = await generate_plan(
+            user_message=effective_user_request,
+            active_courses=active_courses,
+            agent_type=agent_type,
+            current_course_id=context_resolution.course_id or course_id,
+            page_context=page_context,
+            system_context=system_context,
+            history=history_turns,
+        )
 
     # Planner v2 covers routing - use execution_plan fields directly
     # The legacy classify_intent() wrapper would just call generate_plan() again;
@@ -735,8 +783,12 @@ async def run_react_loop(
     ctx_decision = ContextScopeDecision(
         use_page_context=use_page,
         use_system_context=use_sys,
-        effective_page_context=page_context if use_page else None,
-        effective_system_context=system_context if use_sys else None,
+        effective_page_context=(
+            _compact_flash_context(page_context) if mode == "flash" else page_context
+        ) if use_page else None,
+        effective_system_context=(
+            _compact_flash_context(system_context) if mode == "flash" else system_context
+        ) if use_sys else None,
         reason=(
             f"Unified plan operational_intent={execution_plan.operational_intent} "
             f"page_context_relevance={page_relevance}"
@@ -793,7 +845,7 @@ async def run_react_loop(
     # so the next turn benefits from the anchor too. We update the recent
     # courses MRU list as well - useful when the user bounces between
     # courses without re-naming them.
-    if scope.mode == "single" and scope.focus_course_id is not None:
+    if mode != "flash" and scope.mode == "single" and scope.focus_course_id is not None:
         focus_title = next(
             (
                 c.get("title")
@@ -812,15 +864,26 @@ async def run_react_loop(
             logger.warning("push_recent_course failed: %s", exc)
 
     # -- Step 2: Assemble memory context --------------------------------------
-    memory_ctx = await context_builder.build(
-        user_id=user_id,
-        session_id=session_id,
-        agent_type=agent_type,
-        query=effective_user_request,
-        course_id=effective_course_id,
-        intent_type=intent_type,
-        scope_course_ids=scope.candidate_course_ids or None,
-    )
+    if mode == "flash":
+        # Keep a small local dialogue window for coherence without touching
+        # MTM, embeddings, Qdrant, Postgres, or personalize-service.
+        flash_history = history_turns[-3:]
+        memory_ctx = {
+            "prompt_section": "",
+            "stm_messages": flash_history,
+            "token_estimate": sum(len(str(item.get("content") or "")) // 4 for item in flash_history),
+            "raw": {"mtm": {}},
+        }
+    else:
+        memory_ctx = await context_builder.build(
+            user_id=user_id,
+            session_id=session_id,
+            agent_type=agent_type,
+            query=effective_user_request,
+            course_id=effective_course_id,
+            intent_type=intent_type,
+            scope_course_ids=scope.candidate_course_ids or None,
+        )
 
     yield AgentEvent(
         type=AgentEventType.THINKING,
@@ -846,7 +909,7 @@ async def run_react_loop(
         1 for m in stm_history if m.get("role") == "clarification"
     )
 
-    if clarify_count < MAX_CLARIFICATIONS_PER_SESSION:
+    if mode != "flash" and clarify_count < MAX_CLARIFICATIONS_PER_SESSION:
         # (a) Scope clarification - runs first, no LLM call.
         scope_clarify = build_scope_clarification(scope)
 
@@ -1083,7 +1146,7 @@ async def run_react_loop(
     _graph_expansion_needed = getattr(execution_plan, "graph_expansion_needed", False)
     _user_weakness_relevant = getattr(execution_plan, "user_weakness_relevant", False)
 
-    if agent_type == "mentor" and _graph_expansion_needed:
+    if mode != "flash" and agent_type == "mentor" and _graph_expansion_needed:
         try:
             from app.core.config import get_settings as _get_settings
             _cfg = _get_settings()
@@ -1135,9 +1198,13 @@ async def run_react_loop(
     # are only useful after the model has selected a quiz workflow and can be
     # fetched on demand; sending them on every turn causes TPM preflight errors.
     active_courses_section = (
-        _format_compact_teacher_courses(active_courses)
-        if teacher_action_request
-        else format_active_courses_for_prompt(active_courses)
+        ""
+        if mode == "flash"
+        else (
+            _format_compact_teacher_courses(active_courses)
+            if teacher_action_request
+            else format_active_courses_for_prompt(active_courses)
+        )
     )
 
     # Use ctx_decision.effective_* instead of raw page_context/system_context
@@ -1153,7 +1220,7 @@ async def run_react_loop(
     if ctx_decision.use_page_context and ctx_decision.effective_page_context:
         _pc = ctx_decision.effective_page_context
         _dossier_content_id = _as_positive_int(_pc.get("contentId") or _pc.get("content_id"))
-    if _dossier_course_id and _dossier_content_id:
+    if mode != "flash" and _dossier_course_id and _dossier_content_id:
         try:
             _dossier = await load_lesson_dossier(
                 course_id=int(_dossier_course_id),
@@ -1175,7 +1242,7 @@ async def run_react_loop(
     # weakest concepts) and hand them to the prompt as ground truth - so even
     # a small model can be personal without orchestrating tool calls.
     learner_context_text = ""
-    if should_inject_learner_snapshot(
+    if mode != "flash" and should_inject_learner_snapshot(
         agent_type=agent_type,
         personalization_enabled=execution_plan.personalization_enabled,
         lakehouse_required=execution_plan.lakehouse_required,
@@ -1204,17 +1271,25 @@ async def run_react_loop(
         except Exception as _exc:  # noqa: BLE001 - best-effort
             logger.warning("Learner snapshot failed (non-fatal): %s", _exc)
 
-    system_prompt = build_system_prompt(
-        agent_type=agent_type,
-        memory_context=memory_ctx["prompt_section"],
-        user_context=user_context,
-        active_courses_section=active_courses_section,
-        page_context=ctx_decision.effective_page_context,
-        system_context=ctx_decision.effective_system_context,
-        graph_context=graph_context_text,
-        lesson_context=lesson_context_text,
-        learner_context=learner_context_text,
-    )
+    if mode == "flash":
+        system_prompt = build_flash_system_prompt(
+            agent_type=agent_type,
+            user_context=user_context,
+            page_context=ctx_decision.effective_page_context,
+            system_context=ctx_decision.effective_system_context,
+        )
+    else:
+        system_prompt = build_system_prompt(
+            agent_type=agent_type,
+            memory_context=memory_ctx["prompt_section"],
+            user_context=user_context,
+            active_courses_section=active_courses_section,
+            page_context=ctx_decision.effective_page_context,
+            system_context=ctx_decision.effective_system_context,
+            graph_context=graph_context_text,
+            lesson_context=lesson_context_text,
+            learner_context=learner_context_text,
+        )
 
     # Start with system prompt
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -1326,13 +1401,14 @@ async def run_react_loop(
 
     # Dynamic max_tokens
     has_page_context = ctx_decision.use_page_context or ctx_decision.use_system_context
-    max_tokens = _resolve_max_tokens(intent_type, has_page_context)
+    max_tokens = 512 if mode == "flash" else _resolve_max_tokens(intent_type, has_page_context)
     logger.debug("Token budget: intent=%s has_page_ctx=%s max_tokens=%d",
                  intent_type, has_page_context, max_tokens)
 
     # -- Step 5: ReAct Iterations ----------------------------------------------
     final_text = ""
     executed_search_tools: set[str] = set()
+    first_visible_token_at: float | None = None
 
     for iteration in range(max_loop_iterations):
         iter_start = time.monotonic()
@@ -1389,6 +1465,14 @@ async def run_react_loop(
                                 turn_id=iter_id,
                             )
                         elif ev_type == "content":
+                            if first_visible_token_at is None:
+                                first_visible_token_at = time.monotonic()
+                                logger.info(
+                                    "Agent TTFT: session=%s mode=%s elapsed_ms=%d",
+                                    session_id[:8],
+                                    mode,
+                                    int((first_visible_token_at - start_time) * 1000),
+                                )
                             collected_text += text_chunk
                             assistant_text += text_chunk
                             yield AgentEvent(
@@ -1503,6 +1587,15 @@ async def run_react_loop(
         # -- No tool calls -> done ----------------------------------------------
         if not collected_tool_calls:
             final_text = collected_text
+            logger.info(
+                "Agent turn complete: session=%s mode=%s iterations=%d ttft_ms=%s total_ms=%d chars=%d",
+                session_id[:8],
+                mode,
+                iteration + 1,
+                int((first_visible_token_at - start_time) * 1000) if first_visible_token_at else None,
+                int((time.monotonic() - start_time) * 1000),
+                len(collected_text),
+            )
             await stm.append(session_id, "assistant", collected_text)
             if assistant_thinking:
                 assistant_metadata["thinking"] = assistant_thinking

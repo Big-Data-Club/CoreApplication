@@ -524,6 +524,37 @@ def build_system_prompt(
     return template.format(**kwargs)
 
 
+def build_flash_system_prompt(
+    agent_type: str,
+    user_context: dict | None = None,
+    page_context: dict | None = None,
+    system_context: dict | None = None,
+) -> str:
+    """Build the small, no-tool prompt used by the explicit Flash mode.
+
+    Flash is a latency contract, so it must not inherit the full ReAct prompt
+    (tool policy, multi-course routing and chain-of-thought instructions).
+    Course authorization is already resolved by the request pipeline; this
+    prompt retains only role, language and the bounded on-screen context that
+    make a direct answer useful.
+    """
+    role = "Virtual Teaching Assistant" if agent_type == "teacher" else "Virtual Mentor"
+    sections = [
+        f"You are the BDC {role}.",
+        "Answer the user's latest message directly in the same language.",
+        "Be concise and useful. Do not call tools, propose tool calls, or emit hidden reasoning or <thought> tags.",
+    ]
+    if user_context:
+        name = user_context.get("name")
+        if isinstance(name, str) and name.strip():
+            sections.append(f"Learner name: {name.strip()[:120]}")
+    if page_context:
+        sections.append(_format_page_context(page_context))
+    if system_context:
+        sections.append(_format_system_context(system_context))
+    return "\n\n".join(sections)
+
+
 def _format_user_context(ctx: dict | None, agent_type: str) -> str:
     """Format user identity for system prompt injection."""
     if not ctx:
