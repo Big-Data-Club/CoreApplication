@@ -493,19 +493,21 @@ class LLMGateway:
             safety_ratio = min(0.9, max(0.5, settings.llm_tpm_safety_ratio))
             request_budget = min(request_budget, max(256, int(key_tpm_limit * safety_ratio)))
         available = request_budget - prompt_tokens
-        if available < settings.llm_min_completion_tokens:
+        min_completion = settings.llm_min_completion_tokens
+        if req.min_completion_tokens is not None:
+            min_completion = max(min_completion, req.min_completion_tokens)
+        if model and isinstance(model.config, dict):
+            configured_min = model.config.get("min_completion_tokens")
+            if isinstance(configured_min, int) and configured_min > 0:
+                min_completion = max(min_completion, configured_min)
+        if available < min_completion:
             raise ContextLengthError(
                 "Prompt preflight exceeds the safe request budget "
-                f"({prompt_tokens} estimated input tokens; budget={request_budget}). "
-                "Use a coverage-preserving hierarchical reduction instead of truncating source material."
+                f"({prompt_tokens} estimated input tokens; budget={request_budget}; "
+                f"minimum output={min_completion}). "
+                "Reduce the message, prior conversation, or retrieved context before retrying."
             )
-        # Allow model config to specify optional min_completion_tokens dynamically
-        if model and isinstance(model.config, dict):
-            min_tokens = model.config.get("min_completion_tokens")
-            if isinstance(min_tokens, int) and min_tokens > 0:
-                requested = max(requested, min_tokens)
-
-        return min(requested, available)
+        return min(max(requested, min_completion), available)
  
  
 def _resolve(*values: Any) -> Any:

@@ -116,6 +116,9 @@ class ChatRequest:
     messages: list[dict[str, Any]]
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    # Minimum useful visible-output budget. If input leaves less room, try a
+    # larger binding instead of silently shrinking an answer to a few tokens.
+    min_completion_tokens: Optional[int] = None
     json_mode: Optional[bool] = None
     request_id: Optional[str] = None
     # Model hint - if set, gateway will try to honour it before consulting bindings.

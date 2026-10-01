@@ -47,6 +47,7 @@ settings = get_settings()
 
 MAX_ITERATIONS = 7
 MAX_CLARIFICATIONS_PER_SESSION = 2
+MAX_ANSWER_CONTINUATIONS = 2
 
 
 def _val(obj: Any, key: str, default: Any = None) -> Any:
@@ -55,6 +56,67 @@ def _val(obj: Any, key: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
+
+def _stream_finish_reason(chunk: Any) -> str | None:
+    """Read the terminal reason from gateway-supported stream formats."""
+    choices = _val(chunk, "choices")
+    if choices:
+        reason = _val(choices[0], "finish_reason")
+        if reason:
+            return str(reason)
+    if _val(chunk, "type") == "message_delta":
+        reason = _val(_val(chunk, "delta"), "stop_reason")
+        if reason:
+            return str(reason)
+    candidates = _val(chunk, "candidates")
+    if candidates:
+        reason = _val(candidates[0], "finishReason")
+        if reason:
+            return str(reason).lower()
+    return None
+
+
+def _remove_continuation_overlap(previous: str, continuation: str) -> str:
+    """Drop text repeated at the join without deleting new answer content."""
+    if not continuation:
+        return ""
+    if continuation.startswith(previous):
+        return continuation[len(previous):]
+    max_overlap = min(len(previous), len(continuation), 300)
+    for size in range(max_overlap, 11, -1):
+        if previous.endswith(continuation[:size]):
+            return continuation[size:]
+    return continuation
+
+
+async def _request_answer_continuation(gateway: Any, req: ChatRequest, previous: str) -> tuple[str, str | None]:
+    """Continue a token-limited answer without exposing reasoning or tool calls."""
+    continuation_req = ChatRequest(
+        task=req.task,
+        messages=list(req.messages) + [
+            {"role": "assistant", "content": previous},
+            {"role": "user", "content": (
+                "Tiếp tục chính xác từ chỗ câu trả lời vừa dừng. "
+                "Không lặp lại phần đã viết; hoàn tất các bước hoặc công thức còn thiếu."
+            )},
+        ],
+        temperature=0.3,
+        max_tokens=req.max_tokens,
+        min_completion_tokens=384,
+        json_mode=False,
+    )
+    parser = ThoughtStreamParser()
+    more_text = ""
+    finish_reason: str | None = None
+    async for delta_text, _, chunk in gateway.stream(continuation_req):
+        if delta_text:
+            more_text += "".join(
+                text for kind, text in parser.feed(delta_text) if kind == "content"
+            )
+        finish_reason = _stream_finish_reason(chunk) or finish_reason
+    more_text += "".join(text for kind, text in parser.flush() if kind == "content")
+    return _remove_continuation_overlap(previous, more_text), finish_reason
 
 
 def _parse_tool_arguments(raw: Any) -> dict | None:
@@ -1412,7 +1474,9 @@ async def run_react_loop(
 
     # Dynamic max_tokens
     has_page_context = ctx_decision.use_page_context or ctx_decision.use_system_context
-    max_tokens = 512 if mode == "flash" else _resolve_max_tokens(intent_type, has_page_context)
+    # Flash skips retrieval and extra reasoning, but a 512-token ceiling cuts
+    # legitimate step-by-step answers in the middle of a formula.
+    max_tokens = 1536 if mode == "flash" else _resolve_max_tokens(intent_type, has_page_context)
     logger.debug("Token budget: intent=%s has_page_ctx=%s max_tokens=%d",
                  intent_type, has_page_context, max_tokens)
 
@@ -1438,6 +1502,7 @@ async def run_react_loop(
             messages=messages,
             temperature=0.3,
             max_tokens=max_tokens,          # dynamic
+            min_completion_tokens=768 if mode == "flash" else 1024,
             json_mode=False,
             extra={
                 "tools": active_tool_schemas,
@@ -1447,10 +1512,12 @@ async def run_react_loop(
 
         collected_text = ""
         collected_tool_calls: list[dict] = []
+        finish_reason: str | None = None
         parser = ThoughtStreamParser()      # instance per iteration
 
         try:
             async for delta_text, usage, chunk in gateway.stream(req):
+                finish_reason = _stream_finish_reason(chunk) or finish_reason
                 if answered_model is None:
                     chunk_model = (
                         chunk.get("model")
@@ -1597,6 +1664,40 @@ async def run_react_loop(
 
         # -- No tool calls -> done ----------------------------------------------
         if not collected_tool_calls:
+            continuation_count = 0
+            answer_incomplete = False
+            while finish_reason in ("length", "max_tokens") and continuation_count < MAX_ANSWER_CONTINUATIONS:
+                continuation_count += 1
+                yield AgentEvent(
+                    type=AgentEventType.THINKING,
+                    data={"step": "answer_continuation", "detail": "Đang hoàn tất câu trả lời…"},
+                    session_id=session_id,
+                    turn_id=iter_id,
+                )
+                try:
+                    new_text, next_reason = await _request_answer_continuation(
+                        gateway, req, collected_text
+                    )
+                except Exception as exc:
+                    logger.warning("Answer continuation failed: %s", exc)
+                    answer_incomplete = True
+                    break
+
+                if not new_text.strip():
+                    answer_incomplete = True
+                    break
+                collected_text += new_text
+                assistant_text += new_text
+                yield AgentEvent(
+                    type=AgentEventType.TEXT_DELTA,
+                    data={"delta": new_text},
+                    session_id=session_id,
+                    turn_id=iter_id,
+                )
+                finish_reason = next_reason
+            if finish_reason in ("length", "max_tokens"):
+                answer_incomplete = True
+
             final_text = collected_text
             logger.info(
                 "Agent turn complete: session=%s mode=%s iterations=%d ttft_ms=%s total_ms=%d chars=%d",
@@ -1614,6 +1715,9 @@ async def run_react_loop(
                 assistant_metadata["references"] = ref_ledger.references
             if answered_model:
                 assistant_metadata["model"] = answered_model
+            if answer_incomplete:
+                assistant_metadata["incomplete"] = True
+                assistant_metadata["finish_reason"] = finish_reason
             saved_message_id = await message_store.save_message(
                 session_id, "assistant", assistant_text, assistant_metadata
             )
@@ -1631,6 +1735,7 @@ async def run_react_loop(
                     "intent": intent_type,
                     "chat_mode": mode,
                     "model": answered_model,
+                    "incomplete": answer_incomplete,
                     "references": ref_ledger.references if ref_ledger else None,
                     "message_id": saved_message_id,
                 },
