@@ -280,8 +280,9 @@ class MTMemory:
         async with get_ai_conn() as conn:
             await conn.execute(
                 """UPDATE agent_sessions
-                   SET compressed_ctx = $1::jsonb,
-                       turn_count = $2,
+                   SET compressed_ctx = COALESCE(compressed_ctx, '{}'::jsonb)
+                           || $1::jsonb,
+                       turn_count = GREATEST(turn_count, $2),
                        last_active_at = NOW()
                    WHERE id = $3""",
                 json.dumps(compressed_ctx, ensure_ascii=False),

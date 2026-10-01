@@ -3,7 +3,7 @@ from __future__ import annotations
  
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Callable, Literal, Optional
  
  
 # ── Task codes used throughout the codebase ──────────────────────────────────
@@ -127,6 +127,9 @@ class ChatRequest:
     # Extra provider-specific kwargs (e.g. tools, tool_choice). Passed through
     # to the adapter verbatim.
     extra: dict[str, Any] = field(default_factory=dict)
+    # Internal, provider-independent prompt packer. The gateway supplies the
+    # selected model/key's actual input allowance before calling an adapter.
+    message_packer: Optional[Callable[[list[dict[str, Any]], dict[str, Any], int], list[dict[str, Any]]]] = None
  
  
 @dataclass(slots=True)

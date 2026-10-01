@@ -131,11 +131,10 @@ async def publish_ai_job_status(job_id: str, status: str, result: dict | list | 
 async def publish_consolidation_request(
     user_id: int,
     session_id: str,
-    messages: list[dict],
     context: dict,
     job_id: str,
 ):
-    """Publish a request to consolidate a user's chat session background memory."""
+    """Queue memory work by identity; never put raw chat in Kafka."""
     producer = await get_kafka_producer()
     payload = {
         "job_id": job_id,
@@ -143,7 +142,6 @@ async def publish_consolidation_request(
         "payload": {
             "user_id": user_id,
             "session_id": session_id,
-            "messages": messages,
             "context": context,
         }
     }
@@ -151,5 +149,4 @@ async def publish_consolidation_request(
     key = str(session_id).encode("utf-8")
     await producer.send_and_wait(topic, value=payload, key=key)
     logger.info(f"Published consolidation request to {topic} for session {session_id}")
-
 

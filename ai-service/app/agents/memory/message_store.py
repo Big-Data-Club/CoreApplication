@@ -26,6 +26,26 @@ def _custom_json_serializer(obj):
 
 
 class MessageStore:
+    async def get_unconsolidated(
+        self, session_id: str, user_id: int, after_id: int, limit: int = 100,
+    ) -> list[dict]:
+        """Read a bounded, ordered batch only for the session owner.
+
+        Errors propagate: a worker must not advance its cursor on an empty
+        result caused by a transient database failure.
+        """
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """SELECT m.id, m.role, m.content
+                   FROM agent_messages AS m
+                   JOIN agent_sessions AS s ON s.id = m.session_id
+                   WHERE m.session_id = $1 AND s.user_id = $2 AND m.id > $3
+                     AND m.role IN ('user', 'assistant')
+                   ORDER BY m.id ASC LIMIT $4""",
+                session_id, user_id, after_id, limit,
+            )
+        return [dict(row) for row in rows]
+
     async def save_message(
         self,
         session_id: str,

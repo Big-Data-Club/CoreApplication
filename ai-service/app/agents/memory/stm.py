@@ -13,9 +13,8 @@ Data format:  JSON strings in OpenAI message format:
      "tool_calls": [...],  # optional
      "ts": 1713598800}     # unix timestamp
 
-Token counting uses a character-based approximation (1 token ~= 4 chars)
-to avoid adding tiktoken as a dependency. When the token count exceeds
-the threshold, the caller (react_loop) should trigger MTM compression.
+Token counting uses the gateway's conservative provider-independent estimator.
+When the threshold is exceeded, the caller triggers MTM compression.
 """
 from __future__ import annotations
 
@@ -25,12 +24,12 @@ import time
 from typing import Optional
 
 from app.core.cache import _get_redis
+from app.core.config import get_settings
+from app.core.llm_gateway.token_budget import estimate_messages_tokens
 
 logger = logging.getLogger(__name__)
 
 STM_TTL = 86400  # 24 hours
-STM_OVERFLOW_THRESHOLD = 3000  # ~3000 tokens -> trigger agent-driven cleanup
-CHARS_PER_TOKEN = 4  # approximation for multilingual text
 
 
 class STMemory:
@@ -100,22 +99,15 @@ class STMemory:
 
     async def count_tokens(self, session_id: str) -> int:
         """
-        Approximate token count of all messages in STM.
-
-        Uses character-based approximation: 1 token ~= 4 characters.
-        This avoids adding tiktoken as a heavy dependency.
+        Conservative provider-independent estimate of all messages in STM.
         """
         messages = await self.get_all(session_id)
-        total_chars = sum(
-            len(m.get("content", "") or "")
-            for m in messages
-        )
-        return total_chars // CHARS_PER_TOKEN
+        return estimate_messages_tokens(messages)
 
     async def check_token_overflow(self, session_id: str) -> bool:
         """Check if STM has exceeded the overflow threshold."""
         tokens = await self.count_tokens(session_id)
-        return tokens > STM_OVERFLOW_THRESHOLD
+        return tokens > get_settings().stm_overflow_threshold
 
     async def summarize_and_replace(
         self,
@@ -194,6 +186,15 @@ class STMemory:
     async def clear(self, session_id: str) -> None:
         """Clear all STM for a session."""
         await _get_redis().delete(self._key(session_id))
+
+    async def trim_to_recent(self, session_id: str, keep_last: int = 6) -> None:
+        """Bound Redis dialogue after the older turns are durably compressed."""
+        if keep_last <= 0:
+            raise ValueError("keep_last must be positive")
+        r = _get_redis()
+        key = self._key(session_id)
+        await r.ltrim(key, -keep_last, -1)
+        await r.expire(key, STM_TTL)
 
     async def length(self, session_id: str) -> int:
         """Number of messages in STM."""

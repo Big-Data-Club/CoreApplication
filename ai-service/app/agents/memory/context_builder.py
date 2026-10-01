@@ -21,6 +21,7 @@ from app.agents.memory.stm import stm
 from app.agents.memory.mtm import mtm
 from app.agents.memory.ltm import ltm
 from app.services.mastery_service import mastery_service
+from app.core.llm_gateway.token_budget import estimate_messages_tokens, estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +77,21 @@ class ContextBuilder:
         scope_course_ids: Optional[list[int]] = None,
         page_context: Optional[dict] = None,
         system_context: Optional[dict] = None,
+        memory_budget_tokens: Optional[int] = None,
+        include_ltm_facts: bool = True,
     ) -> dict[str, Any]:
         """
         Build a context dict from all active memory tiers.
         """
         settings = get_settings()
         weights = WEIGHT_PROFILES.get(intent_type, DEFAULT_WEIGHTS)
+        budget = max(0, min(
+            settings.max_context_tokens,
+            memory_budget_tokens if memory_budget_tokens is not None else settings.max_context_tokens,
+        ))
+        durable_budget = int(budget * 0.25)
+        stm_budget = min(settings.stm_budget, int(budget * 0.40))
+        episodic_budget = min(settings.ltm_episodic_budget, int(budget * 0.20))
 
         raw: dict[str, Any] = {}
         sections: list[str] = []
@@ -105,9 +115,17 @@ class ContextBuilder:
             mtm_ctx.get("memory_items") or migrate_legacy_memory(mtm_ctx), course_id=course_id,
         )
         if selected_memory:
-            memory_section = "DURABLE MEMORY (scoped, attributable):\n" + format_memory_items(selected_memory)
-            sections.append(memory_section)
-            total_tokens += len(memory_section) // 4
+            kept_memory = []
+            for item in selected_memory:
+                candidate = kept_memory + [item]
+                rendered = "DURABLE MEMORY (scoped, attributable):\n" + format_memory_items(candidate)
+                if estimate_tokens(rendered) > durable_budget:
+                    break
+                kept_memory = candidate
+            if kept_memory:
+                memory_section = "DURABLE MEMORY (scoped, attributable):\n" + format_memory_items(kept_memory)
+                sections.append(memory_section)
+                total_tokens += estimate_tokens(memory_section)
         raw["durable_memory"] = selected_memory
 
         # ── 1. STM: Recent conversation history ──────────────────────────────
@@ -117,25 +135,22 @@ class ContextBuilder:
             stm_messages = await stm.get_window(session_id, n_turns=n_turns)
             
             # Enforce STM token budget
-            max_stm_chars = settings.stm_budget * 4
-            running_chars = 0
             truncated_stm = []
             for m in reversed(stm_messages):
-                content_len = len(m.get("content", "") or "")
-                if running_chars + content_len > max_stm_chars:
+                candidate = [m] + truncated_stm
+                if estimate_messages_tokens(candidate) > stm_budget:
                     break
-                truncated_stm.append(m)
-                running_chars += content_len
-            stm_messages = list(reversed(truncated_stm))
+                truncated_stm = candidate
+            stm_messages = truncated_stm
 
             raw["stm"] = {
                 "message_count": len(stm_messages),
-                "token_estimate": running_chars // 4,
+                "token_estimate": estimate_messages_tokens(stm_messages),
             }
             total_tokens += raw["stm"]["token_estimate"]
 
         # ── 2. LTM Episodic: Past session episodes ───────────────────────────
-        if weights["ltm_episodic"] >= 0.3 and query:
+        if weights["ltm_episodic"] >= 0.3 and query and episodic_budget >= 80:
             recall_course_ids: Optional[list[int]] = None
             if course_id is not None:
                 recall_course_ids = [course_id]
@@ -151,13 +166,16 @@ class ContextBuilder:
             )
             raw["ltm"] = {"episodes": episodes}
             if episodes:
-                ltm_section = self._format_ltm_episodic(episodes, settings.ltm_episodic_budget)
+                ltm_section = self._fit_section_lines(
+                    self._format_ltm_episodic(episodes, episodic_budget), episodic_budget
+                )
                 if ltm_section:
                     sections.append(ltm_section)
-                    total_tokens += len(ltm_section) // 4
+                    total_tokens += estimate_tokens(ltm_section)
 
         # ── 3. LTM Facts: Student concept mastery / struggles / strengths ─────
-        if weights["ltm_facts"] >= 0.3 and course_id:
+        facts_budget = min(settings.ltm_facts_budget, max(0, budget - total_tokens))
+        if include_ltm_facts and weights["ltm_facts"] >= 0.3 and course_id and facts_budget >= 80:
             # Determine current active node ID from input contexts or MTM state
             current_node_id = None
             if system_context:
@@ -200,19 +218,26 @@ class ContextBuilder:
             raw["personalize"] = {"scored_concepts": scored_concepts}
 
             if scored_concepts or personalize_profile:
-                facts_section = self._format_ltm_facts(scored_concepts, settings.ltm_facts_budget, personalize_profile)
+                facts_section = self._fit_section_lines(
+                    self._format_ltm_facts(scored_concepts, facts_budget), facts_budget
+                )
                 if facts_section:
                     sections.append(facts_section)
-                    total_tokens += len(facts_section) // 4
+                    total_tokens += estimate_tokens(facts_section)
 
         # ── Assemble prompt section ──────────────────────────────────────────
         prompt_section = ""
         if sections:
-            prompt_section = (
-                "\n--- CONTEXT FROM MEMORY SYSTEM ---\n"
-                + "\n\n".join(sections)
-                + "\n--- END CONTEXT ---"
-            )
+            for end in range(len(sections), 0, -1):
+                candidate = (
+                    "\n--- CONTEXT FROM MEMORY SYSTEM ---\n"
+                    + "\n\n".join(sections[:end])
+                    + "\n--- END CONTEXT ---"
+                )
+                if estimate_tokens(candidate) + estimate_messages_tokens(stm_messages) <= budget:
+                    prompt_section = candidate
+                    break
+        total_tokens = estimate_tokens(prompt_section) + estimate_messages_tokens(stm_messages)
 
         return {
             "prompt_section": prompt_section,
@@ -222,6 +247,19 @@ class ContextBuilder:
             "token_estimate": total_tokens,
             "intent_type": intent_type,
         }
+
+    @staticmethod
+    def _fit_section_lines(section: str, budget_tokens: int) -> str:
+        """Keep complete high-priority lines within one memory tier's cap."""
+        if not section or budget_tokens <= 0:
+            return ""
+        kept: list[str] = []
+        for line in section.splitlines():
+            candidate = "\n".join(kept + [line])
+            if estimate_tokens(candidate) > budget_tokens:
+                break
+            kept.append(line)
+        return "\n".join(kept)
 
     # ── Multi-Signal Scoring Heuristics ───────────────────────────────────────
 

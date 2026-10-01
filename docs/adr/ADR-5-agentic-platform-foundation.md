@@ -38,6 +38,32 @@ Memory is tiered and bounded:
 Only active, in-scope, high-priority memory is injected into a prompt. Existing
 MTM summaries migrate lazily to this model.
 
+For each ReAct call, the gateway computes the usable request budget from the
+selected model's context window, the selected key's TPM tier, and the configured
+safety ratio. The agent reserves output space, then packs recent dialogue and
+tool evidence into the remaining input space. Tool calls and their results stay
+paired; omitted evidence is explicitly marked and can be retrieved again.
+Memory uses a fraction of that live input budget, so a small binding recalls
+less while a larger binding can carry more. A request that cannot fit its
+system instructions, active user question and tool schema fails preflight; the
+gateway tries another eligible key on that model, then the next binding.
+
+After a completed turn, the agent increments the session turn count. Every
+`CONSOLIDATION_TURN_INTERVAL` turns, or when Redis STM crosses
+`STM_OVERFLOW_THRESHOLD`, it publishes a Kafka job containing session identity
+and scope only. The worker reads at most 100 new messages at a time from the
+durable transcript, merges bounded summaries into MTM, advances a message-ID
+cursor, and trims Redis to six recent messages. LTM receives only compact
+episode summaries, with a stable episode ID for job retries. Retrieval of LTM
+episodes or learner facts is optional and independently budgeted; graph/vector
+search is never a reason to inject every hit into the model context.
+
+Output continuation is a separate bounded policy: `AGENT_MAX_ANSWER_CONTINUATIONS`
+defaults to three extra calls (four calls total), while
+`AGENT_MAX_CONTINUATION_TOKENS` caps total generated answer size. Continuation
+stops as soon as the provider reports completion or makes no progress. These
+limits are operational controls, not properties of a particular provider.
+
 ### 3. Multi-agent protocol
 
 Specialists exchange bounded, attributable artifacts rather than full chat

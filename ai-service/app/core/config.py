@@ -154,6 +154,8 @@ class Settings(BaseSettings):
     ltm_facts_min_score: float = 0.5          # minimum score for fact recall
     max_context_tokens: int = 4000            # total token budget for memory context
     consolidation_turn_interval: int = 5      # trigger consolidation every N turns
+    agent_max_answer_continuations: int = 3   # extra model calls after a length-limited answer
+    agent_max_continuation_tokens: int = 6000 # total estimated tokens across those calls
     
     # ── Loaded from memory_config.yaml ──
     stm_budget: int = 1000

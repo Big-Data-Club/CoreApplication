@@ -140,6 +140,7 @@ class LTMemory:
         agent_type: str,
         summary_text: str,
         course_id: Optional[int] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Optional[str]:
         """
         Create a new episodic memory entry.
@@ -161,11 +162,20 @@ class LTMemory:
         try:
             from app.core.embeddings import create_passage_embedding
 
+            episode_uuid = uuid.uuid5(uuid.NAMESPACE_URL, idempotency_key) if idempotency_key else uuid.uuid4()
+            if idempotency_key:
+                async with get_ai_conn() as conn:
+                    existing = await conn.fetchval(
+                        "SELECT id FROM agent_episodes WHERE id = $1", episode_uuid,
+                    )
+                if existing:
+                    return str(existing)
+
             # 1. Create embedding
             embedding = await create_passage_embedding(summary_text)
 
             # 2. Generate a positive int64 point ID for Qdrant
-            point_id = uuid.uuid4().int >> 64  # positive int64
+            point_id = episode_uuid.int & ((1 << 63) - 1)
 
             # 3. Upsert to Qdrant
             if settings.use_qdrant:
@@ -196,11 +206,13 @@ class LTMemory:
             async with get_ai_conn() as conn:
                 row = await conn.fetchrow(
                     """INSERT INTO agent_episodes
-                           (session_id, user_id, agent_type, summary,
+                           (id, session_id, user_id, agent_type, summary,
                             course_id, qdrant_point_id)
-                       VALUES ($1, $2, $3, $4, $5, $6)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7)
+                       ON CONFLICT (id) DO UPDATE SET summary = EXCLUDED.summary,
+                           qdrant_point_id = EXCLUDED.qdrant_point_id
                        RETURNING id""",
-                    session_id, user_id, agent_type, summary_text,
+                    episode_uuid, session_id, user_id, agent_type, summary_text,
                     course_id, point_id,
                 )
 

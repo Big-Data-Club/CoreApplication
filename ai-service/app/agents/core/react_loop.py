@@ -31,6 +31,7 @@ from app.agents.core.context_foundation import (
     resolve_turn_context,
     resume_request_after_course_choice,
 )
+from app.agents.core.prompt_budget import pack_agent_messages
 from app.agents.core.clarification import (
     build_scope_clarification,
     should_clarify,
@@ -40,6 +41,7 @@ from app.agents.tools.registry import (
 )
 from app.core.config import get_settings
 from app.core.llm_gateway import get_gateway, ChatRequest, TASK_AGENT_FLASH, TASK_AGENT_REACT
+from app.core.llm_gateway.token_budget import estimate_tokens
 from app.agents.tools.base_tool import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -47,7 +49,6 @@ settings = get_settings()
 
 MAX_ITERATIONS = 7
 MAX_CLARIFICATIONS_PER_SESSION = 2
-MAX_ANSWER_CONTINUATIONS = 2
 
 
 def _val(obj: Any, key: str, default: Any = None) -> Any:
@@ -95,16 +96,20 @@ async def _request_answer_continuation(gateway: Any, req: ChatRequest, previous:
     continuation_req = ChatRequest(
         task=req.task,
         messages=list(req.messages) + [
-            {"role": "assistant", "content": previous},
+            {"role": "assistant", "content": previous[-3600:]},
             {"role": "user", "content": (
                 "Tiếp tục chính xác từ chỗ câu trả lời vừa dừng. "
-                "Không lặp lại phần đã viết; hoàn tất các bước hoặc công thức còn thiếu."
+                "Không lặp lại phần đã viết; hoàn tất các bước hoặc công thức còn thiếu. "
+                "Câu hỏi gốc: "
+                + next((str(m.get("content", "")) for m in reversed(req.messages)
+                        if m.get("role") == "user"), "")[:2000]
             )},
         ],
         temperature=0.3,
         max_tokens=req.max_tokens,
         min_completion_tokens=384,
         json_mode=False,
+        message_packer=pack_agent_messages,
     )
     parser = ThoughtStreamParser()
     more_text = ""
@@ -226,21 +231,6 @@ def _is_teacher_authoring_request(message: str) -> bool:
         "ý nghĩa", "explain", "what is", "what are", "how does", "meaning of",
     )
     return not any(marker in text for marker in question_markers)
-
-
-def _format_compact_teacher_courses(active_courses: dict) -> str:
-    """Keep authoritative course IDs without injecting every graph node."""
-    courses = active_courses.get("courses") or []
-    if not courses:
-        return ""
-    lines = [
-        "ACTIVE COURSES FOR THIS USER",
-        "(Use only these course_ids. Knowledge nodes are fetched on demand.)",
-    ]
-    for course in courses:
-        if course.get("id") is not None:
-            lines.append(f'- course_id={course["id"]} "{course.get("title", "")}" (owner)')
-    return "\n".join(lines)
 
 
 # -----------------------------------------------------------------------------
@@ -930,6 +920,7 @@ async def run_react_loop(
             logger.warning("push_recent_course failed: %s", exc)
 
     # -- Step 2: Assemble memory context --------------------------------------
+    use_learner_snapshot = False
     if mode == "flash":
         # Keep a small local dialogue window for coherence without touching
         # MTM, embeddings, Qdrant, Postgres, or personalize-service.  A prior
@@ -948,6 +939,18 @@ async def run_react_loop(
             "raw": {"mtm": {}},
         }
     else:
+        try:
+            request_budget = await get_gateway().preview_request_budget(TASK_AGENT_REACT)
+        except Exception as exc:
+            logger.warning("Could not preview gateway context budget: %s", exc)
+            request_budget = min(settings.llm_request_token_budget, 4096)
+        memory_budget = min(settings.max_context_tokens, max(256, int(request_budget * 0.18)))
+        use_learner_snapshot = should_inject_learner_snapshot(
+            agent_type=agent_type,
+            personalization_enabled=execution_plan.personalization_enabled,
+            lakehouse_required=execution_plan.lakehouse_required,
+            page_type=context_resolution.snapshot.page_type,
+        )
         memory_ctx = await context_builder.build(
             user_id=user_id,
             session_id=session_id,
@@ -956,6 +959,10 @@ async def run_react_loop(
             course_id=effective_course_id,
             intent_type=intent_type,
             scope_course_ids=scope.candidate_course_ids or None,
+            page_context=ctx_decision.effective_page_context,
+            system_context=ctx_decision.effective_system_context,
+            memory_budget_tokens=memory_budget,
+            include_ltm_facts=not use_learner_snapshot,
         )
 
     yield AgentEvent(
@@ -1065,6 +1072,7 @@ async def run_react_loop(
         user_message=effective_user_request,
         intent_type=intent_type,
         parent_context_length=parent_context_length,
+        max_context_limit=request_budget if mode != "flash" else settings.llm_request_token_budget,
         page_context=ctx_decision.effective_page_context,
         system_context=ctx_decision.effective_system_context,
         stm_turn_count=len(stm_history),
@@ -1163,6 +1171,10 @@ async def run_react_loop(
                     session_id=session_id,
                     turn_id=turn_id,
                 )
+            await _trigger_post_turn_consolidation(
+                session_id=session_id, user_id=user_id, agent_type=agent_type,
+                course_id=effective_course_id, intent_type=intent_type,
+            )
             yield AgentEvent(
                 type=AgentEventType.DONE,
                 data={
@@ -1176,13 +1188,6 @@ async def run_react_loop(
                 },
                 session_id=session_id,
                 turn_id=turn_id,
-            )
-            await _trigger_post_turn_consolidation(
-                session_id=session_id,
-                user_id=user_id,
-                agent_type=agent_type,
-                course_id=effective_course_id,
-                intent_type=intent_type,
             )
             return
 
@@ -1273,10 +1278,10 @@ async def run_react_loop(
     active_courses_section = (
         ""
         if mode == "flash"
-        else (
-            _format_compact_teacher_courses(active_courses)
-            if teacher_action_request
-            else format_active_courses_for_prompt(active_courses)
+        else format_active_courses_for_prompt(
+            active_courses,
+            max_tokens=max(128, min(800, int(request_budget * 0.12))),
+            include_nodes=not teacher_action_request,
         )
     )
 
@@ -1315,12 +1320,7 @@ async def run_react_loop(
     # weakest concepts) and hand them to the prompt as ground truth - so even
     # a small model can be personal without orchestrating tool calls.
     learner_context_text = ""
-    if mode != "flash" and should_inject_learner_snapshot(
-        agent_type=agent_type,
-        personalization_enabled=execution_plan.personalization_enabled,
-        lakehouse_required=execution_plan.lakehouse_required,
-        page_type=context_resolution.snapshot.page_type,
-    ):
+    if use_learner_snapshot:
         try:
             from app.agents.core.learner_context import (
                 fetch_learner_snapshot,
@@ -1508,6 +1508,7 @@ async def run_react_loop(
                 "tools": active_tool_schemas,
                 "tool_choice": "auto",
             } if active_tool_schemas else {},
+            message_packer=pack_agent_messages,
         )
 
         collected_text = ""
@@ -1666,7 +1667,11 @@ async def run_react_loop(
         if not collected_tool_calls:
             continuation_count = 0
             answer_incomplete = False
-            while finish_reason in ("length", "max_tokens") and continuation_count < MAX_ANSWER_CONTINUATIONS:
+            while (
+                finish_reason in ("length", "max_tokens")
+                and continuation_count < max(0, settings.agent_max_answer_continuations)
+                and estimate_tokens(collected_text) < settings.agent_max_continuation_tokens
+            ):
                 continuation_count += 1
                 yield AgentEvent(
                     type=AgentEventType.THINKING,
@@ -1727,6 +1732,10 @@ async def run_react_loop(
                 turn_id=turn_id,
             ):
                 yield evt
+            await _trigger_post_turn_consolidation(
+                session_id=session_id, user_id=user_id, agent_type=agent_type,
+                course_id=effective_course_id, intent_type=intent_type,
+            )
             yield AgentEvent(
                 type=AgentEventType.DONE,
                 data={
@@ -1741,13 +1750,6 @@ async def run_react_loop(
                 },
                 session_id=session_id,
                 turn_id=turn_id,
-            )
-            await _trigger_post_turn_consolidation(
-                session_id=session_id,
-                user_id=user_id,
-                agent_type=agent_type,
-                course_id=effective_course_id,
-                intent_type=intent_type,
             )
             return
 
@@ -1993,6 +1995,10 @@ async def run_react_loop(
                     turn_id=turn_id,
                 ):
                     yield evt
+                await _trigger_post_turn_consolidation(
+                    session_id=session_id, user_id=user_id, agent_type=agent_type,
+                    course_id=effective_course_id, intent_type=intent_type,
+                )
                 yield AgentEvent(
                     type=AgentEventType.DONE,
                     data={
@@ -2006,13 +2012,6 @@ async def run_react_loop(
                     },
                     session_id=session_id,
                     turn_id=turn_id,
-                )
-                await _trigger_post_turn_consolidation(
-                    session_id=session_id,
-                    user_id=user_id,
-                    agent_type=agent_type,
-                    course_id=effective_course_id,
-                    intent_type=intent_type,
                 )
                 return
 
@@ -2093,6 +2092,10 @@ async def run_react_loop(
             turn_id=turn_id,
         )
 
+    await _trigger_post_turn_consolidation(
+        session_id=session_id, user_id=user_id, agent_type=agent_type,
+        course_id=effective_course_id, intent_type=intent_type,
+    )
     yield AgentEvent(
         type=AgentEventType.DONE,
         data={
@@ -2157,7 +2160,6 @@ async def _maybe_emit_title_update(
                 },
                 {"role": "user", "content": user_message[:200]},
             ],
-            model=settings.chat_model,
             max_tokens=24,
             temperature=0.3,
             task=TASK_AGENT_ROUTER,
@@ -2182,21 +2184,23 @@ async def _trigger_post_turn_consolidation(
     course_id: int | None,
     intent_type: str,
 ) -> None:
-    """
-    Increments turn count in MTM. If turn_count is a multiple of 10,
-    publishes CONSOLIDATE_SESSION request to Kafka.
-    """
+    """Count the turn and queue bounded memory work outside the chat stream."""
     try:
-        msgs = await stm.get_messages(session_id)
-        if len(msgs) > 0 and len(msgs) % 10 == 0:
-            logger.info("Triggering MTM consolidation at %d messages", len(msgs))
-            from app.agents.memory.mtm import mtm
-            await mtm.consolidate(
-                session_id=session_id,
-                user_id=user_id,
-                agent_type=agent_type,
-                course_id=course_id,
-                intent_type=intent_type,
-            )
+        turn_count = await mtm.increment_turn_count(session_id)
+        interval = max(1, settings.consolidation_turn_interval)
+        if turn_count % interval and not await stm.check_token_overflow(session_id):
+            return
+        from app.worker.kafka_producer import publish_consolidation_request
+        await publish_consolidation_request(
+            user_id=user_id,
+            session_id=session_id,
+            context={
+                "agent_type": agent_type,
+                "course_id": course_id,
+                "intent_type": intent_type,
+                "turn_count": turn_count,
+            },
+            job_id=f"agent-consolidate:{session_id}:{turn_count}",
+        )
     except Exception as exc:
-        logger.debug("post-turn consolidation skipped: %s", exc)
+        logger.warning("post-turn consolidation scheduling failed: %s", exc)

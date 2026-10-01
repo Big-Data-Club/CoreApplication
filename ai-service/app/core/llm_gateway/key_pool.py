@@ -57,7 +57,9 @@ class LeasedKey:
  
  
 class KeyPool:
-    async def lease(self, provider_id: int) -> LeasedKey:
+    async def lease(
+        self, provider_id: int, exclude_ids: set[int] | None = None,
+    ) -> LeasedKey:
         """Pick a key for this provider.
  
         Selection order:
@@ -101,10 +103,11 @@ class KeyPool:
                   AND status = 'active'
                   AND (cooldown_until IS NULL OR cooldown_until <= $2)
                   AND (daily_token_limit IS NULL OR used_today_tokens < daily_token_limit)
+                  AND NOT (id = ANY($3::BIGINT[]))
                 ORDER BY used_today_tokens ASC, used_today_requests ASC, id ASC
                 LIMIT 1
                 """,
-                provider_id, now,
+                provider_id, now, list(exclude_ids or ()),
             )
  
         if not row:

@@ -10,18 +10,17 @@ The compressed output is designed to be injected into the system prompt,
 giving the agent continuity across many turns without replaying the
 entire conversation.
 
-Uses the fast chat model (llama-3.1-8b-instant) for low latency.
+The memory-compression task binding is selected by the LLM gateway.
 """
 from __future__ import annotations
 
 import logging
 
-from app.core.config import get_settings
 from app.core.llm import chat_complete_json
-from app.core.llm_gateway import TASK_MEMORY_COMPRESS
+from app.core.llm_gateway import TASK_MEMORY_COMPRESS, get_gateway
+from app.core.llm_gateway.token_budget import estimate_tokens, split_text_preserving_content
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 COMPRESS_SYSTEM_PROMPT = """\
 You are a conversation compressor for an AI teaching/mentoring system.
@@ -84,6 +83,8 @@ async def compress_conversation(
     messages: list[dict],
     agent_type: str,
     existing_ctx: dict | None = None,
+    *,
+    strict: bool = False,
 ) -> dict:
     """
     Compress a conversation history into a compact JSONB summary.
@@ -101,11 +102,8 @@ async def compress_conversation(
     for m in messages:
         role = m.get("role", "unknown").upper()
         content = m.get("content", "")
-        if role == "SYSTEM" or not content:
+        if role in ("SYSTEM", "TOOL") or not content:
             continue
-        # Truncate very long tool results
-        if role == "TOOL" and len(content) > 500:
-            content = content[:500] + "... [truncated]"
         conversation_lines.append(f"{role}: {content}")
 
     conversation_text = "\n".join(conversation_lines)
@@ -120,55 +118,85 @@ async def compress_conversation(
         else "Focus on: student knowledge gaps, mastery levels, study progress."
     )
 
-    # Include existing context for merging
-    existing_section = ""
-    if existing_ctx and any(existing_ctx.values()):
-        import json
-        existing_section = (
-            f"\n\nEXISTING CONTEXT (merge new info into this):\n"
-            f"{json.dumps(existing_ctx, ensure_ascii=False, indent=2)}"
-        )
-
-    user_prompt = (
-        f"Agent type: {agent_type}\n"
-        f"{agent_hint}\n"
-        f"{existing_section}\n\n"
-        f"CONVERSATION TO COMPRESS:\n{conversation_text}"
-    )
-
     try:
-        result = await chat_complete_json(
-            messages=[
-                {"role": "system", "content": COMPRESS_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            model=settings.chat_model,  # fast model for compression
-            temperature=0.1,
-            max_tokens=512,
-            task=TASK_MEMORY_COMPRESS,
-        )
-
-        # Validate structure
-        if not isinstance(result, dict):
-            logger.warning("Compressor returned non-dict: %s", type(result))
-            return existing_ctx or {}
-
-        # Ensure all expected keys exist
-        defaults = {
-            "decisions_made": [],
-            "content_created": [],
-            "identified_gaps": [],
-            "student_progress": {},
-            "pending_actions": [],
-            "key_facts": {},
-            "memory_items": [],
-        }
-        for key, default in defaults.items():
-            if key not in result:
-                result[key] = default
-
+        import json
         from app.agents.memory.memory_policy import normalize_memory_items
-        result["memory_items"] = normalize_memory_items(result.get("memory_items"))
+
+        result = existing_ctx or {}
+        try:
+            request_budget = await get_gateway().preview_request_budget(TASK_MEMORY_COMPRESS)
+        except Exception:
+            request_budget = 4000
+        # Leave room for instructions, the previous compact state, provider
+        # accounting headroom, and a useful completion on the selected tier.
+        state_tokens = estimate_tokens(result)
+        fixed_tokens = estimate_tokens(COMPRESS_SYSTEM_PROMPT) + state_tokens + 700
+        segment_budget = min(1200, max(200, int((request_budget - fixed_tokens) * 0.65)))
+        # A long session is processed in bounded, ordered segments. No raw
+        # transcript is sent in one oversized compression request.
+        for segment in split_text_preserving_content(conversation_text, segment_budget):
+            existing_section = (
+                "\nEXISTING CONTEXT (merge, do not duplicate):\n"
+                + json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+                if result else ""
+            )
+            next_result = await chat_complete_json(
+                messages=[
+                    {"role": "system", "content": COMPRESS_SYSTEM_PROMPT},
+                    {"role": "user", "content": (
+                        f"Agent type: {agent_type}\n{agent_hint}\n"
+                        f"{existing_section}\nCONVERSATION TO COMPRESS:\n{segment}"
+                    )},
+                ],
+                temperature=0.1,
+                max_tokens=512,
+                task=TASK_MEMORY_COMPRESS,
+            )
+            if not isinstance(next_result, dict):
+                raise ValueError("Memory compressor returned a non-object response")
+            defaults = {
+                "decisions_made": [], "content_created": [], "identified_gaps": [],
+                "student_progress": {}, "pending_actions": [], "key_facts": {},
+                "memory_items": [],
+            }
+            for key, default in defaults.items():
+                next_result.setdefault(key, default)
+            for key in ("decisions_made", "content_created", "identified_gaps", "pending_actions"):
+                values = next_result.get(key)
+                next_result[key] = [str(value)[:240] for value in values[:8]] if isinstance(values, list) else []
+            facts = next_result.get("key_facts")
+            next_result["key_facts"] = {
+                str(key)[:80]: value if isinstance(value, (int, float, bool)) else str(value)[:160]
+                for key, value in list(facts.items())[:10]
+            } if isinstance(facts, dict) else {}
+            progress = next_result.get("student_progress")
+            if isinstance(progress, dict):
+                next_result["student_progress"] = {
+                    str(key)[:80]: value if isinstance(value, (int, float, bool)) else str(value)[:160]
+                    for key, value in list(progress.items())[:8]
+                }
+            else:
+                next_result["student_progress"] = {}
+            # Keep prior attributable facts unless this segment explicitly
+            # updates the same item (for example pending -> completed).
+            prior_items = normalize_memory_items(result.get("memory_items"))
+            current_items = normalize_memory_items(next_result.get("memory_items"))
+            merged_items: dict[tuple, dict] = {}
+            for item in prior_items + current_items:
+                identity = (
+                    item["kind"], item["scope"], item.get("course_id"),
+                    item["value"].strip().casefold(),
+                )
+                merged_items[identity] = {**item, "value": item["value"][:240]}
+            next_result["memory_items"] = list(merged_items.values())[-12:]
+            old_facts = result.get("key_facts") or {}
+            for pinned_key in (
+                "current_course_id", "current_course_title", "current_node_id",
+                "recent_courses",
+            ):
+                if pinned_key in old_facts and pinned_key not in next_result["key_facts"]:
+                    next_result["key_facts"][pinned_key] = old_facts[pinned_key]
+            result = next_result
 
         logger.info(
             "Conversation compressed: gaps=%d, actions=%d, facts=%d",
@@ -180,4 +208,6 @@ async def compress_conversation(
 
     except Exception as exc:
         logger.error("Context compression failed: %s", exc)
+        if strict:
+            raise
         return existing_ctx or {}

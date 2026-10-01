@@ -200,22 +200,23 @@ def invalidate_active_courses(
         _CACHE.pop((user_id, agent_type), None)
 
 
-def format_active_courses_for_prompt(anchor: dict) -> str:
+def format_active_courses_for_prompt(
+    anchor: dict, max_tokens: int | None = None, include_nodes: bool = True,
+) -> str:
     """
     Render the anchor as a ground-truth block for the system prompt.
 
     Returns an empty string when the user has no courses - the prompt
     template falls back to a default instructional sentence.
 
-    The block ALWAYS surfaces all course IDs/titles. For teachers, each
-    course also lists its indexed knowledge_nodes (the only valid
-    `node_id` values). For mentors, nodes are intentionally omitted -
-    the agent calls `list_knowledge_nodes` / `search_course_materials`
-    on demand once the user picks a course.
+    In a bounded prompt, omitted courses or nodes are explicitly noted and
+    can be listed via tools. For mentors, nodes are omitted by design.
     """
     courses = anchor.get("courses") or []
     if not courses:
         return ""
+
+    from app.core.llm_gateway.token_budget import estimate_tokens
 
     agent_type = anchor.get("agent_type")
     role_label = "(owner)" if agent_type == "teacher" else "(enrolled)"
@@ -225,13 +226,19 @@ def format_active_courses_for_prompt(anchor: dict) -> str:
         "(These are the ONLY valid course_ids. Do NOT invent any other "
         "course_id. Pick from this list.)",
     ]
-    for c in courses:
+    omitted_courses = 0
+    omitted_nodes = 0
+    for index, c in enumerate(courses):
         status = f" [{c['status']}]" if c.get("status") else ""
-        lines.append(
+        course_line = (
             f"- course_id={c['id']} \"{c.get('title', '')}\"{status} "
             f"{role_label}"
         )
-        nodes = c.get("nodes")
+        if max_tokens is not None and estimate_tokens("\n".join(lines + [course_line])) > max_tokens:
+            omitted_courses = len(courses) - index
+            break
+        lines.append(course_line)
+        nodes = c.get("nodes") if include_nodes else None
         if nodes is None:
             # Mentor / nodes-not-loaded: tool-on-demand.
             continue
@@ -241,13 +248,20 @@ def format_active_courses_for_prompt(anchor: dict) -> str:
                 "before generating quizzes/content)"
             )
             continue
-        for n in nodes:
+        for node_index, n in enumerate(nodes):
             level = (
                 f" (level {n['level']})" if n.get("level") is not None else ""
             )
-            lines.append(
-                f"    node_id={n['id']}: {n['name']}{level}"
-            )
+            node_line = f"    node_id={n['id']}: {n['name']}{level}"
+            if max_tokens is not None and estimate_tokens("\n".join(lines + [node_line])) > max_tokens:
+                omitted_nodes += len(nodes) - node_index
+                break
+            lines.append(node_line)
+    if omitted_courses or omitted_nodes:
+        lines.append(
+            f"(Prompt budget omitted {omitted_courses} courses and {omitted_nodes} nodes; "
+            "use the course/node listing tools before choosing an omitted ID.)"
+        )
     return "\n".join(lines)
 
 
