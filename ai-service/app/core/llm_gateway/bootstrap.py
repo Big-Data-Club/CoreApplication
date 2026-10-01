@@ -294,6 +294,7 @@ async def bootstrap_llm_registry() -> None:
     # 2. Models - upsert with current env-var names so the task map still works
     chat_env = settings.chat_model
     quiz_env = settings.quiz_model
+    flash_env = settings.agent_flash_model or chat_env
     vlm_env = settings.vlm_model
 
     models_by_name: dict[str, int] = {}
@@ -306,6 +307,7 @@ async def bootstrap_llm_registry() -> None:
     for env_name, default_temp, default_max, is_vision in (
         (chat_env, 0.3, 1024, False),
         (quiz_env, 0.3, 2048, False),
+        (flash_env, 0.3, 1024, False),
         (vlm_env, 0.1, 512, True),
     ):
         if env_name and env_name not in models_by_name:
@@ -323,6 +325,7 @@ async def bootstrap_llm_registry() -> None:
             models_by_name[m.model_name] = m.id
  
     chat_model_id = models_by_name.get(chat_env) or next(iter(models_by_name.values()))
+    flash_model_id = models_by_name.get(flash_env) or chat_model_id
     vlm_model_id = models_by_name.get(vlm_env) or chat_model_id
  
     # 3. Seed Groq API key from env if pool is empty
@@ -489,11 +492,9 @@ async def bootstrap_llm_registry() -> None:
     oss_model_id = models_by_name.get("openai/gpt-oss-120b") or chat_model_id
     default_model_id = terra_model_id or oss_model_id
     # Flash has an independent binding so an operator can tune its latency
-    # without weakening the tool-capable ReAct model.  The 8B Groq model is a
-    # deliberately fast default; the normal text model remains a fallback.
-    flash_model_id = _model_id_by_provider(
-        "llama-3.1-8b-instant", ("groq",),
-    ) or default_model_id
+    # without weakening the tool-capable ReAct model. ``flash_model_id`` came
+    # from AGENT_FLASH_MODEL (or CHAT_MODEL when unset) above, before models
+    # from other providers with a matching display name are loaded.
 
     default_bindings: list[tuple[str, int, int]] = [
         (TASK_CHAT,             default_model_id, 10),
@@ -523,6 +524,15 @@ async def bootstrap_llm_registry() -> None:
         if human_configured:
             continue
         for binding in managed:
+            # Retire obsolete seeded Flash models after a runtime model change.
+            # This is intentionally scoped to generated bindings; an admin's
+            # explicit choice remains authoritative and is handled above.
+            if (
+                task_code == TASK_AGENT_FLASH
+                and binding.model.id not in {model_id, default_model_id}
+            ):
+                await registry.update_binding(binding.id, enabled=False)
+                continue
             if binding.model.id != model_id and binding.priority <= priority:
                 await registry.update_binding(binding.id, priority=priority + 20)
         await registry.upsert_binding(

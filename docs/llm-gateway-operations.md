@@ -7,17 +7,18 @@ usage, and manages fallback/cooldown centrally.
 ## Default routing
 
 Text tasks bootstrap to the configured default model. `agent_flash`, used only
-by the chat UI's Flash mode, starts with Groq-hosted
-`llama-3.1-8b-instant` and falls back to the default text model. This keeps the
-latency-first path independent from the tool-capable `agent_react` binding. A
-vision task keeps its separate vision-capable binding; do not bind a text-only
-model to it.
+by the chat UI's Flash mode, reads `AGENT_FLASH_MODEL` at startup; when it is
+empty, it uses `CHAT_MODEL`. This keeps the latency-first path independent from
+the tool-capable `agent_react` binding without pinning a provider model in
+source. A vision task keeps its separate vision-capable binding; do not bind a
+text-only model to it.
 
 Change a model, fallback order, TPM/RPM limit, or API key in
 `/lms/admin/llm-config`. Admin-created or pinned bindings are not overwritten
-by application startup. Bind a faster approved model to `agent_flash` when the
-Flash latency target changes; do not repurpose `agent_react`, which serves the
-standard and deep tool workflows.
+by application startup. Set `AI_FLASH_MODEL` in runtime configuration before a
+first bootstrap, or bind a faster approved model to `agent_flash` in the admin
+UI. Do not repurpose `agent_react`, which serves the standard and deep tool
+workflows.
 
 ## OpenAI API key
 

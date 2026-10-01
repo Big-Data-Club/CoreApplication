@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # gateway and can be changed by an admin without a deploy.
     chat_model: str = "openai/gpt-oss-120b"
     quiz_model: str = "openai/gpt-oss-120b"
+    # Optional latency-first binding for Agent Flash. Empty means reuse
+    # CHAT_MODEL, keeping model choice in runtime configuration rather than
+    # source code. Admin bindings remain the authoritative live override.
+    agent_flash_model: str = ""
 
     # OpenAI is a first-class gateway provider. This value is optional because
     # an admin may instead add/rotate keys through the encrypted gateway UI.

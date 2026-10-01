@@ -1,11 +1,16 @@
 """Unit coverage for the latency-first Flash prompt."""
 from app.agents.core.prompts import build_flash_system_prompt
+from app.core.config import Settings
 from app.core.llm_gateway import ALL_TASK_CODES, TASK_AGENT_FLASH
 
 
 def test_flash_has_a_dedicated_model_binding_task():
     assert TASK_AGENT_FLASH == "agent_flash"
     assert TASK_AGENT_FLASH in ALL_TASK_CODES
+
+
+def test_flash_model_is_runtime_configured():
+    assert Settings(agent_flash_model="gateway-model").agent_flash_model == "gateway-model"
 
 
 def test_flash_prompt_is_direct_and_bounds_lesson_text():
