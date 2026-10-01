@@ -43,6 +43,12 @@ selected model's context window, the selected key's TPM tier, and the configured
 safety ratio. The agent reserves output space, then packs recent dialogue and
 tool evidence into the remaining input space. Tool calls and their results stay
 paired; omitted evidence is explicitly marked and can be retrieved again.
+If the full teaching policy itself exceeds a small tier, the agent uses a
+separately authored compact policy retaining role, grounding, citation and
+draft-approval rules. Lower-priority tool definitions can then be deferred;
+the active user request is never dropped. The gateway copies tool metadata
+per key attempt, so reducing a prompt for one key does not weaken later
+attempts on a larger tier.
 Memory uses a fraction of that live input budget, so a small binding recalls
 less while a larger binding can carry more. A request that cannot fit its
 system instructions, active user question and tool schema fails preflight; the

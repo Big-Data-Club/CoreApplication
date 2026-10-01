@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from functools import partial
 import json
 import logging
 import re
@@ -22,7 +23,9 @@ from app.agents.memory.lesson_dossier import (
     format_lesson_dossier,
     load_lesson_dossier,
 )
-from app.agents.core.prompts import build_flash_system_prompt, build_system_prompt
+from app.agents.core.prompts import (
+    build_compact_system_prompt, build_flash_system_prompt, build_system_prompt,
+)
 from app.agents.core.scope_resolver import (
     apply_scope_to_course_id,
 )
@@ -41,6 +44,7 @@ from app.agents.tools.registry import (
 )
 from app.core.config import get_settings
 from app.core.llm_gateway import get_gateway, ChatRequest, TASK_AGENT_FLASH, TASK_AGENT_REACT
+from app.core.llm_gateway.errors import ContextLengthError
 from app.core.llm_gateway.token_budget import estimate_tokens
 from app.agents.tools.base_tool import ToolResult
 
@@ -109,7 +113,7 @@ async def _request_answer_continuation(gateway: Any, req: ChatRequest, previous:
         max_tokens=req.max_tokens,
         min_completion_tokens=384,
         json_mode=False,
-        message_packer=pack_agent_messages,
+        message_packer=req.message_packer or pack_agent_messages,
     )
     parser = ThoughtStreamParser()
     more_text = ""
@@ -1364,6 +1368,19 @@ async def run_react_loop(
             learner_context=learner_context_text,
         )
 
+    compact_system_prompt = build_compact_system_prompt(
+        agent_type,
+        memory_context=memory_ctx["prompt_section"],
+        active_courses_section=active_courses_section,
+        page_context=ctx_decision.effective_page_context,
+        system_context=ctx_decision.effective_system_context,
+        lesson_context=lesson_context_text,
+        learner_context=learner_context_text,
+    )
+    agent_message_packer = partial(
+        pack_agent_messages, compact_system_prompt=compact_system_prompt,
+    )
+
     # Start with system prompt
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
@@ -1491,8 +1508,17 @@ async def run_react_loop(
 
         logger.debug("ReAct iteration %d/%d (mode=%s)", iteration + 1, max_loop_iterations, mode)
 
+        schemas_for_iteration = (
+            focused_schemas if (tools_were_gated and iteration == 0) else tool_schemas
+        )
+        if tools_were_gated and iteration > 0:
+            selected_names = set(execution_plan.selected_tools or ())
+            schemas_for_iteration = sorted(
+                schemas_for_iteration,
+                key=lambda s: (s.get("function", {}).get("name") or s.get("name")) not in selected_names,
+            )
         active_tool_schemas = [
-            s for s in (focused_schemas if (tools_were_gated and iteration == 0) else tool_schemas)
+            s for s in schemas_for_iteration
             if (s.get("function", {}).get("name") or s.get("name")) not in executed_search_tools
         ]
 
@@ -1508,7 +1534,7 @@ async def run_react_loop(
                 "tools": active_tool_schemas,
                 "tool_choice": "auto",
             } if active_tool_schemas else {},
-            message_packer=pack_agent_messages,
+            message_packer=agent_message_packer,
         )
 
         collected_text = ""
@@ -1609,7 +1635,14 @@ async def run_react_loop(
                 logger.error("LLM stream failed: %s", err_str)
                 yield AgentEvent(
                     type=AgentEventType.ERROR,
-                    data={"error": err_str, "iteration": iteration},
+                    data={
+                        "error": err_str,
+                        "iteration": iteration,
+                        "code": (
+                            "input_budget_exceeded"
+                            if isinstance(exc, ContextLengthError) else "stream_failed"
+                        ),
+                    },
                     session_id=session_id,
                     turn_id=turn_id,
                 )

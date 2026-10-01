@@ -7,7 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.agents.core.prompt_budget import pack_agent_messages
+from app.agents.core.prompts import build_compact_system_prompt, build_system_prompt
 from app.agents.memory.active_courses import format_active_courses_for_prompt
+from app.agents.tools.registry import get_tool_schemas
 from app.core.llm_gateway.errors import ContextLengthError, RateLimitedError
 from app.core.llm_gateway.gateway import LLMGateway
 from app.core.llm_gateway.token_budget import estimate_request_tokens
@@ -66,6 +68,49 @@ class PromptBudgetTests(unittest.TestCase):
     def test_mandatory_input_reports_context_error(self) -> None:
         with self.assertRaises(ContextLengthError):
             pack_agent_messages(self.messages, self.extra, 40)
+
+    def test_real_mentor_prompt_and_tools_fit_low_tpm_tier(self) -> None:
+        question = "Có bao nhiêu cách scheduling trong một hệ HPC-QC? Giải thích chi tiết."
+        page = {"courseId": 7, "contentId": 22, "contentTitle": "Hybrid scheduling",
+                "contentBody": "Lesson content " * 1000}
+        full = build_system_prompt("mentor", "", page_context=page)
+        compact = build_compact_system_prompt("mentor", page_context=page)
+        messages = [{"role": "system", "content": full},
+                    {"role": "user", "content": question}]
+        tools = {"tools": get_tool_schemas("mentor"), "tool_choice": "auto"}
+        self.assertGreater(estimate_request_tokens(messages, tools), 4976)
+        packed = pack_agent_messages(
+            messages, tools, 4976, compact_system_prompt=compact,
+        )
+        self.assertLessEqual(estimate_request_tokens(packed, tools), 4976)
+        self.assertEqual(packed[-1]["content"], question)
+        self.assertIn("Virtual Mentor", packed[0]["content"])
+        self.assertIn("retrieve scoped material", packed[0]["content"])
+
+    def test_gateway_keeps_original_tool_catalogue_for_larger_key_retry(self) -> None:
+        full = build_system_prompt("teacher", "")
+        compact = build_compact_system_prompt("teacher")
+        original_tools = get_tool_schemas("teacher")
+        request = ChatRequest(
+            task=TASK_AGENT_REACT,
+            messages=[{"role": "system", "content": full},
+                      {"role": "user", "content": "How do I schedule HPC-QC jobs?"}],
+            extra={"tools": original_tools, "tool_choice": "auto"},
+            min_completion_tokens=1024,
+            message_packer=lambda messages, extra, limit: pack_agent_messages(
+                messages, extra, limit, compact_system_prompt=compact,
+            ),
+        )
+        gateway = LLMGateway()
+        prepared, output_tokens = gateway._prepare_request(
+            request, _model(20000), 2048, key_tpm_limit=8000,
+        )
+        self.assertLess(len(prepared.extra.get("tools", [])), len(original_tools))
+        self.assertEqual(len(request.extra["tools"]), len(original_tools))
+        self.assertLessEqual(
+            estimate_request_tokens(prepared.messages, prepared.extra) + output_tokens,
+            6000,
+        )
 
     def test_gateway_rechecks_actual_key_tpm_and_reserves_completion(self) -> None:
         request = ChatRequest(

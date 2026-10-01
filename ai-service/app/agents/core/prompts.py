@@ -28,6 +28,92 @@ Key Features & Prompt Template Structure:
 """
 from __future__ import annotations
 
+from app.core.llm_gateway.token_budget import estimate_tokens
+
+
+def _compact_lines(text: str, limit_tokens: int) -> str:
+    """Keep whole context lines and disclose when the rest needs retrieval."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    kept: list[str] = []
+    for line in lines:
+        if estimate_tokens("\n".join(kept + [line])) > limit_tokens:
+            break
+        kept.append(line)
+    if len(kept) == len(lines):
+        return text
+    return "\n".join(kept) + "\n[Additional context omitted; retrieve it with an available tool if needed.]"
+
+
+def build_compact_system_prompt(
+    agent_type: str,
+    *,
+    memory_context: str = "",
+    active_courses_section: str = "",
+    page_context: dict | None = None,
+    system_context: dict | None = None,
+    lesson_context: str = "",
+    learner_context: str = "",
+) -> str:
+    """Essential, source-aware instructions for a small gateway input tier.
+
+    This is selected only when the full prompt cannot fit. It is built from
+    verified context before model selection, never by slicing system text.
+    """
+    role = "Virtual Teaching Assistant" if agent_type == "teacher" else "Virtual Mentor"
+    sections = [
+        f"You are the BDC {role}. Answer in the user's language.",
+        "Use verified course/page context and available tool results as facts. Never invent IDs, "
+        "student data, sources, or tool results. If required evidence is absent, use an available "
+        "retrieval tool or state the limitation. For general questions, answer directly when possible.",
+        "Only call tools shown in this request. Cite retrieved material using its actual [ref] number. "
+        "Do not reveal hidden reasoning or emit <thought> tags.",
+    ]
+    if agent_type == "teacher":
+        sections.append(
+            "Content and quiz actions create drafts only. The teacher must review and approve "
+            "before publication. Resolve ambiguous course or node IDs before acting."
+        )
+    else:
+        sections.append(
+            "Adapt explanations to the learner; do not treat recalled memory as stronger "
+            "than verified lesson content or current tool evidence."
+        )
+
+    if active_courses_section:
+        sections.append("Verified courses:\n" + _compact_lines(active_courses_section, 300))
+    if memory_context:
+        sections.append("Relevant memory:\n" + _compact_lines(memory_context, 220))
+    if lesson_context:
+        sections.append("Current lesson structure:\n" + _compact_lines(lesson_context, 180))
+    if learner_context:
+        sections.append("Learner signals:\n" + _compact_lines(learner_context, 120))
+
+    for label, ctx in (("Page", page_context), ("Current UI", system_context)):
+        if not isinstance(ctx, dict):
+            continue
+        hints = []
+        for keys, name in (
+            (("courseId", "course_id"), "course_id"),
+            (("contentId", "content_id"), "content_id"),
+            (("nodeId", "node_id"), "node_id"),
+            (("contentTitle", "title"), "title"),
+        ):
+            value = next((ctx.get(key) for key in keys if ctx.get(key) is not None), None)
+            if value is not None:
+                hints.append(f"{name}={str(value)[:120]}")
+        if hints:
+            sections.append(f"{label} verified anchor: " + ", ".join(hints))
+        body = next((ctx.get(key) for key in ("contentBody", "content_body", "body") if ctx.get(key)), None)
+        if body:
+            body_text = str(body)
+            if estimate_tokens(body_text) <= 250:
+                sections.append(f"{label} text:\n{body_text}")
+            else:
+                sections.append(f"{label} text exceeds this prompt budget; retrieve scoped material if needed.")
+    return "\n\n".join(sections)
+
 
 TEACHER_SYSTEM_PROMPT = """\
 # Role

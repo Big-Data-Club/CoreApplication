@@ -17,6 +17,7 @@ from __future__ import annotations
  
 import logging
 import time
+import copy
 from dataclasses import replace
 from typing import Any, Optional
  
@@ -262,7 +263,7 @@ class LLMGateway:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     json_mode=json_mode,
-                    extra=req.extra,
+                    extra=prepared_req.extra,
                 )
             except RateLimitedError as exc:
                 elapsed = int((time.monotonic() - start) * 1000)
@@ -339,7 +340,7 @@ class LLMGateway:
             # fall back to the next model in the chain.
             finish_reason = _extract_finish_reason(raw)
             has_tool_calls = _has_tool_calls(raw)
-            valid_tool_response = bool(req.extra.get("tools")) and has_tool_calls
+            valid_tool_response = bool(prepared_req.extra.get("tools")) and has_tool_calls
 
             if not (content or "").strip() and not valid_tool_response:
                 elapsed = int((time.monotonic() - start) * 1000)
@@ -460,7 +461,7 @@ class LLMGateway:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     json_mode=json_mode,
-                    extra=req.extra,
+                    extra=prepared_req.extra,
                 ):
                     if first_chunk:
                         first_chunk = False
@@ -550,8 +551,9 @@ class LLMGateway:
             prompt_limit = self._request_budget(model.context_window, key_tpm_limit) - self._minimum_completion(req, model)
             if prompt_limit <= 0:
                 raise ContextLengthError("Model/key budget leaves no room for the required answer")
-            messages = req.message_packer(req.messages, req.extra, prompt_limit)
-            prepared = replace(req, messages=messages, message_packer=None)
+            packed_extra = copy.deepcopy(req.extra)
+            messages = req.message_packer(req.messages, packed_extra, prompt_limit)
+            prepared = replace(req, messages=messages, extra=packed_extra, message_packer=None)
         max_tokens = self._fit_completion_budget(
             prepared, model.context_window, requested_max_tokens,
             key_tpm_limit=key_tpm_limit, model=model,

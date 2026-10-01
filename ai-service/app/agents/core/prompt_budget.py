@@ -79,6 +79,8 @@ def pack_agent_messages(
     messages: list[dict[str, Any]],
     extra: dict[str, Any],
     max_input_tokens: int,
+    *,
+    compact_system_prompt: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fit dialogue and evidence without removing the active request.
 
@@ -118,6 +120,13 @@ def pack_agent_messages(
                 current_user -= 1
                 removed_history += 1
 
+    compact_prompt_used = False
+    if compact_system_prompt and estimate_request_tokens(packed, extra) > max_input_tokens:
+        system_index = next((i for i, m in enumerate(packed) if m.get("role") == "system"), None)
+        if system_index is not None and estimate_tokens(compact_system_prompt) < estimate_tokens(packed[system_index].get("content", "")):
+            packed[system_index]["content"] = compact_system_prompt
+            compact_prompt_used = True
+
     # Assistant prose before a tool call is already streamed to the user; it
     # need not be replayed to the model. Keep assistant tool_calls intact.
     if estimate_request_tokens(packed, extra) > max_input_tokens:
@@ -138,6 +147,17 @@ def pack_agent_messages(
         message["content"] = _compact_tool_content(message["content"], target)
         compacted_results += 1
 
+    # The selected plan's tools are listed first. Under a very small TPM tier,
+    # remove lower-priority definitions only after dialogue/evidence packing.
+    # The gateway passes a private copy of `extra` for each key attempt.
+    omitted_tools = 0
+    while estimate_request_tokens(packed, extra) > max_input_tokens and extra.get("tools"):
+        extra["tools"] = extra["tools"][:-1]
+        omitted_tools += 1
+        if not extra["tools"]:
+            extra.pop("tools", None)
+            extra.pop("tool_choice", None)
+
     actual = estimate_request_tokens(packed, extra)
     if actual > max_input_tokens:
         raise ContextLengthError(
@@ -146,7 +166,8 @@ def pack_agent_messages(
             "A larger gateway binding or a narrower request is required."
         )
     logger.info(
-        "Agent prompt packed: input_estimate=%d -> %d budget=%d history_removed=%d tool_results_compacted=%d",
-        before, actual, max_input_tokens, removed_history, compacted_results,
+        "Agent prompt packed: input_estimate=%d -> %d budget=%d history_removed=%d compact_prompt=%s tool_results_compacted=%d tools_omitted=%d",
+        before, actual, max_input_tokens, removed_history, compact_prompt_used,
+        compacted_results, omitted_tools,
     )
     return packed
