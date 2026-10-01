@@ -125,6 +125,7 @@ type LearnerSkillStateWithSkill struct {
 // minimum data needed to make a recommendation navigable by the client.
 type PersonalizedContent struct {
 	ContentID    int64   `json:"content_id" db:"content_id"`
+	CourseID     int64   `json:"course_id" db:"course_id"`
 	ContentTitle string  `json:"content_title" db:"content_title"`
 	ContentType  string  `json:"content_type" db:"content_type"`
 	CourseTitle  string  `json:"course_title" db:"course_title"`

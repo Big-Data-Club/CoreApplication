@@ -46,7 +46,7 @@ group, `personalize-worker-group`, and runs an hourly archive scheduler.
 categories, target career and experience level without assigning a fabricated
 default persona. Internal clients read/write it through
 `/personalize/student/{user_id}/onboarding` and `/personalize/onboarding`.
-Recommender `hybrid-rules-v2` uses these fields before falling back to level,
+Recommender `hybrid-rules-v3` uses these fields before falling back to level,
 quality-adjusted popularity, freshness and stable exploration.
 
 Existing DA/ML notebooks live in the `da-analytics/` submodule. They should read

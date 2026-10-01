@@ -15,7 +15,7 @@ class RecommendationContext(BaseModel):
     locale: str = "vi-VN"
     session_id: str | None = None
     time_budget_minutes: int | None = Field(default=None, ge=5, le=240)
-    goal: str | None = Field(default=None, max_length=80)
+    goal: str | None = Field(default=None, max_length=120)
     interested_categories: list[str] = Field(default_factory=list, max_length=20)
     experience_level: str | None = Field(default=None, max_length=40)
     profile_resolved: bool = False

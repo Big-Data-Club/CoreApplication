@@ -205,8 +205,8 @@ func (s *LearningEventService) GetCourseSkillProfile(ctx context.Context, studen
 	return s.repo.GetCourseSkillProfile(ctx, studentID, courseID)
 }
 
-func (s *LearningEventService) FindPublishedContentForSkill(ctx context.Context, skillID int64, targetDifficulty float64) (*models.PersonalizedContent, error) {
-	return s.repo.FindPublishedContentForSkill(ctx, skillID, targetDifficulty)
+func (s *LearningEventService) FindPublishedContentForSkill(ctx context.Context, studentID, skillID int64, targetDifficulty float64) (*models.PersonalizedContent, error) {
+	return s.repo.FindPublishedContentForSkill(ctx, studentID, skillID, targetDifficulty)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

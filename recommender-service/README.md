@@ -30,7 +30,7 @@ rules slate rather than delaying the user-facing action.
 
 ## Hybrid course ranking
 
-`hybrid-rules-v2` supports course ranking on `dashboard` and
+`hybrid-rules-v3` supports course ranking on `dashboard` and
 `course_discovery`. The authenticated surface supplies an eligibility-safe
 `candidates` array; LMS remains the authority for course visibility and
 enrollment. The recommender never grants access to a candidate.

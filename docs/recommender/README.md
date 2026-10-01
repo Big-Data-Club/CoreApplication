@@ -87,7 +87,7 @@ Current policy identities:
 
 | Decision path | `policy_version` | `model_version` |
 |---|---|---|
-| Dashboard and course discovery | `hybrid-rules-v2` | `hybrid-2026-08` |
+| Dashboard and course discovery | `hybrid-rules-v3` | `hybrid-2026-10` |
 | Course-bound next action/chat | `heuristic-v1` | `rules-2026-07` |
 
 These identifiers must change when scoring semantics change, even if the API
@@ -142,6 +142,12 @@ The discovery UI lets the student store:
 - experience level.
 
 These explicit preferences are saved by Personalize and immediately reused.
+The `hybrid-rules-v3` policy matches a small set of common labels such as
+`AI`/`Machine Learning` and reports a personalised result only when the goal,
+interest, or selected level actually matches a returned course. Each card
+shows the factual ranking reason; the internal heuristic score is not shown
+as a match probability. An unmatched goal remains visible in the saved profile
+while the course slate is identified as a general fallback.
 At present, the recommendation candidate pool is built from at most 100 courses
 loaded for discovery metadata; it is not guaranteed to represent every course
 once the catalogue exceeds that bound. Server-side candidate retrieval is a
@@ -175,8 +181,9 @@ For course discovery, the order of preference is:
 For a dashboard, behavioural course fields such as progress, activity recency,
 and verified new content can provide useful ranking even without onboarding.
 
-When profile retrieval fails, the Recommender Service uses safe rules and marks
-`fallback: true`. The UI identifies the result as a fallback. If the entire
+When profile retrieval fails or saved goals do not match an eligible course,
+the Recommender Service uses safe rules and marks `fallback: true`. The UI
+identifies the result as a fallback. If the entire
 recommendation service fails, dashboard/discovery remain usable with their
 ordinary LMS ordering. Analytics failure also never blocks navigation or
 enrolment.
@@ -341,7 +348,7 @@ The following are real gaps, not hidden features:
 - make candidate generation server-side for large course catalogues;
 - add latency, fallback rate, empty-slate rate, Kafka failure, and event-dedup
   metrics; and
-- keep `hybrid-rules-v2` as the production control policy.
+- keep `hybrid-rules-v3` as the production control policy.
 
 ### Phase 2 - complete the conversational loop
 

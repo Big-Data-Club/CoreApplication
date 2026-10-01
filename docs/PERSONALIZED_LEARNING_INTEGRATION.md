@@ -163,23 +163,35 @@ Authorization: Bearer <token>
 {
   "success": true,
   "data": {
-    "today": "2026-08-20",
-    "message": "Bạn có 3 bài học được gợi ý hôm nay",
-    "recommendations": [
+    "student_id": 1,
+    "today_goal": "Hoàn thành 30 phút học tập",
+    "priority_recommendations": [
       {
-        "lesson_id": 45,
-        "lesson_name": "Advanced Loop Patterns",
-        "course_title": "Python Programming",
-        "reason": "Củng cố kỹ năng Loops - bạn đang ở mức advancing",
+        "content_id": 45,
+        "course_id": 12,
+        "content_title": "Advanced Loop Patterns",
+        "skill_id": 3,
+        "skill_name": "Loops",
+        "reason": "Tiếp tục học: Loops",
         "priority": 1,
-        "estimated_minutes": 30,
-        "skills": ["Loops", "Algorithms"]
+        "estimated_minutes": 20
       }
     ],
-    "total_estimated_minutes": 90
+    "optional_recommendations": []
   }
 }
 ```
+
+Daily lesson items come only from published content in an accepted enrolment
+that this student has not completed. `course_id` and `content_id` form the
+navigation target `/lms/student/courses/{course_id}/learn?contentId={content_id}`.
+An empty list means no skill-linked, eligible content was found; it does not
+prove the learner met a daily goal. Skill mastery requires a skill-linked
+learning or assessment event, not merely opening any lesson.
+Deploy LMS before the frontend change so daily recommendations include
+`course_id`; the new frontend disables the lesson action if an older API
+response does not include it. Recommender `hybrid-rules-v3` can be deployed
+independently because its response shape is unchanged.
 
 ### 4. Get Discover Courses Recommendations
 ```http

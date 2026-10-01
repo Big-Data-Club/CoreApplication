@@ -153,6 +153,7 @@ type RecommendedAction struct {
 // PersonalizedRecommendationResponse represents a personalized content recommendation
 type PersonalizedRecommendationResponse struct {
 	ContentID         int64    `json:"content_id"`
+	CourseID          int64    `json:"course_id"`
 	ContentTitle      string   `json:"content_title"`
 	ContentType       string   `json:"content_type"`         // "lesson", "quiz", "practice"
 	SkillID           int64    `json:"skill_id"`

@@ -1,7 +1,9 @@
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
-from app.schemas import RecommendationRequest
+import httpx
+
+from app.schemas import RecommendationInteraction, RecommendationRequest
 from app.service import RecommendationService
 
 
@@ -80,7 +82,7 @@ class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
             ],
         ))
 
-        self.assertEqual(response.policy_version, "hybrid-rules-v2")
+        self.assertEqual(response.policy_version, "hybrid-rules-v3")
         self.assertTrue(response.fallback)
         self.assertEqual({item.entity["course_id"] for item in response.items}, {1, 3})
         self.assertTrue(all(item.action == "explore_course" for item in response.items))
@@ -135,3 +137,61 @@ class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.items[0].entity["course_id"], 1)
         self.assertFalse(response.fallback)
         self.assertTrue(any(badge.type == "goal_match" for badge in response.items[0].badges))
+
+    async def test_ai_goal_matches_machine_learning_title_and_explains_reason(self):
+        response = await RecommendationService().recommend(RecommendationRequest(
+            user_id=42,
+            surface="course_discovery",
+            context={"goal": "AI", "profile_resolved": True},
+            candidates=[
+                {"entity_id": 1, "title": "Machine Learning căn bản", "level": "BEGINNER"},
+                {"entity_id": 2, "title": "Kế toán phổ thông", "level": "BEGINNER"},
+            ],
+        ))
+        self.assertEqual(response.items[0].entity["course_id"], 1)
+        self.assertIn("mục tiêu", response.items[0].description)
+        self.assertNotIn("mục tiêu", response.items[1].description)
+
+    async def test_unmatched_goal_reports_general_fallback(self):
+        response = await RecommendationService().recommend(RecommendationRequest(
+            user_id=42,
+            surface="course_discovery",
+            context={"goal": "robotics", "profile_resolved": True},
+            candidates=[{"entity_id": 1, "title": "Kế toán phổ thông", "level": "BEGINNER"}],
+        ))
+        self.assertTrue(response.fallback)
+        self.assertNotIn("mục tiêu", response.items[0].description)
+
+    async def test_invalid_tracking_token_is_rejected_before_publication(self):
+        service = RecommendationService()
+        service._producer_instance = AsyncMock()
+        with self.assertRaisesRegex(ValueError, "invalid tracking token"):
+            await service.log_interaction(RecommendationInteraction(
+                user_id=42,
+                event_type="click",
+                recommendation_id="rec_fake",
+                tracking_token="wrong",
+            ))
+        service._producer_instance.assert_not_awaited()
+
+    async def test_onboarding_timeout_returns_explicit_general_fallback(self):
+        service = RecommendationService()
+        with patch("app.service.httpx.AsyncClient") as client:
+            client.return_value.__aenter__.return_value.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+            response = await service.recommend(RecommendationRequest(
+                user_id=42,
+                surface="course_discovery",
+                candidates=[{"entity_id": 1, "title": "Python cơ bản"}],
+            ))
+        self.assertTrue(response.fallback)
+        self.assertEqual(len(response.items), 1)
+
+    async def test_non_student_does_not_receive_courses(self):
+        response = await RecommendationService().recommend(RecommendationRequest(
+            user_id=42,
+            surface="course_discovery",
+            context={"role": "teacher"},
+            candidates=[{"entity_id": 1, "title": "Python cơ bản"}],
+        ))
+        self.assertTrue(response.clarification_needed)
+        self.assertEqual(response.items, [])

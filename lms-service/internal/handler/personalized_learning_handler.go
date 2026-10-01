@@ -574,6 +574,7 @@ func (h *PersonalizedLearningHandler) buildDailyRecommendations(
 	}
 
 	remainingMinutes := timeBudget
+	seenContent := make(map[int64]struct{})
 	for _, state := range skillStates {
 		if len(recommendations.PriorityRecommendations) >= 3 {
 			break
@@ -588,17 +589,21 @@ func (h *PersonalizedLearningHandler) buildDailyRecommendations(
 		if state.RecommendedDifficulty.Valid {
 			targetDifficulty = state.RecommendedDifficulty.Float64
 		}
-		content, err := h.learningEventService.FindPublishedContentForSkill(ctx, state.SkillID, targetDifficulty)
+		content, err := h.learningEventService.FindPublishedContentForSkill(ctx, studentID, state.SkillID, targetDifficulty)
 		if err != nil {
 			return dto.DailyRecommendationsResponse{}, err
 		}
 		if content == nil {
 			continue
 		}
+		if _, alreadyRecommended := seenContent[content.ContentID]; alreadyRecommended {
+			continue
+		}
+		seenContent[content.ContentID] = struct{}{}
 		reasonType, badge, action := recommendationAction(state.MasteryScore)
 		estimatedMinutes := minInt(20, remainingMinutes)
 		recommendations.PriorityRecommendations = append(recommendations.PriorityRecommendations, dto.PersonalizedRecommendationResponse{
-			ContentID: content.ContentID, ContentTitle: content.ContentTitle, ContentType: content.ContentType,
+			ContentID: content.ContentID, CourseID: content.CourseID, ContentTitle: content.ContentTitle, ContentType: content.ContentType,
 			SkillID: state.SkillID, SkillName: state.SkillName, Difficulty: content.Difficulty,
 			CurrentMastery: state.MasteryScore, TargetMastery: minFloat(1, state.MasteryScore+0.1),
 			Reason: fmt.Sprintf("%s: %s", action, state.SkillName), ReasonType: reasonType,

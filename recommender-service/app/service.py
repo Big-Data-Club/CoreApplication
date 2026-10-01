@@ -238,7 +238,18 @@ class RecommendationService:
         if not interests:
             return 0.0
         course_tokens = self._tokens(" ".join(filter(None, [candidate.title, candidate.description, candidate.category])))
-        return len(interests & course_tokens) / max(1, len(interests))
+        # A few common course-label aliases make explicit goals useful even
+        # when a learner writes "AI" and an author titles the course
+        # "Machine Learning". This is an explainable lexical rule, not a
+        # model-derived probability.
+        aliases = {
+            "ai": {"ai", "artificial", "intelligence", "machine", "learning", "ml"},
+            "ml": {"ml", "machine", "learning", "ai"},
+            "data": {"data", "dữ", "liệu"},
+            "python": {"python"},
+        }
+        matched = sum(bool(aliases.get(token, {token}) & course_tokens) for token in interests)
+        return matched / max(1, len(interests))
 
     @staticmethod
     def _level_fit(request: RecommendationRequest, candidate: RecommendationCandidate) -> float:
@@ -340,21 +351,23 @@ class RecommendationService:
             scored = diversified
         items: list[RecommendationItem] = []
         for rank, (score, candidate, facts, badges) in enumerate(scored[: request.limit], start=1):
+            matched_goal = any(fact.code == "goal_topic_match" for fact in facts)
+            level_fit = next((fact.value for fact in facts if fact.code == "level_fit"), None)
+            if discovery and matched_goal:
+                explanation = "Chủ đề khóa học liên quan đến lĩnh vực hoặc mục tiêu bạn đã lưu."
+            elif discovery and request.context.experience_level and level_fit == 1.0:
+                explanation = "Trình độ khóa học phù hợp với trình độ bạn đã chọn."
+            elif discovery:
+                explanation = "Gợi ý dựa trên trình độ, độ mới và mức độ quan tâm chung của khóa học."
+            else:
+                explanation = "Tiếp tục khóa học dựa trên tiến độ học hiện tại."
             items.append(self._item(
                 request,
                 rank,
                 score,
                 action="explore_course" if discovery else ("continue_course" if (candidate.progress_percent or 0) > 0 else "start_course"),
                 title=candidate.title,
-                description=(
-                    (
-                        "Khóa học được chọn theo mục tiêu và trình độ bạn đã cung cấp."
-                        if request.context.interested_categories or request.context.goal or request.context.experience_level
-                        else "Khóa học được chọn theo cấp độ, độ mới và mức độ quan tâm chung."
-                    )
-                    if discovery else
-                    "Tiếp tục đúng lộ trình có khả năng giúp bạn duy trì nhịp học tốt nhất."
-                ),
+                description=explanation,
                 expected_outcome=(
                     "Khám phá hoặc đăng ký một khóa học phù hợp."
                     if discovery else
@@ -389,13 +402,16 @@ class RecommendationService:
                 request.context.experience_level = (
                     request.context.experience_level or onboarding.get("experience_level") or None
                 )
-            response.policy_version = "hybrid-rules-v2"
-            response.model_version = "hybrid-2026-08"
+            response.policy_version = "hybrid-rules-v3"
+            response.model_version = "hybrid-2026-10"
             response.items = self._rank_course_candidates(request)
-            has_explicit_profile = bool(
-                request.context.interested_categories
-                or request.context.goal
-                or request.context.experience_level
+            has_effective_profile = any(
+                any(fact.code == "goal_topic_match" for fact in item.why_facts)
+                or (
+                    bool(request.context.experience_level)
+                    and any(fact.code == "level_fit" and fact.value == 1.0 for fact in item.why_facts)
+                )
+                for item in response.items
             )
             has_behavioral_profile = request.surface == "dashboard" and any(
                 (candidate.progress_percent or 0) > 0
@@ -403,7 +419,7 @@ class RecommendationService:
                 or candidate.new_content_count > 0
                 for candidate in request.candidates
             )
-            response.fallback = not (has_explicit_profile or has_behavioral_profile)
+            response.fallback = not (has_effective_profile or has_behavioral_profile)
             return response
         if not course_id:
             response.clarification_needed = True
