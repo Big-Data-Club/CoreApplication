@@ -34,7 +34,7 @@ from app.core.llm_gateway.errors import (
 from app.core.llm_gateway.key_pool import LeasedKey, get_key_pool
 from app.core.llm_gateway.registry import ModelRegistry, get_registry
 from app.core.llm_gateway.types import ChatRequest, ChatResponse, TaskBinding, Usage
-from app.core.llm_gateway.token_budget import estimate_messages_tokens
+from app.core.llm_gateway.token_budget import estimate_request_tokens
 from app.core.llm_gateway.usage import record_usage
  
 logger = logging.getLogger(__name__)
@@ -481,12 +481,17 @@ class LLMGateway:
         documents must use a map/reduce workflow so every source is preserved.
         Only unused completion headroom is trimmed.
         """
-        prompt_tokens = estimate_messages_tokens(req.messages)
+        # The provider counts tool schemas and tool metadata too.  Counting
+        # only message content let a tool-heavy request pass preflight then
+        # fail at Groq with a TPM 413.
+        prompt_tokens = estimate_request_tokens(req.messages, req.extra)
         request_budget = min(settings.llm_request_token_budget, context_window)
         if key_tpm_limit:
-            # Keep a small guard band for provider-side accounting/tokenizer
-            # differences. Admins manage this limit per key in the gateway UI.
-            request_budget = min(request_budget, max(256, int(key_tpm_limit * 0.9)))
+            # Keep enough headroom for provider-side accounting/tokenizer
+            # differences. Admins manage the raw TPM limit per key in the
+            # gateway UI; this ratio is runtime-configurable for each deploy.
+            safety_ratio = min(0.9, max(0.5, settings.llm_tpm_safety_ratio))
+            request_budget = min(request_budget, max(256, int(key_tpm_limit * safety_ratio)))
         available = request_budget - prompt_tokens
         if available < settings.llm_min_completion_tokens:
             raise ContextLengthError(

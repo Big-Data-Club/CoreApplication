@@ -33,6 +33,25 @@ class TokenBudgetTests(unittest.TestCase):
         }]
         self.assertGreater(budget.estimate_messages_tokens(messages), 1)
 
+    def test_request_estimate_includes_tool_schemas_and_tool_metadata(self) -> None:
+        messages = [{
+            "role": "tool",
+            "content": "Kết quả tìm kiếm",
+            "tool_call_id": "call_" + ("x" * 100),
+        }]
+        with_tools = budget.estimate_request_tokens(messages, {
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "search_course_materials",
+                    "parameters": {"description": "x" * 4000},
+                },
+            }],
+            "tool_choice": "auto",
+        })
+
+        self.assertGreater(with_tools, budget.estimate_messages_tokens(messages) + 1000)
+
 
 if __name__ == "__main__":
     unittest.main()

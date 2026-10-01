@@ -13,6 +13,14 @@ the tool-capable `agent_react` binding without pinning a provider model in
 source. A vision task keeps its separate vision-capable binding; do not bind a
 text-only model to it.
 
+For Compose and K3s, set `AI_FLASH_MODEL` in `.env`; the runtime manifests map
+it to `AGENT_FLASH_MODEL`. The K3s runtime preparation script now copies that
+setting (and `LLM_REQUEST_TOKEN_BUDGET` / `LLM_TPM_SAFETY_RATIO`) into its
+override ConfigMap, so the selected gateway model is not lost at deployment.
+For a Groq key with an 8K TPM allowance, the shipped request budget is 6K with
+a 0.75 safety ratio. Raise those settings only after updating the key's TPM
+limit in the gateway configuration.
+
 Change a model, fallback order, TPM/RPM limit, or API key in
 `/lms/admin/llm-config`. Admin-created or pinned bindings are not overwritten
 by application startup. Set `AI_FLASH_MODEL` in runtime configuration before a
@@ -40,5 +48,6 @@ The overview workflow is coverage-preserving map/reduce:
    references retained.
 
 No source text is silently truncated. The gateway also preflights estimated
-input + output tokens and respects the configured request budget and a key's
-TPM limit before calling a provider.
+input + output tokens, including tool schemas and tool-call metadata, and
+respects the configured request budget and a key's TPM limit before calling a
+provider.

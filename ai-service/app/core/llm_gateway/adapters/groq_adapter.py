@@ -38,6 +38,14 @@ _PASSTHROUGH_KEYS = (
 )
 
 
+def _is_tpm_rate_limit(status: int | None, message: str) -> bool:
+    """Groq reports some TPM rejections as HTTP 413 instead of 429."""
+    normalized = message.lower()
+    return status in (413, 429) and (
+        "tokens per minute" in normalized or "rate_limit_exceeded" in normalized
+    )
+
+
 class GroqAdapter(LLMAdapter):
     async def chat(
         self,
@@ -105,7 +113,7 @@ class GroqAdapter(LLMAdapter):
             msg = str(exc)
             if status in (401, 403):
                 raise AuthError(msg, status_code=status) from exc
-            if status == 429:
+            if _is_tpm_rate_limit(status, msg):
                 raise RateLimitedError(msg, retry_after=self._get_retry_after(exc)) from exc
             if status == 400:
                 msg_lower = msg.lower()
@@ -212,10 +220,11 @@ class GroqAdapter(LLMAdapter):
                 logger.error("Groq APIStatusError in stream status=%s detail=%s", status, detail)
             except Exception:
                 pass
-            if status == 429:
-                raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
+            msg = str(exc)
+            if _is_tpm_rate_limit(status, msg):
+                raise RateLimitedError(msg, retry_after=self._get_retry_after(exc)) from exc
             retryable = status in (408, 409, 425) or (status is not None and status >= 500)
-            raise ProviderError(str(exc), status_code=status, retryable=retryable) from exc
+            raise ProviderError(msg, status_code=status, retryable=retryable) from exc
         finally:
             try:
                 await client.close()

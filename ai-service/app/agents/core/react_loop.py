@@ -815,12 +815,16 @@ async def run_react_loop(
         if system_course_id in active_course_ids:
             focus_course_id = system_course_id
 
-    mode = "single" if focus_course_id else "global"
+    # This is the course-scope mode, distinct from the requested chat mode.
+    # Reusing ``mode`` here used to overwrite ``flash`` with ``single`` or
+    # ``global``.  The rest of the turn then enabled tools and RAG even though
+    # the user had selected Flash.
+    scope_mode = "single" if focus_course_id else "global"
     if execution_plan.retrieval_strategy.scope == "global":
-        mode = "all"
+        scope_mode = "all"
 
     scope = CourseScope(
-        mode=mode,
+        mode=scope_mode,
         focus_course_id=focus_course_id,
         candidate_course_ids=[focus_course_id] if focus_course_id else [],
         confidence=1.0,
@@ -866,8 +870,15 @@ async def run_react_loop(
     # -- Step 2: Assemble memory context --------------------------------------
     if mode == "flash":
         # Keep a small local dialogue window for coherence without touching
-        # MTM, embeddings, Qdrant, Postgres, or personalize-service.
-        flash_history = history_turns[-3:]
+        # MTM, embeddings, Qdrant, Postgres, or personalize-service.  A prior
+        # standard/deep turn can contain a large tool result (for example
+        # search_course_materials).  Never replay that result into Flash:
+        # Flash has no tools and must keep its prompt strictly bounded.
+        flash_history = [
+            {"role": item["role"], "content": str(item["content"])[:1200]}
+            for item in history_turns
+            if item.get("role") in ("user", "assistant") and item.get("content")
+        ][-3:]
         memory_ctx = {
             "prompt_section": "",
             "stm_messages": flash_history,

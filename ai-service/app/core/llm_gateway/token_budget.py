@@ -32,7 +32,37 @@ def estimate_tokens(value: Any) -> int:
 
 
 def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
-    return sum(estimate_tokens(message.get("content")) + _MESSAGE_OVERHEAD for message in messages)
+    """Estimate the complete chat-message envelope, not just its content.
+
+    Tool messages carry IDs and assistant messages may carry tool calls.  Those
+    fields count towards provider limits just as much as plain text does.
+    """
+    return sum(estimate_tokens(message) + _MESSAGE_OVERHEAD for message in messages)
+
+
+def estimate_request_tokens(
+    messages: list[dict[str, Any]], extra: dict[str, Any] | None = None,
+) -> int:
+    """Estimate every field forwarded to a chat-completions provider.
+
+    Tool schemas are often larger than the conversation itself.  Leaving them
+    out makes a request appear safe locally and then exceed a provider TPM cap
+    upstream.  Count only request-shaping fields; transport flags such as
+    ``stream`` do not consume model tokens.
+    """
+    total = estimate_messages_tokens(messages)
+    if not extra:
+        return total
+
+    model_payload = {
+        key: value
+        for key, value in extra.items()
+        if key in {"tools", "tool_choice", "response_format", "parallel_tool_calls"}
+        and value is not None
+    }
+    if model_payload:
+        total += estimate_tokens(model_payload) + _MESSAGE_OVERHEAD
+    return total
 
 
 def split_text_preserving_content(text: str, max_tokens: int) -> list[str]:

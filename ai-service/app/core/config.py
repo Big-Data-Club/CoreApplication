@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # low TPM tier.
     llm_request_token_budget: int = 30000
     llm_min_completion_tokens: int = 128
+    # A provider may use a tokenizer that differs slightly from the gateway's
+    # conservative estimate.  Reserve headroom for TPM enforcement.
+    llm_tpm_safety_ratio: float = 0.75
 
     # Google Gemini
     gemini_api_key: str = ""

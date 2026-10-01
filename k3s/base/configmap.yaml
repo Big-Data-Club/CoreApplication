@@ -88,7 +88,13 @@ data:
   # These names are consumed directly by Pydantic Settings in ai-service.
   CHAT_MODEL: "openai/gpt-oss-120b"
   QUIZ_MODEL: "openai/gpt-oss-120b"
-  LLM_REQUEST_TOKEN_BUDGET: "30000"
+  # Set AGENT_FLASH_MODEL in the deployment .env (via bdc-env-overrides).
+  # Empty means the gateway uses CHAT_MODEL.
+  AGENT_FLASH_MODEL: ""
+  # Groq's on-demand 8K TPM tier rejects a full 8K request. Keep 25% safety
+  # margin; higher-tier deployments can override both values from .env.
+  LLM_REQUEST_TOKEN_BUDGET: "6000"
+  LLM_TPM_SAFETY_RATIO: "0.75"
   EMBEDDING_MODEL: "BAAI/bge-m3"
   EMBEDDING_DIMENSIONS: "1024"
   EMBEDDING_PREFIX_MODE: "bge"
