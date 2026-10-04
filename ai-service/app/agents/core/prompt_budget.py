@@ -150,9 +150,20 @@ def pack_agent_messages(
     # The selected plan's tools are listed first. Under a very small TPM tier,
     # remove lower-priority definitions only after dialogue/evidence packing.
     # The gateway passes a private copy of `extra` for each key attempt.
+    referenced_tools = {
+        call.get("function", {}).get("name")
+        for message in packed for call in (message.get("tool_calls") or [])
+    }
     omitted_tools = 0
     while estimate_request_tokens(packed, extra) > max_input_tokens and extra.get("tools"):
-        extra["tools"] = extra["tools"][:-1]
+        removable = next((
+            i for i in reversed(range(len(extra["tools"])))
+            if (extra["tools"][i].get("function", {}).get("name")
+                or extra["tools"][i].get("name")) not in referenced_tools
+        ), None)
+        if removable is None:
+            break  # Let the gateway try a larger binding, keep protocol valid.
+        extra["tools"] = [tool for i, tool in enumerate(extra["tools"]) if i != removable]
         omitted_tools += 1
         if not extra["tools"]:
             extra.pop("tools", None)

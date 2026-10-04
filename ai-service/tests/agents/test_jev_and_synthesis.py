@@ -239,19 +239,37 @@ async def test_admin_test_call_uses_system_one_task_path():
 
 
 @pytest.mark.asyncio
-async def test_final_synthesis_disables_tools_and_uses_evidence():
+@pytest.mark.parametrize("finish", ["stop", "length"])
+async def test_final_synthesis_disables_tool_protocol_and_preserves_finish(finish):
     async def stream(req):
         assert req.extra == {}
-        assert req.messages[-2]["role"] == "tool"
-        assert "Không gọi thêm công cụ" in req.messages[-1]["content"]
-        yield "Câu trả lời từ tài liệu.", None, {}
+        for budget in (10000, 1300):
+            packed = req.message_packer(req.messages, req.extra, budget)
+            assert all(m["role"] in ("system", "user") for m in packed)
+            assert all("tool_calls" not in m and "tool_call_id" not in m for m in packed)
+            assert "HPC and QC" in packed[1]["content"]
+            assert "Evidence" in packed[-1]["content"]
+            from app.core.llm_gateway.token_budget import estimate_request_tokens
+            assert estimate_request_tokens(packed, {}) <= budget
+        assert all(m["role"] != "tool" for m in req.messages)
+        yield "Câu trả lời từ tài liệu.", None, {"choices": [{"finish_reason": finish}]}
 
-    gateway = MagicMock(stream=stream)
-    result = await _synthesize_after_tools(
-        gateway, [{"role": "tool", "content": "Evidence"}], lambda *a, **kw: [],
-        "How to schedule HPC and QC?",
+    import json
+    messages = [
+        {"role": "system", "content": "Use search tools. " * 1000},
+        {"role": "user", "content": "How to schedule HPC and QC?"},
+        {"role": "assistant", "tool_calls": [{"id": "call-1", "function": {
+            "name": "search_course_materials", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call-1", "content": json.dumps({
+            "data": {"chunks": [{"text": "Evidence " * 1000, "id": "source-1"}]}
+        })},
+    ]
+    result, reason = await _synthesize_after_tools(
+        MagicMock(stream=stream), messages, "How to schedule HPC and QC?",
     )
     assert result == "Câu trả lời từ tài liệu."
+    assert reason == finish
+    assert messages[-1]["role"] == "tool"
 
 
 @pytest.mark.asyncio

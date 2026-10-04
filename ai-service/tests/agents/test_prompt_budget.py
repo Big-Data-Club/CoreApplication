@@ -61,6 +61,28 @@ class PromptBudgetTests(unittest.TestCase):
         self.assertIn("_evidence_notice", packed[-1]["content"])
         self.assertEqual(self.messages[-1]["content"], self.evidence)
 
+    def test_schema_trimming_preserves_previously_called_tool(self) -> None:
+        called = {"type": "function", "function": {
+            "name": "search_course_materials", "description": "Search",
+        }}
+        unused = {"type": "function", "function": {
+            "name": "unused", "description": "Large unused schema " * 200,
+        }}
+        messages = self.messages[-3:]
+        messages[-1] = {**messages[-1], "content": "Evidence"}
+        extra = {"tools": [unused, called], "tool_choice": "auto"}
+        packed = pack_agent_messages(messages, extra, 500)
+        self.assertEqual(extra["tools"], [called])
+        self.assertEqual(packed[-2]["tool_calls"][0]["id"], packed[-1]["tool_call_id"])
+
+    def test_oversized_called_schema_fails_instead_of_sending_invalid_protocol(self) -> None:
+        extra = {"tools": [{"type": "function", "function": {
+            "name": "search_course_materials", "description": "Large schema " * 1000,
+        }}]}
+        with self.assertRaises(ContextLengthError):
+            pack_agent_messages(self.messages, extra, 500)
+        self.assertEqual(len(extra["tools"]), 1)
+
     def test_large_key_keeps_all_input(self) -> None:
         packed = pack_agent_messages(self.messages, self.extra, 30000)
         self.assertEqual(packed, self.messages)
