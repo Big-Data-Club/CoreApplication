@@ -104,6 +104,12 @@ spec:
               name: bdc-secrets
               key: OPENAI_API_KEY
               optional: true
+        - name: OPENCODE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: OPENCODE_API_KEY
+              optional: true
         - name: AI_SERVICE_SECRET
           valueFrom:
             secretKeyRef:

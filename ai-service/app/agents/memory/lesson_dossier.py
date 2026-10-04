@@ -147,22 +147,24 @@ async def load_lesson_dossier(course_id: int, content_id: int) -> Optional[dict]
 
                 # Ancestor chains (course hierarchy position), root first.
                 chain_map = await conn.fetch(
-                    """WITH RECURSIVE chain(node_id, root_path) AS (
-                           SELECT id, ARRAY[]::text[]
-                           FROM knowledge_nodes WHERE id = ANY($1)
+                    """WITH RECURSIVE chain(origin_id, node_id, root_path, depth) AS (
+                           SELECT id, id, ARRAY[COALESCE(name_vi, name)]::text[], 0
+                           FROM knowledge_nodes WHERE id = ANY($1) AND course_id = $2
                            UNION ALL
-                           SELECT k.id,
-                                  chain.root_path || COALESCE(k.name_vi, k.name)
+                           SELECT c.origin_id, k.id,
+                                  ARRAY[COALESCE(k.name_vi, k.name)]::text[] || c.root_path,
+                                  c.depth + 1
                            FROM knowledge_nodes k
                            JOIN chain c ON k.id = (
                                SELECT parent_id FROM knowledge_nodes
                                WHERE id = c.node_id
                            )
+                           WHERE k.course_id = $2 AND c.depth < 16
                        )
-                       SELECT DISTINCT ON (node_id) node_id, root_path
+                       SELECT DISTINCT ON (origin_id) origin_id AS node_id, root_path
                        FROM chain
-                       ORDER BY node_id, array_length(root_path, 1) DESC NULLS LAST""",
-                    id_list,
+                       ORDER BY origin_id, depth DESC""",
+                    id_list, course_id,
                 )
                 paths = {r["node_id"]: list(r["root_path"] or []) for r in chain_map}
 

@@ -98,6 +98,23 @@ not ready for implementation.
 
 ## Analytics and privacy notes
 
+- Chi tiết mỗi câu trả lời AI hiển thị riêng các tín hiệu chọn luồng (S-Score)
+  và các nguồn ngữ cảnh chuẩn bị cho lượt trả lời: số tin nhắn gần đây,
+  số mục ghi nhớ/tóm tắt cũ, chỉ số hồ sơ khóa học và snapshot học tập khi có.
+  S-Score không đo mức agent hiểu đúng người học. Multi-Agent hiện dùng tài liệu
+  truy xuất để viết câu trả lời, chưa truyền bộ nhớ/hồ sơ học tập vào phần viết;
+  giao diện phải nói rõ giới hạn này.
+- Bản tóm tắt giải trình chỉ được trả về trong phiên chat đã xác thực của chủ
+  tài khoản và lưu cùng metadata câu trả lời theo vòng đời lịch sử chat hiện có.
+  Không lưu hay hiển thị nguyên văn hội thoại cũ, ghi chú cá nhân, prompt hoặc
+  suy luận nội bộ; các chỉ số cá nhân hóa chỉ hiển thị khi chúng vào ngữ cảnh
+  chuẩn bị. Giới hạn token của model có thể rút gọn ngữ cảnh trước khi gửi.
+- JEV là dịch vụ đánh giá câu hỏi bên ngoài, mặc định tắt. Khi được bật bằng
+  secret và cờ cấu hình, AI gửi tối đa 900 ký tự câu hỏi hiện tại cho OpenCode
+  Zen để nhận gợi ý chọn luồng Deep; MCP có công cụ `assess_question` chỉ đọc.
+  JEV không được phê duyệt thao tác ghi hay thay thế kiểm tra quyền. Nếu dịch vụ
+  lỗi, hệ thống quay về quy tắc nội bộ. Cần xét mục đích và vòng đời dữ liệu
+  của nhà cung cấp trước khi bật ở production.
 - Lakehouse data is operational analytics, not a replacement for LMS or Auth
   transaction records.
 - Treat user IDs, course activity, recommendation outcomes, IP address and user

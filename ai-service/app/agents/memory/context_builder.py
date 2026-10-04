@@ -217,9 +217,20 @@ class ContextBuilder:
             raw["personalize_profile"] = personalize_profile
             raw["personalize"] = {"scored_concepts": scored_concepts}
 
-            if scored_concepts or personalize_profile:
+            profile_has_activity = bool(
+                not personalize_profile.get("error") and (
+                    personalize_profile.get("attempted_lessons")
+                    or personalize_profile.get("correct_checks_count")
+                    or personalize_profile.get("incorrect_checks_count")
+                    or personalize_profile.get("struggle_nodes")
+                )
+            )
+            if scored_concepts or profile_has_activity:
                 facts_section = self._fit_section_lines(
-                    self._format_ltm_facts(scored_concepts, facts_budget), facts_budget
+                    self._format_ltm_facts(
+                        scored_concepts, facts_budget,
+                        personalize_profile if profile_has_activity else None,
+                    ), facts_budget
                 )
                 if facts_section:
                     sections.append(facts_section)

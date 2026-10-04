@@ -4,6 +4,23 @@ All text and vision calls from `ai-service` route through the LLM gateway. The
 gateway stores provider keys encrypted, applies task-to-model bindings, tracks
 usage, and manages fallback/cooldown centrally.
 
+## Optional Jev decision service
+
+Jev System One is a structured decision API, so its configuration is checked at
+startup separately from chat model bindings. The application default is
+disabled. The production ConfigMap opts in, but a nonempty `OPENCODE_API_KEY`
+in `bdc-secrets` is also required; without the key, routing uses the existing
+local rule. To disable after rollout, set `JEV_ENABLED=false` and restart
+`ai-service`.
+
+For read-only Deep questions, Jev evaluates up to 900 characters of the current
+question and returns an advisory probability for the retrieval/draft/critique
+pipeline. A score of at least 0.85 may promote a local score in the 0.35–0.45
+band. It cannot approve writes or bypass course authorization. MCP also exposes
+the read-only `assess_question` tool for explicit assessment, returning an
+unavailable error when Jev is disabled. Operators should review the external
+transfer and provider retention terms before enabling the feature in production.
+
 ## Default routing
 
 Text tasks bootstrap to the configured default model. `agent_flash`, used only

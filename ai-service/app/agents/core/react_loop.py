@@ -128,6 +128,42 @@ async def _request_answer_continuation(gateway: Any, req: ChatRequest, previous:
     return _remove_continuation_overlap(previous, more_text), finish_reason
 
 
+async def _synthesize_after_tools(
+    gateway: Any, messages: list[dict], message_packer: Any,
+    question: str, previous: str = "",
+) -> str:
+    """Reserve one answer-only call after tool rounds consume the ReAct budget."""
+    answer_messages = list(messages) + [{
+        "role": "user",
+        "content": (
+            "Các bước tra cứu đã kết thúc. Dựa trên kết quả công cụ ở trên, "
+            "hãy trả lời đầy đủ câu hỏi gốc bằng tiếng Việt: "
+            + question[:1800] + "\n"
+            "Không gọi thêm công cụ. Nếu bằng chứng chưa đủ, nói rõ phần chưa chắc chắn. "
+            + ("Tiếp tục câu trả lời đã có, không lặp lại: " + previous[-2500:] if previous else "")
+        ),
+    }]
+    req = ChatRequest(
+        task=TASK_AGENT_REACT,
+        messages=answer_messages,
+        temperature=0.3,
+        max_tokens=2200,
+        min_completion_tokens=768,
+        json_mode=False,
+        extra={},
+        message_packer=message_packer,
+    )
+    parser = ThoughtStreamParser()
+    result = ""
+    async for delta_text, _, _ in gateway.stream(req):
+        if delta_text:
+            result += "".join(
+                text for kind, text in parser.feed(delta_text) if kind == "content"
+            )
+    result += "".join(text for kind, text in parser.flush() if kind == "content")
+    return _remove_continuation_overlap(previous, result) if previous else result
+
+
 def _parse_tool_arguments(raw: Any) -> dict | None:
     """Robustly parse tool arguments from LLM output, handling markdown,
     single quotes, trailing commas, and unquoted keys.
@@ -1067,6 +1103,7 @@ async def run_react_loop(
 
     # -- Step 3.5: Multi-Agent Spawning ----------------------------------------
     from app.agents.core.multi_agent_orchestrator import MultiAgentOrchestrator
+    from app.agents.core.decision_explanation import build_decision_explanation
 
     parent_context_length = memory_ctx.get("token_estimate", 0) + len(user_message) // 4
     orchestrator = MultiAgentOrchestrator(session_id, turn_id)
@@ -1082,17 +1119,6 @@ async def run_react_loop(
         stm_turn_count=len(stm_history),
     )
 
-    yield AgentEvent(
-        type=AgentEventType.THINKING,
-        data={
-            "step": "multi_agent_decision",
-            "score": score,
-            "breakdown": breakdown,
-        },
-        session_id=session_id,
-        turn_id=turn_id,
-    )
-
     # The multi-agent pipeline produces prose only and cannot execute tools or
     # emit HITL widgets. Keep teacher action requests in the tool-capable ReAct
     # loop so "create/add" actually results in an editable draft.
@@ -1102,7 +1128,37 @@ async def run_react_loop(
         or _is_teacher_authoring_request(effective_user_request)
     )
 
-    if mode == "deep" and score >= 0.45 and not teacher_action_request:
+    # Jev may promote a borderline, read-only Deep question to the
+    # retrieval/draft/critique pipeline. It never authorizes a write or blocks
+    # the deterministic score-based route when the decision service is down.
+    jev_decision = None
+    if mode == "deep" and 0.35 <= score < 0.45 and not teacher_action_request:
+        from app.core.jev_decider import decide_decomposition
+        jev_decision = await decide_decomposition(effective_user_request)
+    if jev_decision:
+        breakdown["jev_decomposition"] = jev_decision["score"]
+    jev_promoted = bool(
+        jev_decision and 0.35 <= score < 0.45
+        and jev_decision["score"] >= 0.85
+    )
+    breakdown["jev_promoted"] = jev_promoted
+
+    yield AgentEvent(
+        type=AgentEventType.THINKING,
+        data={"step": "multi_agent_decision", "score": score, "breakdown": breakdown},
+        session_id=session_id, turn_id=turn_id,
+    )
+
+    if mode == "deep" and (score >= 0.45 or jev_promoted) and not teacher_action_request:
+        explanation = build_decision_explanation(
+            memory_ctx, mode=mode, multi_agent=True, intent_type=intent_type,
+            personalization_requested=execution_plan.personalization_enabled,
+        )
+        yield AgentEvent(
+            type=AgentEventType.THINKING,
+            data={"step": "decision_explanation", "explanation": explanation},
+            session_id=session_id, turn_id=turn_id,
+        )
         logger.info(
             "Spawning multi-agent: score=%.3f reasons=%s",
             score, breakdown.get("triggered_by", []),
@@ -1136,6 +1192,7 @@ async def run_react_loop(
                 "consolidation": orchestrator.consolidation,
                 "spawningScore": orchestrator.spawning_score,
                 "spawningBreakdown": orchestrator.spawning_breakdown,
+                "decisionExplanation": explanation,
                 "orchestrationPlan": orchestrator.orchestration_plan,
             }
             saved_message_id = await message_store.save_message(
@@ -1324,6 +1381,7 @@ async def run_react_loop(
     # weakest concepts) and hand them to the prompt as ground truth - so even
     # a small model can be personal without orchestrating tool calls.
     learner_context_text = ""
+    learner_snapshot = None
     if use_learner_snapshot:
         try:
             from app.agents.core.learner_context import (
@@ -1331,6 +1389,7 @@ async def run_react_loop(
                 format_learner_snapshot,
             )
             _snap = await fetch_learner_snapshot(user_id)
+            learner_snapshot = _snap
             learner_context_text = format_learner_snapshot(_snap)
             yield AgentEvent(
                 type=AgentEventType.THINKING,
@@ -1347,6 +1406,17 @@ async def run_react_loop(
             )
         except Exception as _exc:  # noqa: BLE001 - best-effort
             logger.warning("Learner snapshot failed (non-fatal): %s", _exc)
+
+    explanation = build_decision_explanation(
+        memory_ctx, mode=mode, multi_agent=False, intent_type=intent_type,
+        personalization_requested=execution_plan.personalization_enabled,
+        learner_snapshot=learner_snapshot,
+    )
+    yield AgentEvent(
+        type=AgentEventType.THINKING,
+        data={"step": "decision_explanation", "explanation": explanation},
+        session_id=session_id, turn_id=turn_id,
+    )
 
     if mode == "flash":
         system_prompt = build_flash_system_prompt(
@@ -1487,6 +1557,9 @@ async def run_react_loop(
         # Persist the verified decision so reopened conversations explain the
         # scope they were grounded in, without retaining raw lesson content.
         "context": context_resolution.as_dict(),
+        "spawningScore": score,
+        "spawningBreakdown": breakdown,
+        "decisionExplanation": explanation,
     }
 
     # Dynamic max_tokens
@@ -1517,10 +1590,10 @@ async def run_react_loop(
                 schemas_for_iteration,
                 key=lambda s: (s.get("function", {}).get("name") or s.get("name")) not in selected_names,
             )
-        active_tool_schemas = [
-            s for s in schemas_for_iteration
-            if (s.get("function", {}).get("name") or s.get("name")) not in executed_search_tools
-        ]
+        # Keep prior tool schemas present when their calls are in the message
+        # history. Some providers validate the entire transcript against the
+        # current request.tools and reject a prior search if it disappears.
+        active_tool_schemas = schemas_for_iteration
 
         gateway = get_gateway()
         req = ChatRequest(
@@ -1807,6 +1880,17 @@ async def run_react_loop(
             if not tool_name:
                 continue
 
+            if tool_name in executed_search_tools:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"] or f"repeated-{tool_name}",
+                    "content": json.dumps({
+                        "status": "info",
+                        "message": "This search already succeeded in this turn. Use the evidence above and answer directly.",
+                    }),
+                })
+                continue
+
             args = _parse_tool_arguments(tc.get("arguments"))
             if args is None:
                 if executed_search_tools:
@@ -2077,6 +2161,48 @@ async def run_react_loop(
                 "Tool result: %s -> %s (%d chars)",
                 tool_name, tool_result.status, len(result_content),
             )
+
+    # Tool execution used the last reasoning round. Give the model a dedicated
+    # answer-only call so successful retrieval does not end as a generic error.
+    if assistant_metadata["toolActivities"]:
+        yield AgentEvent(
+            type=AgentEventType.THINKING,
+            data={"step": "final_synthesis", "detail": "Đang tổng hợp kết quả tra cứu…"},
+            session_id=session_id, turn_id=turn_id,
+        )
+        try:
+            final_continuation = await _synthesize_after_tools(
+                get_gateway(), messages, agent_message_packer,
+                effective_user_request, assistant_text,
+            )
+            if final_continuation.strip():
+                assistant_text += final_continuation
+                yield AgentEvent(
+                    type=AgentEventType.TEXT_DELTA,
+                    data={"delta": final_continuation},
+                    session_id=session_id, turn_id=turn_id,
+                )
+                if ref_ledger:
+                    assistant_metadata["references"] = ref_ledger.references
+                await stm.append(session_id, "assistant", assistant_text)
+                saved_message_id = await message_store.save_message(
+                    session_id, "assistant", assistant_text, assistant_metadata
+                )
+                await _trigger_post_turn_consolidation(
+                    session_id=session_id, user_id=user_id, agent_type=agent_type,
+                    course_id=effective_course_id, intent_type=intent_type,
+                )
+                yield AgentEvent(
+                    type=AgentEventType.DONE,
+                    data={"text": assistant_text, "iterations": max_loop_iterations + 1,
+                          "intent": intent_type, "chat_mode": mode,
+                          "references": ref_ledger.references if ref_ledger else None,
+                          "message_id": saved_message_id},
+                    session_id=session_id, turn_id=turn_id,
+                )
+                return
+        except Exception as exc:  # noqa: BLE001 - preserve the partial answer
+            logger.warning("Final synthesis failed after tool rounds: %s", exc)
 
     # -- Max iterations reached ------------------------------------------------
     logger.warning("ReAct max iterations reached: session=%s", session_id[:8])
