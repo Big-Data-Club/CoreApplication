@@ -405,8 +405,8 @@ kubectl -n default get pods -l app=ai-service -o wide
 ### Add or rotate the Jev key for AI chat and MCP
 
 Deploy the image containing the gateway-managed System One integration first.
-It bootstraps an **OpenCode Zen (Jev decision API)** provider in the encrypted
-LLM gateway key store; it does not create a chat model or task binding. Check
+It bootstraps the **OpenCode Zen (Jev decision API)** provider, the
+`jev-1.13-free` model, and a `jev_decision` task binding. Check
 that `JEV_ENABLED` is `true` in `bdc-config`:
 
 ```bash
@@ -417,7 +417,12 @@ kubectl -n default get deployment ai-service -o jsonpath='{.spec.template.spec.c
 Sign in as an authorized admin and confirm the OpenCode Zen provider's Base URL
 is `https://opencode.ai/zen/v1` under **LMS Admin > LLM Configuration >
 Providers**. The gateway appends `/systemone` for Jev. In **API Keys**, choose
-that provider and add the Zen API key. To rotate,
+that provider and add the Zen API key. In **Models** and **Task bindings**,
+confirm `jev-1.13-free` is attached to `jev_decision`. To select a System One
+model hosted by another provider, give the new model JSON config
+`{"api_protocol":"system_one"}`, configure that provider's HTTPS Base URL and
+key, and bind the model to `jev_decision` with the desired priority or pin.
+To rotate a key,
 add the replacement key and verify it works before disabling or deleting the
 old key. The gateway encrypts keys at rest and leases active keys on each Jev
 call; no K3s Secret update or pod restart is needed for key changes. Use a

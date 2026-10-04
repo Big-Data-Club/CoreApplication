@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.core.llm_gateway import (
     ALL_TASK_CODES,
     ChatRequest,
+    TASK_JEV_DECISION,
     get_gateway,
     get_registry,
 )
@@ -259,6 +260,12 @@ async def upsert_binding(body: BindingIn, request: Request):
     if body.task_code not in ALL_TASK_CODES:
         # We still allow it - admins may add custom codes - but warn.
         logger.warning("Binding for unknown task_code=%s", body.task_code)
+    model = await get_registry().get_model(body.model_id)
+    if model is None:
+        raise HTTPException(404, "Model not found")
+    is_system_one = model.config.get("api_protocol") == "system_one"
+    if (body.task_code == TASK_JEV_DECISION) != is_system_one:
+        raise HTTPException(400, "System One models must be bound only to jev_decision")
     b = await get_registry().upsert_binding(**body.model_dump())
     return _binding_dto(b)
 @router.patch("/bindings/{binding_id}")
@@ -292,6 +299,25 @@ async def usage_stats(
 async def test_call(body: TestCallIn, request: Request):
     _verify(request)
     task = body.task or "chat"
+    if task == TASK_JEV_DECISION:
+        if body.model_hint:
+            raise HTTPException(400, "Model hint is not supported for the System One task; use task bindings")
+        decision = await get_gateway().decide_jev(body.prompt)
+        if decision is None:
+            raise HTTPException(503, "No available System One binding or key")
+        return {
+            "content": str(decision["score"]),
+            "model": decision["model"],
+            "provider": decision["provider"],
+            "fallback_used": decision["fallback_used"],
+            "attempt_no": decision["attempt_no"],
+            "usage": {
+                "prompt_tokens": decision["input_tokens"],
+                "completion_tokens": decision["output_tokens"],
+                "total_tokens": decision["input_tokens"] + decision["output_tokens"],
+            },
+            "latency_ms": decision["latency_ms"],
+        }
     try:
         response = await get_gateway().chat(ChatRequest(
             task=task,

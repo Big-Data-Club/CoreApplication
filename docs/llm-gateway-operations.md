@@ -6,18 +6,23 @@ usage, and manages fallback/cooldown centrally.
 
 ## Optional Jev decision service
 
-Jev System One is a structured decision API. The gateway bootstraps an
-`opencode_zen` provider without a chat model or task binding, and uses its
-encrypted Admin-managed API key pool for Jev requests. The application default
-is disabled; the production ConfigMap opts in. In Admin > LLM Configuration >
-API Keys, add a key under **OpenCode Zen (Jev decision API)**. Key changes take
-effect without a pod restart. Without an active key, routing uses the existing
-local rule. To disable after rollout, set `JEV_ENABLED=false` and restart
-`ai-service`.
-The provider's Admin-editable `base_url` defaults to
-`https://opencode.ai/zen/v1`; the gateway appends `/systemone` for this
-structured call. Only HTTPS URLs are accepted, and an invalid or missing URL
-falls back to local routing without leasing a key.
+Jev System One is a structured decision API. On first startup the gateway
+registers the `opencode_zen` provider, the `jev-1.13-free` model, and a
+`jev_decision` task binding. This is a catalog default only: runtime resolves
+the active task binding, model, provider URL and encrypted key pool from the
+gateway. Admin changes are retained across restarts. The application default
+is disabled; the production ConfigMap opts in. Without a usable binding/key,
+routing uses the existing local rule. To disable after rollout, set
+`JEV_ENABLED=false` and restart `ai-service`.
+
+To choose another provider or System One model, create it in Admin > LLM
+Configuration. Set the model's JSON config to `{"api_protocol":"system_one"}`;
+optionally set `endpoint_path` (default `systemone`). Give its provider an HTTPS
+Base URL and an active API key, then add the model to the `jev_decision` task
+binding chain with a higher priority or pin it. Only System One models can be
+bound to that task. Key and binding changes take effect without a pod restart
+(binding caches on other processes can take up to 30 seconds). The gateway
+appends the model's endpoint path to its provider's Base URL.
 
 For read-only Deep questions, Jev evaluates up to 900 characters of the current
 question and returns an advisory probability for the retrieval/draft/critique
@@ -26,7 +31,7 @@ band. It cannot approve writes or bypass course authorization. MCP also exposes
 the read-only `assess_question` tool for explicit assessment, returning an
 unavailable error when Jev is disabled. Operators should review the external
 transfer and provider retention terms before enabling the feature in production.
-The provider uses System One directly; do not bind it as a chat model.
+System One models must not be bound to chat tasks.
 
 ## Default routing
 

@@ -32,6 +32,7 @@ TASK_COURSE_BLUEPRINT   = "course_blueprint"
 # generation with a strict structured-output contract - same rationale as
 # course_blueprint, separate task so admins can bind a stronger model.
 TASK_CONTENT_STUDIO     = "content_studio"
+TASK_JEV_DECISION       = "jev_decision"       # structured System One assessment
 
 ALL_TASK_CODES: tuple[str, ...] = (
     TASK_CHAT, TASK_QUIZ_GEN, TASK_MICRO_LESSON_GEN, TASK_MICRO_QUIZ_GEN,
@@ -39,7 +40,7 @@ ALL_TASK_CODES: tuple[str, ...] = (
     TASK_AGENT_REACT, TASK_AGENT_FLASH, TASK_AGENT_ROUTER, TASK_CLARIFICATION,
     TASK_GRAPH_LINK, TASK_MEMORY_COMPRESS, TASK_LANGUAGE_DETECT,
     TASK_NODE_EXTRACT, TASK_VLM_DESCRIBE, TASK_SECTION_OVERVIEW_GEN,
-    TASK_COURSE_BLUEPRINT, TASK_CONTENT_STUDIO,
+    TASK_COURSE_BLUEPRINT, TASK_CONTENT_STUDIO, TASK_JEV_DECISION,
 )
  
  

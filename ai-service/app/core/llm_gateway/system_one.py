@@ -1,4 +1,4 @@
-"""Structured System One call using the gateway's Admin-managed provider keys."""
+"""System One task execution through gateway bindings, providers, and key pool."""
 
 from __future__ import annotations
 
@@ -11,54 +11,48 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.llm_gateway.errors import NoKeyAvailableError
-from app.core.llm_gateway.key_pool import KeyPool
+from app.core.llm_gateway.key_pool import KeyPool, LeasedKey
 from app.core.llm_gateway.registry import ModelRegistry
+from app.core.llm_gateway.types import Model, TASK_JEV_DECISION
 from app.core.llm_gateway.usage import record_usage
 
 logger = logging.getLogger(__name__)
-PROVIDER_CODE = "opencode_zen"
+MAX_KEYS_PER_MODEL = 3
 
 
-def _system_one_url(base_url: str | None) -> str | None:
-    """Build the structured endpoint from the Admin-managed provider URL."""
-    if not base_url:
+def _system_one_url(base_url: str | None, path: str = "systemone") -> str | None:
+    """Build a safe HTTPS endpoint from the selected provider/model settings."""
+    if not isinstance(base_url, str) or not base_url.strip():
         return None
     parsed = urlsplit(base_url.strip())
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username
             or parsed.password or parsed.query or parsed.fragment):
         return None
-    return base_url.strip().rstrip("/") + "/systemone"
+    if (not isinstance(path, str) or not path or path.startswith("/")
+            or ".." in path or "?" in path or "#" in path or "\\" in path):
+        return None
+    return base_url.strip().rstrip("/") + "/" + path
 
 
-async def decide_system_one(
-    state: str, *, registry: ModelRegistry, key_pool: KeyPool,
-) -> dict[str, Any] | None:
-    """Return an advisory score, or None if disabled/unavailable/invalid."""
-    settings = get_settings()
-    if not settings.jev_enabled:
-        return None
-    prompt = state.strip()[:900]
-    if not prompt:
-        return None
+async def _attempt(
+    *, prompt: str, model: Model, endpoint: str, lease: LeasedKey,
+    key_pool: KeyPool, timeout: float, attempt_no: int, fallback_used: bool,
+) -> tuple[str, dict[str, Any] | None]:
+    """Run one key attempt; tell the caller whether another key may help."""
+    started = time.monotonic()
 
-    try:
-        provider = await registry.get_provider_by_code(PROVIDER_CODE)
-        if provider is None or not provider.enabled:
-            return None
-        endpoint = _system_one_url(provider.base_url)
-        if endpoint is None:
-            logger.warning("Jev provider has no valid HTTPS base URL")
-            return None
-        lease = await key_pool.lease(provider.id)
-    except NoKeyAvailableError:
-        logger.info("Jev decision unavailable: no active OpenCode Zen key")
-        return None
-    except Exception as exc:  # Registry/key-store failure must not break chat.
-        logger.warning("Jev key lookup failed: %s", type(exc).__name__)
-        return None
+    async def log_attempt(*, success: bool, error_code: str | None = None,
+                          input_tokens: int = 0, output_tokens: int = 0) -> None:
+        await record_usage(
+            task_code=TASK_JEV_DECISION, model=model, api_key_id=lease.id,
+            prompt_tokens=input_tokens, completion_tokens=output_tokens,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            success=success, fallback_used=fallback_used,
+            attempt_no=attempt_no, error_code=error_code,
+        )
 
     payload = {
-        "model": settings.jev_model,
+        "model": model.model_name,
         "state": prompt,
         "questions": {"decompose": {
             "type": "noul",
@@ -68,21 +62,8 @@ async def decide_system_one(
             ),
         }},
     }
-    started = time.monotonic()
-
-    async def log_attempt(*, success: bool, error_code: str | None = None,
-                          input_tokens: int = 0, output_tokens: int = 0) -> None:
-        await record_usage(
-            task_code="jev_decision", model=None, api_key_id=lease.id,
-            provider_code=PROVIDER_CODE, model_name=settings.jev_model,
-            prompt_tokens=input_tokens, completion_tokens=output_tokens,
-            latency_ms=int((time.monotonic() - started) * 1000),
-            success=success, fallback_used=False, attempt_no=1,
-            error_code=error_code,
-        )
-
     try:
-        async with httpx.AsyncClient(timeout=settings.jev_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 endpoint,
                 headers={"Authorization": f"Bearer {lease.plaintext}"},
@@ -91,20 +72,20 @@ async def decide_system_one(
         if response.status_code in (401, 403):
             await key_pool.record_auth_failure(lease.id, "System One authentication failed")
             await log_attempt(success=False, error_code="auth")
-            return None
+            return "next_key", None
         if response.status_code == 429:
             await key_pool.record_rate_limit(lease.id)
             await log_attempt(success=False, error_code="rate_limited")
-            return None
+            return "next_key", None
         response.raise_for_status()
         result = response.json()
-        answer = (result.get("answers") or {}).get("decompose") if isinstance(result, dict) else None
+        answers = result.get("answers") if isinstance(result, dict) else None
+        answer = answers.get("decompose") if isinstance(answers, dict) else None
         value = answer.get("noul") if isinstance(answer, dict) else None
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
-            logger.warning("Jev returned an invalid decomposition value")
             await key_pool.record_generic_failure(lease.id, "Invalid System One response")
             await log_attempt(success=False, error_code="invalid_response")
-            return None
+            return "next_model", None
         usage = result.get("usage") or {}
         input_tokens = usage.get("input_tokens", 0) if isinstance(usage, dict) else 0
         output_tokens = usage.get("output_tokens", 0) if isinstance(usage, dict) else 0
@@ -112,15 +93,73 @@ async def decide_system_one(
         output_tokens = int(output_tokens) if isinstance(output_tokens, (int, float)) and not isinstance(output_tokens, bool) else 0
         await key_pool.record_success(lease.id, input_tokens + output_tokens)
         await log_attempt(success=True, input_tokens=input_tokens, output_tokens=output_tokens)
-        return {"score": round(float(value), 3), "model": settings.jev_model}
+        return "success", {
+            "score": round(float(value), 3), "model": model.model_name,
+            "provider": model.provider_code,
+            "input_tokens": input_tokens, "output_tokens": output_tokens,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "fallback_used": fallback_used, "attempt_no": attempt_no,
+        }
     except (httpx.HTTPError, ValueError, TypeError) as exc:
-        logger.warning("Jev decision unavailable: %s", type(exc).__name__)
+        logger.warning("System One model %s failed: %s", model.model_name, type(exc).__name__)
         try:
             await key_pool.record_generic_failure(lease.id, type(exc).__name__)
         except Exception:
-            logger.warning("Jev key health update failed")
+            logger.warning("System One key health update failed")
         await log_attempt(success=False, error_code=type(exc).__name__)
+        return "next_model", None
+
+
+async def decide_system_one(
+    state: str, *, registry: ModelRegistry, key_pool: KeyPool,
+) -> dict[str, Any] | None:
+    """Resolve the live Jev task chain and fall back locally if none succeeds."""
+    settings = get_settings()
+    if not settings.jev_enabled:
         return None
+    prompt = state.strip()[:900]
+    if not prompt:
+        return None
+
+    try:
+        chain = await registry.get_binding_chain(TASK_JEV_DECISION)
     except Exception as exc:
-        logger.warning("Jev decision unavailable: %s", type(exc).__name__)
+        logger.warning("System One task lookup failed: %s", type(exc).__name__)
         return None
+
+    for index, binding in enumerate(chain):
+        model = binding.model
+        if model.config.get("api_protocol") != "system_one":
+            logger.warning("Skipping non-System-One model bound to %s: %s",
+                           TASK_JEV_DECISION, model.model_name)
+            continue
+        try:
+            provider = await registry.get_provider(model.provider_id)
+            if provider is None or not provider.enabled:
+                continue
+            endpoint = _system_one_url(
+                provider.base_url, model.config.get("endpoint_path", "systemone")
+            )
+            if endpoint is None:
+                logger.warning("System One provider %s has no valid HTTPS endpoint",
+                               model.provider_code)
+                continue
+            excluded: set[int] = set()
+            for key_attempt in range(MAX_KEYS_PER_MODEL):
+                try:
+                    lease = await key_pool.lease(provider.id, exclude_ids=excluded.copy())
+                except NoKeyAvailableError:
+                    break
+                excluded.add(lease.id)
+                outcome, decision = await _attempt(
+                    prompt=prompt, model=model, endpoint=endpoint, lease=lease,
+                    key_pool=key_pool, timeout=settings.jev_timeout_seconds,
+                    attempt_no=key_attempt + 1, fallback_used=index > 0,
+                )
+                if outcome == "success":
+                    return decision
+                if outcome != "next_key":
+                    break
+        except Exception as exc:  # Decision service must never block chat.
+            logger.warning("System One binding failed: %s", type(exc).__name__)
+    return None

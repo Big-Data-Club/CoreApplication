@@ -50,6 +50,7 @@ from app.core.llm_gateway.types import (
     TASK_SECTION_OVERVIEW_GEN,
     TASK_COURSE_BLUEPRINT,
     TASK_CONTENT_STUDIO,
+    TASK_JEV_DECISION,
     TaskBinding,
     Usage,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "TASK_SECTION_OVERVIEW_GEN",
     "TASK_COURSE_BLUEPRINT",
     "TASK_CONTENT_STUDIO",
+    "TASK_JEV_DECISION",
     # errors
     "LLMGatewayError", "NoModelAvailableError", "NoKeyAvailableError",
     "ProviderError", "RateLimitedError", "AuthError", "ContextLengthError",

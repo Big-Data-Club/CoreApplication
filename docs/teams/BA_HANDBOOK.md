@@ -110,9 +110,10 @@ not ready for implementation.
   suy luận nội bộ; các chỉ số cá nhân hóa chỉ hiển thị khi chúng vào ngữ cảnh
   chuẩn bị. Giới hạn token của model có thể rút gọn ngữ cảnh trước khi gửi.
 - JEV là dịch vụ đánh giá câu hỏi bên ngoài, mặc định tắt. Khi được bật bằng
-  cờ cấu hình và có key hoạt động trong LLM gateway do admin quản lý, AI gửi
-  tối đa 900 ký tự câu hỏi hiện tại cho OpenCode
-  Zen để nhận gợi ý chọn luồng Deep; MCP có công cụ `assess_question` chỉ đọc.
+  cờ cấu hình và có binding/key hoạt động trong LLM gateway do admin quản lý,
+  AI gửi tối đa 900 ký tự câu hỏi hiện tại đến provider System One được chọn
+  (mặc định OpenCode Zen) để nhận gợi ý chọn luồng Deep; MCP có công cụ
+  `assess_question` chỉ đọc.
   JEV không được phê duyệt thao tác ghi hay thay thế kiểm tra quyền. Nếu dịch vụ
   lỗi, hệ thống quay về quy tắc nội bộ. Cần xét mục đích và vòng đời dữ liệu
   của nhà cung cấp trước khi bật ở production.

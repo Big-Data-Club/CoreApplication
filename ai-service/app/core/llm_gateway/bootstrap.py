@@ -1,6 +1,6 @@
 """
 Bootstrap - called once on application startup to guarantee that:
- 
+
   1. The default Groq provider exists (idempotent).
   2. The configured default model is registered and bound for every text task.
   3. If GROQ_API_KEY is set, it's migrated into llm_api_keys as alias
@@ -18,7 +18,7 @@ from typing import Optional
 
 from app.core.config import get_settings
 from app.core.llm_gateway.freemodel_providers import _DEFAULT_FREEMODEL_PROVIDERS
-from app.core.llm_gateway.registry import get_registry
+from app.core.llm_gateway.registry import ModelRegistry, get_registry
 from app.core.llm_gateway.types import (
     ALL_TASK_CODES,
     TASK_AGENT_FLASH,
@@ -39,6 +39,7 @@ from app.core.llm_gateway.types import (
     TASK_SECTION_OVERVIEW_GEN,
     TASK_COURSE_BLUEPRINT,
     TASK_CONTENT_STUDIO,
+    TASK_JEV_DECISION,
 )
  
 logger = logging.getLogger(__name__)
@@ -267,10 +268,49 @@ _DEFAULT_CLAUDE_MODELS = [
 ]
 
 
+async def _bootstrap_system_one(registry: ModelRegistry) -> None:
+    """Seed the System One catalog only when an admin has not configured it."""
+    # System One uses a structured endpoint, not chat completions. Register a
+    # dedicated provider for encrypted Admin-managed keys, without a chat model
+    # or task binding. The specialized gateway method handles its wire format.
+    zen_provider = await registry.get_provider_by_code("opencode_zen")
+    if zen_provider is None:
+        zen_provider = await registry.upsert_provider(
+            code="opencode_zen",
+            display_name="OpenCode Zen (Jev decision API)",
+            adapter_type="openai_compat",
+            base_url="https://opencode.ai/zen/v1",
+            enabled=True,
+        )
+
+    # Seed a visible System One model/task once. Existing Admin edits and
+    # bindings (including alternate providers) remain authoritative.
+    zen_models = await registry.list_models(provider_id=zen_provider.id)
+    jev_model = next((m for m in zen_models if m.model_name == "jev-1.13-free"), None)
+    if jev_model is None:
+        jev_model = await registry.upsert_model(
+            provider_id=zen_provider.id,
+            model_name="jev-1.13-free",
+            display_name="Jev 1.13 Free (System One)",
+            family="system_one",
+            supports_json=True,
+            supports_tools=False,
+            supports_streaming=False,
+            config={"api_protocol": "system_one"},
+        )
+    if not await registry.list_bindings(TASK_JEV_DECISION):
+        await registry.upsert_binding(
+            task_code=TASK_JEV_DECISION,
+            model_id=jev_model.id,
+            priority=10,
+            notes="seeded-default:system-one",
+        )
+
+
 async def bootstrap_llm_registry() -> None:
     settings = get_settings()
     registry = get_registry()
- 
+
     # 1. Provider
     provider = await registry.upsert_provider(
         code="groq",
@@ -291,17 +331,7 @@ async def bootstrap_llm_registry() -> None:
         enabled=True,
     )
 
-    # System One uses a structured endpoint, not chat completions. Register a
-    # dedicated provider for encrypted Admin-managed keys, without a chat model
-    # or task binding. The specialized gateway method handles its wire format.
-    if await registry.get_provider_by_code("opencode_zen") is None:
-        await registry.upsert_provider(
-            code="opencode_zen",
-            display_name="OpenCode Zen (Jev decision API)",
-            adapter_type="openai_compat",
-            base_url="https://opencode.ai/zen/v1",
-            enabled=True,
-        )
+    await _bootstrap_system_one(registry)
  
     # 2. Models - upsert with current env-var names so the task map still works
     chat_env = settings.chat_model

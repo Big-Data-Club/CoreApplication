@@ -59,7 +59,7 @@ class LLMGateway:
         self.key_pool = get_key_pool()
 
     async def decide_jev(self, state: str) -> dict[str, Any] | None:
-        """Use the gateway's managed OpenCode Zen key for System One."""
+        """Run the bound System One task through the gateway's model/key chain."""
         from app.core.llm_gateway.system_one import decide_system_one
 
         return await decide_system_one(
