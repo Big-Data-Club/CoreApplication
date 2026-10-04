@@ -102,7 +102,7 @@ async def _stream_synthesis_after_tools(
 
     req = ChatRequest(
         task=TASK_AGENT_REACT, messages=answer_messages,
-        temperature=0.3, max_tokens=answer_limits("deep")[2] if mode == "deep" else 2200,
+        temperature=0.3, max_tokens=answer_limits(mode)[2] if mode in ("standard", "deep") else 2200,
         min_completion_tokens=768,
         json_mode=False, extra={}, message_packer=pack_answer,
     )
@@ -1500,7 +1500,7 @@ async def run_react_loop(
     # Flash skips retrieval and extra reasoning, but a 512-token ceiling cuts
     # legitimate step-by-step answers in the middle of a formula.
     max_tokens = 1536 if mode == "flash" else _resolve_max_tokens(intent_type, has_page_context)
-    if mode == "deep":
+    if mode in ("standard", "deep"):
         max_tokens = answer_limits(mode)[2]
     logger.debug("Token budget: intent=%s has_page_ctx=%s max_tokens=%d",
                  intent_type, has_page_context, max_tokens)

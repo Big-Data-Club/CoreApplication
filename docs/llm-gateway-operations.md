@@ -182,8 +182,11 @@ packing retains the continuation instruction instead of reusing a packer
 closure bound to the original request. Gateway context, TPM, key availability
 and model output caps remain authoritative. Visible-token estimates are not
 provider billing totals; reasoning tokens and a separate critique-driven
-revision can add cost. Standard/Flash keep their existing three-call/6000-token
-defaults. The Deep tool-execution round limit is unchanged.
+revision can add cost. Standard now allows eight extra calls and 16000 estimated visible-answer tokens,
+with a 4096-token per-call cap, including initial ReAct and tool synthesis.
+Configure these using `AGENT_STANDARD_MAX_ANSWER_CONTINUATIONS`,
+`AGENT_STANDARD_MAX_ANSWER_TOKENS`, and `AGENT_STANDARD_ANSWER_CHUNK_TOKENS`.
+Flash retains its three-call/6000-token defaults. The Deep tool-execution round limit is unchanged.
 
 Synthesis emits completed segments as they become available. The HTTP SSE
 endpoint sends a comment keepalive every 15 seconds while waiting for model or

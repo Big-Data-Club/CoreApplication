@@ -167,6 +167,9 @@ class Settings(BaseSettings):
     consolidation_turn_interval: int = 5      # trigger consolidation every N turns
     agent_max_answer_continuations: int = 3   # extra model calls after a length-limited answer
     agent_max_continuation_tokens: int = 6000 # total estimated tokens across those calls
+    agent_standard_max_answer_continuations: int = Field(default=8, ge=0, le=32)
+    agent_standard_max_answer_tokens: int = Field(default=16000, ge=1024, le=64000)
+    agent_standard_answer_chunk_tokens: int = Field(default=4096, ge=1024, le=8192)
     agent_deep_max_answer_continuations: int = Field(default=12, ge=0, le=32)
     agent_deep_max_answer_tokens: int = Field(default=24000, ge=1024, le=64000)
     agent_deep_answer_chunk_tokens: int = Field(default=4096, ge=1024, le=8192)

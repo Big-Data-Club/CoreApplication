@@ -38,7 +38,9 @@ class Gateway:
 def limits():
     cfg = SimpleNamespace(agent_deep_max_answer_continuations=12,
         agent_deep_max_answer_tokens=24000, agent_deep_answer_chunk_tokens=4096,
-        agent_max_answer_continuations=3, agent_max_continuation_tokens=6000)
+        agent_max_answer_continuations=3, agent_max_continuation_tokens=6000,
+        agent_standard_max_answer_continuations=8, agent_standard_max_answer_tokens=16000,
+        agent_standard_answer_chunk_tokens=4096)
     with patch("app.agents.core.answer_completion.get_settings", return_value=cfg):
         yield cfg
 
@@ -75,10 +77,10 @@ async def test_finished_or_filtered_answers_are_not_extended(limits, terminal):
 
 
 @pytest.mark.asyncio
-async def test_standard_preserves_three_call_limit(limits):
+async def test_flash_preserves_three_call_limit(limits):
     gateway = Gateway(*[(f" additional segment {n}.", "length") for n in range(4)])
     state = AnswerCompletion("Initial", "length")
-    await collect(gateway, state, "standard")
+    await collect(gateway, state, "flash")
     assert state.continuations == 3 and state.incomplete
     assert state.stop_cause == "answer_budget_exhausted"
     assert "lượt hoàn tất cuối" in str(gateway.requests[-1].messages)
@@ -254,3 +256,36 @@ async def test_keepalive_does_not_cancel_slow_generator_and_closes_on_disconnect
     assert await anext(stream) == ": keepalive\n\n"
     await stream.aclose()
     assert closed.is_set()
+
+
+@pytest.mark.asyncio
+async def test_standard_finishes_table_after_old_three_call_limit(limits):
+    initial = "| Latency | Độ trễ từ"
+    gateway = Gateway((" vài mili giây", "length"), (" đến nhiều giây", "length"),
+                      (" tùy kết nối", "length"), (" và hàng đợi. |", "stop"))
+    state = AnswerCompletion(initial, "length")
+    await collect(gateway, state, "standard")
+    assert not state.incomplete and state.continuations == 4
+    assert state.text.endswith("và hàng đợi. |")
+    assert all(req.max_tokens == 4096 for req in gateway.requests)
+
+
+@pytest.mark.asyncio
+async def test_standard_still_stops_at_configured_call_limit(limits):
+    gateway = Gateway(*[(f" extra segment {n}.", "length") for n in range(9)])
+    state = AnswerCompletion("Initial", "length")
+    await collect(gateway, state, "standard")
+    assert state.continuations == 8 and state.incomplete
+    assert state.stop_cause == "answer_budget_exhausted"
+    assert "lượt hoàn tất cuối" in str(gateway.requests[-1].messages)
+
+
+@pytest.mark.asyncio
+async def test_standard_visible_budget_caps_continuation(limits):
+    state = AnswerCompletion("x" * 35000, "length")
+    remaining = limits.agent_standard_max_answer_tokens - estimate_tokens(state.text)
+    gateway = Gateway((" Completed.", "stop"))
+    await collect(gateway, state, "standard")
+    assert 128 < remaining < 4096
+    assert gateway.requests[0].max_tokens == remaining
+    assert not state.incomplete

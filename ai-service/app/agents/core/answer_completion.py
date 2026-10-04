@@ -238,6 +238,10 @@ def answer_is_incomplete(reason: str | None) -> bool:
 
 def answer_limits(mode: str) -> tuple[int, int, int]:
     cfg = get_settings()
+    if mode == "standard":
+        return (cfg.agent_standard_max_answer_continuations,
+                cfg.agent_standard_max_answer_tokens,
+                min(cfg.agent_standard_answer_chunk_tokens, cfg.agent_standard_max_answer_tokens))
     if mode == "deep":
         return (cfg.agent_deep_max_answer_continuations,
                 cfg.agent_deep_max_answer_tokens,
