@@ -638,6 +638,8 @@ services:
     environment:
       <<: *ai-env
       APP_PORT: 8000
+      JEV_ENABLED: ${JEV_ENABLED:-false}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       USE_RERANKER: "true"
       RERANK_FETCH_K: ${RERANK_FETCH_K:-15}
     ports:
