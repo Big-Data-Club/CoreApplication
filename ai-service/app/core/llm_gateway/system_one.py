@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -16,7 +17,17 @@ from app.core.llm_gateway.usage import record_usage
 
 logger = logging.getLogger(__name__)
 PROVIDER_CODE = "opencode_zen"
-ENDPOINT = "https://opencode.ai/zen/v1/systemone"
+
+
+def _system_one_url(base_url: str | None) -> str | None:
+    """Build the structured endpoint from the Admin-managed provider URL."""
+    if not base_url:
+        return None
+    parsed = urlsplit(base_url.strip())
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+            or parsed.password or parsed.query or parsed.fragment):
+        return None
+    return base_url.strip().rstrip("/") + "/systemone"
 
 
 async def decide_system_one(
@@ -33,6 +44,10 @@ async def decide_system_one(
     try:
         provider = await registry.get_provider_by_code(PROVIDER_CODE)
         if provider is None or not provider.enabled:
+            return None
+        endpoint = _system_one_url(provider.base_url)
+        if endpoint is None:
+            logger.warning("Jev provider has no valid HTTPS base URL")
             return None
         lease = await key_pool.lease(provider.id)
     except NoKeyAvailableError:
@@ -69,7 +84,7 @@ async def decide_system_one(
     try:
         async with httpx.AsyncClient(timeout=settings.jev_timeout_seconds) as client:
             response = await client.post(
-                ENDPOINT,
+                endpoint,
                 headers={"Authorization": f"Bearer {lease.plaintext}"},
                 json=payload,
             )

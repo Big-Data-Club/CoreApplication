@@ -414,8 +414,10 @@ kubectl -n default get configmap bdc-config -o jsonpath='{.data.JEV_ENABLED}{"\n
 kubectl -n default get deployment ai-service -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 ```
 
-Sign in as an authorized admin, open **LMS Admin > LLM Configuration > API
-Keys**, choose the OpenCode Zen provider, and add the Zen API key. To rotate,
+Sign in as an authorized admin and confirm the OpenCode Zen provider's Base URL
+is `https://opencode.ai/zen/v1` under **LMS Admin > LLM Configuration >
+Providers**. The gateway appends `/systemone` for Jev. In **API Keys**, choose
+that provider and add the Zen API key. To rotate,
 add the replacement key and verify it works before disabling or deleting the
 old key. The gateway encrypts keys at rest and leases active keys on each Jev
 call; no K3s Secret update or pod restart is needed for key changes. Use a

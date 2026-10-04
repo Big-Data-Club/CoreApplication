@@ -27,7 +27,8 @@ async def test_jev_structured_response_and_no_key_in_result():
     settings = MagicMock(jev_enabled=True, jev_model="jev-1.13-free",
                          jev_timeout_seconds=1.0)
     registry = MagicMock(get_provider_by_code=AsyncMock(
-        return_value=MagicMock(id=17, enabled=True)))
+        return_value=MagicMock(id=17, enabled=True,
+                               base_url="https://zen.example.test/api/v2")))
     pool = MagicMock(
         lease=AsyncMock(return_value=MagicMock(id=4, plaintext="test-placeholder")),
         record_success=AsyncMock(), record_generic_failure=AsyncMock(),
@@ -53,6 +54,7 @@ async def test_jev_structured_response_and_no_key_in_result():
     assert usage_log.await_args.kwargs["task_code"] == "jev_decision"
     assert usage_log.await_args.kwargs["success"] is True
     payload = client.post.call_args.kwargs["json"]
+    assert client.post.call_args.args[0] == "https://zen.example.test/api/v2/systemone"
     assert payload["questions"]["decompose"]["type"] == "noul"
 
 
@@ -61,7 +63,8 @@ async def test_jev_rejects_invalid_score():
     settings = MagicMock(jev_enabled=True, jev_model="jev-1.13-free",
                          jev_timeout_seconds=1.0)
     registry = MagicMock(get_provider_by_code=AsyncMock(
-        return_value=MagicMock(id=17, enabled=True)))
+        return_value=MagicMock(id=17, enabled=True,
+                               base_url="https://opencode.ai/zen/v1")))
     pool = MagicMock(lease=AsyncMock(return_value=MagicMock(id=4, plaintext="test-placeholder")),
                      record_generic_failure=AsyncMock())
     response = MagicMock()
@@ -91,7 +94,8 @@ async def test_jev_auth_failure_marks_managed_key():
     settings = MagicMock(jev_enabled=True, jev_model="jev-1.13-free",
                          jev_timeout_seconds=1.0)
     registry = MagicMock(get_provider_by_code=AsyncMock(
-        return_value=MagicMock(id=17, enabled=True)))
+        return_value=MagicMock(id=17, enabled=True,
+                               base_url="https://opencode.ai/zen/v1")))
     pool = MagicMock(lease=AsyncMock(return_value=MagicMock(id=4, plaintext="bad-key")),
                      record_auth_failure=AsyncMock())
     response = MagicMock(status_code=401)
@@ -111,7 +115,8 @@ async def test_jev_without_admin_key_falls_back_without_http_call():
     from app.core.llm_gateway.errors import NoKeyAvailableError
 
     registry = MagicMock(get_provider_by_code=AsyncMock(
-        return_value=MagicMock(id=17, enabled=True)))
+        return_value=MagicMock(id=17, enabled=True,
+                               base_url="https://opencode.ai/zen/v1")))
     pool = MagicMock(lease=AsyncMock(side_effect=NoKeyAvailableError("none")))
     with patch("app.core.llm_gateway.system_one.get_settings",
                return_value=MagicMock(jev_enabled=True)), patch(
@@ -119,6 +124,18 @@ async def test_jev_without_admin_key_falls_back_without_http_call():
     ) as client:
         assert await decide_system_one("Question", registry=registry, key_pool=pool) is None
     client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_jev_invalid_provider_url_never_leases_key():
+    registry = MagicMock(get_provider_by_code=AsyncMock(
+        return_value=MagicMock(id=17, enabled=True,
+                               base_url="http://opencode.ai/zen/v1")))
+    pool = MagicMock(lease=AsyncMock())
+    with patch("app.core.llm_gateway.system_one.get_settings",
+               return_value=MagicMock(jev_enabled=True)):
+        assert await decide_system_one("Question", registry=registry, key_pool=pool) is None
+    pool.lease.assert_not_called()
 
 
 @pytest.mark.asyncio

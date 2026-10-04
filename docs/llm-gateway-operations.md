@@ -14,6 +14,10 @@ API Keys, add a key under **OpenCode Zen (Jev decision API)**. Key changes take
 effect without a pod restart. Without an active key, routing uses the existing
 local rule. To disable after rollout, set `JEV_ENABLED=false` and restart
 `ai-service`.
+The provider's Admin-editable `base_url` defaults to
+`https://opencode.ai/zen/v1`; the gateway appends `/systemone` for this
+structured call. Only HTTPS URLs are accepted, and an invalid or missing URL
+falls back to local routing without leasing a key.
 
 For read-only Deep questions, Jev evaluates up to 900 characters of the current
 question and returns an advisory probability for the retrieval/draft/critique
