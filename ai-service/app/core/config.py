@@ -109,6 +109,8 @@ class Settings(BaseSettings):
     jev_planner_mode: Literal["off", "shadow", "active"] = "off"
     jev_planner_deadline_seconds: float = Field(default=0.8, gt=0, le=2.5)
     jev_planner_min_score: float = Field(default=0.97, ge=0.95, le=1.0)
+    # Opt-in lead-planned collaboration; legacy execution remains the fallback.
+    agent_lead_mode: Literal["off", "active"] = "off"
 
     # Embedding
     embedding_model: str = "BAAI/bge-m3"

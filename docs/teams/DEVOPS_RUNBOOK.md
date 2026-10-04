@@ -346,13 +346,13 @@ before relying on `dev` images.
 
 #### Jev planner and Deep answer configuration
 
-`k3s/base/configmap.yaml` explicitly sets the planner mode (`off`), deadline
+`k3s/base/configmap.yaml` explicitly sets the planner mode (`active`), deadline
 (`0.8` seconds), acceptance threshold (`0.97`), and Deep completion limits
 (`12` continuation calls, `24000` estimated visible-answer tokens, `4096`
-tokens per chunk). These match the AI application's defaults. Production
-retains its existing `JEV_ENABLED=true`; enabling the general Jev service does
-not enable the planner accelerator while `JEV_PLANNER_MODE=off`. Start a reviewed
-planner trial with `shadow` before considering `active`.
+tokens per chunk). Production retains `JEV_ENABLED=true` and explicitly enables
+both planner acceleration and lead collaboration. Missing deployment variables
+still use the application's conservative `off` defaults; rollback either mode
+to `off` without removing the general Jev binding.
 
 Editing `.env.example` does not configure Kubernetes pods. AI HTTP and worker
 Deployments import `bdc-config` via `envFrom`. The normal `production.yml` path
@@ -806,3 +806,13 @@ Rollback/stop owner: <name>
 - [K3s deployment guide](../k3s/DEPLOYMENT.md)
 - [Performance test assets](../performance-tests/README.md)
 - [Observability manifests](../k3s/observability/kustomization.yaml)
+
+### Optional lead-agent collaboration
+
+`AGENT_LEAD_MODE=active` is declared in `bdc-config`, Compose and the sample
+environment. Deploy the updated code and configuration and roll the AI workload
+to load it. Explicit environment overrides still take precedence. This flag is separate from
+`JEV_PLANNER_MODE`; the latter is the Standard-mode planner accelerator.
+Keep System One disabled via `JEV_ENABLED=false` if its managed binding is not
+available; lead planning can still choose LLM and retrieval executors.
+Monitor latency, gateway usage and `lead_fallback` events after activation. See [ADR 7](../adr/ADR-7-bounded-lead-agent-collaboration.md).

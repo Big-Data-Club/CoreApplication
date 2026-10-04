@@ -23,6 +23,7 @@ import time
 from typing import AsyncIterator, Optional, Tuple, Dict, Any, List
 
 from app.agents.events import AgentEvent, AgentEventType
+from app.core.config import get_settings
 from app.agents.core.intents import normalize_router_intent
 from app.agents.core.sub_agents import (
     RetrievalSpecialist, DraftingSpecialist, CritiqueSpecialist, CritiqueReport,
@@ -58,6 +59,8 @@ class MultiAgentOrchestrator:
         self.answer_continuations = 0
         self.answer_stop_cause: str | None = None
         self._capabilities = default_capability_registry()
+        self.answer_memory_context: str | None = None
+        self.answer_history: list[dict] | None = None
 
     def _forward_draft_delta(self, ev: AgentEvent) -> Optional[AgentEvent]:
         """Mirror drafting-agent thinking deltas as live user-visible text.
@@ -298,6 +301,44 @@ class MultiAgentOrchestrator:
                 turn_id=self.turn_id,
             )
 
+            prepared = None
+            if get_settings().agent_lead_mode == "active":
+                from app.agents.core.lead_agent import prepare_collaboration
+                try:
+                    async for item in prepare_collaboration(
+                        query=query, course_id=course_id, memory_context=memory_context,
+                        history=history, page_context=page_context, system_context=system_context,
+                        require_evidence=require_evidence, quality_gate=quality_gate,
+                        session_id=self.session_id, turn_id=self.turn_id,
+                        system_one_enabled=get_settings().jev_enabled,
+                    ):
+                        if isinstance(item, AgentEvent):
+                            self._record_event(item)
+                            yield item
+                        else:
+                            prepared = item
+                except Exception as exc:
+                    logger.warning("Lead preparation fallback error_type=%s", type(exc).__name__)
+                    # Preparation never emits answer text. Preserve established behavior on failure.
+                    for log in self.multi_agent_logs:
+                        if log["status"] == "running":
+                            error = AgentEvent(type=AgentEventType.SUBAGENT_ERROR,
+                                data={"subagent_id": log["subagentId"], "error": "Preparation unavailable; using fallback."},
+                                session_id=self.session_id, turn_id=self.turn_id)
+                            self._record_event(error)
+                            yield error
+                    yield AgentEvent(type=AgentEventType.THINKING,
+                        data={"step": "lead_fallback", "reason": "preparation_unavailable"},
+                        session_id=self.session_id, turn_id=self.turn_id)
+                if prepared:
+                    self.orchestration_plan = prepared["trace"]
+                    self.collected_references = prepared["references"]
+                    memory_context, history = prepared["memory"], prepared["history"]
+                    self.answer_memory_context, self.answer_history = memory_context, history
+                    selected = {"response_drafting"}
+                    if prepared["critique"]:
+                        selected.add("quality_critique")
+
             # -- Evidence phase -------------------------------------------------
             logger.info(
                 "[MultiAgent] plan=%s | session=%s score=%.3f triggers=%s",
@@ -306,7 +347,7 @@ class MultiAgentOrchestrator:
                 score_breakdown.get("score", 0),
                 score_breakdown.get("triggered_by", []),
             )
-            consolidated_context = "No specific reference materials were found."
+            consolidated_context = prepared["context"] if prepared else "No specific reference materials were found."
             if "evidence_retrieval" in selected:
                 retrieval_agent = RetrievalSpecialist(self.session_id, self.turn_id)
                 consolidated_context = ""
@@ -335,6 +376,8 @@ class MultiAgentOrchestrator:
             # -- Draft phase (streamed live to the user) ------------------------
             logger.info("[MultiAgent] Starting Draft phase")
             draft_agent = DraftingSpecialist(self.session_id, self.turn_id)
+            if prepared:
+                draft_agent.role_label = prepared["answer_role"]
             draft = ""
             async for ev in draft_agent.execute(
                 query, consolidated_context, memory_context=memory_context, history=history,

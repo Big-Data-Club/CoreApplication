@@ -1121,6 +1121,21 @@ async def run_react_loop(
                 else:
                     final_answer = ev
 
+            if orchestrator.answer_memory_context is not None:
+                selected_memory = {**memory_ctx,
+                    "prompt_section": orchestrator.answer_memory_context,
+                    "stm_messages": orchestrator.answer_history or []}
+                explanation = build_decision_explanation(
+                    selected_memory, mode=mode, multi_agent=True, intent_type=intent_type,
+                    personalization_requested=execution_plan.personalization_enabled,
+                    # Lead excerpts may omit snapshot fields; do not report the full snapshot as forwarded.
+                    learner_snapshot=None,
+                    memory_forwarded=True,
+                )
+                yield AgentEvent(type=AgentEventType.THINKING,
+                    data={"step": "decision_explanation", "explanation": explanation},
+                    session_id=session_id, turn_id=turn_id)
+
             await stm.append(session_id, "assistant", final_answer)
             multi_agent_refs = getattr(orchestrator, "collected_references", None) or []
             metadata = {

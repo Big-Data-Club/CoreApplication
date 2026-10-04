@@ -638,7 +638,9 @@ services:
     environment:
       <<: *ai-env
       APP_PORT: 8000
-      JEV_ENABLED: ${JEV_ENABLED:-false}
+      JEV_ENABLED: ${JEV_ENABLED:-true}
+      JEV_PLANNER_MODE: ${JEV_PLANNER_MODE:-active}
+      AGENT_LEAD_MODE: ${AGENT_LEAD_MODE:-active}
       USE_RERANKER: "true"
       RERANK_FETCH_K: ${RERANK_FETCH_K:-15}
     ports:

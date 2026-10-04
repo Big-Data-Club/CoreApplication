@@ -35,8 +35,9 @@ System One models must not be bound to chat tasks.
 
 ### Bounded standard-chat planner accelerator
 
-The separate `JEV_PLANNER_MODE` flag defaults to `off`; enabling the existing
-Deep decision does not enable this accelerator. Its policy is `course_qa_v1`.
+Deployment configuration explicitly sets `JEV_PLANNER_MODE=active`; the code
+default remains `off` when configuration is absent. The general Jev switch and
+planner mode are independent. Its policy is `course_qa_v1`.
 
 - `off`: use the original planner without an extra external request.
 - `shadow`: evaluate eligible requests alongside the original planner, always
@@ -241,3 +242,22 @@ worker ingestion rather than enabling global personalization indiscriminately.
 - Internal `GET /ai/agents/sessions/{session_id}/messages` now requires `user_id` injected by the authenticated frontend proxy. It returns the newest bounded messages chronologically and the caller's `feedback` (`like`, `dislike`, or null). Deploy the frontend and AI service contract together.
 - `POST /ai/agents/feedback?user_id=...` requires an owned assistant message. An explicit null `rating` removes an existing rating; omission is invalid. The existing V012 feedback table is reused. The UI confirms selection only after persistence succeeds and displays a retry message on failure. Historical clicks never persisted cannot be reconstructed.
 - Validate a conversation across Redis expiry, a failed answer, reopening the session, and like → dislike → deselect → reload. Automated checks mock storage; staging validation with actual PostgreSQL/Redis and a model is still needed.
+
+### Lead-planned multi-agent collaboration
+
+`AGENT_LEAD_MODE=active` enables a lead planning/preparation stage on eligible
+Deep multi-agent requests; deployment configuration now selects `active`.
+The code default remains `off` only when no environment value is supplied.
+This is independent of the Standard-mode `JEV_PLANNER_MODE`. The lead uses
+`agent_router`; delegated analysis uses `chat`; System One assessments use
+`jev_decision` only when `JEV_ENABLED=true`. Existing final writer and critic
+bindings remain unchanged.
+
+There are at most four preparation workers, two concurrent, with selected
+shared-context reads and bounded artifacts. Invalid plans, unavailable
+executors and timeouts fall back to the established pipeline before answer
+streaming. Existing trace events include `lead_plan`, per-worker executor and
+context keys, and `lead_fallback`; message metadata retains orchestration
+selection. Enable on staging and assess actual quality/latency/cost first.
+See [ADR 7](adr/ADR-7-bounded-lead-agent-collaboration.md) for exact limits and
+memory/permission boundaries.

@@ -148,3 +148,11 @@ not ready for implementation.
 
 
 Chat continuity: recent conversation is restored from persistent, owner-scoped messages when the Redis window expires or becomes stale. Loading failures must not be described as a brand-new conversation. Long history remains bounded by the model context budget. Assistant feedback is restored on reopening a session; selecting the same thumb again removes the rating. A failed save shows a retry message and retains the last confirmed rating. Backend and frontend must deploy together for the history endpoint's required authenticated `user_id`.
+
+Lead collaboration is enabled by deployment configuration `AGENT_LEAD_MODE=active`.
+For eligible Deep requests, a lead defines task-specific roles and chooses
+retrieval, LLM analysis or a System One assessment. Workers share selected,
+bounded artifacts within that turn; shared learning memory is a scoped snapshot,
+not a globally writable store. Required evidence and critique still apply.
+This does not yet mean arbitrary tools, recursive agent spawning or persistent
+shared memory across users. Role labels describe assignments, not model sizes.

@@ -337,6 +337,7 @@ class DraftingSpecialist:
         self.session_id = session_id
         self.turn_id = turn_id
         self.subagent_id = f"drafting-{turn_id}"
+        self.role_label = "Response writer"
         # Provider/model id of the stream that produced the final draft.
         self.answered_model: Optional[str] = None
         self.completion: AnswerCompletion | None = None
@@ -352,7 +353,7 @@ class DraftingSpecialist:
             type=AgentEventType.SUBAGENT_SPAWN,
             data={
                 "subagent_id": self.subagent_id,
-                "role": "Drafting Specialist (70B)",
+                "role": self.role_label,
                 "task": "Create response draft",
                 "status": "running"
             },
@@ -478,7 +479,7 @@ class CritiqueSpecialist:
             type=AgentEventType.SUBAGENT_SPAWN,
             data={
                 "subagent_id": self.subagent_id,
-                "role": "Critic Agent (70B)",
+                "role": "Response reviewer",
                 "task": "Critique and verify draft answer",
                 "status": "running"
             },
