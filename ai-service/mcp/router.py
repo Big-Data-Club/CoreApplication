@@ -44,7 +44,7 @@ from typing import Any, AsyncGenerator
 
 import orjson
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from mcp.auth import get_mcp_user_id
@@ -324,7 +324,7 @@ async def mcp_jsonrpc(
 
     Returns:
       - JSON-RPC response (or batch response array)
-      - HTTP 204 if all requests are notifications (no id)
+      - HTTP 202 with an empty body if all requests are notifications (no id)
     """
     # Parse body
     raw = await request.body()
@@ -361,8 +361,8 @@ async def mcp_jsonrpc(
                 raise HTTPException(413, "MCP batch is too large")
             responses = await dispatch_batch(body, user_id)
             if not responses:
-                # All notifications - no response body
-                return JSONResponse(status_code=204, content=None)
+                # Streamable HTTP accepts notifications with an empty 202.
+                return Response(status_code=202)
 
             # Record metrics for batch
             for resp in responses:
@@ -381,7 +381,7 @@ async def mcp_jsonrpc(
             if response is None:
                 # Notification - no id, no response body
                 _record_request(method, True)
-                return JSONResponse(status_code=204, content=None)
+                return Response(status_code=202)
 
             _record_request(method, "error" not in response)
 

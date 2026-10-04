@@ -4,6 +4,12 @@ BDC Hub exposes a scoped Streamable HTTP MCP endpoint at
 `https://bdc.hpcc.vn/mcp`. Users create a bearer token in **My Account → MCP**
 and use their own Claude, Codex, or OpenCode model for reasoning.
 
+Accepted notifications (including `notifications/initialized` and batches
+containing only notifications) return HTTP `202 Accepted` with an empty body,
+as required by the [Streamable HTTP transport specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#sending-messages-to-the-server).
+Requests with an ID return a JSON-RPC response; mixed batches omit notification
+responses.
+
 ## Security model
 
 - Raw API keys are shown once and stored only as SHA-256 hashes.
