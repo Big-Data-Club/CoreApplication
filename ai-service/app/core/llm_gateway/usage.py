@@ -29,6 +29,8 @@ async def record_usage(
     error_code: Optional[str] = None,
     error_message: Optional[str] = None,
     request_id: Optional[str] = None,
+    provider_code: Optional[str] = None,
+    model_name: Optional[str] = None,
 ) -> None:
     total = (prompt_tokens or 0) + (completion_tokens or 0)
     try:
@@ -45,8 +47,8 @@ async def record_usage(
                 task_code,
                 model.id if model else None,
                 api_key_id,
-                model.provider_code if model else None,
-                model.model_name if model else None,
+                model.provider_code if model else provider_code,
+                model.model_name if model else model_name,
                 int(prompt_tokens or 0),
                 int(completion_tokens or 0),
                 int(total),

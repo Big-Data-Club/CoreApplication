@@ -42,13 +42,16 @@ async def test_jev_structured_response_and_no_key_in_result():
     manager.__aenter__.return_value = client
     with patch("app.core.llm_gateway.system_one.get_settings", return_value=settings), patch(
         "app.core.llm_gateway.system_one.httpx.AsyncClient", return_value=manager
-    ):
+    ), patch("app.core.llm_gateway.system_one.record_usage", new=AsyncMock()) as usage_log:
         result = await decide_system_one("How should scheduling work?",
                                          registry=registry, key_pool=pool)
     assert result == {"score": 0.87, "model": "jev-1.13-free"}
     assert "test-placeholder" not in str(result)
     pool.lease.assert_awaited_once_with(17)
     pool.record_success.assert_awaited_once_with(4, 316)
+    assert usage_log.await_args.kwargs["provider_code"] == "opencode_zen"
+    assert usage_log.await_args.kwargs["task_code"] == "jev_decision"
+    assert usage_log.await_args.kwargs["success"] is True
     payload = client.post.call_args.kwargs["json"]
     assert payload["questions"]["decompose"]["type"] == "noul"
 
@@ -101,6 +104,21 @@ async def test_jev_auth_failure_marks_managed_key():
     ):
         assert await decide_system_one("Question", registry=registry, key_pool=pool) is None
     pool.record_auth_failure.assert_awaited_once_with(4, "System One authentication failed")
+
+
+@pytest.mark.asyncio
+async def test_jev_without_admin_key_falls_back_without_http_call():
+    from app.core.llm_gateway.errors import NoKeyAvailableError
+
+    registry = MagicMock(get_provider_by_code=AsyncMock(
+        return_value=MagicMock(id=17, enabled=True)))
+    pool = MagicMock(lease=AsyncMock(side_effect=NoKeyAvailableError("none")))
+    with patch("app.core.llm_gateway.system_one.get_settings",
+               return_value=MagicMock(jev_enabled=True)), patch(
+        "app.core.llm_gateway.system_one.httpx.AsyncClient"
+    ) as client:
+        assert await decide_system_one("Question", registry=registry, key_pool=pool) is None
+    client.assert_not_called()
 
 
 @pytest.mark.asyncio

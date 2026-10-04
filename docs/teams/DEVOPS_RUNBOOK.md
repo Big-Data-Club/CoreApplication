@@ -424,8 +424,22 @@ nonprivate example with MCP `assess_question` or a Deep question near the
 gateway key status; chat keeps its local routing fallback.
 
 If `JEV_ENABLED` is `false`, apply the reviewed production ConfigMap through
-the normal deployment path. Do not place the Zen key in `.env`, Git, or
-`bdc-secrets`; the Admin key store is its source of truth.
+the normal deployment path. The Admin key store is the source of truth. If an
+earlier rollout put `OPENCODE_API_KEY` in `$HOME/codespace/core/.env`, remove
+that entry after the Admin key has passed verification. `prepare-runtime.sh`
+imports values from `.env` into `bdc-secrets` even when the Compose service no
+longer uses them. Remove the obsolete Secret field only after verifying the
+Admin-managed key works:
+
+```bash
+if kubectl -n default get secret bdc-secrets -o json |
+   jq -e '.data | has("OPENCODE_API_KEY")' >/dev/null; then
+  kubectl -n default patch secret bdc-secrets --type=json \
+    -p='[{"op":"remove","path":"/data/OPENCODE_API_KEY"}]'
+fi
+```
+
+Do not place the Zen key in Git or any other K3s Secret.
 
 ### 5.3 What `scripts/deploy-production.sh` does
 
