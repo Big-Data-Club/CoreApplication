@@ -103,7 +103,6 @@ class Settings(BaseSettings):
 
     # Optional System One decision endpoint. It is not a chat/tool model.
     jev_enabled: bool = False
-    opencode_api_key: str = ""
     jev_model: str = "jev-1.13-free"
     jev_timeout_seconds: float = 2.5
 

@@ -290,6 +290,18 @@ async def bootstrap_llm_registry() -> None:
         base_url="https://api.openai.com",
         enabled=True,
     )
+
+    # System One uses a structured endpoint, not chat completions. Register a
+    # dedicated provider for encrypted Admin-managed keys, without a chat model
+    # or task binding. The specialized gateway method handles its wire format.
+    if await registry.get_provider_by_code("opencode_zen") is None:
+        await registry.upsert_provider(
+            code="opencode_zen",
+            display_name="OpenCode Zen (Jev decision API)",
+            adapter_type="openai_compat",
+            base_url="https://opencode.ai/zen/v1",
+            enabled=True,
+        )
  
     # 2. Models - upsert with current env-var names so the task map still works
     chat_env = settings.chat_model

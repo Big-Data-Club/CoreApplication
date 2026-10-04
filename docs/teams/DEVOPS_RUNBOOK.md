@@ -404,47 +404,28 @@ kubectl -n default get pods -l app=ai-service -o wide
 
 ### Add or rotate the Jev key for AI chat and MCP
 
-The `ai-service` deployment reads `OPENCODE_API_KEY` from `bdc-secrets` in
-namespace `default`; `JEV_ENABLED` comes from `bdc-config`. Deploy the image
-and manifests containing Jev support first, then confirm the ConfigMap flag is
-`true`. Updating an existing Secret does not refresh environment variables in
-running pods, so restart only `ai-service` after the key change.
-
-Keep the VM's approved `.env` source of truth current (by default,
-`$HOME/codespace/core/.env`): add or replace `OPENCODE_API_KEY` there using a
-local editor and keep it mode `600`. This
-matters because `k3s/scripts/prepare-runtime.sh` recreates the **whole**
-`bdc-secrets` object from that file on a later run. For an immediate rotation,
-patch only this one key so other Secret entries remain intact:
+Deploy the image containing the gateway-managed System One integration first.
+It bootstraps an **OpenCode Zen (Jev decision API)** provider in the encrypted
+LLM gateway key store; it does not create a chat model or task binding. Check
+that `JEV_ENABLED` is `true` in `bdc-config`:
 
 ```bash
 kubectl -n default get configmap bdc-config -o jsonpath='{.data.JEV_ENABLED}{"\n"}'
 kubectl -n default get deployment ai-service -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
-
-patch_file=$(mktemp)
-chmod 600 "$patch_file"
-trap 'rm -f "$patch_file"' EXIT
-read -r -s -p 'OpenCode Zen API key: ' opencode_key
-printf '\n'
-printf '%s' "$opencode_key" | jq -Rs '{stringData: {OPENCODE_API_KEY: .}}' > "$patch_file"
-unset opencode_key
-kubectl -n default patch secret bdc-secrets --type merge --patch-file "$patch_file"
-rm -f "$patch_file"
-trap - EXIT
-
-kubectl -n default get secret bdc-secrets -o json | jq -e '(.data.OPENCODE_API_KEY // "") | length > 0'
-kubectl -n default rollout restart deployment/ai-service
-kubectl -n default rollout status deployment/ai-service --timeout=12m
-kubectl -n default logs deployment/ai-service --since=5m | grep 'Jev decision endpoint configured'
 ```
 
-The existence check prints only `true`, never the key. Do not run this shell
-with `set -x`, paste the key into command arguments, or put it in a Git file.
-After rotation, test one benign Deep question with local score near the
-0.35–0.45 band or call MCP `assess_question` with a nonprivate example.
+Sign in as an authorized admin, open **LMS Admin > LLM Configuration > API
+Keys**, choose the OpenCode Zen provider, and add the Zen API key. To rotate,
+add the replacement key and verify it works before disabling or deleting the
+old key. The gateway encrypts keys at rest and leases active keys on each Jev
+call; no K3s Secret update or pod restart is needed for key changes. Use a
+nonprivate example with MCP `assess_question` or a Deep question near the
+0.35–0.45 local score band to verify. A 401/403 or 429 is reflected in the
+gateway key status; chat keeps its local routing fallback.
+
 If `JEV_ENABLED` is `false`, apply the reviewed production ConfigMap through
-the normal deployment path; a one-off patch would be overwritten by the next
-deployment.
+the normal deployment path. Do not place the Zen key in `.env`, Git, or
+`bdc-secrets`; the Admin key store is its source of truth.
 
 ### 5.3 What `scripts/deploy-production.sh` does
 

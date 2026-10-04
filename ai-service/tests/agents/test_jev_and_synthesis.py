@@ -4,6 +4,7 @@ import pytest
 
 from app.agents.core.react_loop import _synthesize_after_tools
 from app.core.jev_decider import decide_decomposition
+from app.core.llm_gateway.system_one import decide_system_one
 from app.agents.tools.shared.assess_question import AssessQuestionTool
 from app.agents.tools.base_tool import ToolResult
 from mcp.tool_adapter import call_mcp_tool, get_mcp_tool_list
@@ -11,48 +12,95 @@ from mcp.tool_adapter import call_mcp_tool, get_mcp_tool_list
 
 @pytest.mark.asyncio
 async def test_jev_disabled_never_sends_question():
-    settings = MagicMock(jev_enabled=False, opencode_api_key="")
-    with patch("app.core.jev_decider.get_settings", return_value=settings), patch(
-        "app.core.jev_decider.httpx.AsyncClient"
-    ) as client:
-        assert await decide_decomposition("Private learning question") is None
-        client.assert_not_called()
+    registry = MagicMock(get_provider_by_code=AsyncMock())
+    pool = MagicMock(lease=AsyncMock())
+    with patch("app.core.llm_gateway.system_one.get_settings",
+               return_value=MagicMock(jev_enabled=False)):
+        assert await decide_system_one("Private learning question",
+                                       registry=registry, key_pool=pool) is None
+    registry.get_provider_by_code.assert_not_called()
+    pool.lease.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_jev_structured_response_and_no_key_in_result():
-    settings = MagicMock(jev_enabled=True, opencode_api_key="test-placeholder",
-                         jev_model="jev-1.13-free", jev_timeout_seconds=1.0)
+    settings = MagicMock(jev_enabled=True, jev_model="jev-1.13-free",
+                         jev_timeout_seconds=1.0)
+    registry = MagicMock(get_provider_by_code=AsyncMock(
+        return_value=MagicMock(id=17, enabled=True)))
+    pool = MagicMock(
+        lease=AsyncMock(return_value=MagicMock(id=4, plaintext="test-placeholder")),
+        record_success=AsyncMock(), record_generic_failure=AsyncMock(),
+    )
     response = MagicMock()
-    response.json.return_value = {"answers": {"decompose": {"noul": 0.87}}}
+    response.status_code = 200
+    response.json.return_value = {"answers": {"decompose": {"noul": 0.87}},
+                                  "usage": {"input_tokens": 296, "output_tokens": 20}}
     client = AsyncMock()
     client.post.return_value = response
     manager = AsyncMock()
     manager.__aenter__.return_value = client
-    with patch("app.core.jev_decider.get_settings", return_value=settings), patch(
-        "app.core.jev_decider.httpx.AsyncClient", return_value=manager
+    with patch("app.core.llm_gateway.system_one.get_settings", return_value=settings), patch(
+        "app.core.llm_gateway.system_one.httpx.AsyncClient", return_value=manager
     ):
-        result = await decide_decomposition("How should scheduling work?")
+        result = await decide_system_one("How should scheduling work?",
+                                         registry=registry, key_pool=pool)
     assert result == {"score": 0.87, "model": "jev-1.13-free"}
     assert "test-placeholder" not in str(result)
+    pool.lease.assert_awaited_once_with(17)
+    pool.record_success.assert_awaited_once_with(4, 316)
     payload = client.post.call_args.kwargs["json"]
     assert payload["questions"]["decompose"]["type"] == "noul"
 
 
 @pytest.mark.asyncio
 async def test_jev_rejects_invalid_score():
-    settings = MagicMock(jev_enabled=True, opencode_api_key="test-placeholder",
-                         jev_model="jev-1.13-free", jev_timeout_seconds=1.0)
+    settings = MagicMock(jev_enabled=True, jev_model="jev-1.13-free",
+                         jev_timeout_seconds=1.0)
+    registry = MagicMock(get_provider_by_code=AsyncMock(
+        return_value=MagicMock(id=17, enabled=True)))
+    pool = MagicMock(lease=AsyncMock(return_value=MagicMock(id=4, plaintext="test-placeholder")),
+                     record_generic_failure=AsyncMock())
     response = MagicMock()
+    response.status_code = 200
     response.json.return_value = {"answers": {"decompose": {"noul": 1.5}}}
     client = AsyncMock()
     client.post.return_value = response
     manager = AsyncMock()
     manager.__aenter__.return_value = client
-    with patch("app.core.jev_decider.get_settings", return_value=settings), patch(
-        "app.core.jev_decider.httpx.AsyncClient", return_value=manager
+    with patch("app.core.llm_gateway.system_one.get_settings", return_value=settings), patch(
+        "app.core.llm_gateway.system_one.httpx.AsyncClient", return_value=manager
     ):
-        assert await decide_decomposition("Question") is None
+        assert await decide_system_one("Question", registry=registry, key_pool=pool) is None
+    pool.record_generic_failure.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_jev_uses_gateway_entry_point():
+    gateway = MagicMock(decide_jev=AsyncMock(return_value={"score": 0.87}))
+    with patch("app.core.jev_decider.get_gateway", return_value=gateway):
+        assert await decide_decomposition("Question") == {"score": 0.87}
+    gateway.decide_jev.assert_awaited_once_with("Question")
+
+
+@pytest.mark.asyncio
+async def test_jev_auth_failure_marks_managed_key():
+    settings = MagicMock(jev_enabled=True, jev_model="jev-1.13-free",
+                         jev_timeout_seconds=1.0)
+    registry = MagicMock(get_provider_by_code=AsyncMock(
+        return_value=MagicMock(id=17, enabled=True)))
+    pool = MagicMock(lease=AsyncMock(return_value=MagicMock(id=4, plaintext="bad-key")),
+                     record_auth_failure=AsyncMock())
+    response = MagicMock(status_code=401)
+    client = AsyncMock()
+    client.post.return_value = response
+    manager = AsyncMock()
+    manager.__aenter__.return_value = client
+    with patch("app.core.llm_gateway.system_one.get_settings", return_value=settings), patch(
+        "app.core.llm_gateway.system_one.httpx.AsyncClient", return_value=manager
+    ):
+        assert await decide_system_one("Question", registry=registry, key_pool=pool) is None
+    pool.record_auth_failure.assert_awaited_once_with(4, "System One authentication failed")
 
 
 @pytest.mark.asyncio

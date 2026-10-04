@@ -109,9 +109,6 @@ async def startup():
     except Exception as exc:
         logger.error("LLM registry bootstrap failed (non-fatal): %s", exc)
 
-    from app.core.jev_decider import bootstrap_jev_decider
-    bootstrap_jev_decider()
-
     if settings.use_qdrant:
         try:
             from app.services.qdrant_service import qdrant_service

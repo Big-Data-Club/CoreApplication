@@ -6,10 +6,12 @@ usage, and manages fallback/cooldown centrally.
 
 ## Optional Jev decision service
 
-Jev System One is a structured decision API, so its configuration is checked at
-startup separately from chat model bindings. The application default is
-disabled. The production ConfigMap opts in, but a nonempty `OPENCODE_API_KEY`
-in `bdc-secrets` is also required; without the key, routing uses the existing
+Jev System One is a structured decision API. The gateway bootstraps an
+`opencode_zen` provider without a chat model or task binding, and uses its
+encrypted Admin-managed API key pool for Jev requests. The application default
+is disabled; the production ConfigMap opts in. In Admin > LLM Configuration >
+API Keys, add a key under **OpenCode Zen (Jev decision API)**. Key changes take
+effect without a pod restart. Without an active key, routing uses the existing
 local rule. To disable after rollout, set `JEV_ENABLED=false` and restart
 `ai-service`.
 
@@ -20,6 +22,7 @@ band. It cannot approve writes or bypass course authorization. MCP also exposes
 the read-only `assess_question` tool for explicit assessment, returning an
 unavailable error when Jev is disabled. Operators should review the external
 transfer and provider retention terms before enabling the feature in production.
+The provider uses System One directly; do not bind it as a chat model.
 
 ## Default routing
 

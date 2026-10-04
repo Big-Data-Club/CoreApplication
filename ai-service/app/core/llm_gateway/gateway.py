@@ -58,6 +58,14 @@ class LLMGateway:
         self.registry = registry or get_registry()
         self.key_pool = get_key_pool()
 
+    async def decide_jev(self, state: str) -> dict[str, Any] | None:
+        """Use the gateway's managed OpenCode Zen key for System One."""
+        from app.core.llm_gateway.system_one import decide_system_one
+
+        return await decide_system_one(
+            state, registry=self.registry, key_pool=self.key_pool,
+        )
+
     async def preview_request_budget(self, task: str) -> int:
         """Estimate the live request envelope for optional context planning.
 
