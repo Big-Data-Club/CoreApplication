@@ -402,7 +402,7 @@ kubectl -n default get pods -l app=ai-service -o wide
    ticket. A ready pod is necessary but does not prove its API dependencies are
    healthy.
 
-### Optional Jev key rotation for AI chat and MCP
+### Add or rotate the Jev key for AI chat and MCP
 
 The `ai-service` deployment reads `OPENCODE_API_KEY` from `bdc-secrets` in
 namespace `default`; `JEV_ENABLED` comes from `bdc-config`. Deploy the image
@@ -410,8 +410,9 @@ and manifests containing Jev support first, then confirm the ConfigMap flag is
 `true`. Updating an existing Secret does not refresh environment variables in
 running pods, so restart only `ai-service` after the key change.
 
-Keep the VM's approved `.env` source of truth current: add or replace
-`OPENCODE_API_KEY` there using a local editor and keep it mode `600`. This
+Keep the VM's approved `.env` source of truth current (by default,
+`$HOME/codespace/core/.env`): add or replace `OPENCODE_API_KEY` there using a
+local editor and keep it mode `600`. This
 matters because `k3s/scripts/prepare-runtime.sh` recreates the **whole**
 `bdc-secrets` object from that file on a later run. For an immediate rotation,
 patch only this one key so other Secret entries remain intact:
@@ -431,7 +432,7 @@ kubectl -n default patch secret bdc-secrets --type merge --patch-file "$patch_fi
 rm -f "$patch_file"
 trap - EXIT
 
-kubectl -n default get secret bdc-secrets -o json | jq -e '.data.OPENCODE_API_KEY != null'
+kubectl -n default get secret bdc-secrets -o json | jq -e '(.data.OPENCODE_API_KEY // "") | length > 0'
 kubectl -n default rollout restart deployment/ai-service
 kubectl -n default rollout status deployment/ai-service --timeout=12m
 kubectl -n default logs deployment/ai-service --since=5m | grep 'Jev decision endpoint configured'
