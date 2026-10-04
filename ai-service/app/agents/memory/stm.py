@@ -48,7 +48,6 @@ class STMemory:
         metadata: Optional[dict] = None,
     ) -> None:
         """Append a message to the session's STM."""
-        r = _get_redis()
         msg: dict = {
             "role": role,
             "content": content,
@@ -62,8 +61,12 @@ class STMemory:
             msg["metadata"] = metadata
 
         key = self._key(session_id)
-        await r.rpush(key, json.dumps(msg, ensure_ascii=False))
-        await r.expire(key, STM_TTL)
+        try:
+            r = _get_redis()
+            await r.rpush(key, json.dumps(msg, ensure_ascii=False))
+            await r.expire(key, STM_TTL)
+        except Exception as exc:
+            logger.warning("STM append unavailable: %s", type(exc).__name__)
 
     async def get_window(
         self,

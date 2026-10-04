@@ -42,7 +42,7 @@ class AnswerCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, " × (B21 + B22)\nC11 = M1 + M4 − M5 + M7")
         self.assertEqual(reason, "stop")
         self.assertEqual(gateway.request.task, TASK_AGENT_FLASH)
-        self.assertEqual(gateway.request.messages[-2]["content"], previous)
+        self.assertIn(previous, gateway.request.messages[-1]["content"])
         self.assertEqual(gateway.request.extra, {})
 
     def test_terminal_reasons_cover_both_stream_formats(self):

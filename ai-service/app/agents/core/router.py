@@ -16,7 +16,8 @@ When MERGED_PLANNER_ENABLED=false:
 from __future__ import annotations
 
 import logging
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from app.agents.core.intents import RouterIntent, normalize_router_intent
 
 from app.core.config import get_settings
 from app.core.llm import chat_complete_structured
@@ -35,7 +36,9 @@ VALID_INTENTS = {
 
 
 class RouterOutput(BaseModel):
-    intent: str = Field(
+    _normalize_intent = field_validator("intent", mode="before")(normalize_router_intent)
+
+    intent: RouterIntent = Field(
         description="Exactly one of: knowledge_question, progress_advice, content_creation, interactive_exercise, general_chat"
     )
     is_ambiguous: bool = Field(

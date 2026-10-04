@@ -3,7 +3,7 @@ ai-service/app/agents/memory/message_store.py
 
 Persistent Message Store for Agent Chat History.
 Saves exact conversation turns to PostgreSQL so they survive beyond Redis TTL.
-Used purely for displaying history in the UI, not for LLM context injection.
+Also supplies bounded, owner-scoped dialogue when Redis expires or is stale.
 """
 import json
 import logging
@@ -26,6 +26,32 @@ def _custom_json_serializer(obj):
 
 
 class MessageStore:
+    async def get_recent_context(self, session_id: str, user_id: int, limit: int = 30) -> list[dict]:
+        """Return the latest dialogue, chronologically; failures must not look empty."""
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """SELECT id, role, content, metadata FROM (
+                     SELECT m.id, m.role, m.content, m.metadata
+                     FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id
+                     WHERE m.session_id = $1 AND s.user_id = $2
+                       AND m.role IN ('user', 'assistant')
+                     ORDER BY m.id DESC LIMIT $3
+                   ) recent ORDER BY id ASC""", session_id, user_id, min(max(limit, 1), 100),
+            )
+        result = []
+        for row in rows:
+            meta = row["metadata"] or {}
+            if isinstance(meta, str):
+                meta = json.loads(meta)
+            role = row["role"]
+            if (meta.get("context") or {}).get("status") == "needs_course_choice" and role == "assistant":
+                role = "clarification"
+            content = row["content"] or ""
+            if meta.get("incomplete") and role == "assistant":
+                content += "\n[This earlier answer was interrupted/incomplete.]"
+            result.append({"role": role, "content": content})
+        return result
+
     async def get_unconsolidated(
         self, session_id: str, user_id: int, after_id: int, limit: int = 100,
     ) -> list[dict]:
@@ -70,18 +96,20 @@ class MessageStore:
             logger.error("Failed to save message to persistent store: %s", exc)
             return None
 
-    async def get_messages(self, session_id: str, limit: int = 100) -> list[dict]:
+    async def get_messages(self, session_id: str, limit: int = 100, *, user_id: int) -> list[dict]:
         """Retrieve recent persistent messages for a session."""
         try:
             async with get_ai_conn() as conn:
                 rows = await conn.fetch(
-                    """SELECT id, role, content, metadata, created_at
-                       FROM agent_messages
-                       WHERE session_id = $1
-                       ORDER BY created_at ASC
-                       LIMIT $2""",
+                    """SELECT * FROM (
+                         SELECT m.id, m.role, m.content, m.metadata, m.created_at, f.rating AS feedback
+                         FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id
+                         LEFT JOIN agent_message_feedback f ON f.message_id = m.id AND f.user_id = $3
+                         WHERE m.session_id = $1 AND s.user_id = $3
+                         ORDER BY m.id DESC LIMIT $2
+                       ) recent ORDER BY id ASC""",
                     session_id,
-                    limit
+                    min(max(limit, 1), 200), user_id,
                 )
             
             result = []
@@ -93,6 +121,7 @@ class MessageStore:
                 result.append({
                     "id": str(row["id"]),
                     "role": row["role"],
+                    "feedback": row["feedback"],
                     "content": row["content"],
                     "metadata": meta or {},
                     "created_at": row["created_at"].isoformat() if row["created_at"] else None
@@ -100,7 +129,7 @@ class MessageStore:
             return result
         except Exception as exc:
             logger.error("Failed to fetch persistent messages: %s", exc)
-            return []
+            raise
 
 
 # Singleton

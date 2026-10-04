@@ -57,6 +57,54 @@ def _client(*responses):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("answers,valid", [
+    ({"read_only": {"noul": 0.9699}, "standalone": {"noul": 1}}, True),
+    ({"read_only": {"noul": True}, "standalone": {"noul": 1}}, False),
+    ({"read_only": {"noul": float("nan")}, "standalone": {"noul": 1}}, False),
+    ({"read_only": {"noul": 0.99}}, False),
+    ({"read_only": {"noul": 0.99}, "standalone": {"noul": "1"}}, False),
+])
+async def test_named_decisions_validate_every_score_without_rounding(answers, valid):
+    registry = _registry(_binding())
+    pool = MagicMock(lease=AsyncMock(return_value=MagicMock(id=4, plaintext="test-key")),
+                     record_success=AsyncMock(), record_generic_failure=AsyncMock())
+    response = _response(0)
+    response.json.return_value = {"answers": answers}
+    manager, client = _client(response)
+    questions = {"read_only": "Read only?", "standalone": "Standalone?"}
+    with patch("app.core.llm_gateway.system_one.get_settings",
+               return_value=MagicMock(jev_enabled=True, jev_timeout_seconds=1.0)), patch(
+        "app.core.llm_gateway.system_one.httpx.AsyncClient", return_value=manager
+    ), patch("app.core.llm_gateway.system_one.record_usage", new=AsyncMock()):
+        result = await decide_system_one("x" * 1000, registry=registry, key_pool=pool,
+                                         questions=questions)
+    payload = client.post.call_args.kwargs["json"]
+    assert len(payload["state"]) == 1000
+    assert payload["questions"] == {name: {"type": "noul", "instructions": text}
+                                     for name, text in questions.items()}
+    if valid:
+        assert result["scores"]["read_only"] == 0.9699
+        assert "score" not in result
+    else:
+        assert result is None
+        pool.record_generic_failure.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state,questions", [
+    ("x" * 4001, {"safe": "Safe?"}), ("state", {}),
+    ("state", {"bad key": "Safe?"}), ("state", {"safe": ""}),
+])
+async def test_invalid_custom_decision_never_calls_provider(state, questions):
+    registry = _registry(_binding())
+    with patch("app.core.llm_gateway.system_one.get_settings",
+               return_value=MagicMock(jev_enabled=True)):
+        assert await decide_system_one(state, questions=questions, registry=registry,
+                                       key_pool=MagicMock()) is None
+    registry.get_binding_chain.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_system_one_bootstrap_seeds_visible_model_and_task_once():
     provider = MagicMock(id=17)
     model = MagicMock(id=117)

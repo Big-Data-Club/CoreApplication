@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -37,6 +38,7 @@ def _system_one_url(base_url: str | None, path: str = "systemone") -> str | None
 async def _attempt(
     *, prompt: str, model: Model, endpoint: str, lease: LeasedKey,
     key_pool: KeyPool, timeout: float, attempt_no: int, fallback_used: bool,
+    questions: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     """Run one key attempt; tell the caller whether another key may help."""
     started = time.monotonic()
@@ -62,6 +64,11 @@ async def _attempt(
             ),
         }},
     }
+    if questions is not None:
+        payload["questions"] = {
+            name: {"type": "noul", "instructions": instruction}
+            for name, instruction in questions.items()
+        }
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
@@ -80,9 +87,15 @@ async def _attempt(
         response.raise_for_status()
         result = response.json()
         answers = result.get("answers") if isinstance(result, dict) else None
-        answer = answers.get("decompose") if isinstance(answers, dict) else None
-        value = answer.get("noul") if isinstance(answer, dict) else None
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+        scores = {}
+        for name in payload["questions"]:
+            answer = answers.get(name) if isinstance(answers, dict) else None
+            value = answer.get("noul") if isinstance(answer, dict) else None
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or not 0 <= value <= 1):
+                break
+            scores[name] = float(value)
+        if len(scores) != len(payload["questions"]):
             await key_pool.record_generic_failure(lease.id, "Invalid System One response")
             await log_attempt(success=False, error_code="invalid_response")
             return "next_model", None
@@ -94,7 +107,9 @@ async def _attempt(
         await key_pool.record_success(lease.id, input_tokens + output_tokens)
         await log_attempt(success=True, input_tokens=input_tokens, output_tokens=output_tokens)
         return "success", {
-            "score": round(float(value), 3), "model": model.model_name,
+            **({"scores": scores} if questions is not None else
+               {"score": round(scores["decompose"], 3)}),
+            "model": model.model_name,
             "provider": model.provider_code,
             "input_tokens": input_tokens, "output_tokens": output_tokens,
             "latency_ms": int((time.monotonic() - started) * 1000),
@@ -112,12 +127,22 @@ async def _attempt(
 
 async def decide_system_one(
     state: str, *, registry: ModelRegistry, key_pool: KeyPool,
+    questions: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Resolve the live Jev task chain and fall back locally if none succeeds."""
     settings = get_settings()
     if not settings.jev_enabled:
         return None
-    prompt = state.strip()[:900]
+    # Custom decisions must see the complete bounded state; truncation can
+    # remove a negation/action at the end and change the routing decision.
+    if questions is not None and (
+        not 1 <= len(questions) <= 8 or len(state) > 4000
+        or any(not isinstance(k, str) or not k.isidentifier()
+               or not isinstance(v, str) or not v.strip() or len(v) > 2000
+               for k, v in questions.items())
+    ):
+        return None
+    prompt = state.strip() if questions is not None else state.strip()[:900]
     if not prompt:
         return None
 
@@ -155,6 +180,7 @@ async def decide_system_one(
                     prompt=prompt, model=model, endpoint=endpoint, lease=lease,
                     key_pool=key_pool, timeout=settings.jev_timeout_seconds,
                     attempt_no=key_attempt + 1, fallback_used=index > 0,
+                    questions=questions,
                 )
                 if outcome == "success":
                     return decision

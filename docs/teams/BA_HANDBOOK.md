@@ -101,9 +101,17 @@ not ready for implementation.
 - Chi tiết mỗi câu trả lời AI hiển thị riêng các tín hiệu chọn luồng (S-Score)
   và các nguồn ngữ cảnh chuẩn bị cho lượt trả lời: số tin nhắn gần đây,
   số mục ghi nhớ/tóm tắt cũ, chỉ số hồ sơ khóa học và snapshot học tập khi có.
-  S-Score không đo mức agent hiểu đúng người học. Multi-Agent hiện dùng tài liệu
-  truy xuất để viết câu trả lời, chưa truyền bộ nhớ/hồ sơ học tập vào phần viết;
-  giao diện phải nói rõ giới hạn này.
+  S-Score là tổng các tín hiệu theo quy tắc, không đo mức agent hiểu đúng người
+  học; câu hỏi cùng nhóm có thể có cùng điểm. Nhãn thao tác `content_qa` được
+  chuẩn hóa thành ý định `knowledge_question` trước khi tính điểm.
+  Multi-Agent nhận bộ nhớ đã chọn, lịch sử gần đây và dữ liệu học tập vào phần
+  viết/sửa câu trả lời. Lịch sử dài được giữ bằng trích đoạn có đánh dấu thay vì
+  mất toàn bộ khi câu trả lời gần nhất vượt ngân sách STM.
+- Cờ cá nhân hóa của planner là yêu cầu xử lý, khác với việc dữ liệu cá nhân hóa
+  có thực sự được chuẩn bị. Snapshot ôn tập/mastery không thay thế hồ sơ theo
+  khóa từ Personalize. UI phân biệt hồ sơ đã dùng, có nhưng chưa dùng, tải thành
+  công nhưng chưa có hoạt động, không tải được, chưa xác định khóa học và thiếu
+  ngân sách. Không suy ra mastery bằng 0 chỉ vì chưa có bài đánh giá.
 - Bản tóm tắt giải trình chỉ được trả về trong phiên chat đã xác thực của chủ
   tài khoản và lưu cùng metadata câu trả lời theo vòng đời lịch sử chat hiện có.
   Không lưu hay hiển thị nguyên văn hội thoại cũ, ghi chú cá nhân, prompt hoặc
@@ -137,3 +145,6 @@ not ready for implementation.
 | Event/Lakehouse impact | Data + service owner | [Data platform guide](../DATA_PLATFORM.md) |
 | Delivery/rollout/rollback | DevOps + service owner | [DevOps runbook](../DEVOPS_RUNBOOK.md) |
 | Performance proof | QA/DevOps | `performance-tests/` and Grafana dashboard |
+
+
+Chat continuity: recent conversation is restored from persistent, owner-scoped messages when the Redis window expires or becomes stale. Loading failures must not be described as a brand-new conversation. Long history remains bounded by the model context budget. Assistant feedback is restored on reopening a session; selecting the same thumb again removes the rating. A failed save shows a retry message and retains the last confirmed rating. Backend and frontend must deploy together for the history endpoint's required authenticated `user_id`.

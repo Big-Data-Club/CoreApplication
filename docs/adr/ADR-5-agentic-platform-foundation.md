@@ -66,9 +66,16 @@ search is never a reason to inject every hit into the model context.
 
 Output continuation is a separate bounded policy: `AGENT_MAX_ANSWER_CONTINUATIONS`
 defaults to three extra calls (four calls total), while
-`AGENT_MAX_CONTINUATION_TOKENS` caps total generated answer size. Continuation
-stops as soon as the provider reports completion or makes no progress. These
-limits are operational controls, not properties of a particular provider.
+`AGENT_MAX_CONTINUATION_TOKENS` caps estimated visible answer size. Deep uses
+separate defaults: `AGENT_DEEP_MAX_ANSWER_CONTINUATIONS=12`,
+`AGENT_DEEP_MAX_ANSWER_TOKENS=24000`, and
+`AGENT_DEEP_ANSWER_CHUNK_TOKENS=4096`. The shared completion policy covers
+ReAct answers, final synthesis after tools, and each multi-agent draft/revision.
+Continuation stops as soon as the provider reports completion, makes no new
+progress, or reaches the budget. Interrupted streams get at most two recovery
+attempts, within the same call budget. Unfinished output is persisted and
+reported as incomplete. These limits are operational controls, not properties
+of a particular provider. See the gateway operations guide for details.
 
 ### 3. Multi-agent protocol
 

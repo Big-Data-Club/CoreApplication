@@ -13,6 +13,10 @@ data:
   # MCP Server Defaults
   MCP_ENABLED: "true"
   JEV_ENABLED: "true"
+  # Keep the planner accelerator disabled until its shadow results are reviewed.
+  JEV_PLANNER_MODE: "off"
+  JEV_PLANNER_DEADLINE_SECONDS: "0.8"
+  JEV_PLANNER_MIN_SCORE: "0.97"
   MCP_RATE_LIMIT_RPM: "100"
   MCP_ALLOWED_TOOLS: "assess_question,list_accessible_courses,list_my_courses,list_knowledge_nodes,search_course_materials,create_course_section,mcp_index_files,mcp_create_course_from_files,mcp_apply_course_blueprint,mcp_batch_generate_quiz,mcp_generate_slide_deck,mcp_generate_report,mcp_create_lesson"
   MCP_MAX_BODY_BYTES: "2097152"
@@ -92,6 +96,10 @@ data:
   # Set AGENT_FLASH_MODEL in the deployment .env (via bdc-env-overrides).
   # Empty means the gateway uses CHAT_MODEL.
   AGENT_FLASH_MODEL: ""
+  # Deep answers may continue in bounded chunks when generation is truncated.
+  AGENT_DEEP_MAX_ANSWER_CONTINUATIONS: "12"
+  AGENT_DEEP_MAX_ANSWER_TOKENS: "24000"
+  AGENT_DEEP_ANSWER_CHUNK_TOKENS: "4096"
   # Groq's on-demand 8K TPM tier rejects a full 8K request. Keep 25% safety
   # margin; higher-tier deployments can override both values from .env.
   LLM_REQUEST_TOKEN_BUDGET: "6000"

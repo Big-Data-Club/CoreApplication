@@ -66,6 +66,16 @@ class LLMGateway:
             state, registry=self.registry, key_pool=self.key_pool,
         )
 
+    async def evaluate_jev(
+        self, state: str, *, questions: dict[str, str],
+    ) -> dict[str, Any] | None:
+        """Evaluate code-owned boolean questions using the managed Jev binding."""
+        from app.core.llm_gateway.system_one import decide_system_one
+
+        return await decide_system_one(
+            state, questions=questions, registry=self.registry, key_pool=self.key_pool,
+        )
+
     async def preview_request_budget(self, task: str) -> int:
         """Estimate the live request envelope for optional context planning.
 

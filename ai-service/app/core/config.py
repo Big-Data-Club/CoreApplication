@@ -1,4 +1,6 @@
 from functools import lru_cache
+from typing import Literal
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -104,6 +106,9 @@ class Settings(BaseSettings):
     # Optional System One decision endpoint. It is not a chat/tool model.
     jev_enabled: bool = False
     jev_timeout_seconds: float = 2.5
+    jev_planner_mode: Literal["off", "shadow", "active"] = "off"
+    jev_planner_deadline_seconds: float = Field(default=0.8, gt=0, le=2.5)
+    jev_planner_min_score: float = Field(default=0.97, ge=0.95, le=1.0)
 
     # Embedding
     embedding_model: str = "BAAI/bge-m3"
@@ -160,6 +165,9 @@ class Settings(BaseSettings):
     consolidation_turn_interval: int = 5      # trigger consolidation every N turns
     agent_max_answer_continuations: int = 3   # extra model calls after a length-limited answer
     agent_max_continuation_tokens: int = 6000 # total estimated tokens across those calls
+    agent_deep_max_answer_continuations: int = Field(default=12, ge=0, le=32)
+    agent_deep_max_answer_tokens: int = Field(default=24000, ge=1024, le=64000)
+    agent_deep_answer_chunk_tokens: int = Field(default=4096, ge=1024, le=8192)
     
     # ── Loaded from memory_config.yaml ──
     stm_budget: int = 1000

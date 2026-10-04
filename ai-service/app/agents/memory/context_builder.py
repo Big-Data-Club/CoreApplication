@@ -79,6 +79,7 @@ class ContextBuilder:
         system_context: Optional[dict] = None,
         memory_budget_tokens: Optional[int] = None,
         include_ltm_facts: bool = True,
+        history_window: Optional[dict] = None,
     ) -> dict[str, Any]:
         """
         Build a context dict from all active memory tiers.
@@ -132,19 +133,21 @@ class ContextBuilder:
         stm_messages: list[dict] = []
         if weights["stm"] >= 0.3:
             n_turns = 30 if weights["stm"] >= 0.7 else 10
-            stm_messages = await stm.get_window(session_id, n_turns=n_turns)
+            stm_messages = (history_window["messages"] if history_window is not None
+                            else await stm.get_window(session_id, n_turns=n_turns))
+            if history_window is not None and history_window["status"] == "unavailable":
+                notice = "HISTORY UNAVAILABLE: Earlier conversation could not be loaded. Do not claim this is a new conversation or that nothing was discussed. Explain the limitation if asked about earlier discussion."
+                sections.insert(0, notice)
+                total_tokens += estimate_tokens(notice)
             
-            # Enforce STM token budget
-            truncated_stm = []
-            for m in reversed(stm_messages):
-                candidate = [m] + truncated_stm
-                if estimate_messages_tokens(candidate) > stm_budget:
-                    break
-                truncated_stm = candidate
-            stm_messages = truncated_stm
-
+            available_count = len(stm_messages)
+            stm_messages, excerpted = self._fit_recent_dialogue(stm_messages, stm_budget)
             raw["stm"] = {
                 "message_count": len(stm_messages),
+                "available_count": available_count,
+                "source": history_window.get("source") if history_window else "cache",
+                "status": history_window.get("status") if history_window else "available",
+                "excerpted": excerpted,
                 "token_estimate": estimate_messages_tokens(stm_messages),
             }
             total_tokens += raw["stm"]["token_estimate"]
@@ -174,8 +177,13 @@ class ContextBuilder:
                     total_tokens += estimate_tokens(ltm_section)
 
         # ── 3. LTM Facts: Student concept mastery / struggles / strengths ─────
-        facts_budget = min(settings.ltm_facts_budget, max(0, budget - total_tokens))
-        if include_ltm_facts and weights["ltm_facts"] >= 0.3 and course_id and facts_budget >= 80:
+        framing_tokens = estimate_tokens("\n--- CONTEXT FROM MEMORY SYSTEM ---\n\n--- END CONTEXT ---\n\n")
+        facts_budget = min(settings.ltm_facts_budget, max(0, budget - total_tokens - framing_tokens))
+        raw["profile_fetch_status"] = (
+            "not_applicable" if agent_type != "mentor" else
+            "no_course" if not course_id else "budget_limited"
+        )
+        if agent_type == "mentor" and weights["ltm_facts"] >= 0.3 and course_id and facts_budget >= 80:
             # Determine current active node ID from input contexts or MTM state
             current_node_id = None
             if system_context:
@@ -190,6 +198,7 @@ class ContextBuilder:
             # Fetch personalization profile from personalize-service
             import httpx
             personalize_profile = {}
+            raw["profile_fetch_status"] = "error"
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
@@ -198,19 +207,34 @@ class ContextBuilder:
                         timeout=5.0,
                     )
                     if resp.status_code == 200:
-                        personalize_profile = resp.json()
+                        candidate = resp.json()
+                        if isinstance(candidate, dict) and not candidate.get("error"):
+                            count_fields = ("completed_lessons", "attempted_lessons", "correct_checks_count", "incorrect_checks_count")
+                            valid = all(type(candidate.get(key)) in (int, float)
+                                        and math.isfinite(candidate[key]) and candidate[key] >= 0
+                                        for key in count_fields)
+                            accuracy = candidate.get("check_accuracy")
+                            valid = valid and type(accuracy) in (int, float) and 0 <= accuracy <= 1
+                            valid = valid and candidate.get("user_id", user_id) == user_id
+                            valid = valid and candidate.get("course_id", course_id) == course_id
+                            if valid:
+                                personalize_profile = candidate
+                                raw["profile_fetch_status"] = "loaded" if any(candidate[key] for key in count_fields) or candidate.get("struggle_nodes") else "empty"
+                    else:
+                        logger.warning("Personalization profile unavailable status=%d", resp.status_code)
             except Exception as exc:
                 logger.warning("Failed to fetch personalization profile in ContextBuilder: %s", exc)
 
             # Dynamic multi-signal concept scoring
             scored_concepts = []
             try:
-                scored_concepts = await self._compute_multi_signal_scoring(
-                    user_id=user_id,
-                    course_id=course_id,
-                    query=query,
-                    current_node_id=current_node_id,
-                )
+                if include_ltm_facts:
+                    scored_concepts = await self._compute_multi_signal_scoring(
+                        user_id=user_id,
+                        course_id=course_id,
+                        query=query,
+                        current_node_id=current_node_id,
+                    )
             except Exception as exc:
                 logger.warning("Failed to compute multi-signal concept scoring: %s", exc)
 
@@ -258,6 +282,34 @@ class ContextBuilder:
             "token_estimate": total_tokens,
             "intent_type": intent_type,
         }
+
+    @staticmethod
+    def _fit_recent_dialogue(messages: list[dict], budget: int) -> tuple[list[dict], bool]:
+        """Keep recent dialogue even if the last Deep answer exceeds the STM cap.
+
+        Excerpts explicitly retain both ends; they are not fabricated summaries.
+        Tool protocol is not replayed from an incomplete history window.
+        """
+        kept = []
+        excerpted = False
+        for original in reversed(messages):
+            if original.get("role") == "tool" or original.get("tool_calls"):
+                continue
+            message = dict(original)
+            remaining = budget - estimate_messages_tokens(kept)
+            cap = min(max(0, budget // 2), remaining)
+            if estimate_messages_tokens([message]) > cap:
+                text = str(message.get("content") or "")
+                marker = "\n[Earlier message excerpt; middle omitted to fit context]\n"
+                chars = max(0, int((cap - 40) * 2.4) - len(marker))
+                if chars < 64:
+                    break
+                message["content"] = text[:chars // 2] + marker + text[-(chars - chars // 2):]
+                excerpted = True
+            if estimate_messages_tokens([message, *kept]) > budget:
+                break
+            kept.insert(0, message)
+        return kept, excerpted
 
     @staticmethod
     def _fit_section_lines(section: str, budget_tokens: int) -> str:
@@ -318,6 +370,7 @@ class ContextBuilder:
                             "name": node_row["name"],
                             "name_vi": node_row["name_vi"],
                             "mastery_level": 0.0,
+                            "mastery_observed": False,
                             "struggles": False,
                             "last_interaction": datetime.now(timezone.utc),
                         })
@@ -447,7 +500,10 @@ class ContextBuilder:
             if current_chars + len(line) + 1 <= max_chars:
                 parts.append(line)
                 current_chars += len(line) + 1
-                line = f"    - {active_concept['name']} (Mastery: {active_concept['mastery_level']:.1%})"
+                mastery_text = (f"Mastery: {active_concept['mastery_level']:.1%}"
+                                if active_concept.get("mastery_observed", True)
+                                else "Mastery: unknown; no learner assessment yet")
+                line = f"    - {active_concept['name']} ({mastery_text})"
                 if current_chars + len(line) + 1 <= max_chars:
                     parts.append(line)
                     current_chars += len(line) + 1

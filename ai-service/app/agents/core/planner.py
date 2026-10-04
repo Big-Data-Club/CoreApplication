@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import logging
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from app.agents.core.intents import RouterIntent, normalize_router_intent
 
 from app.core.config import get_settings
 from app.core.llm import chat_complete_structured
@@ -135,7 +136,7 @@ class ExecutionPlan(BaseModel):
     )
 
     # ── Router fields (v2 - merged from RouterOutput) ─────────────────────
-    intent: str = Field(
+    intent: RouterIntent = Field(
         default="knowledge_question",
         description=(
             "Router intent classification. One of: "
@@ -165,6 +166,8 @@ class ExecutionPlan(BaseModel):
     )
 
     # ── GraphRAG v2 signals ────────────────────────────────────────────────
+    _normalize_intent = field_validator("intent", mode="before")(normalize_router_intent)
+
     graph_expansion_needed: bool = Field(
         default=True,
         description=(

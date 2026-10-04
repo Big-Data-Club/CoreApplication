@@ -344,6 +344,36 @@ result, a normal push to `dev` can test and build an application but must show
 configuration behavior, not as a registry outage; fix the branch-name mismatch
 before relying on `dev` images.
 
+#### Jev planner and Deep answer configuration
+
+`k3s/base/configmap.yaml` explicitly sets the planner mode (`off`), deadline
+(`0.8` seconds), acceptance threshold (`0.97`), and Deep completion limits
+(`12` continuation calls, `24000` estimated visible-answer tokens, `4096`
+tokens per chunk). These match the AI application's defaults. Production
+retains its existing `JEV_ENABLED=true`; enabling the general Jev service does
+not enable the planner accelerator while `JEV_PLANNER_MODE=off`. Start a reviewed
+planner trial with `shadow` before considering `active`.
+
+Editing `.env.example` does not configure Kubernetes pods. AI HTTP and worker
+Deployments import `bdc-config` via `envFrom`. The normal `production.yml` path
+detects ConfigMap edits, builds immutable images, applies the ConfigMap through
+`scripts/deploy-production.sh`, and rolls selected workloads to the new image
+SHA. The shared ConfigMap currently selects all eight service categories in
+the workflow, not just AI. No workflow edit is needed to ship these keys.
+
+Applying only the ConfigMap does not refresh environment variables in existing
+pods. A manual dispatch reusing an already deployed image tag may also skip
+the image update; explicitly restart affected Deployments when doing a
+configuration-only operational rollout. The legacy `cd-production.yml` only
+restarts pods and does not apply the changed ConfigMap. The normal CI path does
+not import an arbitrary local `.env` file. Per-container environment overrides,
+if configured in the running cluster, must be checked separately.
+
+These Deep limits bound automatic continuation; they do not remove provider
+context, rate, or connection limits. Verify effective values and actual chat
+completion after deployment. A local manifest render does not establish that
+the cluster received the change.
+
 #### `cd-production.yml` - legacy restart path
 
 This workflow does not set an image tag or build an image. It calls `kubectl

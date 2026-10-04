@@ -173,8 +173,10 @@ async def chat_endpoint(
             )
             yield error_event.to_sse()
 
+    from app.agents.core.sse_keepalive import with_keepalive
+
     return StreamingResponse(
-        event_stream(),
+        with_keepalive(event_stream()),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -225,13 +227,14 @@ async def create_new_session(
 @router.get("/sessions/{session_id}/messages")
 async def get_session_messages(
     session_id: str,
+    user_id: int,
     limit: int = 100,
     x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret"),
 ):
     """Get the persistent message history for a session."""
     _verify_secret(x_ai_secret)
     from app.agents.memory.message_store import message_store
-    messages = await message_store.get_messages(session_id=session_id, limit=limit)
+    messages = await message_store.get_messages(session_id=session_id, limit=limit, user_id=user_id)
     return {"messages": messages}
 
 
@@ -410,7 +413,7 @@ class FeedbackRequest(BaseModel):
     """Thumbs up/down on a specific assistant message."""
     message_id: int = Field(..., gt=0)
     session_id: str = Field(..., min_length=1)
-    rating: str = Field(..., pattern="^(like|dislike)$")
+    rating: Optional[str] = Field(..., pattern="^(like|dislike)$")
 
 
 @router.post("/feedback")
@@ -434,19 +437,26 @@ async def submit_message_feedback(
                 """SELECT m.id
                    FROM agent_messages m
                    JOIN agent_sessions s ON s.id = m.session_id
-                   WHERE m.id = $1 AND m.session_id = $2 AND s.user_id = $3""",
+                   WHERE m.id = $1 AND m.session_id = $2 AND s.user_id = $3 AND m.role = 'assistant'""",
                 body.message_id, body.session_id, user_id,
             )
             if not owner:
                 raise HTTPException(status_code=404, detail="Message not found for this user/session")
 
-            await conn.execute(
-                """INSERT INTO agent_message_feedback (message_id, session_id, user_id, rating)
-                   VALUES ($1, $2, $3, $4)
-                   ON CONFLICT (message_id, user_id)
-                   DO UPDATE SET rating = EXCLUDED.rating, created_at = NOW()""",
-                body.message_id, body.session_id, user_id, body.rating,
-            )
+            if body.rating is None:
+                await conn.execute(
+                    "DELETE FROM agent_message_feedback WHERE message_id = $1 AND user_id = $2",
+                    body.message_id, user_id,
+                )
+            else:
+                await conn.execute(
+                    """INSERT INTO agent_message_feedback (message_id, session_id, user_id, rating)
+                       VALUES ($1, $2, $3, $4)
+                       ON CONFLICT (message_id, user_id)
+                       DO UPDATE SET rating = EXCLUDED.rating, created_at = NOW()""",
+                    body.message_id, body.session_id, user_id, body.rating,
+                )
+
         return {"status": "ok", "rating": body.rating}
     except HTTPException:
         raise

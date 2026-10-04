@@ -76,20 +76,12 @@ async def handle_chat_message(
     if session_id:
         # Use existing session - just verify it exists and retrieve context + turn count
         session_info = await mtm.get_session(session_id)
-        if session_info:
-            session_data = {
-                "session_id": session_id,
-                "context": session_info["context"],
-                "turn_count": session_info["turn_count"],
-            }
-        else:
-            # Fallback to creating a new session if the provided session_id wasn't found
-            session_data = await mtm.create_new_session(
-                user_id=user_id,
-                agent_type=agent_type,
-                course_id=course_id,
-            )
-            session_id = session_data["session_id"]
+        if not session_info or session_info["user_id"] != user_id or session_info["agent_type"] != agent_type:
+            yield AgentEvent(type=AgentEventType.ERROR, session_id=session_id,
+                             data={"error": "Conversation not found. Please reopen a valid conversation.", "code": "session_not_found"})
+            return
+        session_data = {"session_id": session_id, "context": session_info["context"],
+                        "turn_count": session_info["turn_count"]}
     else:
         # Create a new session instead of reusing the most recent active one
         # to respect the clean slate / new conversation request when session_id is None.
@@ -127,6 +119,10 @@ async def handle_chat_message(
             logger.warning("LTM collection init failed (non-fatal): %s", exc)
 
     # ── 4. Delegate to ReAct loop ────────────────────────────────────────────
+    from app.agents.memory.message_store import message_store
+    from app.agents.memory.stm import stm
+    partial = ""
+    saved = False
     async for event in run_react_loop(
         session_id=session_id,
         user_id=user_id,
@@ -138,4 +134,15 @@ async def handle_chat_message(
         system_context=system_context,
         chat_mode=chat_mode,
     ):
+        if event.type == AgentEventType.TEXT_RESET:
+            partial = ""
+        elif event.type == AgentEventType.TEXT_DELTA:
+            partial += event.data.get("delta", "")
+        elif event.type == AgentEventType.ERROR and partial and not saved:
+            message_id = await message_store.save_message(
+                session_id, "assistant", partial,
+                metadata={"incomplete": True, "chat_mode": chat_mode})
+            saved = message_id is not None
+            await stm.append(session_id, "assistant", partial)
+            event.data = {**event.data, "message_id": message_id}
         yield event

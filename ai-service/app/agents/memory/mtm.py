@@ -226,7 +226,7 @@ class MTMemory:
         """Get the compressed context and turn count for a session."""
         async with get_ai_conn() as conn:
             row = await conn.fetchrow(
-                "SELECT compressed_ctx, turn_count FROM agent_sessions WHERE id = $1",
+                "SELECT compressed_ctx, turn_count, user_id, agent_type FROM agent_sessions WHERE id = $1",
                 session_id,
             )
             if not row:
@@ -237,6 +237,8 @@ class MTMemory:
             return {
                 "context": ctx or {},
                 "turn_count": row["turn_count"] or 0,
+                "user_id": row["user_id"],
+                "agent_type": row["agent_type"],
             }
 
     async def get_working_state(self, session_id: str) -> dict:
