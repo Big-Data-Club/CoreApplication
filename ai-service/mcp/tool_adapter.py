@@ -35,6 +35,7 @@ import logging
 from typing import Any
 
 from app.agents.tools.base_tool import ToolResult
+from app.agents.tools.shared.assess_question import AssessQuestionTool
 from app.agents.tools.registry import (
     execute_tool,
     get_tools,
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 SAFE_DEFAULT_TOOLS = {
+    "assess_question",
     "list_accessible_courses",
     "list_my_courses",
     "list_knowledge_nodes",
@@ -133,10 +135,20 @@ def get_mcp_tool_list() -> list[dict]:
                 "annotations": {
                     "readOnlyHint": tool.name not in WRITE_TOOLS,
                     "destructiveHint": False,
-                    "idempotentHint": tool.name in {"list_my_courses", "list_knowledge_nodes", "search_course_materials", "mcp_generate_slide_deck", "mcp_generate_report"},
-                    "openWorldHint": False,
+                    "idempotentHint": tool.name in {"assess_question", "list_my_courses", "list_knowledge_nodes", "search_course_materials", "mcp_generate_slide_deck", "mcp_generate_report"},
+                    "openWorldHint": tool.name == "assess_question",
                 },
             })
+
+    if _is_allowed("assess_question"):
+        schema = AssessQuestionTool().to_function_schema()["function"]
+        mcp_tools.append({
+            "name": schema["name"],
+            "description": schema["description"],
+            "inputSchema": schema["parameters"],
+            "annotations": {"readOnlyHint": True, "destructiveHint": False,
+                            "idempotentHint": True, "openWorldHint": True},
+        })
 
     return mcp_tools
 
@@ -232,6 +244,11 @@ async def call_mcp_tool(
             data={"error": "reserved_argument"},
             message="Arguments beginning with '_' are reserved by the server.",
         ))
+
+    if tool_name == "assess_question":
+        result = await AssessQuestionTool().execute(**arguments)
+        await _audit(user_id, tool_name, result.status != "error", {})
+        return _tool_result_to_mcp(result)
 
     tool = get_tool_by_name(tool_name)
     if tool is None:
