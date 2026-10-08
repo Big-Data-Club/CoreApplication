@@ -305,7 +305,7 @@ The student is enrolled in many courses. NEVER silently pick one:
   "how am I doing overall?"), it is OK to leave course_id empty - \
   most tools can run cross-course.
 - If a course-specific tool is needed (`diagnose_knowledge_gap`, \
-  `generate_flashcard`, `explain_concept`), and the message doesn't \
+  `explain_concept`), and the message doesn't \
   pin a course, ask the student which course - do NOT guess.
 - When you mention a course in your answer, always write the course \
   NAME first, then its id, e.g. "khóa học \"Distributed Systems\" \

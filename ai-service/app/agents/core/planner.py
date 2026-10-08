@@ -119,7 +119,7 @@ class ExecutionPlan(BaseModel):
             "Available tools include ['generate_quiz_from_source', 'parse_quiz_questions', "
             "'generate_quiz_draft', 'generate_content_draft', 'search_course_materials', 'explain_concept', "
             "'get_study_plan', 'diagnose_knowledge_gap', 'create_mini_challenge', "
-            "'generate_flashcard', 'search_web', 'fetch_page', 'save_to_notebook']"
+            "'search_web', 'fetch_page', 'save_to_notebook']"
         )
     )
     personalization_enabled: bool = Field(
@@ -217,7 +217,6 @@ Available Tools:
 - get_study_plan: Generate a detailed legacy study plan based on Lakehouse metrics
 - diagnose_knowledge_gap: Check student weaknesses / wrong answers
 - create_mini_challenge: Quick check concept exercises
-- generate_flashcard: Flashcard creation
 - search_web: Web search fallback
 - save_to_notebook: Save content to student notebook
 

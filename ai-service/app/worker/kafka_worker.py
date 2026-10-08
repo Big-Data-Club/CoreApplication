@@ -263,6 +263,11 @@ async def process_ai_command(payload: dict):
                 questions_per_level=job_payload.get("questions_per_level", 1),
             )
 
+        elif command_type == "PERSONAL_FLASHCARD":
+            from app.services.personal_flashcard_service import process_personal_flashcard_job
+            await process_personal_flashcard_job(job_id)
+            result = {"job_id": job_id}
+
         elif command_type == "GENERATE_FLASHCARD":
             from app.services.flashcard_service import flashcard_srv
             flashcards = await flashcard_srv.generate_flashcards_with_llm(

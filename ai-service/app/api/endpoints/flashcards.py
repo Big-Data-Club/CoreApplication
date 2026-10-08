@@ -216,3 +216,23 @@ async def get_student_summary(student_id: int, course_id: int, request: Request)
         logger.error(f"Failed to get student analytics summary from AI: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+class PersonalLibraryRequest(BaseModel):
+    student_id: int = Field(gt=0)
+    course_id: int = Field(gt=0)
+    action: str
+    data: dict = Field(default_factory=dict)
+
+
+@router.post("/personal")
+async def personal_library(body: PersonalLibraryRequest, request: Request):
+    _verify_internal(request)
+    from app.services.personal_flashcard_service import library_action
+    from pydantic import ValidationError
+    try:
+        return await library_action(body.student_id, body.course_id, body.action, body.data)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dữ liệu")
+    except (ValueError, TypeError, KeyError, ValidationError):
+        raise HTTPException(status_code=400, detail="Dữ liệu không hợp lệ. Hãy kiểm tra và thử lại.")

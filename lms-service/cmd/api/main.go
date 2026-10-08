@@ -525,19 +525,17 @@ func main() {
 				courses.GET("/:courseId/analytics/student-summary", analyticsHandler.GetStudentAnalyticsSummary)
 
 				// -- Flashcards (Student) ----------------------------------
-				courses.POST("/:courseId/nodes/:nodeId/flashcards/generate", flashcardHandler.GenerateFlashcards)
-				courses.POST("/:courseId/flashcards/generate", flashcardHandler.GenerateFlashcards)
 				courses.GET("/:courseId/flashcards/due", flashcardHandler.ListDueFlashcards)
 				courses.GET("/:courseId/nodes/:nodeId/flashcards", flashcardHandler.ListFlashcards)
 				courses.GET("/:courseId/flashcards", flashcardHandler.ListFlashcards)
-				courses.POST("/:courseId/flashcards/bulk-save", flashcardHandler.BulkSaveFlashcards)
 
 				// -- Progress tracking (Student) ---------------------------
 				courses.GET("/:courseId/my-progress", progressHandler.GetMyProgress)
 				courses.GET("/:courseId/progress-detail", progressHandler.GetMyProgressDetail)
 			}
 
-			// FLASHCARD ROUTE (Outside course root context)
+			// Personal course library and legacy flashcard review
+			auth.POST("/courses/:courseId/flashcard-library", handler.NewPersonalFlashcardHandler(aiClient, enrollmentService).Action)
 			flashcards := auth.Group("/flashcards")
 			{
 				flashcards.POST("/:flashcardId/review", flashcardHandler.ReviewFlashcard)

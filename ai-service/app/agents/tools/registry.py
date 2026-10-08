@@ -41,7 +41,6 @@ from app.agents.tools.shared.list_accessible_courses import ListAccessibleCourse
 from app.agents.tools.mentor.search_materials import SearchMaterialsTool
 from app.agents.tools.mentor.diagnose_knowledge_gap import DiagnoseKnowledgeGapTool
 from app.agents.tools.mentor.create_mini_challenge import CreateMiniChallengeTool
-from app.agents.tools.mentor.generate_flashcard import GenerateFlashcardTool
 from app.agents.tools.mentor.get_study_plan import GetStudyPlanTool
 from app.agents.tools.mentor.get_recommendations import GetRecommendationsTool
 from app.agents.tools.mentor.explain_concept import ExplainConceptTool
@@ -85,7 +84,6 @@ _TEACHER_ONLY_TOOLS: list[BaseTool] = [
 _MENTOR_ONLY_TOOLS: list[BaseTool] = [
     DiagnoseKnowledgeGapTool(),
     CreateMiniChallengeTool(),
-    GenerateFlashcardTool(),
     GetStudyPlanTool(),
     GetRecommendationsTool(),
     ExplainConceptTool(),
