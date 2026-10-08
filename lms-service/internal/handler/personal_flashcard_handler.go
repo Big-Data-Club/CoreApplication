@@ -94,7 +94,7 @@ func (h *PersonalFlashcardHandler) Action(c *gin.Context) {
 			status = upstream.Status
 			code, message = upstream.Code, upstream.Message
 		}
-		logger.Warn("Flashcard request failed", map[string]interface{}{"action": body.Action, "status": status, "code": code})
+		logger.WarnWithFields("Flashcard request failed", map[string]interface{}{"action": body.Action, "status": status, "code": code})
 		c.JSON(status, dto.NewErrorResponse(code, message))
 		return
 	}

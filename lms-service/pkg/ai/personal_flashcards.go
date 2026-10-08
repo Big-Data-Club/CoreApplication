@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"example/hello/pkg/logger"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+
+	"example/hello/pkg/logger"
 )
 
 type PersonalFlashcardError struct {
@@ -61,7 +62,7 @@ func (c *Client) PersonalFlashcardAction(ctx context.Context, studentID, courseI
 				failure.Message = "Kho thẻ chưa sẵn sàng. Hãy thử lại sau ít phút."
 			}
 		}
-		logger.Warn("AI personal library request failed", map[string]interface{}{"action": action, "upstream_status": resp.StatusCode, "code": failure.Code})
+		logger.WarnWithFields("AI personal library request failed", map[string]interface{}{"action": action, "upstream_status": resp.StatusCode, "code": failure.Code})
 		return nil, failure
 	}
 	var result map[string]interface{}

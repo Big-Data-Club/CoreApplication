@@ -164,6 +164,17 @@ Production workflows run a kubeconfig preflight before modifying image-pull
 Secrets or workloads. If that preflight fails, repair the runner configuration;
 do not add `sudo kubectl` to workflow steps.
 
+### Flashcard library rollout
+
+AI schema V016/V017 may already be present from a manual migration. The production
+workflow detects complete existing schemas and records them, then applies V018 in
+one transaction before the new AI image rolls out. A partial schema stops rollout.
+After the AI HTTP/worker, LMS and frontend images have rolled out, run
+`scripts/check-flashcard-rollout.sh` from this repository with cluster access.
+It checks both routes and the required AI columns without reading student data.
+A POST 404 can originate from a missing LMS route or from an older AI image;
+check the deployed image tags and the route probe before changing migrations.
+
 ## 4. First five minutes: standard cluster health check
 
 Run the following read-only commands after connecting and before a release,

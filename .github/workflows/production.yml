@@ -48,6 +48,9 @@ jobs:
               - 'scripts/deploy-production.sh'
             ai:
               - 'ai-service/**'
+              - 'scripts/apply-flashcard-migrations.py'
+              - 'scripts/flashcard-migration-runner.py'
+              - '.github/workflows/production.yml'
               - 'k3s/base/ai-service-deployment.yaml'
               - 'k3s/base/course-blueprint-worker-deployment.yaml'
               - 'k3s/base/kafka-statefulset.yaml'
@@ -374,6 +377,7 @@ jobs:
                   await conn.close()
           asyncio.run(main())
           ' < ai-service/migrations/V014__mcp_api_keys.sql
+          python3 scripts/apply-flashcard-migrations.py | kubectl exec -i -n "$DEPLOY_NAMESPACE" "$POD" -- python -
 
       - name: Deploy immutable images and verify rollouts
         env:

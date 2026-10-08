@@ -264,7 +264,13 @@ async def process_personal_flashcard_job(job_id: str):
                         ], max_tokens=700), timeout=60)
                         verdict = Verdict.model_validate(raw)
                         result = await record_answer(conn, job["student_id"], job["course_id"], card, answer, verdict)
-                    await conn.execute("UPDATE personal_flashcard_jobs SET status='completed',result=$2::jsonb,error=NULL,updated_at=now() WHERE id=$1", UUID(job_id), json.dumps(result))
+                    if job["kind"] in ("content", "quiz"):
+                        # Keep the idempotency/source identity, discard the copied lesson body.
+                        payload = dict(job["payload"])
+                        payload["source"] = {**payload["source"], "text": ""}
+                        await conn.execute("UPDATE personal_flashcard_jobs SET status='completed',result=$2::jsonb,payload=$3::jsonb,error=NULL,updated_at=now() WHERE id=$1", UUID(job_id), json.dumps(result), json.dumps(payload))
+                    else:
+                        await conn.execute("UPDATE personal_flashcard_jobs SET status='completed',result=$2::jsonb,error=NULL,updated_at=now() WHERE id=$1", UUID(job_id), json.dumps(result))
             except Exception as exc:
                 logging.getLogger(__name__).warning("Personal flashcard job failed: %s (%s)", job_id, type(exc).__name__)
                 from app.services.content_study_service import SourceNotReady

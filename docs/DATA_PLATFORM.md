@@ -194,7 +194,7 @@ Owner: AI service. LMS authenticates `POST /api/v1/courses/:courseId/flashcard-l
 `student_id` and the authorized `course_id`; AI owns `personal_flashcard_decks`, `personal_flashcards`,
 `personal_flashcard_reviews`, and `personal_flashcard_jobs`. The internal API is
 `POST /ai/flashcards/personal` with `X-AI-Secret`. Every read/write is scoped to both the learner and course, after LMS course-access verification.
-Cards are independent of knowledge nodes.
+Cards can be created manually for any subject; cards generated from a lesson keep the exact linked node IDs as source metadata. Review and scheduling do not depend on nodes.
 
 LMS produces `PERSONAL_FLASHCARD` on the existing `lms.ai.command` topic, keyed by
 job UUID, with payload `{ "job_id": "<uuid>" }`. AI worker loads the owner and input
@@ -204,7 +204,7 @@ input is used only for requested card generation or answer evaluation. Existing
 `ai_job_status` updates carry only the job ID; private results are read through the
 owner-scoped library `job` action.
 
-Generation returns editable drafts and never saves cards automatically. Answer
+Free-topic generation returns editable drafts. Explicit generation from the current published LMS content saves cards directly into a source-linked deck in the learner's course. LMS resolves the canonical content or micro lesson after authorizing the learner; AI joins nodes only by the exact course/content link and reads indexed chunks for that content when needed. A missing source yields a visible error instead of invented cards. A lesson quiz returns private multiple-choice questions and does not save flashcards. The worker clears the copied lesson body from completed job payloads; source links remain in the owner's deck/card and are removed when those records are deleted. Answer
 checks use a stable review UUID; transaction/card locks and the review primary key
 prevent a retry from advancing a schedule twice. Worker deliveries serialize on a
 PostgreSQL advisory lock and reuse completed jobs. Model calls have bounded
@@ -212,9 +212,7 @@ timeouts. Queue failures and model failures are surfaced to the learner; they do
 not award progress. An edited card increments its revision, so an in-flight check
 cannot grade against a changed answer.
 
-Rollout: apply AI migrations `V016__personal_flashcard_library.sql` and
-`V017__flashcard_library_course_scope.sql` (only V017 if V016 was already applied), deploy AI HTTP
-and worker, deploy LMS, then frontend. The migration copies active legacy cards
+Rollout: the AI deployment step runs `scripts/apply-flashcard-migrations.py` before rollout. It adopts previously applied V016/V017 from their complete schema and applies only missing migrations, including V018 for lesson jobs/source links. Deploy AI HTTP and worker, LMS, then frontend. Run `scripts/check-flashcard-rollout.sh` after rollout to identify a missing AI route, LMS route, or schema. The migration copies active legacy cards
 and their repetition schedules into each owner's `Thẻ đã lưu` deck. V017 splits
 that deck by original course while preserving card IDs, edits and review schedules.
 Unscoped cards created between V016 and V017 are retained; their owner can explicitly
@@ -222,7 +220,7 @@ assign their deck into an accessible course using `assign_deck`. New decks/jobs
 always require a course. Legacy data
 is retained for rollback; subsequent personal-library edits are not synchronized
 back to the old node tables. The frontend removes node-generation entry points,
-and LMS no longer registers the old generate/bulk-save routes. Browser speech
+and LMS no longer registers the old generate/bulk-save routes. `generate_content` and `quiz_content` jobs use a browser UUID that is stable on retry; worker transactions atomically save cards/job results and serialize duplicate deliveries. Browser speech
 uses Web Speech API voices, with explicit playback, voice selection and speed;
 no new cloud TTS account or credential is required.
 
