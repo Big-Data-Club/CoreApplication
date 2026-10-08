@@ -535,7 +535,7 @@ func main() {
 			}
 
 			// Personal course library and legacy flashcard review
-			auth.POST("/courses/:courseId/flashcard-library", handler.NewPersonalFlashcardHandler(aiClient, enrollmentService).Action)
+			auth.POST("/courses/:courseId/flashcard-library", handler.NewPersonalFlashcardHandler(aiClient, enrollmentService, service.NewStudySourceService(courseRepo, microLessonRepo)).Action)
 			flashcards := auth.Group("/flashcards")
 			{
 				flashcards.POST("/:flashcardId/review", flashcardHandler.ReviewFlashcard)

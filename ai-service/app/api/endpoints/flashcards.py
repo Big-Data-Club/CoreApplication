@@ -232,7 +232,14 @@ async def personal_library(body: PersonalLibraryRequest, request: Request):
     from pydantic import ValidationError
     try:
         return await library_action(body.student_id, body.course_id, body.action, body.data)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dữ liệu")
     except (ValueError, TypeError, KeyError, ValidationError):
-        raise HTTPException(status_code=400, detail="Dữ liệu không hợp lệ. Hãy kiểm tra và thử lại.")
+        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": "Dữ liệu không hợp lệ. Hãy kiểm tra và thử lại."})
+    except LookupError:
+        raise HTTPException(status_code=404, detail={"code": "flashcard_not_found", "message": "Không tìm thấy thẻ hoặc bộ thẻ. Hãy tải lại."})
+    except Exception as exc:
+        import asyncpg
+        if isinstance(exc, (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError)):
+            logger.error("Personal library schema unavailable: %s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail={"code": "flashcard_schema_pending", "message": "Kho thẻ đang được cập nhật. Hãy thử lại sau ít phút."})
+        logger.error("Personal library action %s failed: %s", body.action, type(exc).__name__)
+        raise HTTPException(status_code=503, detail={"code": "flashcard_unavailable", "message": "Chưa kết nối được kho thẻ. Hãy thử lại sau ít phút."})
