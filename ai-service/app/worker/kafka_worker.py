@@ -265,7 +265,10 @@ async def process_ai_command(payload: dict):
 
         elif command_type == "PERSONAL_FLASHCARD":
             from app.services.personal_flashcard_service import process_personal_flashcard_job
-            await process_personal_flashcard_job(job_id)
+            status = await process_personal_flashcard_job(job_id)
+            if status != "completed":
+                await publish_ai_job_status(job_id=job_id, status="failed", error="Personal flashcard job failed")
+                return
             result = {"job_id": job_id}
 
         elif command_type == "GENERATE_FLASHCARD":

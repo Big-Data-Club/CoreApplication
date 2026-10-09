@@ -237,8 +237,10 @@ async def process_personal_flashcard_job(job_id: str):
         async with conn.transaction():
             await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", job_id)
             row = await conn.fetchrow("SELECT * FROM personal_flashcard_jobs WHERE id=$1 FOR UPDATE", UUID(job_id))
-            if not row or row["status"] == "completed" or row["course_id"] is None:
-                return
+            if not row or row["course_id"] is None:
+                return "failed"
+            if row["status"] == "completed":
+                return "completed"
             job = decode(row)
             try:
                 async with conn.transaction():
@@ -271,8 +273,16 @@ async def process_personal_flashcard_job(job_id: str):
                         await conn.execute("UPDATE personal_flashcard_jobs SET status='completed',result=$2::jsonb,payload=$3::jsonb,error=NULL,updated_at=now() WHERE id=$1", UUID(job_id), json.dumps(result), json.dumps(payload))
                     else:
                         await conn.execute("UPDATE personal_flashcard_jobs SET status='completed',result=$2::jsonb,error=NULL,updated_at=now() WHERE id=$1", UUID(job_id), json.dumps(result))
+                return "completed"
             except Exception as exc:
-                logging.getLogger(__name__).warning("Personal flashcard job failed: %s (%s)", job_id, type(exc).__name__)
+                logging.getLogger(__name__).warning("Personal flashcard job failed: %s kind=%s error=%s", job_id, job["kind"], type(exc).__name__)
                 from app.services.content_study_service import SourceNotReady
-                message = str(exc) if isinstance(exc, SourceNotReady) else "Chưa xử lý được. Hãy thử lại."
+                from app.core.llm_gateway.errors import ContextLengthError
+                if isinstance(exc, SourceNotReady):
+                    message = str(exc)
+                elif isinstance(exc, ContextLengthError):
+                    message = "Model AI hiện tại không xử lý được bài này, kể cả khi đã thu gọn nội dung. Hãy thử lại sau."
+                else:
+                    message = "Chưa xử lý được. Hãy thử lại."
                 await conn.execute("UPDATE personal_flashcard_jobs SET status='failed',error=$2,updated_at=now() WHERE id=$1", UUID(job_id), message)
+                return "failed"
