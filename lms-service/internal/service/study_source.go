@@ -35,7 +35,7 @@ func NewStudySourceService(contents studyContentRepository, lessons studyLessonR
 }
 
 func (s *StudySourceService) Resolve(ctx context.Context, courseID, contentID, lessonID int64) (*StudySource, error) {
-	denied := errors.New("Không tìm thấy bài học đã xuất bản trong khóa học này")
+	denied := errors.New("Không tìm thấy bài học trong khóa học này")
 	if (contentID > 0) == (lessonID > 0) || contentID < 0 || lessonID < 0 {
 		return nil, denied
 	}
@@ -46,7 +46,7 @@ func (s *StudySourceService) Resolve(ctx context.Context, courseID, contentID, l
 		}
 		if lesson.SectionID.Valid {
 			section, err := s.contents.GetSectionByID(ctx, lesson.SectionID.Int64)
-			if err != nil || section == nil || section.CourseID != courseID || !section.IsPublished {
+			if err != nil || section == nil || section.CourseID != courseID {
 				return nil, denied
 			}
 		}
@@ -54,11 +54,11 @@ func (s *StudySourceService) Resolve(ctx context.Context, courseID, contentID, l
 		return &StudySource{LessonID: lesson.ID, Title: lesson.Title, Text: lesson.MarkdownContent, NodeID: lesson.NodeID.Int64}, nil
 	}
 	content, err := s.contents.GetContentByID(ctx, contentID)
-	if err != nil || content == nil || !content.IsPublished {
+	if err != nil || content == nil {
 		return nil, denied
 	}
 	section, err := s.contents.GetSectionByID(ctx, content.SectionID)
-	if err != nil || section == nil || section.CourseID != courseID || !section.IsPublished {
+	if err != nil || section == nil || section.CourseID != courseID {
 		return nil, denied
 	}
 	if content.Type != "TEXT" && content.Type != "DOCUMENT" && content.Type != "VIDEO" {

@@ -16,7 +16,7 @@ import (
 )
 
 // PersonalFlashcardHandler injects learner identity and verifies course access.
-// Source text is resolved from published LMS content before calling AI.
+// Source text is resolved from course content the learner can access.
 type flashcardCourseAccess interface {
 	VerifyAccess(context.Context, int64, int64, string) error
 }
