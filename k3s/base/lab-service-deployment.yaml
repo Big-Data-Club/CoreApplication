@@ -16,7 +16,7 @@ spec:
     spec:
       serviceAccountName: lab-execution-controller
       # The controller needs only its projected Kubernetes API token to create
-      # short-lived Jobs in lab-sandbox; its RBAC cannot access secrets or exec.
+      # short-lived Jobs and learner terminal exec in lab-sandbox; no Secret access.
       automountServiceAccountToken: true
       securityContext:
         fsGroup: 1000
@@ -113,9 +113,13 @@ spec:
               key: LMS_SYNC_SECRET
         - name: GOMAXPROCS
           value: "2"
-        # Database lab sandbox connection URL (Neon)
+        # Dedicated practice instance; never reuse application database credentials.
         - name: DB_LAB_POSTGRES_URL
-          value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(LAB_POSTGRES_HOST)/$(DB_NAME)?sslmode=require"
+          valueFrom:
+            secretKeyRef:
+              name: lab-sql-sandbox
+              key: postgres-url
+              optional: true
         # LeetCode-style executor. Jobs run only in lab-sandbox, never in this
         # API pod. Keep this local to lab-service so changing it cannot restart
         # unrelated workers such as document indexing.

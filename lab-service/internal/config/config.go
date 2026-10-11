@@ -153,22 +153,23 @@ type RuntimeSecurityConfig struct {
 // CodingSandboxConfig describes an in-cluster, restricted execution worker.
 // It intentionally has no user-controlled image, namespace or network fields.
 type CodingSandboxConfig struct {
-	Enabled          bool
-	Namespace        string
-	PythonImage      string
-	CImage           string
-	CPPImage         string
-	JavaImage        string
-	GoImage          string
-	RustImage        string
-	ScalaImage       string
-	MaxTime          time.Duration
-	MaxCompileTime   time.Duration
-	ProvisionTimeout time.Duration
-	MaxMemoryMB      int
-	MaxCPU           string
-	PollInterval     time.Duration
-	JobTTLSeconds    int
+	MaxConcurrentJobs int
+	Enabled           bool
+	Namespace         string
+	PythonImage       string
+	CImage            string
+	CPPImage          string
+	JavaImage         string
+	GoImage           string
+	RustImage         string
+	ScalaImage        string
+	MaxTime           time.Duration
+	MaxCompileTime    time.Duration
+	ProvisionTimeout  time.Duration
+	MaxMemoryMB       int
+	MaxCPU            string
+	PollInterval      time.Duration
+	JobTTLSeconds     int
 }
 
 type TerminalSandboxConfig struct {
@@ -294,7 +295,7 @@ func Load() (*Config, error) {
 			Brokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
 		},
 		DatabaseLab: DatabaseLabConfig{
-			PostgresURL:  getEnv("DB_LAB_POSTGRES_URL", "postgres://lab_user:lab_password@localhost:5436/lab_db?sslmode=disable"),
+			PostgresURL:  getEnv("DB_LAB_POSTGRES_URL", ""),
 			MySQLURL:     getEnv("DB_LAB_MYSQL_URL", "root:root_password@tcp(localhost:3306)/mysql_db"),
 			SQLServerURL: getEnv("DB_LAB_SQLSERVER_URL", "sqlserver://sa:SqlServerPassword123@localhost:1433?database=mssql_db"),
 			OracleURL:    getEnv("DB_LAB_ORACLE_URL", "oracle://system:oracle_password@localhost:1521/XE"),
@@ -306,22 +307,23 @@ func Load() (*Config, error) {
 			AllowUnsafeTerminal:       getEnvAsBool("LAB_ALLOW_UNSAFE_TERMINAL", false),
 		},
 		CodingSandbox: CodingSandboxConfig{
-			Enabled:          getEnvAsBool("LAB_CODING_SANDBOX_ENABLED", false),
-			Namespace:        getEnv("LAB_CODING_SANDBOX_NAMESPACE", "lab-sandbox"),
-			PythonImage:      getEnv("LAB_CODING_SANDBOX_PYTHON_IMAGE", "python:3.12-alpine"),
-			CImage:           getEnv("LAB_CODING_SANDBOX_C_IMAGE", "gcc:14"),
-			CPPImage:         getEnv("LAB_CODING_SANDBOX_CPP_IMAGE", "gcc:14"),
-			JavaImage:        getEnv("LAB_CODING_SANDBOX_JAVA_IMAGE", "eclipse-temurin:21-jdk-alpine"),
-			GoImage:          getEnv("LAB_CODING_SANDBOX_GO_IMAGE", "golang:1.25-alpine"),
-			RustImage:        getEnv("LAB_CODING_SANDBOX_RUST_IMAGE", "rust:1.88-alpine"),
-			ScalaImage:       getEnv("LAB_CODING_SANDBOX_SCALA_IMAGE", "phucnhan2809/bdc-lab-scala-sandbox:latest"),
-			MaxTime:          getEnvAsDuration("LAB_CODING_SANDBOX_MAX_TIME", 10*time.Second),
-			MaxCompileTime:   getEnvAsDuration("LAB_CODING_SANDBOX_MAX_COMPILE_TIME", 30*time.Second),
-			ProvisionTimeout: getEnvAsDuration("LAB_CODING_SANDBOX_PROVISION_TIMEOUT", 90*time.Second),
-			MaxMemoryMB:      getEnvAsInt("LAB_CODING_SANDBOX_MAX_MEMORY_MB", 512),
-			MaxCPU:           getEnv("LAB_CODING_SANDBOX_MAX_CPU", "1"),
-			PollInterval:     getEnvAsDuration("LAB_CODING_SANDBOX_POLL_INTERVAL", 250*time.Millisecond),
-			JobTTLSeconds:    getEnvAsInt("LAB_CODING_SANDBOX_JOB_TTL_SECONDS", 60),
+			MaxConcurrentJobs: getEnvAsInt("LAB_CODING_SANDBOX_MAX_CONCURRENT_JOBS", 4),
+			Enabled:           getEnvAsBool("LAB_CODING_SANDBOX_ENABLED", false),
+			Namespace:         getEnv("LAB_CODING_SANDBOX_NAMESPACE", "lab-sandbox"),
+			PythonImage:       getEnv("LAB_CODING_SANDBOX_PYTHON_IMAGE", "python:3.12-alpine"),
+			CImage:            getEnv("LAB_CODING_SANDBOX_C_IMAGE", "gcc:14"),
+			CPPImage:          getEnv("LAB_CODING_SANDBOX_CPP_IMAGE", "gcc:14"),
+			JavaImage:         getEnv("LAB_CODING_SANDBOX_JAVA_IMAGE", "eclipse-temurin:21-jdk-alpine"),
+			GoImage:           getEnv("LAB_CODING_SANDBOX_GO_IMAGE", "golang:1.25-alpine"),
+			RustImage:         getEnv("LAB_CODING_SANDBOX_RUST_IMAGE", "rust:1.88-alpine"),
+			ScalaImage:        getEnv("LAB_CODING_SANDBOX_SCALA_IMAGE", "phucnhan2809/bdc-lab-scala-sandbox:latest"),
+			MaxTime:           getEnvAsDuration("LAB_CODING_SANDBOX_MAX_TIME", 10*time.Second),
+			MaxCompileTime:    getEnvAsDuration("LAB_CODING_SANDBOX_MAX_COMPILE_TIME", 30*time.Second),
+			ProvisionTimeout:  getEnvAsDuration("LAB_CODING_SANDBOX_PROVISION_TIMEOUT", 90*time.Second),
+			MaxMemoryMB:       getEnvAsInt("LAB_CODING_SANDBOX_MAX_MEMORY_MB", 512),
+			MaxCPU:            getEnv("LAB_CODING_SANDBOX_MAX_CPU", "1"),
+			PollInterval:      getEnvAsDuration("LAB_CODING_SANDBOX_POLL_INTERVAL", 250*time.Millisecond),
+			JobTTLSeconds:     getEnvAsInt("LAB_CODING_SANDBOX_JOB_TTL_SECONDS", 60),
 		},
 		TerminalSandbox: TerminalSandboxConfig{
 			Enabled:          getEnvAsBool("LAB_TERMINAL_SANDBOX_ENABLED", false),

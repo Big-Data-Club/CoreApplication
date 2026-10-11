@@ -78,6 +78,10 @@ func (h *SubmissionHandler) GetSubmission(c *gin.Context) {
 		c.JSON(status, dto.NewErrorResponse("error", err.Error()))
 		return
 	}
+	if resp.UserID != c.GetInt64("user_id") && c.GetString("user_role") != "ADMIN" {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("access_denied", "submission belongs to another learner"))
+		return
+	}
 	c.JSON(status, dto.NewDataResponse(resp))
 }
 

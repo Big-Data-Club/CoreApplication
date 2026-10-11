@@ -228,3 +228,18 @@ func (s *LabService) checkOwnership(ctx context.Context, labID int64, userID int
 	}
 	return nil
 }
+
+func (s *LabService) AuthorizeTerminal(ctx context.Context, labID, userID int64) error {
+	lab, err := s.labRepo.GetByID(ctx, labID)
+	if err != nil {
+		return fmt.Errorf("lab not found")
+	}
+	if lab.LabType != "WORKSPACE" || lab.Status != "PUBLISHED" {
+		return fmt.Errorf("terminal requires a published workspace lab")
+	}
+	enrolled, err := s.enrollmentRepo.IsEnrolled(ctx, labID, userID)
+	if err != nil || !enrolled {
+		return fmt.Errorf("enrollment is required for terminal access")
+	}
+	return nil
+}

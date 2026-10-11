@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"lab-service/internal/dto"
 	"lab-service/internal/repository"
@@ -52,6 +55,9 @@ func (s *SubmissionService) RunCode(ctx context.Context, labID, userID int64, re
 		return nil, http.StatusConflict, fmt.Errorf("HPC labs use batch-job submission, not the code-run endpoint")
 	}
 
+	if err := s.validatePracticeAccess(ctx, lab, userID, req.Language, req.Code); err != nil {
+		return nil, http.StatusForbidden, err
+	}
 	// Get sample test cases only
 	testCases, err := s.testCaseRepo.ListByLab(ctx, labID, true)
 	if err != nil {
@@ -85,10 +91,11 @@ func (s *SubmissionService) RunCode(ctx context.Context, labID, userID int64, re
 	result, err := adapter.Execute(ctx, runtime.ExecutionRequest{
 		LabID: labID, UserID: userID,
 		Language: req.Language, Code: req.Code,
+		Query: req.Code, SchemaSQL: runtimeString(lab.RuntimeConfig, "schema_sql"), SeedSQL: runtimeString(lab.RuntimeConfig, "seed_sql"),
 		TestCases: runtimeTCs, RuntimeConfig: lab.RuntimeConfig,
 	})
 	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("execution failed: %w", err)
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("execution unavailable; please retry: %w", err)
 	}
 
 	// Build response
@@ -122,14 +129,9 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64,
 		return nil, http.StatusForbidden, fmt.Errorf("not enrolled in this lab")
 	}
 
-	// Check submission limit
-	if lab.MaxSubmissions != nil && *lab.MaxSubmissions > 0 {
-		count, _ := s.subRepo.CountByLabAndUser(ctx, labID, userID)
-		if count >= *lab.MaxSubmissions {
-			return nil, http.StatusTooManyRequests, fmt.Errorf("submission limit reached")
-		}
+	if err := s.validatePracticeAccess(ctx, lab, userID, req.Language, req.Code); err != nil {
+		return nil, http.StatusBadRequest, err
 	}
-
 	// Get ALL test cases
 	testCases, err := s.testCaseRepo.ListByLab(ctx, labID, false)
 	if err != nil {
@@ -140,7 +142,18 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64,
 	}
 
 	// Create a submission only after the lab is known to be gradable.
-	subID, err := s.subRepo.Create(ctx, labID, userID, req.Language, req.Code, "", "")
+	query := ""
+	if lab.LabType == "DATABASE" {
+		query = req.Code
+	}
+	limit := 0
+	if lab.MaxSubmissions != nil {
+		limit = *lab.MaxSubmissions
+	}
+	subID, err := s.subRepo.CreatePracticeSubmission(ctx, labID, userID, req.Language, req.Code, query, limit)
+	if errors.Is(err, repository.ErrSubmissionLimit) {
+		return nil, http.StatusTooManyRequests, err
+	}
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create submission: %w", err)
 	}
@@ -169,21 +182,21 @@ func (s *SubmissionService) SubmitCode(ctx context.Context, labID, userID int64,
 	result, err := adapter.Execute(ctx, runtime.ExecutionRequest{
 		LabID: labID, UserID: userID, SubmissionID: subID,
 		Language: req.Language, Code: req.Code,
+		Query: req.Code, SchemaSQL: runtimeString(lab.RuntimeConfig, "schema_sql"), SeedSQL: runtimeString(lab.RuntimeConfig, "seed_sql"),
 		TestCases: runtimeTCs, RuntimeConfig: lab.RuntimeConfig,
 	})
 	if err != nil {
-		s.subRepo.UpdateStatus(ctx, subID, "FAILED", 0, 0, len(testCases), 0, 0, err.Error())
-		return nil, http.StatusInternalServerError, fmt.Errorf("execution failed: %w", err)
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.subRepo.UpdateStatus(cleanup, subID, "FAILED", 0, 0, len(testCases), 0, 0, "Executor unavailable; retry the submission.")
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("execution unavailable; please retry: %w", err)
 	}
 
-	// Save test results
-	for _, tr := range result.TestResults {
-		s.subRepo.InsertTestResult(ctx, subID, tr.TestCaseID, tr.Status, tr.ActualOutput, tr.RuntimeMs, tr.MemoryKB)
+	// Persist the verdict and per-case results atomically. A failed insert must
+	// never be presented as a successfully graded or accepted submission.
+	if err := s.subRepo.CompleteGrading(ctx, subID, result); err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("could not save grading result; please retry: %w", err)
 	}
-
-	// Update submission
-	s.subRepo.UpdateStatus(ctx, subID, result.Status, result.Score,
-		result.PassedTests, result.TotalTests, result.RuntimeMs, result.MemoryKB, result.CompilerOutput)
 
 	// Update leaderboard
 	if result.Status == "ACCEPTED" {
@@ -232,7 +245,7 @@ func learnerTestResult(result runtime.TestResult, testCase runtime.TestCase) dto
 		IsSample:       true,
 	}
 	switch result.Status {
-	case "COMPILER_ERROR", "RUNTIME_ERROR", "TIME_LIMIT", "MEMORY_LIMIT":
+	case "COMPILE_ERROR", "COMPILER_ERROR", "RUNTIME_ERROR", "TIME_LIMIT", "MEMORY_LIMIT":
 		response.ErrorOutput = result.ActualOutput
 	default:
 		response.ActualOutput = result.ActualOutput
@@ -335,4 +348,50 @@ func (s *SubmissionService) ListMySubmissions(ctx context.Context, labID, userID
 		subs = []dto.SubmissionResponse{}
 	}
 	return dto.NewListResponse(subs, page, pageSize, total), http.StatusOK, nil
+}
+
+func runtimeString(values map[string]interface{}, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func (s *SubmissionService) validatePracticeAccess(ctx context.Context, lab *dto.LabResponse, userID int64, language, code string) error {
+	if lab.LabType != "CODING" && lab.LabType != "DATABASE" {
+		return fmt.Errorf("this lab does not support code/query grading")
+	}
+	enrolled, err := s.enrollRepo.IsEnrolled(ctx, lab.ID, userID)
+	if err != nil || !enrolled {
+		return fmt.Errorf("enrollment is required to run this lab")
+	}
+	if lab.Status != "PUBLISHED" {
+		return fmt.Errorf("this lab is not published")
+	}
+	if strings.TrimSpace(code) == "" || len(code) > 32*1024 {
+		return fmt.Errorf("solution must contain 1–32768 bytes")
+	}
+	if lab.LabType == "DATABASE" {
+		if strings.ToLower(language) != "sql" {
+			return fmt.Errorf("SQL labs require language sql")
+		}
+		return nil
+	}
+	allowed := false
+	switch languages := lab.RuntimeConfig["supported_languages"].(type) {
+	case []interface{}:
+		for _, value := range languages {
+			if name, ok := value.(string); ok && name == language {
+				allowed = true
+			}
+		}
+	case []string:
+		for _, name := range languages {
+			if name == language {
+				allowed = true
+			}
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("language is not enabled for this lab")
+	}
+	return nil
 }

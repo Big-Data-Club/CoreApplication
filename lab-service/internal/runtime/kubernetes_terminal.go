@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"lab-service/internal/config"
@@ -71,7 +73,37 @@ func NewKubernetesTerminalSandbox(cfg config.TerminalSandboxConfig) (*Kubernetes
 func (s *KubernetesTerminalSandbox) Available() bool { return s != nil }
 
 func (s *KubernetesTerminalSandbox) Start(ctx context.Context, labID, userID int64) (string, time.Time, error) {
-	name := fmt.Sprintf("terminal-u%d-l%d-%x", userID, labID, time.Now().UnixNano()%0xfffffff)
+	name := fmt.Sprintf("terminal-u%d-l%d", userID, labID)
+	if !validPodName(name) {
+		return "", time.Time{}, fmt.Errorf("invalid session owner")
+	}
+	existing, err := s.sessionPod(ctx, name)
+	if err == nil {
+		expires := existing.Metadata.CreationTimestamp.Add(time.Duration(existing.Spec.ActiveDeadlineSeconds) * time.Second)
+		if time.Now().Before(expires) && existing.Status.Phase != "Failed" && existing.Status.Phase != "Succeeded" {
+			if err := s.waitRunning(ctx, name); err != nil {
+				return "", time.Time{}, err
+			}
+			return name, expires, nil
+		}
+		s.Delete(ctx, name)
+		deadline, cancel := context.WithTimeout(ctx, s.cfg.ProvisionTimeout)
+		defer cancel()
+		for {
+			_, err = s.sessionPod(deadline, name)
+			if isKubernetesStatus(err, http.StatusNotFound) {
+				break
+			}
+			select {
+			case <-deadline.Done():
+				return "", time.Time{}, deadline.Err()
+			case <-time.After(s.cfg.PollInterval):
+			}
+		}
+	} else if !isKubernetesStatus(err, http.StatusNotFound) {
+		return "", time.Time{}, err
+	}
+
 	seconds := int64(s.cfg.MaxSession.Seconds())
 	pod := map[string]interface{}{
 		"apiVersion": "v1", "kind": "Pod",
@@ -82,9 +114,10 @@ func (s *KubernetesTerminalSandbox) Start(ctx context.Context, labID, userID int
 		"spec": map[string]interface{}{
 			"serviceAccountName": "lab-sandbox-runner", "automountServiceAccountToken": false,
 			"restartPolicy": "Never", "activeDeadlineSeconds": seconds, "terminationGracePeriodSeconds": 1,
-			"securityContext": map[string]interface{}{"runAsNonRoot": true, "runAsUser": 1000, "runAsGroup": 1000, "seccompProfile": map[string]string{"type": "RuntimeDefault"}},
+			"securityContext": map[string]interface{}{"runAsNonRoot": true, "runAsUser": 1000, "runAsGroup": 1000, "fsGroup": 1000, "seccompProfile": map[string]string{"type": "RuntimeDefault"}},
 			"containers": []interface{}{map[string]interface{}{
 				"name": "terminal", "image": s.cfg.Image, "imagePullPolicy": "IfNotPresent",
+				"workingDir":      "/workspace",
 				"command":         []string{"/bin/sh", "-c", "cd /workspace && exec sleep " + strconv.FormatInt(seconds, 10)},
 				"env":             []interface{}{map[string]string{"name": "HOME", "value": "/workspace"}, map[string]string{"name": "TERM", "value": "xterm-256color"}},
 				"resources":       map[string]interface{}{"requests": map[string]string{"cpu": "100m", "memory": "128Mi"}, "limits": map[string]string{"cpu": s.cfg.MaxCPU, "memory": strconv.Itoa(s.cfg.MaxMemoryMB) + "Mi"}},
@@ -94,17 +127,23 @@ func (s *KubernetesTerminalSandbox) Start(ctx context.Context, labID, userID int
 			"volumes": []interface{}{map[string]interface{}{"name": "workspace", "emptyDir": map[string]string{"sizeLimit": "256Mi"}}, map[string]interface{}{"name": "tmp", "emptyDir": map[string]string{"sizeLimit": "64Mi"}}},
 		},
 	}
-	if err := s.requestJSON(ctx, http.MethodPost, "/api/v1/namespaces/"+s.cfg.Namespace+"/pods", pod, nil); err != nil {
+	if err := s.requestJSON(ctx, http.MethodPost, "/api/v1/namespaces/"+s.cfg.Namespace+"/pods", pod, nil); err != nil && !isKubernetesStatus(err, http.StatusConflict) {
 		return "", time.Time{}, err
 	}
 	if err := s.waitRunning(ctx, name); err != nil {
 		s.Delete(context.Background(), name)
 		return "", time.Time{}, err
 	}
-	return name, time.Now().Add(s.cfg.MaxSession), nil
+	created, err := s.sessionPod(ctx, name)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return name, created.Metadata.CreationTimestamp.Add(time.Duration(created.Spec.ActiveDeadlineSeconds) * time.Second), nil
 }
 
 func (s *KubernetesTerminalSandbox) waitRunning(ctx context.Context, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.ProvisionTimeout)
+	defer cancel()
 	deadline := time.NewTimer(s.cfg.ProvisionTimeout)
 	defer deadline.Stop()
 	ticker := time.NewTicker(s.cfg.PollInterval)
@@ -112,12 +151,27 @@ func (s *KubernetesTerminalSandbox) waitRunning(ctx context.Context, name string
 	for {
 		var pod struct {
 			Status struct {
-				Phase   string `json:"phase"`
-				Message string `json:"message"`
+				Phase             string `json:"phase"`
+				Message           string `json:"message"`
+				ContainerStatuses []struct {
+					State struct {
+						Waiting *struct {
+							Reason string `json:"reason"`
+						} `json:"waiting"`
+					} `json:"state"`
+				} `json:"containerStatuses"`
 			} `json:"status"`
 		}
 		if err := s.requestJSON(ctx, http.MethodGet, "/api/v1/namespaces/"+s.cfg.Namespace+"/pods/"+name, nil, &pod); err != nil {
 			return err
+		}
+		for _, container := range pod.Status.ContainerStatuses {
+			if waiting := container.State.Waiting; waiting != nil {
+				switch waiting.Reason {
+				case "ErrImagePull", "ImagePullBackOff", "CreateContainerConfigError", "CreateContainerError":
+					return fmt.Errorf("terminal image could not start: %s", waiting.Reason)
+				}
+			}
 		}
 		if pod.Status.Phase == "Running" {
 			return nil
@@ -150,9 +204,8 @@ func (s *KubernetesTerminalSandbox) Bridge(ctx context.Context, browser *websock
 	if pod.Metadata.Labels["bdc.dev/user-id"] != strconv.FormatInt(userID, 10) || pod.Metadata.Labels["bdc.dev/lab-id"] != strconv.FormatInt(labID, 10) {
 		return fmt.Errorf("terminal session does not belong to this user or lab")
 	}
-	defer s.Delete(context.Background(), session)
-	query := url.Values{"container": {"terminal"}, "command": {"/bin/sh"}, "stdin": {"true"}, "stdout": {"true"}, "stderr": {"true"}, "tty": {"true"}}
-	endpoint := "wss://kubernetes.default.svc/api/v1/namespaces/" + s.cfg.Namespace + "/pods/" + session + "/exec?" + query.Encode()
+	query := url.Values{"container": {"terminal"}, "command": {"/bin/sh", "-c", "cd /workspace && exec /bin/sh -i"}, "stdin": {"true"}, "stdout": {"true"}, "stderr": {"true"}, "tty": {"true"}}
+	endpoint := strings.Replace(s.server, "https://", "wss://", 1) + "/api/v1/namespaces/" + s.cfg.Namespace + "/pods/" + session + "/exec?" + query.Encode()
 	header := http.Header{"Authorization": []string{"Bearer " + s.token}}
 	upstream, resp, err := s.dialer.DialContext(ctx, endpoint, header)
 	if err != nil {
@@ -162,8 +215,31 @@ func (s *KubernetesTerminalSandbox) Bridge(ctx context.Context, browser *websock
 		return fmt.Errorf("open terminal exec stream: %w", err)
 	}
 	defer upstream.Close()
-	errCh := make(chan error, 2)
+	browser.SetReadLimit(64 * 1024)
+	upstream.SetReadLimit(128 * 1024)
+	browser.SetReadDeadline(time.Now().Add(90 * time.Second))
+	browser.SetPongHandler(func(string) error { return browser.SetReadDeadline(time.Now().Add(90 * time.Second)) })
+	var workers sync.WaitGroup
+	finished := make(chan struct{})
+	defer func() { close(finished); browser.Close(); upstream.Close(); workers.Wait() }()
+	workers.Add(1)
 	go func() {
+		defer workers.Done()
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-finished:
+				return
+			case <-ticker.C:
+				_ = browser.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
+			}
+		}
+	}()
+	errCh := make(chan error, 2)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
 		for {
 			_, data, err := upstream.ReadMessage()
 			if err != nil {
@@ -178,7 +254,9 @@ func (s *KubernetesTerminalSandbox) Bridge(ctx context.Context, browser *websock
 			}
 		}
 	}()
+	workers.Add(1)
 	go func() {
+		defer workers.Done()
 		for {
 			mt, data, err := browser.ReadMessage()
 			if err != nil {
@@ -209,7 +287,12 @@ func (s *KubernetesTerminalSandbox) Bridge(ctx context.Context, browser *websock
 			}
 		}
 	}()
-	return <-errCh
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *KubernetesTerminalSandbox) RunCommand(ctx context.Context, session string, labID, userID int64, command string) (string, bool, error) {
@@ -228,7 +311,7 @@ func (s *KubernetesTerminalSandbox) RunCommand(ctx context.Context, session stri
 		return "", false, fmt.Errorf("terminal session does not belong to this user or lab")
 	}
 	query := url.Values{"container": {"terminal"}, "command": {"/bin/sh", "-lc", command}, "stdin": {"false"}, "stdout": {"true"}, "stderr": {"true"}, "tty": {"false"}}
-	endpoint := "wss://kubernetes.default.svc/api/v1/namespaces/" + s.cfg.Namespace + "/pods/" + session + "/exec?" + query.Encode()
+	endpoint := strings.Replace(s.server, "https://", "wss://", 1) + "/api/v1/namespaces/" + s.cfg.Namespace + "/pods/" + session + "/exec?" + query.Encode()
 	upstream, resp, err := s.dialer.DialContext(ctx, endpoint, http.Header{"Authorization": []string{"Bearer " + s.token}})
 	if err != nil {
 		if resp != nil {
@@ -237,6 +320,16 @@ func (s *KubernetesTerminalSandbox) RunCommand(ctx context.Context, session stri
 		return "", false, err
 	}
 	defer upstream.Close()
+	upstream.SetReadLimit(128 * 1024)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			upstream.Close()
+		case <-stop:
+		}
+	}()
 	var output strings.Builder
 	for {
 		_, data, err := upstream.ReadMessage()
@@ -307,10 +400,67 @@ func (s *KubernetesTerminalSandbox) requestJSON(ctx context.Context, method, pat
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("Kubernetes API %s: %s", resp.Status, strings.TrimSpace(string(data)))
+		return &kubernetesHTTPError{Code: resp.StatusCode, Message: fmt.Sprintf("Kubernetes API %s: %s", resp.Status, strings.TrimSpace(string(data)))}
 	}
 	if output != nil && len(data) > 0 {
 		return json.Unmarshal(data, output)
 	}
 	return nil
+}
+
+type kubernetesHTTPError struct {
+	Code    int
+	Message string
+}
+
+func (e *kubernetesHTTPError) Error() string { return e.Message }
+func isKubernetesStatus(err error, code int) bool {
+	var apiErr *kubernetesHTTPError
+	return errors.As(err, &apiErr) && apiErr.Code == code
+}
+
+type terminalPod struct {
+	Metadata struct {
+		Name              string    `json:"name"`
+		CreationTimestamp time.Time `json:"creationTimestamp"`
+	} `json:"metadata"`
+	Spec struct {
+		ActiveDeadlineSeconds int64 `json:"activeDeadlineSeconds"`
+	} `json:"spec"`
+	Status struct {
+		Phase string `json:"phase"`
+	} `json:"status"`
+}
+
+func (s *KubernetesTerminalSandbox) sessionPod(ctx context.Context, name string) (*terminalPod, error) {
+	var pod terminalPod
+	err := s.requestJSON(ctx, http.MethodGet, "/api/v1/namespaces/"+s.cfg.Namespace+"/pods/"+name, nil, &pod)
+	return &pod, err
+}
+
+// ActiveDeadlineSeconds stops processes, but bare Pods have no TTL controller.
+// Sweep expired/terminated terminals, including leftovers after an API restart.
+func (s *KubernetesTerminalSandbox) RunCleanup(ctx context.Context) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		sweep, cancel := context.WithTimeout(ctx, 20*time.Second)
+		var pods struct {
+			Items []terminalPod `json:"items"`
+		}
+		if s.requestJSON(sweep, http.MethodGet, "/api/v1/namespaces/"+s.cfg.Namespace+"/pods?labelSelector="+url.QueryEscape("app.kubernetes.io/name=lab-terminal,app.kubernetes.io/managed-by=lab-service"), nil, &pods) == nil {
+			for _, pod := range pods.Items {
+				expires := pod.Metadata.CreationTimestamp.Add(time.Duration(pod.Spec.ActiveDeadlineSeconds) * time.Second)
+				if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" || time.Now().After(expires) {
+					s.Delete(sweep, pod.Metadata.Name)
+				}
+			}
+		}
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }

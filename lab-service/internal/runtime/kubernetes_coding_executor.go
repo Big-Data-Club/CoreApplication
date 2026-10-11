@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,8 +26,9 @@ const maxSandboxInputBytes = 16 * 1024
 
 // KubernetesCodingExecutor is a deliberately small controller client. It may
 // create/read/delete Jobs and read Pod logs only; RBAC grants no secret, exec,
-// service or namespace access. Each test gets a fresh, network-isolated pod.
+// service or namespace access. Each submission gets a network-isolated pod; test processes are fresh.
 type KubernetesCodingExecutor struct {
+	slots  chan struct{}
 	cfg    config.CodingSandboxConfig
 	client *http.Client
 	token  string
@@ -45,6 +45,9 @@ type sandboxLanguage struct {
 func NewKubernetesCodingExecutor(cfg config.CodingSandboxConfig) (*KubernetesCodingExecutor, error) {
 	if !cfg.Enabled {
 		return nil, nil
+	}
+	if cfg.MaxConcurrentJobs <= 0 || cfg.MaxConcurrentJobs > 16 {
+		cfg.MaxConcurrentJobs = 4
 	}
 	if cfg.MaxTime <= 0 {
 		cfg.MaxTime = 10 * time.Second
@@ -84,6 +87,7 @@ func NewKubernetesCodingExecutor(cfg config.CodingSandboxConfig) (*KubernetesCod
 	requestTimeout := cfg.ProvisionTimeout + cfg.MaxCompileTime + cfg.MaxTime + 30*time.Second
 	return &KubernetesCodingExecutor{
 		cfg:    cfg,
+		slots:  make(chan struct{}, cfg.MaxConcurrentJobs),
 		token:  strings.TrimSpace(string(token)),
 		server: "https://kubernetes.default.svc",
 		client: &http.Client{
@@ -95,61 +99,6 @@ func NewKubernetesCodingExecutor(cfg config.CodingSandboxConfig) (*KubernetesCod
 	}, nil
 }
 
-func (e *KubernetesCodingExecutor) ExecuteTestCase(ctx context.Context, req ExecutionRequest, tc TestCase, timeLimitMs, memoryLimitMB int) TestResult {
-	language, ok := e.languageSpec(req.Language)
-	if !ok {
-		return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: "Unsupported programming language: " + req.Language}
-	}
-	if len(req.Code) > maxSandboxSourceBytes {
-		return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: "Source code exceeds the 32 KiB sandbox limit."}
-	}
-	if len(tc.Input) > maxSandboxInputBytes {
-		return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: "Test input exceeds the 16 KiB sandbox limit."}
-	}
-
-	limit := time.Duration(timeLimitMs) * time.Millisecond
-	if limit <= 0 || limit > e.cfg.MaxTime {
-		limit = e.cfg.MaxTime
-	}
-	memoryMB := memoryLimitMB
-	if memoryMB <= 0 || memoryMB > e.cfg.MaxMemoryMB {
-		memoryMB = e.cfg.MaxMemoryMB
-	}
-	jobName := fmt.Sprintf("code-%x-%x-%x", uint64(req.SubmissionID), uint64(tc.ID), time.Now().UnixNano()%100000000)
-	if err := e.createJob(ctx, jobName, language, req.Code, tc.Input, limit, memoryMB); err != nil {
-		return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: "Could not start isolated executor: " + err.Error()}
-	}
-
-	started := time.Now()
-	waitTimeout := e.cfg.ProvisionTimeout + e.cfg.MaxCompileTime + limit + 10*time.Second
-	status, err := e.waitForJob(ctx, jobName, waitTimeout)
-	if err != nil {
-		// Keep non-completed Jobs until Kubernetes' TTL controller removes them.
-		// This gives operators a short diagnostic window without leaving workload
-		// state around indefinitely.
-		return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: "Sandbox execution failed: " + err.Error(), RuntimeMs: int(time.Since(started).Milliseconds())}
-	}
-	logs, err := e.getJobLogs(ctx, jobName)
-	if err != nil {
-		return TestResult{TestCaseID: tc.ID, Status: "RUNTIME_ERROR", ActualOutput: "Sandbox log unavailable: " + err.Error(), RuntimeMs: int(time.Since(started).Milliseconds())}
-	}
-	result := parseSandboxOutput(tc.ID, logs, int(time.Since(started).Milliseconds()))
-	if status == "FAILED" && result.Status == "RUNTIME_ERROR" && result.ActualOutput == "" {
-		result.ActualOutput = "Sandbox job failed before producing output"
-	}
-	if result.Status == "OK" {
-		if CompareOutput(result.ActualOutput, tc.Expected) {
-			result.Status = "PASSED"
-		} else {
-			result.Status = "WRONG_ANSWER"
-		}
-	}
-	if status == "SUCCEEDED" {
-		e.deleteJob(context.Background(), jobName)
-	}
-	return result
-}
-
 func (e *KubernetesCodingExecutor) languageSpec(value string) (sandboxLanguage, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "python", "python3":
@@ -159,7 +108,7 @@ func (e *KubernetesCodingExecutor) languageSpec(value string) (sandboxLanguage, 
 	case "cpp", "c++":
 		return sandboxLanguage{image: e.cfg.CPPImage, sourceFile: "solution.cpp", compileCommand: "g++ -O2 -pipe /tmp/work/solution.cpp -o /tmp/work/solution", runCommand: "/tmp/work/solution"}, true
 	case "java":
-		return sandboxLanguage{image: e.cfg.JavaImage, sourceFile: "Main.java", compileCommand: "mkdir -p /tmp/work/classes && javac -d /tmp/work/classes /tmp/work/Main.java", runCommand: "java -cp /tmp/work/classes Main"}, true
+		return sandboxLanguage{image: e.cfg.JavaImage, sourceFile: "Main.java", compileCommand: "mkdir -p /tmp/work/classes && javac -J-Xmx128m -d /tmp/work/classes /tmp/work/Main.java", runCommand: "java -XX:MaxRAMPercentage=60 -XX:ReservedCodeCacheSize=32m -Xss512k -cp /tmp/work/classes Main"}, true
 	case "go", "golang":
 		return sandboxLanguage{image: e.cfg.GoImage, sourceFile: "main.go", compileCommand: "GOCACHE=/tmp/work/go-cache GO111MODULE=off go build -trimpath -o /tmp/work/solution /tmp/work/main.go", runCommand: "/tmp/work/solution"}, true
 	case "rust", "rs":
@@ -171,14 +120,13 @@ func (e *KubernetesCodingExecutor) languageSpec(value string) (sandboxLanguage, 
 	}
 }
 
-func (e *KubernetesCodingExecutor) createJob(ctx context.Context, name string, language sandboxLanguage, code, input string, limit time.Duration, memoryMB int) error {
-	runSeconds := durationSeconds(limit)
-	compileSeconds := 0
-	if language.compileCommand != "" {
-		compileSeconds = durationSeconds(e.cfg.MaxCompileTime)
+func (e *KubernetesCodingExecutor) createScriptJob(ctx context.Context, name string, language sandboxLanguage, script string, executionBudget time.Duration, memoryMB int) error {
+	// A Job deadline includes scheduling and image pulls, not just user CPU time.
+	activeDeadline := durationSeconds(e.cfg.ProvisionTimeout + executionBudget + 10*time.Second)
+	requestMemory := 128
+	if memoryMB < requestMemory {
+		requestMemory = memoryMB
 	}
-	activeDeadline := runSeconds + compileSeconds + 5
-	script := sandboxScript(language, base64.StdEncoding.EncodeToString([]byte(code)), base64.StdEncoding.EncodeToString([]byte(input)), runSeconds, compileSeconds)
 	podSpec := map[string]interface{}{
 		"serviceAccountName":            "lab-sandbox-runner",
 		"automountServiceAccountToken":  false,
@@ -188,6 +136,7 @@ func (e *KubernetesCodingExecutor) createJob(ctx context.Context, name string, l
 			"runAsNonRoot": true,
 			"runAsUser":    1000,
 			"runAsGroup":   1000,
+			"fsGroup":      1000,
 			"seccompProfile": map[string]interface{}{
 				"type": "RuntimeDefault",
 			},
@@ -202,8 +151,8 @@ func (e *KubernetesCodingExecutor) createJob(ctx context.Context, name string, l
 				map[string]interface{}{"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},
 			},
 			"resources": map[string]interface{}{
-				"requests": map[string]string{"cpu": "100m", "memory": "128Mi"},
-				"limits": map[string]string{"cpu": e.cfg.MaxCPU, "memory": strconv.Itoa(memoryMB) + "Mi"},
+				"requests": map[string]string{"cpu": "100m", "memory": strconv.Itoa(requestMemory) + "Mi", "ephemeral-storage": "64Mi"},
+				"limits":   map[string]string{"cpu": e.cfg.MaxCPU, "memory": strconv.Itoa(memoryMB) + "Mi", "ephemeral-storage": "512Mi"},
 			},
 			"securityContext": map[string]interface{}{
 				"allowPrivilegeEscalation": false,
@@ -212,7 +161,7 @@ func (e *KubernetesCodingExecutor) createJob(ctx context.Context, name string, l
 			},
 			"volumeMounts": []interface{}{map[string]interface{}{"name": "tmp", "mountPath": "/tmp"}},
 		}},
-		"volumes": []interface{}{map[string]interface{}{"name": "tmp", "emptyDir": map[string]interface{}{"sizeLimit": "64Mi"}}},
+		"volumes": []interface{}{map[string]interface{}{"name": "tmp", "emptyDir": map[string]interface{}{"sizeLimit": "512Mi"}}},
 	}
 	job := map[string]interface{}{
 		"apiVersion": "batch/v1",
@@ -231,7 +180,7 @@ func (e *KubernetesCodingExecutor) createJob(ctx context.Context, name string, l
 			"template": map[string]interface{}{
 				"metadata": map[string]interface{}{
 					"labels": map[string]string{
-						"job-name":                    name,
+						"job-name":               name,
 						"app.kubernetes.io/name": "lab-code-run",
 					},
 				},
@@ -243,6 +192,8 @@ func (e *KubernetesCodingExecutor) createJob(ctx context.Context, name string, l
 }
 
 func (e *KubernetesCodingExecutor) waitForJob(ctx context.Context, name string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	ticker := time.NewTicker(e.cfg.PollInterval)
@@ -273,22 +224,38 @@ func (e *KubernetesCodingExecutor) waitForJob(ctx context.Context, name string, 
 	}
 }
 
-func (e *KubernetesCodingExecutor) getJobLogs(ctx context.Context, jobName string) (string, error) {
+func (e *KubernetesCodingExecutor) getJobLogs(ctx context.Context, jobName string) (string, string, error) {
 	var pods struct {
 		Items []struct {
 			Metadata struct {
 				Name string `json:"name"`
 			} `json:"metadata"`
+			Status struct {
+				ContainerStatuses []struct {
+					State struct {
+						Terminated *struct {
+							Reason string `json:"reason"`
+						} `json:"terminated"`
+					} `json:"state"`
+				} `json:"containerStatuses"`
+			} `json:"status"`
 		} `json:"items"`
 	}
 	path := "/api/v1/namespaces/" + e.cfg.Namespace + "/pods?labelSelector=" + url.QueryEscape("job-name="+jobName)
 	if err := e.requestJSON(ctx, http.MethodGet, path, nil, &pods); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if len(pods.Items) == 0 {
-		return "", fmt.Errorf("sandbox pod was not found")
+		return "", "", fmt.Errorf("sandbox pod was not found")
 	}
-	return e.requestText(ctx, "/api/v1/namespaces/"+e.cfg.Namespace+"/pods/"+pods.Items[0].Metadata.Name+"/log?container=runner&tailLines=200")
+	reason := ""
+	for _, status := range pods.Items[0].Status.ContainerStatuses {
+		if status.State.Terminated != nil {
+			reason = status.State.Terminated.Reason
+		}
+	}
+	logs, err := e.requestText(ctx, "/api/v1/namespaces/"+e.cfg.Namespace+"/pods/"+pods.Items[0].Metadata.Name+"/log?container=runner")
+	return logs, reason, err
 }
 
 func (e *KubernetesCodingExecutor) deleteJob(ctx context.Context, name string) {
@@ -339,79 +306,20 @@ func (e *KubernetesCodingExecutor) requestText(ctx context.Context, path string)
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxBatchLogBytes+1))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("Kubernetes API %s: %s", resp.Status, strings.TrimSpace(string(data)))
+	}
+	if len(data) > maxBatchLogBytes {
+		return "", fmt.Errorf("sandbox output exceeds limit")
 	}
 	return string(data), nil
 }
 
-func sandboxScript(language sandboxLanguage, codeB64, inputB64 string, runSeconds, compileSeconds int) string {
-	script := fmt.Sprintf(`set -eu
-mkdir -p /tmp/work
-printf '%%s' %s | base64 -d > /tmp/work/%s
-printf '%%s' %s | base64 -d > /tmp/work/input
-`, codeB64, language.sourceFile, inputB64)
-	if language.compileCommand != "" {
-		script += fmt.Sprintf(`set +e
-timeout %ds %s > /tmp/work/compile.stdout 2> /tmp/work/compile.stderr
-compile_rc=$?
-set -e
-if [ $compile_rc -eq 124 ]; then
-  printf '__BDC_STATUS__:COMPILER_ERROR\nCompilation timed out\n'
-  exit 0
-elif [ $compile_rc -ne 0 ]; then
-  printf '__BDC_STATUS__:COMPILER_ERROR\n'
-  cat /tmp/work/compile.stderr /tmp/work/compile.stdout
-  exit 0
-fi
-`, compileSeconds, language.compileCommand)
-	}
-	script += fmt.Sprintf(`set +e
-timeout %ds %s < /tmp/work/input > /tmp/work/stdout 2> /tmp/work/stderr
-run_rc=$?
-set -e
-if [ $run_rc -eq 124 ]; then
-  printf '__BDC_STATUS__:TIME_LIMIT\n'
-elif [ $run_rc -ne 0 ]; then
-  printf '__BDC_STATUS__:RUNTIME_ERROR\n'
-  cat /tmp/work/stderr
-else
-  printf '__BDC_STATUS__:OK\n'
-  cat /tmp/work/stdout
-fi
-`, runSeconds, language.runCommand)
-	return script
-}
-
 func durationSeconds(value time.Duration) int {
-	seconds := int(value.Round(time.Second).Seconds())
+	seconds := int((value + time.Second - 1) / time.Second)
 	if seconds < 1 {
 		return 1
 	}
 	return seconds
-}
-
-func parseSandboxOutput(testCaseID int64, logs string, runtimeMs int) TestResult {
-	logs = strings.ReplaceAll(logs, "\r\n", "\n")
-	parts := strings.SplitN(logs, "\n", 2)
-	if len(parts) == 0 {
-		return TestResult{TestCaseID: testCaseID, Status: "RUNTIME_ERROR", ActualOutput: "Sandbox produced no output", RuntimeMs: runtimeMs}
-	}
-	output := ""
-	if len(parts) == 2 {
-		output = parts[1]
-	}
-	switch strings.TrimSpace(parts[0]) {
-	case "__BDC_STATUS__:OK":
-		return TestResult{TestCaseID: testCaseID, Status: "OK", ActualOutput: output, RuntimeMs: runtimeMs}
-	case "__BDC_STATUS__:COMPILER_ERROR":
-		return TestResult{TestCaseID: testCaseID, Status: "COMPILER_ERROR", ActualOutput: output, RuntimeMs: runtimeMs}
-	case "__BDC_STATUS__:TIME_LIMIT":
-		return TestResult{TestCaseID: testCaseID, Status: "TIME_LIMIT", ActualOutput: "Time Limit Exceeded", RuntimeMs: runtimeMs}
-	case "__BDC_STATUS__:RUNTIME_ERROR":
-		return TestResult{TestCaseID: testCaseID, Status: "RUNTIME_ERROR", ActualOutput: output, RuntimeMs: runtimeMs}
-	default:
-		return TestResult{TestCaseID: testCaseID, Status: "RUNTIME_ERROR", ActualOutput: strings.TrimSpace(logs), RuntimeMs: runtimeMs}
-	}
 }

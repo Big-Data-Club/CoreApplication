@@ -67,7 +67,8 @@ func main() {
 		logger.Warn(fmt.Sprintf("Terminal sandbox unavailable: %v", err))
 	}
 	runtimeRegistry.Register(codingRunner)
-	runtimeRegistry.Register(runtime.NewDatabaseRunner(cfg.DatabaseLab))
+	databaseRunner := runtime.NewDatabaseRunner(cfg.DatabaseLab)
+	runtimeRegistry.Register(databaseRunner)
 	runtimeRegistry.Register(runtime.NewWorkspaceRunner())
 	runtimeRegistry.Register(runtime.NewHPCRunner(cfg.SLURM))
 	runtimeRegistry.Register(runtime.NewJupyterRunner())
@@ -226,6 +227,10 @@ func main() {
 	// -- Start Kafka Consumers -----------------------------------
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if terminalSandbox != nil {
+		go terminalSandbox.RunCleanup(ctx)
+	}
+	go databaseRunner.RunCleanup(ctx)
 
 	go kafka.StartJobStatusConsumer(ctx, func(ctx context.Context, event kafka.JobStatusEvent) error {
 		logger.Info(fmt.Sprintf("Job status update: job=%s status=%s", event.JobID, event.Status))

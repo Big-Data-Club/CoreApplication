@@ -74,6 +74,14 @@ approved Parquet snapshots or a read-only DuckDB copy through `BDC_GOLD_DIR` or
 | `lms.course.interactions` | No producer found here | Personalize | Consumer acceptance only; integration gap |
 | `lab.job.command`, `lab.job.status`, `lab.session.idle`, `lab.session.checkpoint` | Lab constants | Lab status consumer | Contract surface exists; verify a producer/runner before product dependence |
 
+Coding/SQL practice grading currently uses synchronous runtime adapters, not
+`lab.job.*`. Terminal exec streams similarly do not publish session lifecycle
+contracts. Submission results are saved atomically in the Lab-owned database;
+SQL fixtures and restricted logins live on a separate disposable PostgreSQL
+instance. No Kafka payload changed in this rollout. See
+[Runtime hardening](RUNTIME_HARDENING.md) for ownership, limits and rollout.
+
+
 ## Implemented contract shapes
 
 ### `lms.analytics.interactions`

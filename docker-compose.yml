@@ -440,6 +440,27 @@ services:
       - "service.type=database"
       - "service.name=postgres-lab"
 
+  # SQL practice owns no application data. Fixtures and learner roles are ephemeral.
+  postgres-sql-sandbox:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sql_practice_admin
+      POSTGRES_DB: sql_practice
+      POSTGRES_PASSWORD: ${SQL_SANDBOX_PASSWORD:-local_practice_only}
+    networks:
+      - app-network
+    healthcheck:
+      <<: *common-healthcheck
+      test: ["CMD-SHELL", "pg_isready -U sql_practice_admin -d sql_practice"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+
   # Redis
   redis-lms:
     image: redis:7-alpine
@@ -603,6 +624,7 @@ services:
       APP_NAME: "Lab Service"
       GIN_MODE: release
       LMS_SYNC_SECRET: ${LMS_SYNC_SECRET}
+      DB_LAB_POSTGRES_URL: ${DB_LAB_POSTGRES_URL:-postgres://sql_practice_admin:${SQL_SANDBOX_PASSWORD:-local_practice_only}@postgres-sql-sandbox:5432/sql_practice?sslmode=disable}
       DB_HOST: postgres-lab
       DB_PORT: 5432
       DB_USER: ${LAB_POSTGRES_USER:-lab_user}
@@ -630,6 +652,8 @@ services:
     ports:
       - "${LAB_PORT:-8082}:8082"
     depends_on:
+      postgres-sql-sandbox:
+        condition: service_healthy
       postgres-lab:
         condition: service_healthy
       redis-lms:

@@ -277,6 +277,10 @@ func (h *LabHandler) StartSession(c *gin.Context) {
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Lab not found"))
 		return
 	}
+	if err := h.labService.AuthorizeTerminal(c.Request.Context(), labID, c.GetInt64("user_id")); err != nil {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("access_denied", err.Error()))
+		return
+	}
 	if h.terminalSandbox != nil {
 		sessionID, expiresAt, err := h.terminalSandbox.Start(c.Request.Context(), labID, c.GetInt64("user_id"))
 		if err != nil {
@@ -307,6 +311,10 @@ func (h *LabHandler) TerminalWS(c *gin.Context) {
 	lab, _, err := h.labService.GetLab(c.Request.Context(), labID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Lab not found"))
+		return
+	}
+	if err := h.labService.AuthorizeTerminal(c.Request.Context(), labID, c.GetInt64("user_id")); err != nil {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("access_denied", err.Error()))
 		return
 	}
 	if h.terminalSandbox != nil {

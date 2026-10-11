@@ -1,0 +1,107 @@
+# Apply explicitly after provisioning the lab-sql-sandbox Secret. This instance
+# contains disposable fixtures only, never application tables or credentials.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-sql-sandbox
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: lab-sql-sandbox
+  template:
+    metadata:
+      labels:
+        app: lab-sql-sandbox
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          args: ["-c", "max_connections=40", "-c", "work_mem=4MB", "-c", "temp_file_limit=65536", "-c", "idle_in_transaction_session_timeout=15000"]
+          env:
+            - name: POSTGRES_USER
+              value: sql_practice_admin
+            - name: POSTGRES_DB
+              value: sql_practice
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lab-sql-sandbox
+                  key: admin-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "sql_practice_admin", "-d", "sql_practice"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: socket
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: socket
+          emptyDir: {}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lab-sql-sandbox
+spec:
+  selector:
+    app: lab-sql-sandbox
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lab-sql-sandbox
+spec:
+  podSelector:
+    matchLabels:
+      app: lab-sql-sandbox
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: lab-service
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress: []

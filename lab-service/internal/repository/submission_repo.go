@@ -3,8 +3,11 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 
 	"lab-service/internal/dto"
+	"lab-service/internal/runtime"
 )
 
 type SubmissionRepository struct{ db *sql.DB }
@@ -142,4 +145,61 @@ func (r *SubmissionRepository) CountByLabAndUser(ctx context.Context, labID, use
 		"SELECT COUNT(*) FROM lab_submissions WHERE lab_id = $1 AND user_id = $2",
 		labID, userID).Scan(&count)
 	return count, err
+}
+
+// CompleteGrading serializes completion and commits all test results with their
+// final verdict. A repeated completion cannot append duplicate results or
+// replace a verdict from an earlier successful completion.
+func (r *SubmissionRepository) CompleteGrading(ctx context.Context, subID int64, result *runtime.ExecutionResult) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var current string
+	if err := tx.QueryRowContext(ctx, "SELECT status FROM lab_submissions WHERE id=$1 FOR UPDATE", subID).Scan(&current); err != nil {
+		return err
+	}
+	if current != "PENDING" && current != "RUNNING" {
+		return nil
+	}
+	for _, tr := range result.TestResults {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO submission_test_results (submission_id, test_case_id, status, actual_output, runtime_ms, memory_kb) VALUES ($1,$2,$3,$4,$5,$6)", subID, tr.TestCaseID, tr.Status, tr.ActualOutput, tr.RuntimeMs, tr.MemoryKB); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE lab_submissions SET status=$1, score=$2, passed_tests=$3, total_tests=$4, runtime_ms=$5, memory_kb=$6, compiler_output=$7, graded_at=NOW() WHERE id=$8", result.Status, result.Score, result.PassedTests, result.TotalTests, result.RuntimeMs, result.MemoryKB, result.CompilerOutput, subID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+var ErrSubmissionLimit = errors.New("submission limit reached")
+
+// Reserve a practice attempt atomically. Infrastructure failures do not consume
+// the student's quota; pending reservations do, preventing parallel bypasses.
+func (r *SubmissionRepository) CreatePracticeSubmission(ctx context.Context, labID, userID int64, language, code, query string, limit int) (int64, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if limit > 0 {
+		key := fmt.Sprintf("practice:%d:%d", labID, userID)
+		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", key); err != nil {
+			return 0, err
+		}
+		var count int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM lab_submissions WHERE lab_id=$1 AND user_id=$2 AND status NOT IN ('FAILED','CANCELLED')", labID, userID).Scan(&count); err != nil {
+			return 0, err
+		}
+		if count >= limit {
+			return 0, ErrSubmissionLimit
+		}
+	}
+	var id int64
+	if err := tx.QueryRowContext(ctx, "INSERT INTO lab_submissions(lab_id,user_id,language,code,query,script_content,status) VALUES($1,$2,$3,$4,$5,'','PENDING') RETURNING id", labID, userID, language, code, query).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, tx.Commit()
 }

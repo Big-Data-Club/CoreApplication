@@ -48,8 +48,7 @@ func (r *CodingRunner) Validate(config map[string]interface{}) error {
 }
 
 // Execute runs the submitted code against all test cases and returns results.
-// In Phase 1, this is a placeholder that simulates execution.
-// In Phase 2, this creates a K8s Job with gVisor/nsjail sandbox.
+// Production execution compiles once per batch in a restricted Kubernetes Job.
 func (r *CodingRunner) Execute(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error) {
 	if r.sandbox != nil {
 		return r.executeInKubernetes(ctx, req)
@@ -93,7 +92,7 @@ func (r *CodingRunner) Execute(ctx context.Context, req ExecutionRequest) (*Exec
 			ml = tc.MemoryLimitMB
 		}
 
-		tr := executeTestCase(req.Language, req.Code, tc, tl, ml)
+		tr := executeTestCase(ctx, req.Language, req.Code, tc, tl, ml)
 		result.TestResults = append(result.TestResults, tr)
 
 		totalWeight += tc.Weight
@@ -128,40 +127,24 @@ func (r *CodingRunner) Execute(ctx context.Context, req ExecutionRequest) (*Exec
 }
 
 func (r *CodingRunner) executeInKubernetes(ctx context.Context, req ExecutionRequest) (*ExecutionResult, error) {
-	result := &ExecutionResult{TotalTests: len(req.TestCases), MaxScore: 100}
-	timeLimitMs := configInt(req.RuntimeConfig, "time_limit_ms", 2000)
-	memoryLimitMB := configInt(req.RuntimeConfig, "memory_limit_mb", 256)
-	totalWeight, passedWeight := 0, 0
-	for _, tc := range req.TestCases {
-		timeLimit := timeLimitMs
-		if tc.TimeLimitMs > 0 { timeLimit = tc.TimeLimitMs }
-		memoryLimit := memoryLimitMB
-		if tc.MemoryLimitMB > 0 { memoryLimit = tc.MemoryLimitMB }
-		tr := r.sandbox.ExecuteTestCase(ctx, req, tc, timeLimit, memoryLimit)
-		result.TestResults = append(result.TestResults, tr)
-		result.RuntimeMs += tr.RuntimeMs
-		totalWeight += tc.Weight
-		if tr.Status == "PASSED" { result.PassedTests++; passedWeight += tc.Weight }
-	}
-	if result.PassedTests == result.TotalTests { result.Status = "ACCEPTED" } else {
-		result.Status = "WRONG_ANSWER"
-		for _, tr := range result.TestResults { if tr.Status != "PASSED" { result.Status = tr.Status; break } }
-	}
-	if totalWeight > 0 { result.Score = float64(passedWeight) / float64(totalWeight) * result.MaxScore }
-	return result, nil
+	return r.sandbox.Execute(ctx, req)
 }
 
 func configInt(values map[string]interface{}, key string, fallback int) int {
 	switch value := values[key].(type) {
-	case int: return value
-	case float64: return int(value)
-	case int64: return int(value)
-	default: return fallback
+	case int:
+		return value
+	case float64:
+		return int(value)
+	case int64:
+		return int(value)
+	default:
+		return fallback
 	}
 }
 
 // executeTestCase is the developer-machine-only local executor.
-func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimitMB int) TestResult {
+func executeTestCase(ctx context.Context, language, code string, tc TestCase, timeLimitMs, memoryLimitMB int) TestResult {
 	_ = memoryLimitMB
 
 	logger.Info(fmt.Sprintf("CodingRunner: executing test case %q (lang=%s, timeLimit=%dms, memLimit=%dMB)",
@@ -207,7 +190,7 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 		}
 		isCompiled = true
 		compileCmd = exec.Command("gcc", "-O2", "-o", "exec", "solution.c")
-		runCmd = exec.Command("./exec")
+		runCmd = exec.Command(filepath.Join(tempDir, "exec"))
 
 	case "cpp", "c++":
 		sourceFile = filepath.Join(tempDir, "solution.cpp")
@@ -216,7 +199,7 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 		}
 		isCompiled = true
 		compileCmd = exec.Command("g++", "-O2", "-o", "exec", "solution.cpp")
-		runCmd = exec.Command("./exec")
+		runCmd = exec.Command(filepath.Join(tempDir, "exec"))
 
 	case "java":
 		sourceFile = filepath.Join(tempDir, "Main.java")
@@ -234,7 +217,7 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 		}
 		isCompiled = true
 		compileCmd = exec.Command("go", "build", "-o", "exec", "main.go")
-		runCmd = exec.Command("./exec")
+		runCmd = exec.Command(filepath.Join(tempDir, "exec"))
 
 	case "rust", "rs":
 		sourceFile = filepath.Join(tempDir, "main.rs")
@@ -243,7 +226,7 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 		}
 		isCompiled = true
 		compileCmd = exec.Command("rustc", "-O", "-o", "exec", "main.rs")
-		runCmd = exec.Command("./exec")
+		runCmd = exec.Command(filepath.Join(tempDir, "exec"))
 
 	case "scala":
 		sourceFile = filepath.Join(tempDir, "Main.scala")
@@ -264,6 +247,9 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 
 	// Compilation step if required
 	if isCompiled && compileCmd != nil {
+		compileCtx, compileCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer compileCancel()
+		compileCmd = exec.CommandContext(compileCtx, compileCmd.Path, compileCmd.Args[1:]...)
 		compileCmd.Dir = tempDir
 		var compileStderr bytes.Buffer
 		compileCmd.Stderr = &compileStderr
@@ -274,20 +260,17 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 		if _, err := exec.LookPath(compileCmd.Path); err != nil {
 			return TestResult{
 				TestCaseID:   tc.ID,
-				Status:       "COMPILER_ERROR",
+				Status:       "COMPILE_ERROR",
 				ActualOutput: fmt.Sprintf("Compiler %q is not installed on the system.", compileCmd.Args[0]),
 				RuntimeMs:    0,
 			}
 		}
 
-		compileCtx, compileCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer compileCancel()
-		
 		err := compileCmd.Run()
 		if compileCtx.Err() == context.DeadlineExceeded {
 			return TestResult{
 				TestCaseID:   tc.ID,
-				Status:       "COMPILER_ERROR",
+				Status:       "COMPILE_ERROR",
 				ActualOutput: "Compilation timed out (max 10s)",
 			}
 		}
@@ -301,7 +284,7 @@ func executeTestCase(language, code string, tc TestCase, timeLimitMs, memoryLimi
 			}
 			return TestResult{
 				TestCaseID:   tc.ID,
-				Status:       "COMPILER_ERROR",
+				Status:       "COMPILE_ERROR",
 				ActualOutput: compilerOutput,
 			}
 		}

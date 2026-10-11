@@ -14,7 +14,7 @@ Hệ thống Virtual Labs của BDC Hub được thiết kế theo mô hình **P
 |                                  BDC Hub Frontend                                 |
 |  +---------------------------+  +--------------------------+  +-----------------+ |
 |  | Coding / Jupyter Sandbox  |  |  STEM Plant / Robot Stage|  | Chemistry 2.5D  | |
-|  | (Monaco + Web Terminal)   |  |  (2.5D Physics Engine)   |  | Engine Stage    | |
+|  | (Draft editor + Web Terminal)   |  |  (2.5D Physics Engine)   |  | Engine Stage    | |
 |  +---------------------------+  +--------------------------+  +-----------------+ |
 +---------------------------------------+-------------------------------------------+
                                         | HTTP / WebSocket
@@ -38,15 +38,21 @@ Hệ thống Virtual Labs của BDC Hub được thiết kế theo mô hình **P
 ### Các kiểu bài Lab được hỗ trợ (`supported_lab_types`)
 | Kiểu Lab | Môi trường xử lý | Mô tả ngắn |
 | :--- | :--- | :--- |
-| `CODING` | Isolated Docker Container / Worker | Lab lập trình (Python, Go, Java, C++) có chấm tự động |
+| `CODING` | Batched restricted Kubernetes Job | Lab lập trình (Python, Go, Java, C++) có chấm tự động |
 | `HPC` | Slurm Cluster | Lab tính toán hiệu năng cao |
 | `JUPYTER` | JupyterHub Container | Notebook phân tích dữ liệu & AI |
-| `DATABASE` | PostgreSQL / MySQL Isolated DB | Lab truy vấn CSDL SQL |
+| `DATABASE` | Dedicated PostgreSQL + restricted learner login | Lab truy vấn CSDL SQL |
 | `PLANT` | Browser-native 2.5D Canvas | Thí nghiệm sinh học / sinh trưởng cây trồng |
 | `ROBOT` | Browser-native 2.5D Canvas | Thí nghiệm cơ học / điều khiển robot |
 | **`CHEMISTRY`** | **Browser-native 2.5D Canvas & Hóa lý Engine** | **Thí nghiệm Hóa học ảo 2D/2.5D theo quy trình tính toán chuẩn** |
 
 ---
+
+Coding, terminal and SQL execution limits, fixture format and rollout are documented
+in [Runtime hardening](RUNTIME_HARDENING.md). These paths execute synchronously;
+the Kafka job constants do not imply an operational grading worker. Terminal
+files survive reconnection until session expiry, and SQL practice never uses the
+application database. See [ADR-8](adr/ADR-8-practice-runtime-batching.md).
 
 ## 🧪 2. Chi Tiết Kiến Trúc Chemistry Virtual Labs (`CHEMISTRY`)
 
