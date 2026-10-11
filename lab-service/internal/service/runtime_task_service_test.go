@@ -52,3 +52,33 @@ func TestVerifierCommandQuotesWorkspaceValues(t *testing.T) {
 		t.Fatalf("values were not safely quoted: %s", command)
 	}
 }
+
+func TestRuntimeProgressRequiresAllMandatorySteps(t *testing.T) {
+	tasks := []repository.RuntimeTask{{RuntimeTaskResponse: dto.RuntimeTaskResponse{Weight: 90, Passed: true}}, {RuntimeTaskResponse: dto.RuntimeTaskResponse{Weight: 10, IsRequired: true}}}
+	if r := buildProgress(tasks); r.Score != 90 || r.Completed {
+		t.Fatalf("missing mandatory step accepted: %+v", r)
+	}
+	tasks[1].Passed = true
+	if r := buildProgress(tasks); !r.Completed || r.Score != 100 {
+		t.Fatalf("completed steps rejected: %+v", r)
+	}
+	if buildProgress(nil).Completed {
+		t.Fatal("empty rubric completed")
+	}
+}
+func TestRuntimeVerifierBounds(t *testing.T) {
+	for _, p := range []string{"../secret", "/etc/passwd", "a/../../secret"} {
+		if validateVerifier("WORKSPACE", "FILE_EXISTS", map[string]interface{}{"path": p}) == nil {
+			t.Fatalf("unsafe path %s", p)
+		}
+	}
+	if err := validateVerifier("WORKSPACE", "FILE_EXISTS", map[string]interface{}{"path": "project/a..b"}); err != nil {
+		t.Fatal(err)
+	}
+	if validateVerifier("WORKSPACE", "COMMAND_OUTPUT", map[string]interface{}{"command": "pwd"}) == nil {
+		t.Fatal("missing expected output accepted")
+	}
+	if err := validateVerifier("WORKSPACE", "COMMAND_OUTPUT", map[string]interface{}{"command": "printf ''", "expected": ""}); err != nil {
+		t.Fatal(err)
+	}
+}

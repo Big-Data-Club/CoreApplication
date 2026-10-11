@@ -21,6 +21,7 @@ from app.core.llm_gateway.freemodel_providers import _DEFAULT_FREEMODEL_PROVIDER
 from app.core.llm_gateway.registry import ModelRegistry, get_registry
 from app.core.llm_gateway.types import (
     ALL_TASK_CODES,
+    TASK_FORMAT_LAB, TASK_CREATE_LAB, TASK_CREATE_LAB_TESTCASE, TASK_EDIT_TESTCASE, TASK_CREATE_LAB_GENERATOR,
     TASK_AGENT_FLASH,
     TASK_AGENT_REACT,
     TASK_AGENT_ROUTER,
@@ -539,6 +540,7 @@ async def bootstrap_llm_registry() -> None:
     # from other providers with a matching display name are loaded.
 
     default_bindings: list[tuple[str, int, int]] = [
+        *[(task, default_model_id, 10) for task in (TASK_FORMAT_LAB, TASK_CREATE_LAB, TASK_CREATE_LAB_TESTCASE, TASK_EDIT_TESTCASE, TASK_CREATE_LAB_GENERATOR)],
         (TASK_CHAT,             default_model_id, 10),
         (TASK_CLARIFICATION,    default_model_id, 10),
         (TASK_LANGUAGE_DETECT,  default_model_id, 10),

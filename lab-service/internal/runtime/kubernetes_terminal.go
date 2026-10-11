@@ -310,7 +310,7 @@ func (s *KubernetesTerminalSandbox) RunCommand(ctx context.Context, session stri
 	if pod.Metadata.Labels["bdc.dev/user-id"] != strconv.FormatInt(userID, 10) || pod.Metadata.Labels["bdc.dev/lab-id"] != strconv.FormatInt(labID, 10) {
 		return "", false, fmt.Errorf("terminal session does not belong to this user or lab")
 	}
-	query := url.Values{"container": {"terminal"}, "command": {"/bin/sh", "-lc", command}, "stdin": {"false"}, "stdout": {"true"}, "stderr": {"true"}, "tty": {"false"}}
+	query := url.Values{"container": {"terminal"}, "command": {"/bin/sh", "-lc", "cd /workspace && " + command}, "stdin": {"false"}, "stdout": {"true"}, "stderr": {"true"}, "tty": {"false"}}
 	endpoint := strings.Replace(s.server, "https://", "wss://", 1) + "/api/v1/namespaces/" + s.cfg.Namespace + "/pods/" + session + "/exec?" + query.Encode()
 	upstream, resp, err := s.dialer.DialContext(ctx, endpoint, http.Header{"Authorization": []string{"Bearer " + s.token}})
 	if err != nil {

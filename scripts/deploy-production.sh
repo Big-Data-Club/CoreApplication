@@ -15,6 +15,7 @@ deployments=(
   ai-service
   ai-worker
   course-blueprint-worker
+  ai-lab-authoring-worker
   personalize-service
   recommender-service
   dutylog-service
@@ -36,6 +37,7 @@ declare -A containers=(
   [ai-service]=ai-service
   [ai-worker]=ai-worker
   [course-blueprint-worker]=course-blueprint-worker
+  [ai-lab-authoring-worker]=ai-lab-authoring-worker
   [personalize-service]=personalize-service
   [recommender-service]=recommender-service
   [frontend]=frontend
@@ -50,6 +52,7 @@ declare -A images=(
   [ai-service]=bdc-ai
   [ai-worker]=bdc-ai
   [course-blueprint-worker]=bdc-ai
+  [ai-lab-authoring-worker]=bdc-ai
   [personalize-service]=bdc-personalize
   [recommender-service]=bdc-recommender
   [frontend]=bdc-frontend
@@ -64,6 +67,7 @@ declare -A manifests=(
   [ai-service]=k3s/base/ai-service-deployment.yaml
   [chat-service]=k3s/base/chat-service-deployment.yaml
   [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml
+  [ai-lab-authoring-worker]=k3s/base/ai-lab-authoring-worker-deployment.yaml
   [lab-service]=k3s/base/lab-service-deployment.yaml
   [dutylog-service]=k3s/base/dutylog-service-deployment.yaml
 )

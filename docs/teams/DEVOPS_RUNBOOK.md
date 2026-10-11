@@ -811,12 +811,12 @@ Rollback/stop owner: <name>
 
 ## 11. Useful references
 
-- [Primary production workflow](../.github/workflows/production.yml)
-- [Quality CI workflow](../.github/workflows/ci.yml)
-- [Deployment script](../scripts/deploy-production.sh)
-- [K3s deployment guide](../k3s/DEPLOYMENT.md)
-- [Performance test assets](../performance-tests/README.md)
-- [Observability manifests](../k3s/observability/kustomization.yaml)
+- [Primary production workflow](../../.github/workflows/production.yml)
+- [Quality CI workflow](../../.github/workflows/ci.yml)
+- [Deployment script](../../scripts/deploy-production.sh)
+- [K3s deployment guide](../../k3s/DEPLOYMENT.md)
+- [Performance test assets](../../performance-tests/README.md)
+- [Observability manifests](../../k3s/observability/kustomization.yaml)
 
 ### Optional lead-agent collaboration
 
@@ -827,3 +827,21 @@ to load it. Explicit environment overrides still take precedence. This flag is s
 Keep System One disabled via `JEV_ENABLED=false` if its managed binding is not
 available; lead planning can still choose LLM and retrieval executors.
 Monitor latency, gateway usage and `lead_fallback` events after activation. See [ADR 7](../adr/ADR-7-bounded-lead-agent-collaboration.md).
+
+### Lab authoring worker rollout
+
+AI authoring adds `ai-lab-authoring-worker`, using the same immutable `bdc-ai`
+image as AI HTTP. V019 `lab_authoring_jobs` is included in the existing
+pre-rollout migration runner. The deployment script applies its selected
+manifest and image; no production change is implied by editing these files.
+The worker needs AI PostgreSQL and the same `AI_KEY_ENCRYPTION_SECRET` used by
+AI HTTP; it does not need embedding warmup, Kafka, Qdrant or Neo4j.
+
+After an approved rollout, verify an authenticated teacher can create and poll
+one draft job, the worker transitions it to READY/FAILED, another teacher cannot
+read it, and an interrupted lease recovers. Validate the task bindings for
+`format_lab`, `create_lab`, `create_lab_testcase`, `edit_testcase` and
+`create_lab_generator` in the gateway admin panel. Monitor queue age and worker
+logs; READY is a proposal, not publication. Terminal Git labs additionally need
+a built and pinned image from `lab-service/sandbox/terminal/Dockerfile`.
+Docker build/run remains unavailable on the default terminal runtime.

@@ -99,7 +99,7 @@ func main() {
 	experimentHandler := handler.NewExperimentHandler(experimentService)
 	submissionHandler := handler.NewSubmissionHandler(submissionService)
 	enrollmentHandler := handler.NewEnrollmentHandler(enrollmentRepo)
-	testCaseHandler := handler.NewTestCaseHandler(testCaseRepo)
+	testCaseHandler := handler.NewTestCaseHandler(testCaseRepo, labRepo, runtimeRegistry)
 	leaderboardHandler := handler.NewLeaderboardHandler(leaderboardRepo)
 	syncHandler := handler.NewSyncHandler(userRepo)
 	runtimeTaskHandler := handler.NewRuntimeTaskHandler(runtimeTaskService)
@@ -155,12 +155,12 @@ func main() {
 		// Labs CRUD
 		api.GET("/labs", labHandler.ListPublishedLabs)
 		api.GET("/labs/my", labHandler.ListMyLabs)
-		api.GET("/labs/manage", middleware.RequireRoles("ADMIN"), labHandler.ListAllLabs)
-		api.POST("/labs", middleware.RequireRoles("ADMIN"), labHandler.CreateLab)
+		api.GET("/labs/manage", middleware.RequireRoles("ADMIN", "TEACHER"), labHandler.ListAllLabs)
+		api.POST("/labs", middleware.RequireRoles("ADMIN", "TEACHER"), labHandler.CreateLab)
 		api.GET("/labs/:labId", labHandler.GetLab)
-		api.PUT("/labs/:labId", middleware.RequireRoles("ADMIN"), labHandler.UpdateLab)
-		api.DELETE("/labs/:labId", middleware.RequireRoles("ADMIN"), labHandler.DeleteLab)
-		api.POST("/labs/:labId/publish", middleware.RequireRoles("ADMIN"), labHandler.PublishLab)
+		api.PUT("/labs/:labId", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), labHandler.UpdateLab)
+		api.DELETE("/labs/:labId", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), labHandler.DeleteLab)
+		api.POST("/labs/:labId/publish", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), labHandler.PublishLab)
 
 		// Versioned Virtual STEM experiment definitions
 		api.POST("/labs/:labId/versions", middleware.RequireRoles("ADMIN"), experimentHandler.CreateVersion)
@@ -182,29 +182,35 @@ func main() {
 		// Lab Interactive Session & Web Terminal
 		api.POST("/labs/:labId/session/start", labHandler.StartSession)
 		api.GET("/labs/:labId/session/terminal/ws", labHandler.TerminalWS)
-		api.POST("/labs/:labId/runtime-tasks", middleware.RequireRoles("ADMIN"), runtimeTaskHandler.Create)
-		api.DELETE("/runtime-tasks/:taskId", middleware.RequireRoles("ADMIN"), runtimeTaskHandler.Delete)
+		api.POST("/labs/:labId/runtime-tasks", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), runtimeTaskHandler.Create)
+		api.DELETE("/runtime-tasks/:taskId", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "task"), runtimeTaskHandler.Delete)
 		api.GET("/labs/:labId/runtime-tasks/progress", runtimeTaskHandler.Progress)
 		api.POST("/labs/:labId/runtime-tasks/check", runtimeTaskHandler.Check)
 
+		api.POST("/labs/:labId/runtime-tasks/bulk", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), runtimeTaskHandler.BulkCreate)
+
 		// Lab Sections
-		api.POST("/labs/:labId/sections", middleware.RequireRoles("ADMIN"), labHandler.CreateSection)
+		api.POST("/labs/:labId/sections", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), labHandler.CreateSection)
 		api.GET("/labs/:labId/sections", labHandler.ListSections)
-		api.PUT("/sections/:sectionId", middleware.RequireRoles("ADMIN"), labHandler.UpdateSection)
-		api.DELETE("/sections/:sectionId", middleware.RequireRoles("ADMIN"), labHandler.DeleteSection)
+		api.PUT("/sections/:sectionId", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "section"), labHandler.UpdateSection)
+		api.DELETE("/sections/:sectionId", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "section"), labHandler.DeleteSection)
 
 		// Lab Content
-		api.POST("/sections/:sectionId/content", middleware.RequireRoles("ADMIN"), labHandler.CreateContent)
+		api.POST("/sections/:sectionId/content", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "section"), labHandler.CreateContent)
 		api.GET("/sections/:sectionId/content", labHandler.ListContent)
-		api.PUT("/content/:contentId", middleware.RequireRoles("ADMIN"), labHandler.UpdateContent)
-		api.DELETE("/content/:contentId", middleware.RequireRoles("ADMIN"), labHandler.DeleteContent)
+		api.PUT("/content/:contentId", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "content"), labHandler.UpdateContent)
+		api.DELETE("/content/:contentId", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "content"), labHandler.DeleteContent)
 
 		// Test Cases
-		api.POST("/labs/:labId/test-cases", middleware.RequireRoles("ADMIN"), testCaseHandler.CreateTestCase)
+		api.POST("/labs/:labId/test-cases", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), testCaseHandler.CreateTestCase)
 		api.GET("/labs/:labId/test-cases", testCaseHandler.ListTestCases)
-		api.PUT("/test-cases/:id", middleware.RequireRoles("ADMIN"), testCaseHandler.UpdateTestCase)
-		api.DELETE("/test-cases/:id", middleware.RequireRoles("ADMIN"), testCaseHandler.DeleteTestCase)
-		api.POST("/labs/:labId/test-cases/bulk", middleware.RequireRoles("ADMIN"), testCaseHandler.BulkCreateTestCases)
+		api.PUT("/test-cases/:id", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "case"), testCaseHandler.UpdateTestCase)
+		api.DELETE("/test-cases/:id", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "case"), testCaseHandler.DeleteTestCase)
+		api.POST("/labs/:labId/test-cases/bulk", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), testCaseHandler.BulkCreateTestCases)
+
+		api.GET("/labs/:labId/authoring", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), labHandler.GetLab)
+		api.POST("/labs/:labId/test-cases/generate", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), testCaseHandler.GenerateTestCases)
+		api.PUT("/labs/:labId/test-cases/replace", middleware.RequireRoles("ADMIN", "TEACHER"), middleware.LabAuthor(db, "lab"), testCaseHandler.ReplaceTestCases)
 
 		// Submissions
 		api.POST("/labs/:labId/run", submissionHandler.RunCode)

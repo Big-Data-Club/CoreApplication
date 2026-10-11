@@ -48,15 +48,38 @@ func (s *RuntimeTaskService) Delete(ctx context.Context, id int64) (int, error) 
 	}
 	return http.StatusOK, nil
 }
-func (s *RuntimeTaskService) Progress(ctx context.Context, labID, userID int64) (*dto.RuntimeTaskProgressResponse, int, error) {
+func (s *RuntimeTaskService) Progress(ctx context.Context, labID, userID int64, userRole string) (*dto.RuntimeTaskProgressResponse, int, error) {
+	lab, err := s.labs.GetByID(ctx, labID)
+	if err != nil {
+		return nil, 404, fmt.Errorf("lab not found")
+	}
+	if userRole != "ADMIN" && lab.CreatedBy != userID {
+		enrolled, err := s.enroll.IsEnrolled(ctx, labID, userID)
+		if err != nil {
+			return nil, 503, fmt.Errorf("cannot verify enrollment")
+		}
+		if !enrolled || lab.Status != "PUBLISHED" {
+			return nil, 403, fmt.Errorf("enroll in a published lab to view runtime progress")
+		}
+	}
 	tasks, err := s.tasks.List(ctx, labID, userID, false)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 	return buildProgress(tasks), http.StatusOK, nil
 }
-func (s *RuntimeTaskService) Check(ctx context.Context, labID, userID int64, session string) (*dto.RuntimeTaskProgressResponse, int, error) {
-	enrolled, _ := s.enroll.IsEnrolled(ctx, labID, userID)
+func (s *RuntimeTaskService) Check(ctx context.Context, labID, userID int64, session string, taskID int64) (*dto.RuntimeTaskProgressResponse, int, error) {
+	lab, labErr := s.labs.GetByID(ctx, labID)
+	if labErr != nil {
+		return nil, 404, fmt.Errorf("lab not found")
+	}
+	if lab.Status != "PUBLISHED" {
+		return nil, 403, fmt.Errorf("lab is not published")
+	}
+	enrolled, enrollmentErr := s.enroll.IsEnrolled(ctx, labID, userID)
+	if enrollmentErr != nil {
+		return nil, 503, fmt.Errorf("cannot verify lab enrollment")
+	}
 	if !enrolled {
 		return nil, http.StatusForbidden, fmt.Errorf("not enrolled in this lab")
 	}
@@ -64,7 +87,21 @@ func (s *RuntimeTaskService) Check(ctx context.Context, labID, userID int64, ses
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
+	if taskID > 0 {
+		found := false
+		for _, task := range tasks {
+			if task.ID == taskID {
+				found = true
+			}
+		}
+		if !found {
+			return nil, 404, fmt.Errorf("step not found in this lab")
+		}
+	}
 	for _, task := range tasks {
+		if taskID > 0 && task.ID != taskID {
+			continue
+		}
 		passed, message, evidence := false, "", map[string]interface{}{}
 		if task.RuntimeType == "WORKSPACE" {
 			if s.terminal == nil {
@@ -85,7 +122,7 @@ func (s *RuntimeTaskService) Check(ctx context.Context, labID, userID int64, ses
 				passed = ok && strings.TrimSpace(output) == strings.TrimSpace(expected)
 			}
 			if runErr != nil {
-				message = runErr.Error()
+				return nil, http.StatusServiceUnavailable, fmt.Errorf("step verification unavailable; retry when the terminal session is ready")
 			} else if passed {
 				message = "Đã hoàn thành"
 			} else {
@@ -148,7 +185,7 @@ func validateVerifier(runtimeType, kind string, cfg map[string]interface{}) erro
 	switch kind {
 	case "FILE_EXISTS", "FILE_CONTAINS":
 		p, _ := cfg["path"].(string)
-		if p == "" || filepath.IsAbs(p) || strings.Contains(filepath.Clean(p), "..") {
+		if p == "" || filepath.IsAbs(p) || (filepath.Clean(p) == ".." || strings.HasPrefix(filepath.Clean(p), "../")) {
 			return fmt.Errorf("path must stay inside the workspace")
 		}
 		if kind == "FILE_CONTAINS" {
@@ -158,6 +195,11 @@ func validateVerifier(runtimeType, kind string, cfg map[string]interface{}) erro
 			}
 		}
 	case "COMMAND_EXIT", "COMMAND_OUTPUT":
+		if kind == "COMMAND_OUTPUT" {
+			if _, ok := cfg["expected"].(string); !ok {
+				return fmt.Errorf("expected output is required")
+			}
+		}
 		cmd, _ := cfg["command"].(string)
 		if cmd == "" || len(cmd) > 2000 {
 			return fmt.Errorf("command is required and limited to 2000 characters")
@@ -182,7 +224,7 @@ func verifierCommand(t repository.RuntimeTask) (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		return "test -e /workspace/" + q(path), "", nil
+		return workspacePathCommand(path) + " && test -e \"$p\"", "", nil
 	case "FILE_CONTAINS":
 		path, err := get("path")
 		if err != nil {
@@ -192,7 +234,7 @@ func verifierCommand(t repository.RuntimeTask) (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		return "grep -Fq -- " + q(contains) + " /workspace/" + q(path), "", nil
+		return workspacePathCommand(path) + " && grep -Fq -- " + q(contains) + " \"$p\"", "", nil
 	case "COMMAND_EXIT", "COMMAND_OUTPUT":
 		cmd, err := get("command")
 		if err != nil {
@@ -202,4 +244,29 @@ func verifierCommand(t repository.RuntimeTask) (string, string, error) {
 		return cmd, expected, nil
 	}
 	return "", "", fmt.Errorf("unsupported verifier")
+}
+
+// Resolve symlinks before checking files; a workspace path cannot escape via links.
+func workspacePathCommand(path string) string {
+	q := func(v string) string { return "'" + strings.ReplaceAll(v, "'", "'\\''") + "'" }
+	return "p=$(readlink -f -- /workspace/" + q(path) + ") && case \"$p\" in /workspace/*) true;; *) false;; esac"
+}
+
+func (s *RuntimeTaskService) BulkCreate(ctx context.Context, labID int64, req dto.BulkRuntimeTasksRequest) (int, error) {
+	lab, err := s.labs.GetByID(ctx, labID)
+	if err != nil {
+		return 404, err
+	}
+	if lab.LabType != "WORKSPACE" && lab.LabType != "HPC" {
+		return 409, fmt.Errorf("steps require a terminal or HPC lab")
+	}
+	for _, task := range req.Tasks {
+		if err := validateVerifier(lab.LabType, task.VerifierType, task.VerifierConfig); err != nil {
+			return 400, err
+		}
+	}
+	if err := s.tasks.BulkCreate(ctx, labID, lab.LabType, req.Tasks); err != nil {
+		return 409, err
+	}
+	return 201, nil
 }

@@ -49,9 +49,13 @@ func (e *KubernetesCodingExecutor) Execute(ctx context.Context, req ExecutionReq
 		}
 		groups[memory] = append(groups[memory], tc)
 	}
-	results := map[int64]TestResult{}
+	batches := []codingBatch{}
 	for _, memory := range caps {
-		tests := groups[memory]
+		batches = append(batches, e.splitCodingBatches(language, req, groups[memory], memory)...)
+	}
+	results := map[int64]TestResult{}
+	for _, batchGroup := range batches {
+		memory, tests := batchGroup.memory, batchGroup.tests
 		script, budget := e.batchScript(language, req, tests)
 		// Linux limits any one exec argument to 128 KiB, even with a larger ARG_MAX.
 		if len(script) > 120*1024 {
@@ -237,4 +241,28 @@ func parseOOMBatchOutput(logs string, tests []TestCase) ([]TestResult, error) {
 		results = append(results, TestResult{TestCaseID: tests[i].ID, Status: status, ActualOutput: "Execution stopped after exceeding the memory limit."})
 	}
 	return results, nil
+}
+
+// Linux limits a single exec argument to 128 KiB. Split large input suites
+// while retaining compile-once execution for each compatible payload batch.
+type codingBatch struct {
+	memory int
+	tests  []TestCase
+}
+
+func (e *KubernetesCodingExecutor) splitCodingBatches(lang sandboxLanguage, req ExecutionRequest, tests []TestCase, memory int) []codingBatch {
+	batches := []codingBatch{}
+	for len(tests) > 0 {
+		count := len(tests)
+		for count > 1 {
+			script, _ := e.batchScript(lang, req, tests[:count])
+			if len(script) <= 120*1024 {
+				break
+			}
+			count = (count + 1) / 2
+		}
+		batches = append(batches, codingBatch{memory: memory, tests: tests[:count]})
+		tests = tests[count:]
+	}
+	return batches
 }

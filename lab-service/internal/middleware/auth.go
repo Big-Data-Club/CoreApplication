@@ -98,6 +98,9 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 				primaryRole = "ADMIN"
 				break
 			}
+			if r == "TEACHER" {
+				primaryRole = "TEACHER"
+			}
 		}
 		c.Set("user_role", primaryRole)
 		c.Next()

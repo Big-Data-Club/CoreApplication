@@ -9,6 +9,7 @@ resources:
 - lab-service-deployment.yaml
 - chat-service-deployment.yaml
 - ai-service-deployment.yaml
+- ai-lab-authoring-worker-deployment.yaml
 - course-blueprint-worker-deployment.yaml
 - ai-model-cache-pvc.yaml
 - personalize-pvc.yaml

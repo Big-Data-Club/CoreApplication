@@ -159,3 +159,27 @@ func TestAdmissionCancellationDoesNotLeakCapacity(t *testing.T) {
 		t.Fatal("executor slot leaked")
 	}
 }
+
+func TestLargeCodingFixturesSplitIntoExecutablePayloads(t *testing.T) {
+	e := batchExecutor()
+	lang, _ := e.languageSpec("python")
+	req := ExecutionRequest{Language: "python", Code: strings.Repeat("#", 32768)}
+	for i := 0; i < 50; i++ {
+		req.TestCases = append(req.TestCases, TestCase{ID: int64(i + 1), Input: strings.Repeat("x", 16384)})
+	}
+	groups := e.splitCodingBatches(lang, req, req.TestCases, 256)
+	if len(groups) <= 1 {
+		t.Fatal("oversized fixture suite was not split")
+	}
+	total := 0
+	for _, g := range groups {
+		script, _ := e.batchScript(lang, req, g.tests)
+		if len(script) > 120*1024 {
+			t.Fatal("oversized exec argument")
+		}
+		total += len(g.tests)
+	}
+	if total != 50 {
+		t.Fatalf("lost cases: %d", total)
+	}
+}

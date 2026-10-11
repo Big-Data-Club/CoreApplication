@@ -52,6 +52,7 @@ jobs:
               - 'scripts/flashcard-migration-runner.py'
               - '.github/workflows/production.yml'
               - 'k3s/base/ai-service-deployment.yaml'
+              - 'k3s/base/ai-lab-authoring-worker-deployment.yaml'
               - 'k3s/base/course-blueprint-worker-deployment.yaml'
               - 'k3s/base/kafka-statefulset.yaml'
               - 'k3s/base/configmap.yaml'
@@ -131,7 +132,7 @@ jobs:
 
           if [[ "${AI_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-ai","context":"ai-service"}')
-            services+=(ai-service ai-worker course-blueprint-worker)
+            services+=(ai-service ai-worker course-blueprint-worker ai-lab-authoring-worker)
           fi
           if [[ "${RECOMMENDER_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-recommender","context":"recommender-service"}')

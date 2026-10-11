@@ -12,6 +12,7 @@ VERSIONS = {
     "V016": {"personal_flashcard_decks": ["id", "student_id", "name"], "personal_flashcards": ["id", "student_id", "deck_id", "revision", "legacy_id"], "personal_flashcard_reviews": ["id", "student_id", "card_id", "result"], "personal_flashcard_jobs": ["id", "student_id", "kind", "payload"]},
     "V017": {"personal_flashcard_decks": ["course_id"], "personal_flashcard_jobs": ["course_id"]},
     "V018": {"personal_flashcard_decks": ["source_content_id", "source_lesson_id"], "personal_flashcards": ["source_node_ids"]},
+    "V019": {"lab_authoring_jobs": ["id", "owner_id", "status", "request", "proposal", "lease_token", "lease_until", "attempts"]},
 }
 
 

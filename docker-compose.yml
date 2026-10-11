@@ -905,6 +905,36 @@ services:
       - "service.type=ai"
       - "service.name=ai-service"
 
+  # Durable lab authoring jobs: independent of indexing/model warmup.
+  ai-lab-authoring-worker:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    image: ${DOCKER_USERNAME}/bdc-ai:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: python -m app.worker.lab_authoring_worker
+    healthcheck:
+      disable: true
+    environment:
+      <<: *ai-env
+      USE_RERANKER: "false"
+    depends_on:
+      postgres-ai:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+    networks:
+      - app-network
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
   # AI Worker: Celery
   ai-worker:
     build:

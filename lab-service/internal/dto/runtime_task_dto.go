@@ -25,6 +25,7 @@ type RuntimeTaskResponse struct {
 
 type CheckRuntimeTasksRequest struct {
 	SessionID string `json:"session_id"`
+	TaskID    int64  `json:"task_id" binding:"min=0"`
 }
 type RuntimeTaskProgressResponse struct {
 	Tasks          []RuntimeTaskResponse `json:"tasks"`
@@ -33,4 +34,8 @@ type RuntimeTaskProgressResponse struct {
 	TotalWeight    int                   `json:"total_weight"`
 	RequiredPassed bool                  `json:"required_passed"`
 	Completed      bool                  `json:"completed"`
+}
+
+type BulkRuntimeTasksRequest struct {
+	Tasks []CreateRuntimeTaskRequest `json:"tasks" binding:"required,min=1,max=30,dive"`
 }

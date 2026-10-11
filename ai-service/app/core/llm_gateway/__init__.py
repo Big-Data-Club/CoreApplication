@@ -27,6 +27,7 @@ from app.core.llm_gateway.key_pool import KeyPool, get_key_pool
 from app.core.llm_gateway.registry import ModelRegistry, get_registry
 from app.core.llm_gateway.types import (
     ALL_TASK_CODES,
+    TASK_FORMAT_LAB, TASK_CREATE_LAB, TASK_CREATE_LAB_TESTCASE, TASK_EDIT_TESTCASE, TASK_CREATE_LAB_GENERATOR,
     ApiKey,
     ChatRequest,
     ChatResponse,
@@ -65,6 +66,7 @@ __all__ = [
     "Provider", "Model", "ApiKey", "TaskBinding",
     # task codes
     "ALL_TASK_CODES",
+    "TASK_FORMAT_LAB", "TASK_CREATE_LAB", "TASK_CREATE_LAB_TESTCASE", "TASK_EDIT_TESTCASE", "TASK_CREATE_LAB_GENERATOR",
     "TASK_CHAT", "TASK_QUIZ_GEN", "TASK_DIAGNOSIS", "TASK_FLASHCARD_GEN",
     "TASK_AGENT_REACT", "TASK_AGENT_FLASH", "TASK_AGENT_ROUTER", "TASK_CLARIFICATION",
     "TASK_GRAPH_LINK", "TASK_MEMORY_COMPRESS", "TASK_LANGUAGE_DETECT",

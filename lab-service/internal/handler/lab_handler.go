@@ -36,6 +36,10 @@ func (h *LabHandler) CreateLab(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
 		return
 	}
+	if c.GetString("user_role") != "ADMIN" && req.LabType != "CODING" && req.LabType != "DATABASE" && req.LabType != "WORKSPACE" {
+		c.JSON(403, dto.NewErrorResponse("authoring_scope", "Teacher authoring supports coding, SQL and terminal labs"))
+		return
+	}
 	userID := c.GetInt64("user_id")
 	lab, status, err := h.labService.CreateLab(c.Request.Context(), &req, userID)
 	if err != nil {
@@ -91,6 +95,10 @@ func (h *LabHandler) ListMyLabs(c *gin.Context) {
 }
 
 func (h *LabHandler) ListAllLabs(c *gin.Context) {
+	if c.GetString("user_role") != "ADMIN" {
+		h.ListMyLabs(c)
+		return
+	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	resp, status, err := h.labService.ListAllLabs(c.Request.Context(), c.Query("status"), page, pageSize)

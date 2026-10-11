@@ -7,7 +7,7 @@ import "time"
 // CreateLabRequest represents the request to create a lab.
 type CreateLabRequest struct {
 	Title                 string                 `json:"title" binding:"required,min=3,max=255"`
-	Description           string                 `json:"description" binding:"max=5000"`
+	Description           string                 `json:"description" binding:"max=50000"`
 	Category              string                 `json:"category" binding:"max=100"`
 	Level                 string                 `json:"level" binding:"omitempty,oneof=BEGINNER INTERMEDIATE ADVANCED ALL_LEVELS"`
 	ThumbnailURL          string                 `json:"thumbnail_url" binding:"omitempty,max=500"`
@@ -27,7 +27,7 @@ type CreateLabRequest struct {
 // UpdateLabRequest represents the request to update a lab.
 type UpdateLabRequest struct {
 	Title                 *string                 `json:"title" binding:"omitempty,min=3,max=255"`
-	Description           *string                 `json:"description" binding:"omitempty,max=5000"`
+	Description           *string                 `json:"description" binding:"omitempty,max=50000"`
 	Category              *string                 `json:"category" binding:"omitempty,max=100"`
 	Level                 *string                 `json:"level" binding:"omitempty,oneof=BEGINNER INTERMEDIATE ADVANCED ALL_LEVELS"`
 	ThumbnailURL          *string                 `json:"thumbnail_url" binding:"omitempty,max=500"`

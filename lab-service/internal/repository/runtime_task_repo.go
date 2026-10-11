@@ -81,3 +81,34 @@ func (r *RuntimeTaskRepository) LatestHPCStatus(ctx context.Context, labID, user
 	}
 	return status, job.Valid, err
 }
+
+// Authoring applies a reviewed step set atomically, without deleting prior evidence.
+func (r *RuntimeTaskRepository) BulkCreate(ctx context.Context, labID int64, runtimeType string, reqs []dto.CreateRuntimeTaskRequest) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var lockedID int64
+	if err = tx.QueryRowContext(ctx, "SELECT id FROM labs WHERE id=$1 FOR UPDATE", labID).Scan(&lockedID); err != nil {
+		return err
+	}
+	var count int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM lab_runtime_tasks WHERE lab_id=$1", labID).Scan(&count); err != nil {
+		return err
+	}
+	if count+len(reqs) > 30 {
+		return fmt.Errorf("a terminal lab supports at most 30 steps")
+	}
+	for _, req := range reqs {
+		config, err := json.Marshal(req.VerifierConfig)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO lab_runtime_tasks(lab_id,title,description,runtime_type,verifier_type,verifier_config,weight,is_required,order_index) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, labID, req.Title, req.Description, runtimeType, req.VerifierType, string(config), req.Weight, req.IsRequired, req.OrderIndex)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

@@ -222,9 +222,76 @@ Toàn bộ Spec của bài Lab Hóa học được đóng gói dạng JSON và l
 
 | Path File | Vai trò / Chức năng |
 | :--- | :--- |
-| [`frontend/src/types/chemistry.ts`](file:///home/phucnhan/codespace/bdc/CoreApplication/frontend/src/types/chemistry.ts) | Định nghĩa các TypeScript Data Types & Interfaces cho Hóa học |
-| [`frontend/src/services/chemistryEngine.ts`](file:///home/phucnhan/codespace/bdc/CoreApplication/frontend/src/services/chemistryEngine.ts) | Engine tính toán Hóa lý chuẩn xác (Bảo toàn khối lượng, pH, Nhiệt, Chỉ thị màu) |
-| [`frontend/src/components/labs/chemistry/TitrationCurveWidget.tsx`](file:///home/phucnhan/codespace/bdc/CoreApplication/frontend/src/components/labs/chemistry/TitrationCurveWidget.tsx) | Widget vẽ đồ thị chuẩn độ pH thời gian thực |
-| [`frontend/src/components/labs/chemistry/ChemistryCanvasStage.tsx`](file:///home/phucnhan/codespace/bdc/CoreApplication/frontend/src/components/labs/chemistry/ChemistryCanvasStage.tsx) | Component Sân khấu Thí nghiệm Hóa 2.5D tương tác (buret, bình tam giác, van nhỏ giọt) |
-| [`frontend/src/components/labs/chemistry/ChemistryLabBuilder.tsx`](file:///home/phucnhan/codespace/bdc/CoreApplication/frontend/src/components/labs/chemistry/ChemistryLabBuilder.tsx) | Bộ công cụ No-Code Builder cho Giảng viên tự cấu hình bài Lab |
-| [`lab-service/migrations/V004__chemistry_lab_support.sql`](file:///home/phucnhan/codespace/bdc/CoreApplication/lab-service/migrations/V004__chemistry_lab_support.sql) | Script Migration CSDL Postgres bổ sung kiểu `CHEMISTRY` |
+| [`frontend/src/types/chemistry.ts`](../frontend/src/types/labs/chemistry.ts) | Định nghĩa các TypeScript Data Types & Interfaces cho Hóa học |
+| [`frontend/src/services/chemistryEngine.ts`](../frontend/src/services/labs/chemistryEngine.ts) | Engine tính toán Hóa lý chuẩn xác (Bảo toàn khối lượng, pH, Nhiệt, Chỉ thị màu) |
+| [`frontend/src/components/labs/chemistry/TitrationCurveWidget.tsx`](../frontend/src/components/labs/chemistry/TitrationCurveWidget.tsx) | Widget vẽ đồ thị chuẩn độ pH thời gian thực |
+| [`frontend/src/components/labs/chemistry/ChemistryCanvasStage.tsx`](../frontend/src/components/labs/chemistry/ChemistryCanvasStage.tsx) | Component Sân khấu Thí nghiệm Hóa 2.5D tương tác (buret, bình tam giác, van nhỏ giọt) |
+| [`frontend/src/components/labs/chemistry/ChemistryLabBuilder.tsx`](../frontend/src/components/labs/chemistry/ChemistryLabBuilder.tsx) | Bộ công cụ No-Code Builder cho Giảng viên tự cấu hình bài Lab |
+| [`lab-service/migrations/V004__chemistry_lab_support.sql`](../lab-service/migrations/V004__chemistry_lab_support.sql) | Script Migration CSDL Postgres bổ sung kiểu `CHEMISTRY` |
+
+## Soạn bài coding, SQL và terminal với AI
+
+Nguồn chuẩn: `LabAuthoringPanel`, `useLabAuthoring`, AI
+`lab_authoring_service.py`, Lab `test_case_repo.go` và
+`runtime_task_service.go`. Các tính năng sau đã được hiện thực trong mã nguồn:
+
+- Giáo viên có role TEACHER tạo và quản lý lab coding/SQL/terminal của mình; ADMIN quản lý toàn bộ.
+  API kiểm tra quyền từ JWT và liên kết resource → lab. Giáo viên khác chỉ nhận
+  sample công khai, không nhận hidden testcase. UI soạn bài dùng endpoint
+  `GET /labs/:labId/authoring` để kiểm tra quyền trước khi tải form.
+- Dán đề có sẵn: `format_lab` giữ nguyên ý nghĩa, ví dụ, constraints và định dạng
+  Markdown. Nhập ý tưởng: `create_lab` đề xuất đề, starter/fixture và rubric.
+  `create_lab_testcase`/`edit_testcase` đề xuất bộ test;
+  `create_lab_generator` đề xuất Python generator và lời giải tham chiếu.
+  Tất cả đều là bản nháp giáo viên phải xem và áp dụng, không tự publish.
+- Coding chạy chương trình hoàn chỉnh qua stdin/stdout. Đề kiểu LeetCode phải
+  khai báo hợp đồng input, chẳng hạn `{"nums":[1,2,3,4]}`, và starter có hàm đọc
+  JSON/gọi solution/in kết quả. Mẫu “Sum of Squares of Special Elements” đã có
+  hai sample `21`, `63`, generator có seed và oracle riêng cho giáo viên.
+- Import một file JSON/JSONL (`input`, `expected` là chuỗi), hoặc nhiều cặp cùng
+  basename `.in/.out`, `.input/.output`. Import giữ nội dung UTF-8, whitespace,
+  CSV quote và newline; từ chối cặp thiếu/trùng, sai type, vượt giới hạn.
+  Preview cho phép sửa tên, trọng số, visibility và dữ liệu trước khi lưu.
+- Tối đa 50 test/lab, input 16 KiB và expected output 8 KiB/test, source 32 KiB.
+  Bulk append và replace dùng transaction. Replace kiểm tra snapshot IDs và
+  revision của toàn bộ dữ liệu; bản nháp cũ bị từ chối khi test đã thay đổi. Giữ ID các testcase được sửa
+  để giữ liên kết kết quả chấm; không xóa case đã được submission tham chiếu.
+  Request testcase được giới hạn 2 MiB. Batch runtime tự chia khi fixture làm
+  script vượt 120 KiB, ngoài việc chia theo memory limit.
+- Generator nhận một JSON `{seed,index,count}` qua stdin cho mỗi case và in
+  đúng một input (tối đa 8 KiB do giới hạn stdout). Runner kiểm tra lời giải tham chiếu với sample đã lưu, chạy
+  generator rồi tính output bằng lời giải đó. Cả ba giai đoạn dùng coding
+  sandbox, deadline tổng chín phút, 2s/256MiB mỗi case (còn bị giới hạn bởi cấu
+  hình platform). Preview chưa lưu. Oracle pass sample chưa chứng minh đúng
+  mọi input; giáo viên phải kiểm tra thuật toán và coverage.
+- SQL dùng PostgreSQL: fixture chung ở `schema_sql`/`seed_sql`, fixture riêng ở
+  input testcase, expected dạng CSV có header. Import/AI hỗ trợ SQL testcase;
+  code generator hiện hỗ trợ coding, không chạy Python trực tiếp trong SQL DB.
+- Terminal dùng instruction Markdown theo từng bước và kiểm tra trạng thái
+  file/lệnh, không chấm lịch sử gõ lệnh. Người học kiểm tra một bước bằng
+  `task_id`, hoặc toàn bộ. Điểm = trọng số bước pass / tổng trọng số × 100;
+  hoàn thành khi tất cả bước bắt buộc pass và điểm ≥ 80. Lỗi kết nối sandbox
+  trả 503, không lưu thành lần làm sai. File verifier kiểm tra symlink vẫn nằm
+  trong `/workspace`. Bộ bước AI được thêm nguyên khối trong transaction.
+
+Mẫu Git kiểm tra repository, README, commit và nhánh `feature/lab`. Image ở
+[`sandbox/terminal/Dockerfile`](../lab-service/sandbox/terminal/Dockerfile)
+preinstall Git và các công cụ shell để dùng offline, dưới user 1000. Cần build,
+publish immutable tag và cấu hình `LAB_TERMINAL_SANDBOX_IMAGE` trước khi dùng;
+image này chưa được tự động thay thế trên cluster.
+
+Sandbox mặc định **không có Docker daemon**. Có thể soạn/chấm Dockerfile bằng
+file verifier; bài thực hành `docker build/run` cần runtime Docker cô lập được
+provision riêng. Không mount host Docker socket và không bật privileged cho
+pod sinh viên. AI được yêu cầu nêu điều kiện runtime thay vì tạo instruction
+không thể chạy trên sandbox hiện tại.
+
+Kiểm tra: Go tests có PostgreSQL integration (transaction, revision, ownership),
+pytest cho draft parsing/auth/lease/recovery, và
+`node --test tests/labs/authoring.test.cjs` trong frontend cho import cùng ví dụ
+21/63 và 50 testcase. Những kiểm tra này không thay thế smoke trên K3s hoặc với
+LLM provider/model binding thực tế.
+
+Smoke image Git được kiểm tra local với user 1000, root filesystem read-only,
+capabilities dropped và network none; bốn verifier pass, nhánh sai bị từ chối.
+Script tái lập: [`sandbox/terminal/smoke.sh`](../lab-service/sandbox/terminal/smoke.sh).

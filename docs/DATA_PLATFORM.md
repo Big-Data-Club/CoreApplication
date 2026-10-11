@@ -236,3 +236,34 @@ Validation: `FLASHCARD_TEST_DSN` may point to an isolated PostgreSQL instance to
 `tests/test_personal_flashcards.py` in AI. The integration test creates/drops a
 unique schema and checks migration preservation, ownership, revision conflicts,
 review idempotency and cascade deletion. Never use a production DSN for tests.
+
+### Lab authoring drafts (AI-owned data)
+
+`ai-service` owns `lab_authoring_jobs` (migration V019); `lab-service` remains
+owner of labs, testcases and terminal grading evidence. The authenticated
+NextAuth proxy injects `owner_id` into `POST /ai/lab-authoring`; reads filter by
+both job ID and that owner. The HTTP endpoint queues a bounded proposal job and
+returns 202 with `QUEUED/RUNNING/READY/FAILED`, proposal/error and
+`apply_required=true`. It never writes lab data or runs generated code.
+
+The dedicated `app.worker.lab_authoring_worker` polls this durable table without
+Kafka, embeddings, Qdrant or Neo4j dependencies. Claims use `FOR UPDATE SKIP
+LOCKED`, a unique lease token and a four-minute lease. Generation is bounded to
+180 seconds; interrupted leases can recover up to three claims, and completion
+requires the same token. Failed drafts require a teacher retry. Completed and
+failed rows expire after seven days; source text and reference code are private
+authoring data and are not emitted to learner APIs or the Lakehouse.
+
+Gateway tasks are `format_lab`, `create_lab`, `create_lab_testcase`,
+`edit_testcase`, and `create_lab_generator`. Each has an independently editable
+model binding and existing gateway fallback/key quota handling. No new Kafka
+contract is introduced. A preview is applied only through normal permission-
+checked Lab APIs. Code generators and reference solutions run through the
+restricted coding adapter; they are never executed by AI/API Python processes.
+
+Rollout: migrate V019 with the existing AI migration runner, roll out AI HTTP
+and its lab authoring worker under the same immutable image, then deploy Lab
+API and frontend. The production script now selects the authoring worker with
+other AI workloads. Rollback can retain V019 and its private drafts; it must
+never reinterpret drafts as published labs. This describes code/configuration,
+not evidence of a production rollout.

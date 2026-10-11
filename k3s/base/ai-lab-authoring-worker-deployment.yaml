@@ -1,0 +1,67 @@
+# Deploy the same AI image revision as ai-service after V019 has migrated.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-lab-authoring-worker
+  labels:
+    app: ai-lab-authoring-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-lab-authoring-worker
+  template:
+    metadata:
+      labels:
+        app: ai-lab-authoring-worker
+    spec:
+      containers:
+      - name: ai-lab-authoring-worker
+        image: phucnhan2809/bdc-ai:fix-index-vlmguard-20260728
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - -m
+        - app.worker.lab_authoring_worker
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        - name: AI_DB_HOST
+          value: $(AI_POSTGRES_HOST)
+        - name: AI_DB_PORT
+          value: '5432'
+        - name: AI_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_USER
+        - name: AI_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_PASSWORD
+        - name: AI_DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_DB
+        - name: AI_DB_SSL
+          value: $(AI_DB_SSL)
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_SERVICE_SECRET
+        - name: AI_KEY_ENCRYPTION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_KEY_ENCRYPTION_SECRET
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
