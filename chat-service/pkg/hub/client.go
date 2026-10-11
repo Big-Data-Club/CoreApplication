@@ -3,7 +3,9 @@ package hub
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"chat-service/pkg/logger"
@@ -20,6 +22,17 @@ import (
 // This is the standard gorilla/websocket pattern. The send channel is buffered
 // (ClientSendBuffer) so the broadcast loop never blocks on a slow client.
 type Client struct {
+	ExpiresAt    time.Time
+	Validate     func(context.Context) bool
+	sendMu       sync.Mutex
+	closed       bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	lastPresence time.Time
+	lastTyping   time.Time
+	frameTokens  float64
+	lastFrame    time.Time
+
 	hub *Hub
 
 	conn *websocket.Conn
@@ -54,7 +67,9 @@ func NewClient(
 	roles []string,
 	channelIDs []int64,
 ) *Client {
+	ctx, cancel := context.WithCancel(h.ctx)
 	c := &Client{
+		ctx: ctx, cancel: cancel, frameTokens: 40, lastFrame: time.Now(),
 		hub:        h,
 		conn:       conn,
 		send:       make(chan []byte, ClientSendBuffer),
@@ -64,7 +79,7 @@ func NewClient(
 		channelIDs: channelIDs,
 	}
 	c.publishFn = func(channelID int64, event WSEvent) error {
-		return h.Publish(context.Background(), channelID, event)
+		return h.Publish(c.ctx, channelID, event)
 	}
 	return c
 }
@@ -80,14 +95,26 @@ type InboundMsg struct {
 // WritePump pumps messages from the send channel to the WebSocket.
 // One goroutine per client.
 func (c *Client) WritePump() {
+	var expiry <-chan time.Time
+	var expiryTimer *time.Timer
+	if !c.ExpiresAt.IsZero() {
+		expiryTimer = time.NewTimer(time.Until(c.ExpiresAt))
+		expiry = expiryTimer.C
+	}
 	ticker := time.NewTicker(PingPeriod)
 	defer func() {
+		if expiryTimer != nil {
+			expiryTimer.Stop()
+		}
 		ticker.Stop()
+		c.hub.UnregisterClient(c)
 		c.conn.Close()
 	}()
 
 	for {
 		select {
+		case <-expiry:
+			return
 		case msg, ok := <-c.send:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(WriteWait))
 			if !ok {
@@ -137,8 +164,15 @@ func (c *Client) ReadPump(onMessage func(client *Client, msg InboundMsg)) {
 	c.conn.SetReadLimit(MaxMessageSize)
 	_ = c.conn.SetReadDeadline(time.Now().Add(PongWait))
 	c.conn.SetPongHandler(func(string) error {
+		if c.Validate != nil {
+			ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+			defer cancel()
+			if !c.Validate(ctx) {
+				return fmt.Errorf("channel membership changed")
+			}
+		}
 		_ = c.conn.SetReadDeadline(time.Now().Add(PongWait))
-		c.hub.TouchPresence(c.UserID)
+		c.touchPresence()
 		return nil
 	})
 
@@ -156,18 +190,28 @@ func (c *Client) ReadPump(onMessage func(client *Client, msg InboundMsg)) {
 			return
 		}
 
+		if !c.allowFrame(time.Now()) {
+			return
+		}
 		var msg InboundMsg
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			// Malformed frame - skip, do not disconnect
 			continue
 		}
-		c.hub.TouchPresence(c.UserID)
+		c.touchPresence()
 
 		// Validate the client is subscribed to the target channel
 		if !c.subscribedTo(msg.ChannelID) {
 			continue
 		}
 
+		if msg.Type == EventTyping {
+			now := time.Now()
+			if now.Sub(c.lastTyping) < time.Second {
+				continue
+			}
+			c.lastTyping = now
+		}
 		onMessage(c, msg)
 	}
 }
@@ -182,13 +226,67 @@ func (c *Client) subscribedTo(channelID int64) bool {
 }
 
 // Upgrader is a gorilla WebSocket upgrader with sensible defaults.
-// CheckOrigin is intentionally left permissive here; CORS enforcement
-// is handled at the Gin middleware layer before the upgrade.
+// The API startup assigns CheckOrigin from the configured origin allowlist.
 var Upgrader = websocket.Upgrader{
 	ReadBufferSize:  4 * 1024,
 	WriteBufferSize: 4 * 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// Origin validation is done in the CORS middleware before we get here.
-		return true
+		return r.Header.Get("Origin") == ""
 	},
+}
+
+// Enqueue and channel closure share a lock: a copied room snapshot can never
+// send to a closed channel, even during concurrent fan-out and disconnect.
+func (c *Client) enqueue(data []byte) bool {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	if c.closed {
+		return false
+	}
+	select {
+	case c.send <- data:
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Client) close() {
+	c.sendMu.Lock()
+	if !c.closed {
+		c.closed = true
+		close(c.send)
+		if c.cancel != nil {
+			c.cancel()
+		}
+	}
+	c.sendMu.Unlock()
+	if c.conn != nil {
+		_ = c.conn.Close()
+	}
+}
+
+func (c *Client) Context() context.Context { return c.ctx }
+
+func (c *Client) touchPresence() {
+	now := time.Now()
+	if now.Sub(c.lastPresence) < 30*time.Second {
+		return
+	}
+	c.lastPresence = now
+	c.hub.TouchPresence(c.UserID)
+}
+
+// Connection-local token bucket protects DB/Redis from inbound frame floods.
+func (c *Client) allowFrame(now time.Time) bool {
+	c.frameTokens += now.Sub(c.lastFrame).Seconds() * 10
+	if c.frameTokens > 40 {
+		c.frameTokens = 40
+	}
+	c.lastFrame = now
+	if c.frameTokens < 1 {
+		return false
+	}
+	c.frameTokens--
+	return true
 }

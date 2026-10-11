@@ -3,7 +3,9 @@ package handler
 import (
 	"chat-service/internal/dto"
 	"chat-service/internal/repository"
+	"chat-service/pkg/hub"
 	"chat-service/pkg/logger"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -12,10 +14,11 @@ import (
 type AdminHandler struct {
 	chatRepo *repository.ChatRepository
 	userRepo *repository.UserRepository
+	hub      *hub.Hub
 }
 
-func NewAdminHandler(chatRepo *repository.ChatRepository, userRepo *repository.UserRepository) *AdminHandler {
-	return &AdminHandler{chatRepo: chatRepo, userRepo: userRepo}
+func NewAdminHandler(chatRepo *repository.ChatRepository, userRepo *repository.UserRepository, wsHub *hub.Hub) *AdminHandler {
+	return &AdminHandler{chatRepo: chatRepo, userRepo: userRepo, hub: wsHub}
 }
 
 // ─── ListAllChannels GET /api/v1/admin/channels ──────────────────────────────
@@ -88,6 +91,7 @@ func (h *AdminHandler) UpdateChannel(c *gin.Context) {
 		return
 	}
 
+	h.invalidateAccess(c, id)
 	c.JSON(dto.OK(channelToDTO(*ch)))
 }
 
@@ -104,6 +108,7 @@ func (h *AdminHandler) DeleteChannel(c *gin.Context) {
 		return
 	}
 
+	h.invalidateAccess(c, id)
 	c.JSON(dto.OK(gin.H{"deleted": true}))
 }
 
@@ -161,6 +166,7 @@ func (h *AdminHandler) SetChannelRoles(c *gin.Context) {
 		return
 	}
 
+	h.invalidateAccess(c, id)
 	c.JSON(dto.OK(gin.H{"updated": true}))
 }
 
@@ -214,12 +220,13 @@ func (h *AdminHandler) SetChannelUsers(c *gin.Context) {
 		return
 	}
 
+	h.invalidateAccess(c, id)
 	// Return the final list so the client is immediately consistent - no extra GET.
 	users, err := h.chatRepo.GetChannelUsersWithDetails(c.Request.Context(), id)
 	if err != nil {
 		logger.Warnf("set whitelist OK but detail fetch failed for channel %d: %v", id, err)
-		// Graceful degradation: still signal success, client can re-fetch if needed.
-		c.JSON(dto.OK(dto.ChannelUsersResponse{Users: []dto.UserResponse{}}))
+		// Do not replace the browser's membership draft with a false empty list.
+		c.JSON(dto.ErrInternal("Members saved, but could not reload them. Refresh the channel to verify."))
 		return
 	}
 
@@ -233,4 +240,16 @@ func (h *AdminHandler) SetChannelUsers(c *gin.Context) {
 		}
 	}
 	c.JSON(dto.OK(dto.ChannelUsersResponse{Users: resp}))
+}
+
+// Subscribers reconnect after access changes, reloading authoritative channel
+// membership on every replica instead of retaining stale subscriptions.
+func (h *AdminHandler) invalidateAccess(c *gin.Context, id int64) {
+	if h.hub == nil {
+		return
+	}
+	h.hub.UnregisterChannel(id)
+	if err := h.hub.Publish(c.Request.Context(), id, hub.WSEvent{Type: hub.EventAccessChanged, ChannelID: id, Timestamp: time.Now().UTC()}); err != nil {
+		logger.Warnf("channel access invalidation publish failed channel=%d: %v", id, err)
+	}
 }

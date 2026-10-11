@@ -59,7 +59,7 @@ func main() {
 	defer rdb.Close()
 
 	// ── 4. WebSocket Hub (Redis Pub/Sub backed) ───────────────────────────────
-	wsHub := hub.New(rdb)
+	wsHub := hub.New(rdb, hub.Limits{MaxClients: cfg.Server.MaxWSClients, MaxClientsPerUser: cfg.Server.MaxWSClientsPerUser})
 	go wsHub.Run()
 
 	// ── 5. Repositories ───────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ func main() {
 		logger.Warnf("attachment storage disabled: %v", storageErr)
 	}
 	chatHandler := handler.NewChatHandler(chatRepo, userRepo, wsHub, attachmentStore, cfg.JWT.Secret)
-	adminHandler := handler.NewAdminHandler(chatRepo, userRepo)
+	adminHandler := handler.NewAdminHandler(chatRepo, userRepo, wsHub)
 
 	// ── 7. Router ─────────────────────────────────────────────────────────────
 	if cfg.App.Env == "production" {
@@ -92,6 +92,7 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS(cfg.CORS.AllowedOrigins))
+	hub.Upgrader.CheckOrigin = middleware.WebSocketOrigin(cfg.CORS.AllowedOrigins)
 
 	// Health check - no auth
 	healthHandler := func(c *gin.Context) {
@@ -119,7 +120,7 @@ func main() {
 	// ── Chat REST (JWT auth required) ─────────────────────────────────────────
 	auth := r.Group("/api/v1", middleware.Auth(cfg.JWT.Secret))
 	{
-		chat := auth.Group("/chat")
+		chat := auth.Group("/chat", middleware.ChatRateLimit(rdb, cfg.Server.ChatReadRequestsPerMinute, cfg.Server.ChatWriteRequestsPerMinute))
 		{
 			chat.GET("/channels", chatHandler.ListChannels)
 			chat.GET("/channels/:id/messages", chatHandler.ListMessages)

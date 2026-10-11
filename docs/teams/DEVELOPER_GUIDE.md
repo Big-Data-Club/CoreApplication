@@ -167,3 +167,6 @@ evidence, and fails or tries a larger binding if mandatory input cannot fit.
 Token counts are conservative estimates; they are not exact provider tokenizer
 counts. No new LLM call or shared retrieval cache is introduced. GraphRAG logs
 candidate counts and elapsed milliseconds for production latency observation.
+
+Chat delivery, admission limits, browser settings, and capacity checks are documented
+in [chat operations](../../chat-service/CHAT_OPERATIONS.md).

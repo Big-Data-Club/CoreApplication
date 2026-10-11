@@ -77,12 +77,16 @@ type CORSConfig struct {
 }
 
 type ServerConfig struct {
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	IdleTimeout       time.Duration
-	ShutdownTimeout   time.Duration
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	IdleTimeout     time.Duration
+	ShutdownTimeout time.Duration
 	// MaxConnectionsPerIP limits WS upgrade attempts (brute-force mitigation)
-	MaxConnectionsPerIP int
+	MaxConnectionsPerIP        int
+	MaxWSClients               int
+	MaxWSClientsPerUser        int
+	ChatReadRequestsPerMinute  int
+	ChatWriteRequestsPerMinute int
 }
 
 // SyncConfig holds the shared secret used by auth-service to push user data.
@@ -143,11 +147,15 @@ func Load() (*Config, error) {
 			AllowedOrigins: strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ","),
 		},
 		Server: ServerConfig{
-			ReadTimeout:         getEnvDuration("SERVER_READ_TIMEOUT", 10*time.Second),
-			WriteTimeout:        getEnvDuration("SERVER_WRITE_TIMEOUT", 0), // 0 = no timeout (WS needs this)
-			IdleTimeout:         getEnvDuration("SERVER_IDLE_TIMEOUT", 60*time.Second),
-			ShutdownTimeout:     getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 15*time.Second),
-			MaxConnectionsPerIP: getEnvInt("MAX_CONNECTIONS_PER_IP", 20),
+			ChatReadRequestsPerMinute:  getEnvInt("CHAT_READ_REQUESTS_PER_MINUTE", 600),
+			ChatWriteRequestsPerMinute: getEnvInt("CHAT_WRITE_REQUESTS_PER_MINUTE", 120),
+			MaxWSClients:               getEnvInt("WS_MAX_CLIENTS", 10000),
+			MaxWSClientsPerUser:        getEnvInt("WS_MAX_CLIENTS_PER_USER", 5),
+			ReadTimeout:                getEnvDuration("SERVER_READ_TIMEOUT", 10*time.Second),
+			WriteTimeout:               getEnvDuration("SERVER_WRITE_TIMEOUT", 0), // 0 = no timeout (WS needs this)
+			IdleTimeout:                getEnvDuration("SERVER_IDLE_TIMEOUT", 60*time.Second),
+			ShutdownTimeout:            getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 15*time.Second),
+			MaxConnectionsPerIP:        getEnvInt("MAX_CONNECTIONS_PER_IP", 20),
 		},
 		Sync: SyncConfig{
 			Secret: requireEnv("CHAT_SYNC_SECRET"),

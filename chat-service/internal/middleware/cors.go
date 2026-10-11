@@ -35,4 +35,19 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 	}
 }
 
-
+// WebSocketOrigin checks the browser origin before upgrading. CORS response
+// headers alone do not reject WebSocket cross-origin requests.
+func WebSocketOrigin(allowed []string) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		for _, candidate := range allowed {
+			if strings.TrimSpace(candidate) == origin {
+				return true
+			}
+		}
+		return false
+	}
+}

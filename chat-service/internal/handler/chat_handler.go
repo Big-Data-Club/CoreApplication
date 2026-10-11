@@ -211,15 +211,18 @@ func (h *ChatHandler) GetChannelPresence(c *gin.Context) {
 		c.JSON(dto.ErrInternal("Failed to load presence"))
 		return
 	}
+	ids := make([]int64, len(users))
+	for i, user := range users {
+		ids[i] = user.ID
+	}
+	online, err := h.hub.OnlineUsers(c.Request.Context(), ids)
+	if err != nil {
+		c.JSON(dto.ErrInternal("Failed to load presence"))
+		return
+	}
 	resp := dto.ChannelPresenceResponse{Users: make([]dto.PresenceUserResponse, 0, len(users))}
-	for _, u := range users {
-		online, err := h.hub.IsOnline(c.Request.Context(), u.ID)
-		if err != nil {
-			logger.Errorf("check presence user=%d: %v", u.ID, err)
-			c.JSON(dto.ErrInternal("Failed to load presence"))
-			return
-		}
-		resp.Users = append(resp.Users, dto.PresenceUserResponse{UserID: u.ID, Online: online})
+	for _, user := range users {
+		resp.Users = append(resp.Users, dto.PresenceUserResponse{UserID: user.ID, Online: online[user.ID]})
 	}
 	c.JSON(dto.OK(resp))
 }
@@ -313,6 +316,9 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 		}
 	}
 
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
 	msgs, err := h.chatRepo.ListMessages(c.Request.Context(), channelID, beforeID, limit)
 	if err != nil {
 		logger.Errorf("list messages channel=%d: %v", channelID, err)
@@ -406,8 +412,8 @@ func (h *ChatHandler) UploadAttachment(c *gin.Context) {
 	}
 	userID := mustUserID(c)
 	roles := mustRoles(c)
-	_, canWrite, err := h.chatRepo.CanUserAccess(c.Request.Context(), channelID, userID, roles)
-	if err != nil || !canWrite {
+	canRead, canWrite, err := h.chatRepo.CanUserAccess(c.Request.Context(), channelID, userID, roles)
+	if err != nil || !canRead || !canWrite {
 		c.JSON(dto.ErrForbidden("Cannot upload to this channel"))
 		return
 	}
@@ -638,8 +644,8 @@ func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 
 	// Non-admin must have write access to this channel
 	if !isAdmin {
-		_, canWrite, err := h.chatRepo.CanUserAccess(c.Request.Context(), channelID, userID, roles)
-		if err != nil || !canWrite {
+		canRead, canWrite, err := h.chatRepo.CanUserAccess(c.Request.Context(), channelID, userID, roles)
+		if err != nil || !canRead || !canWrite {
 			c.JSON(dto.ErrForbidden("Cannot delete in this channel"))
 			return
 		}
@@ -713,9 +719,17 @@ func (h *ChatHandler) ServeWS(c *gin.Context) {
 	userID := claims.UserID
 	email := claims.Email
 	roles := middleware.ExportNormalizeRoles(claims.Roles)
+	// Reject excess sockets before spending DB capacity on membership lookup.
+	// RegisterClient repeats this check atomically after the upgrade.
+	if !h.hub.CanAdmit(userID) {
+		c.Header("Retry-After", "30")
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Chat connection limit reached"})
+		return
+	}
 
 	// 2. Ensure user exists in chat DB
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
 	if err := h.userRepo.EnsureGuestUser(ctx, userID, email); err != nil {
 		logger.Warnf("ws ensure guest user %d: %v", userID, err)
 	}
@@ -747,28 +761,53 @@ func (h *ChatHandler) ServeWS(c *gin.Context) {
 
 	// 5. Create client and register with hub
 	client := hub.NewClient(h.hub, conn, userID, email, roles, channelIDs)
-	h.hub.RegisterClient(client)
+	if claims.ExpiresAt != nil {
+		client.ExpiresAt = claims.ExpiresAt.Time
+	}
+	client.Validate = func(ctx context.Context) bool {
+		accessible, err := h.chatRepo.ListAccessibleChannels(ctx, userID, roles)
+		if err != nil {
+			return false
+		}
+		allowed := make(map[int64]bool, len(accessible))
+		for _, channel := range accessible {
+			allowed[channel.ID] = true
+		}
+		for _, id := range channelIDs {
+			if !allowed[id] {
+				return false
+			}
+		}
+		return true
+	}
+	if !h.hub.RegisterClient(client) {
+		_ = conn.Close()
+		return
+	}
+	h.hub.TouchPresence(userID)
 
 	logger.Infof("ws: user=%d ip=%s channels=%v roles=%v", userID, c.ClientIP(), channelIDs, roles)
 
 	// 6. Start read/write pumps (each in its own goroutine)
 	go client.WritePump()
 	go client.ReadPump(func(c *hub.Client, msg hub.InboundMsg) {
-		h.handleWSMessage(ctx, c, msg)
+		h.handleWSMessage(c.Context(), c, msg)
 	})
 }
 
 // handleWSMessage processes an inbound WebSocket frame from a client.
 func (h *ChatHandler) handleWSMessage(ctx context.Context, c *hub.Client, msg hub.InboundMsg) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	switch msg.Type {
 	case hub.EventMessage:
-		if msg.Body == "" || len(msg.Body) > 4000 {
+		if strings.TrimSpace(msg.Body) == "" || len([]rune(msg.Body)) > 4000 {
 			return
 		}
 
 		// Access check (authoritative - re-check even though client is registered)
-		_, canWrite, err := h.chatRepo.CanUserAccess(ctx, msg.ChannelID, c.UserID, c.Roles)
-		if err != nil || !canWrite {
+		canRead, canWrite, err := h.chatRepo.CanUserAccess(ctx, msg.ChannelID, c.UserID, c.Roles)
+		if err != nil || !canRead || !canWrite {
 			return
 		}
 
@@ -794,6 +833,10 @@ func (h *ChatHandler) handleWSMessage(ctx context.Context, c *hub.Client, msg hu
 		}
 
 	case hub.EventTyping:
+		canRead, canWrite, err := h.chatRepo.CanUserAccess(ctx, msg.ChannelID, c.UserID, c.Roles)
+		if err != nil || !canRead || !canWrite {
+			return
+		}
 		// Publish ephemeral typing indicator (not persisted)
 		event := hub.WSEvent{
 			Type:      hub.EventTyping,
