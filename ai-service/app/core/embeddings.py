@@ -184,7 +184,9 @@ async def rerank_chunks(
 ) -> list[T]:
     if not chunks:
         return chunks
-    if not settings.use_reranker or get_reranker() is None:
+    # Lazy model loading belongs in _rerank_sync's executor too. Loading here
+    # blocks the event loop and prevents retrieval deadlines from firing.
+    if not settings.use_reranker:
         return chunks[:top_k]
     passages = [text_fn(c) for c in chunks]
     scores   = await _run_in_thread(_rerank_sync, query, passages)

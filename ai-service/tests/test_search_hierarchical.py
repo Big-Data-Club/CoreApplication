@@ -45,7 +45,7 @@ async def test_search_hierarchical_accepts_content_ids_and_kwargs():
 
 
 @pytest.mark.asyncio
-async def test_search_hierarchical_returns_chunks_on_fallback():
+async def test_search_hierarchical_returns_chunks_on_fallback(monkeypatch):
     """Verify search_hierarchical does not discard valid fallback chunks with similarity >= threshold."""
     dummy_chunk = RetrievedChunk(
         chunk_id=2,
@@ -60,6 +60,11 @@ async def test_search_hierarchical_returns_chunks_on_fallback():
         language="en",
     )
 
+    # Scope fallback is a unit test; never wait on a real LMS/DNS lookup.
+    client = AsyncMock()
+    client.get.return_value = MagicMock(status_code=404)
+    client.__aenter__.return_value = client
+    monkeypatch.setattr("httpx.AsyncClient", MagicMock(return_value=client))
     with patch.object(rag_service, "search_multilingual", new_callable=AsyncMock) as mock_search:
         # First call (lesson) returns empty, course call returns fallback chunk
         mock_search.side_effect = [[], [dummy_chunk]]

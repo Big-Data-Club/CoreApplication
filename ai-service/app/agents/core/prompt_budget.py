@@ -41,29 +41,88 @@ def _compact_tool_content(content: str, target_tokens: int) -> str:
                 compact = {k: v for k, v in payload.items() if k != "data"}
                 compact_data = {
                     k: v for k, v in data.items()
-                    if k not in ("chunks", "results", "graph", "content")
+                    if k not in ("chunks", "results", "graph", "content", "explanation")
                 }
                 compact_data[key] = []
                 compact_data["_evidence_notice"] = _EVIDENCE_NOTICE
+                compact_data["_shown"] = 0
+                compact_data["_total"] = len(entries)
+                compact["data"] = compact_data
+
+                def render() -> str:
+                    return json.dumps(compact, ensure_ascii=False, default=str)
+
+                # Keep a small graph block once, then prioritize matched child
+                # evidence before spending remaining tokens on parent context.
+                graph = data.get("graph")
+                if isinstance(graph, dict):
+                    graph_block = {
+                        "graph_expanded": graph.get("graph_expanded", False),
+                        "prereq_path": graph.get("prereq_path", [])[:4],
+                        "concept_relationships": graph.get("concept_relationships", [])[:3],
+                    }
+                    if estimate_tokens(graph_block) <= target_tokens // 5:
+                        compact_data["graph"] = graph_block
+
+                originals = []
                 for item in entries:
                     if not isinstance(item, dict):
                         continue
-                    excerpt = dict(item)
-                    source_text = excerpt.get(text_key)
-                    if isinstance(source_text, str) and len(source_text) > 720:
-                        excerpt[text_key] = source_text[:720]
-                        excerpt["_excerpted"] = True
+                    excerpt = {k: v for k, v in item.items() if k != "child_text"}
+                    source_text = item.get("child_text") or excerpt.get(text_key)
+                    if isinstance(source_text, str):
+                        # Bound each candidate, retaining sentence boundaries
+                        # where possible and making excerpting explicit.
+                        text_limit = max(120, min(720, int(target_tokens * 2.4 / max(1, min(len(entries), 4)))))
+                        if len(source_text) > text_limit:
+                            cut = source_text[:text_limit]
+                            boundary = max(cut.rfind(". "), cut.rfind("\n\n"))
+                            source_text = cut[:boundary + 1] if boundary > len(cut) // 2 else cut
+                            excerpt["_excerpted"] = True
+                        excerpt[text_key] = source_text
                     compact_data[key].append(excerpt)
                     compact_data["_shown"] = len(compact_data[key])
-                    compact_data["_total"] = len(entries)
-                    compact["data"] = compact_data
-                    if estimate_tokens(compact) > target_tokens:
+                    if estimate_tokens(render()) > target_tokens and isinstance(excerpt.get(text_key), str):
+                        # Metadata/notice also consume tokens. Fit the excerpt
+                        # to the actual remaining envelope, not a text-only cap.
+                        text = excerpt[text_key]
+                        excerpt["_excerpted"] = True
+                        low, high = 0, len(text)
+                        while low < high:
+                            middle = (low + high + 1) // 2
+                            excerpt[text_key] = text[:middle]
+                            if estimate_tokens(render()) <= target_tokens:
+                                low = middle
+                            else:
+                                high = middle - 1
+                        excerpt[text_key] = text[:low]
+                        if low < 32:
+                            compact_data[key].pop()
+                            compact_data["_shown"] = len(compact_data[key])
+                            continue
+                    if estimate_tokens(render()) > target_tokens:
                         compact_data[key].pop()
-                        break
-                compact_data["_shown"] = len(compact_data[key])
-                compact_data["_total"] = len(entries)
-                compact["data"] = compact_data
-                result = json.dumps(compact, ensure_ascii=False, default=str)
+                        compact_data["_shown"] = len(compact_data[key])
+                        continue
+                    originals.append(item)
+
+                # Avoid repeating identical parent windows. Source metadata for
+                # every selected child stays intact for stable citations.
+                used_windows = set()
+                for excerpt, original in zip(compact_data[key], originals):
+                    parent_text = original.get(text_key)
+                    window_key = (original.get("parent_chunk_id"), parent_text)
+                    if not original.get("child_text") or window_key in used_windows:
+                        continue
+                    previous = dict(excerpt)
+                    excerpt[text_key] = parent_text
+                    excerpt.pop("_excerpted", None)
+                    if estimate_tokens(render()) > target_tokens:
+                        excerpt.clear()
+                        excerpt.update(previous)
+                    else:
+                        used_windows.add(window_key)
+                result = render()
                 if estimate_tokens(result) <= target_tokens:
                     return result
                 break

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 
 from app.core.config import get_settings
@@ -124,6 +125,7 @@ class GraphRAGService:
         user_id: int | None = None,
         weak_node_ids: list[int] | None = None,
         content_ids: list[int] | None = None,
+        graph_enabled: bool = True,
     ) -> GraphRAGContext:
         """
         Execute the full GraphRAG retrieval pipeline.
@@ -141,14 +143,19 @@ class GraphRAGService:
             weak_node_ids:       Node IDs where user has mastery < threshold.
                                  Used for prerequisite boost re-ranking.
             content_ids:         Optional list of content_ids to restrict search.
+            graph_enabled:       False keeps bounded rerank/parent hydration
+                                 while skipping optional graph work.
 
         Returns:
             GraphRAGContext with ranked_chunks, concept_nodes, edges, prereq_chain.
         """
         from app.services.rag_service import rag_service
 
-        top_k = top_k or settings.top_k_chunks
+        started = time.monotonic()
+        top_k = max(1, min(top_k or settings.top_k_chunks, settings.retrieval_max_top_k))
         ctx = GraphRAGContext(query=query)
+        if content_ids == []:
+            return ctx
 
         # ── Phase 1: Standard hierarchical retrieval ──────────────────────────
         try:
@@ -171,95 +178,31 @@ class GraphRAGService:
 
         ctx.total_candidates = len(raw_chunks)
 
-        if not settings.graphrag_enabled or not settings.neo4j_enabled:
-            # Feature-flag off: rerank and hydrate standard results
-            if settings.use_reranker and raw_chunks:
-                try:
-                    from app.core.embeddings import rerank_chunks
-                    candidate_limit = min(len(raw_chunks), top_k + 4)
-                    raw_chunks = await rerank_chunks(
-                        query=query,
-                        chunks=raw_chunks[:candidate_limit],
-                        text_fn=lambda c: c.chunk_text,
-                        top_k=top_k,
-                    )
-                except Exception as exc:
-                    logger.warning("Reranker fallback failed: %s", exc)
-                    raw_chunks = raw_chunks[:top_k]
-            else:
-                raw_chunks = raw_chunks[:top_k]
-
-            if raw_chunks and settings.use_hierarchical_chunks:
-                try:
-                    raw_chunks = await rag_service.hydrate_parents(raw_chunks)
-                except Exception as exc:
-                    logger.warning("Parent hydration failed: %s", exc)
-            if raw_chunks:
-                try:
-                    raw_chunks = await rag_service.enrich_chunks_with_graph_context(raw_chunks)
-                except Exception as exc:
-                    logger.warning("Graph context enrichment failed: %s", exc)
-
-            ctx.ranked_chunks = raw_chunks
+        if not graph_enabled or not settings.graphrag_enabled or not settings.neo4j_enabled:
+            ctx.ranked_chunks = await self._finalize(query, raw_chunks, top_k)
             return ctx
 
-        # ── Phase 2: Graph expansion (Neo4j) ─────────────────────────────────
-        seed_node_ids = self._extract_node_ids(raw_chunks)
+        seed_node_ids = self._extract_node_ids(raw_chunks)[:settings.graph_max_seed_nodes]
         ctx.seed_node_ids = seed_node_ids
-
         if not seed_node_ids:
-            if settings.use_reranker and raw_chunks:
-                try:
-                    from app.core.embeddings import rerank_chunks
-                    candidate_limit = min(len(raw_chunks), top_k + 4)
-                    raw_chunks = await rerank_chunks(
-                        query=query,
-                        chunks=raw_chunks[:candidate_limit],
-                        text_fn=lambda c: c.chunk_text,
-                        top_k=top_k,
-                    )
-                except Exception as exc:
-                    logger.warning("Reranker fallback failed: %s", exc)
-                    raw_chunks = raw_chunks[:top_k]
-            else:
-                raw_chunks = raw_chunks[:top_k]
-
-            if raw_chunks and settings.use_hierarchical_chunks:
-                try:
-                    raw_chunks = await rag_service.hydrate_parents(raw_chunks)
-                except Exception as exc:
-                    logger.warning("Parent hydration failed: %s", exc)
-            if raw_chunks:
-                try:
-                    raw_chunks = await rag_service.enrich_chunks_with_graph_context(raw_chunks)
-                except Exception as exc:
-                    logger.warning("Graph context enrichment failed: %s", exc)
-
-            ctx.ranked_chunks = raw_chunks
+            ctx.ranked_chunks = await self._finalize(query, raw_chunks, top_k)
             return ctx
 
-        graph_data, prereq_chain = await asyncio.gather(
-            self._expand_graph(seed_node_ids),
-            self._get_prereq_chain(seed_node_ids[0]),  # primary seed
-            return_exceptions=True,
+        # All optional graph I/O shares one deadline after base retrieval.
+        deadline = time.monotonic() + settings.graph_retrieval_timeout_sec
+        graph_data, prereq_chain, seed_node_meta = await asyncio.gather(
+            self._within_deadline(self._expand_graph(seed_node_ids, course_id), deadline, {}),
+            self._within_deadline(self._get_prereq_chain(seed_node_ids[0], course_id), deadline, []),
+            self._within_deadline(self._fetch_node_metadata(seed_node_ids), deadline, []),
         )
 
-        # Handle exceptions from gather
-        if isinstance(graph_data, Exception):
-            logger.warning("Graph expansion failed: %s", graph_data)
-            graph_data = {"seed_node_ids": seed_node_ids, "expanded_nodes": [], "edges": []}
-        if isinstance(prereq_chain, Exception):
-            logger.warning("Prereq chain failed: %s", prereq_chain)
-            prereq_chain = []
-
-        expanded_nodes_raw = graph_data.get("expanded_nodes", [])
-        edges_raw = graph_data.get("edges", [])
+        expanded_nodes_raw = graph_data.get("expanded_nodes", [])[:settings.graph_max_expanded_nodes]
+        edges_raw = graph_data.get("edges", [])[:settings.graph_max_edges]
         expanded_node_ids = [n["id"] for n in expanded_nodes_raw]
         ctx.expanded_node_ids = expanded_node_ids
         ctx.graph_expanded = bool(expanded_node_ids)
 
         # Build ConceptNode objects for seed nodes (fetch metadata)
-        seed_node_meta = await self._fetch_node_metadata(seed_node_ids)
         concept_nodes: list[ConceptNode] = [
             ConceptNode(
                 id=n["id"], name=n.get("name", ""), name_vi=n.get("name_vi"),
@@ -311,10 +254,14 @@ class GraphRAGService:
         neighbor_chunks = []
         if expanded_node_ids:
             try:
-                neighbor_chunks = await rag_service.search_by_node_ids(
-                    node_ids=expanded_node_ids,
-                    top_k=settings.graph_neighbor_top_k,
-                    course_id=course_id,
+                neighbor_chunks = await self._within_deadline(
+                    rag_service.search_by_node_ids(
+                        node_ids=expanded_node_ids,
+                        top_k=settings.graph_neighbor_top_k,
+                        course_id=course_id,
+                        content_id=content_id if resolved_scope == "content" else None,
+                        content_ids=content_ids,
+                    ), deadline, [],
                 )
             except Exception as exc:
                 logger.warning("GraphRAG Phase 3 (neighbor chunks) failed: %s", exc)
@@ -344,43 +291,21 @@ class GraphRAGService:
                 if cn.id in weak_set:
                     cn.mastery_score = 0.3
 
-        # ── Phase 5: Final rerank + trim ─────────────────────────────────────
-        if settings.use_reranker and all_chunks:
-            try:
-                from app.core.embeddings import rerank_chunks
-                candidate_limit = min(len(all_chunks), top_k + 4)
-                all_chunks = await rerank_chunks(
-                    query=query,
-                    chunks=all_chunks[:candidate_limit],
-                    text_fn=lambda c: c.chunk_text,
-                    top_k=top_k,
-                )
-            except Exception as exc:
-                logger.warning("GraphRAG reranker failed (non-fatal): %s", exc)
-                all_chunks = all_chunks[:top_k]
-        else:
-            all_chunks = all_chunks[:top_k]
-
-        # Hydrate parents and enrich graph context ONLY on the final trimmed top_k chunks
-        if all_chunks and settings.use_hierarchical_chunks:
-            try:
-                all_chunks = await rag_service.hydrate_parents(all_chunks)
-            except Exception as exc:
-                logger.warning("GraphRAG parent hydration failed: %s", exc)
-
-        if all_chunks:
-            try:
-                all_chunks = await rag_service.enrich_chunks_with_graph_context(all_chunks)
-            except Exception as exc:
-                logger.warning("GraphRAG context enrichment failed: %s", exc)
-
-        ctx.ranked_chunks = all_chunks
+        # Reserve slots for graph evidence instead of letting base hits fill
+        # the entire reranker input. Keep the prerequisite boost ordering.
+        graph_ids = {c.chunk_id for c in neighbor_chunks}
+        graph_candidates = [c for c in all_chunks if c.chunk_id in graph_ids][:4]
+        base_candidates = [c for c in all_chunks if c.chunk_id not in graph_ids][:top_k]
+        candidates = self._deduplicate(base_candidates + graph_candidates)
+        candidates.sort(key=lambda c: c.similarity, reverse=True)
+        ctx.ranked_chunks = await self._finalize(query, candidates, top_k)
         logger.info(
             "GraphRAG retrieve: query='%s' seed_nodes=%d expanded=%d "
-            "raw_chunks=%d neighbor_chunks=%d final=%d prereq_len=%d",
+            "raw_chunks=%d neighbor_chunks=%d final=%d prereq_len=%d elapsed_ms=%.1f",
             query[:60], len(seed_node_ids), len(expanded_node_ids),
             len(raw_chunks), len(neighbor_chunks), len(ctx.ranked_chunks),
             len(prereq_node_ids),
+            (time.monotonic() - started) * 1000,
         )
 
         return ctx
@@ -399,18 +324,52 @@ class GraphRAGService:
                 result.append(nid)
         return result
 
-    async def _expand_graph(self, seed_node_ids: list[int]) -> dict:
+    @staticmethod
+    async def _within_deadline(operation, deadline: float, fallback):
+        try:
+            return await asyncio.wait_for(operation, timeout=max(0.001, deadline - time.monotonic()))
+        except Exception as exc:
+            logger.debug("Optional retrieval operation skipped: %s", exc)
+            return fallback
+
+    async def _finalize(self, query: str, chunks: list, top_k: int) -> list:
+        from app.services.rag_service import rag_service
+        started = time.monotonic()
+        candidates = chunks[:top_k + 4]
+        selected = candidates[:top_k]
+        if settings.use_reranker and candidates:
+            from app.core.embeddings import rerank_chunks
+            selected = await self._within_deadline(
+                rerank_chunks(query=query, chunks=candidates, text_fn=lambda c: c.chunk_text, top_k=top_k),
+                time.monotonic() + settings.retrieval_rerank_timeout_sec, selected,
+            )
+        if selected and settings.use_hierarchical_chunks:
+            selected = await self._within_deadline(
+                rag_service.hydrate_parents(selected),
+                time.monotonic() + settings.retrieval_hydration_timeout_sec, selected,
+            )
+        # Graph metadata travels once in GraphRAGContext, avoiding repeated
+        # graph descriptions and two additional PostgreSQL enrichment queries.
+        logger.info("Retrieval finalization: candidates=%d final=%d elapsed_ms=%.1f",
+                    len(candidates), len(selected), (time.monotonic() - started) * 1000)
+        return selected
+
+    async def _expand_graph(self, seed_node_ids: list[int], course_id: int | None = None) -> dict:
         from app.services.neo4j_service import neo4j_service
         return await neo4j_service.get_concept_context(
             node_ids=seed_node_ids,
             depth=settings.graph_context_depth,
+            max_nodes=settings.graph_max_expanded_nodes,
+            max_edges=settings.graph_max_edges,
+            course_id=course_id,
         )
 
-    async def _get_prereq_chain(self, target_node_id: int) -> list[dict]:
+    async def _get_prereq_chain(self, target_node_id: int, course_id: int | None = None) -> list[dict]:
         from app.services.neo4j_service import neo4j_service
         return await neo4j_service.get_prerequisite_chain(
             target_node_id=target_node_id,
             max_depth=4,
+            course_id=course_id,
         )
 
     async def _fetch_node_metadata(self, node_ids: list[int]) -> list[dict]:

@@ -101,3 +101,14 @@ def test_worker_duplicate_and_failure(monkeypatch, fails):
     assert len(calls) == 1
     assert writes[0][0] == ('FAILED' if fails else 'READY')
     assert writes[0][2] is not None if fails else writes[0][2] is None
+
+
+@pytest.mark.parametrize('language', ['python', 'c', 'cpp', 'java', 'go', 'rust', 'scala', 'sql'])
+def test_enabled_starter_languages(language):
+    proposal = svc.LabProposal.model_validate({**payload(), 'starter_code': {language: '// starter'}})
+    assert language in proposal.starter_code
+
+
+def test_unsupported_starter_language():
+    with pytest.raises(ValidationError):
+        svc.LabProposal.model_validate({**payload(), 'starter_code': {'unsupported': 'code'}})

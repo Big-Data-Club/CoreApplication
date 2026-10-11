@@ -77,3 +77,19 @@ func TestGenerateTestCasesOracleAndBounds(t *testing.T) {
 		t.Fatal("oversized source executed")
 	}
 }
+
+func TestGenerateTestCasesEnabledLanguages(t *testing.T) {
+	for _, language := range []string{"python", "c", "cpp", "java", "go", "rust", "scala"} {
+		t.Run(language, func(t *testing.T) {
+			req := GenerateTestCasesRequest{Language: language, GeneratorCode: "generator", ReferenceCode: "oracle", Count: 2, Samples: []dto.CreateTestCaseRequest{{Input: "sample", Expected: "63"}}}
+			a := &generatorAdapter{}
+			if _, err := GenerateTestCases(context.Background(), a, 1, 2, req); err != nil || a.calls != 3 {
+				t.Fatalf("enabled language rejected: %v, calls=%d", err, a.calls)
+			}
+		})
+	}
+	a := &generatorAdapter{}
+	if _, err := GenerateTestCases(context.Background(), a, 1, 2, GenerateTestCasesRequest{Language: "unsupported"}); err == nil || a.calls != 0 {
+		t.Fatal("unsupported language executed")
+	}
+}

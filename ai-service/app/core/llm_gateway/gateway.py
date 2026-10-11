@@ -566,7 +566,11 @@ class LLMGateway:
     ) -> tuple[ChatRequest, int]:
         prepared = req
         if req.message_packer:
-            prompt_limit = self._request_budget(model.context_window, key_tpm_limit) - self._minimum_completion(req, model)
+            budget = self._request_budget(model.context_window, key_tpm_limit)
+            # Reserve useful answer space before selecting evidence. Keeping
+            # only the minimum output allowance could starve an agent answer.
+            output_reserve = max(self._minimum_completion(req, model), min(requested_max_tokens, budget // 4))
+            prompt_limit = budget - output_reserve - min(256, budget // 20)
             if prompt_limit <= 0:
                 raise ContextLengthError("Model/key budget leaves no room for the required answer")
             packed_extra = copy.deepcopy(req.extra)

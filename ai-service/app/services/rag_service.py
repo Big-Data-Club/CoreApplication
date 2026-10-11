@@ -49,6 +49,8 @@ class RetrievedChunk:
     content_id: int | None
     node_id: int | None
     language: str
+    child_text: str | None = None
+    parent_chunk_id: int | None = None
 
 
 # ── Column helpers (pgvector legacy path) ─────────────────────────────────────
@@ -712,6 +714,8 @@ class RAGService:
         node_ids: list[int],
         top_k: int = 3,
         course_id: int | None = None,
+        content_id: int | None = None,
+        content_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         """Fetch chunks belonging to graph-expanded neighbor node_ids.
 
@@ -719,7 +723,7 @@ class RAGService:
         evidence for graph-neighbor concepts.  Results are merged and re-ranked
         in graphrag_service together with the primary vector/keyword results.
         """
-        if not node_ids:
+        if not node_ids or content_ids == []:
             return []
         results: list[RetrievedChunk] = []
         if settings.use_qdrant:
@@ -735,6 +739,11 @@ class RAGService:
                     must_conditions.append(
                         FieldCondition(key="course_id", match=MatchValue(value=course_id))
                     )
+                if content_id is not None:
+                    from qdrant_client.http.models import MatchValue
+                    must_conditions.append(FieldCondition(key="content_id", match=MatchValue(value=content_id)))
+                if content_ids is not None:
+                    must_conditions.append(FieldCondition(key="content_id", match=MatchAny(any=content_ids)))
                 qfilter = Filter(must=must_conditions)
                 scroll_results, _ = await client.scroll(
                     collection_name="document_chunks",
@@ -773,12 +782,20 @@ class RAGService:
                     extra_cond = f" AND course_id = ${idx}"
                     params.append(course_id)
                     idx += 1
+                if content_id is not None:
+                    extra_cond += f" AND content_id = ${idx}"
+                    params.append(content_id)
+                    idx += 1
+                if content_ids is not None:
+                    extra_cond += f" AND content_id = ANY(${idx})"
+                    params.append(content_ids)
+                    idx += 1
                 params.append(top_k * len(node_ids))
                 sql = (
                     "SELECT id, chunk_text, content_id, node_id, "
                     "source_type, page_number, start_time_sec, end_time_sec, language "
                     f"FROM document_chunks "
-                    f"WHERE status = 'ready' AND node_id = ANY($1){extra_cond} "
+                    f"WHERE status = 'ready' AND (chunk_level = 'child' OR chunk_level IS NULL) AND node_id = ANY($1){extra_cond} "
                     f"LIMIT ${idx}"
                 )
                 async with get_ai_conn() as conn:
@@ -1068,8 +1085,8 @@ class RAGService:
         For each retrieved child chunk that has a parent, replace its
         chunk_text with a coherent sentence-bounded window from the parent.
 
-        Deduplicates parent passages and bounds per-chunk context to avoid
-        blowing the LLM token budget while guaranteeing zero context loss.
+        Preserve the matched child separately so model-specific packing can
+        discard surrounding context without losing the matching evidence.
         """
         if not chunks:
             return chunks
@@ -1097,6 +1114,8 @@ class RAGService:
             if not info:
                 continue
             parent_id, parent_text = info
+            c.child_text = c.child_text or c.chunk_text
+            c.parent_chunk_id = parent_id
             if parent_id in seen_parent_ids:
                 # Same parent already hydrated on a preceding higher-ranked chunk.
                 # Keep focused child window to avoid duplicate bloating while preserving details.

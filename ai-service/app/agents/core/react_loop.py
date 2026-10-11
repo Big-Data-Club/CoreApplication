@@ -1242,59 +1242,10 @@ async def run_react_loop(
     if teacher_action_request:
         logger.info("Skipping prose-only multi-agent flow for teacher action request")
 
-    # -- Step 3.7: GraphRAG pre-fetch (when graph expansion is signaled) --------
-    # Fetch concept graph context BEFORE building the system prompt so the
-    # LLM receives prerequisite and relationship signals from the first token.
+    # Graph retrieval happens on demand in the material/concept tools. A
+    # full prefetch here duplicated embedding, search, rerank and hydration
+    # before the first model token, while discarding the retrieved evidence.
     graph_context_text = ""
-    _graph_expansion_needed = getattr(execution_plan, "graph_expansion_needed", False)
-    _user_weakness_relevant = getattr(execution_plan, "user_weakness_relevant", False)
-
-    if mode != "flash" and agent_type == "mentor" and _graph_expansion_needed:
-        try:
-            from app.core.config import get_settings as _get_settings
-            _cfg = _get_settings()
-            if _cfg.graphrag_enabled and _cfg.neo4j_enabled:
-                from app.services.graphrag_service import graphrag_service
-                from app.agents.core.context_formatter import graphrag_context_formatter
-
-                _weak_node_ids: list[int] = []
-                if _user_weakness_relevant:
-                    try:
-                        from app.agents.memory.ltm import ltm as _ltm
-                        _weak_node_ids = await _ltm.get_weak_nodes(
-                            user_id=user_id,
-                            course_id=effective_course_id,
-                            threshold=0.5,
-                        )
-                    except Exception:
-                        pass
-
-                _graph_ctx = await graphrag_service.retrieve(
-                    query=user_message,
-                    course_id=effective_course_id,
-                    top_k=3,  # lightweight pre-fetch (tools will do deeper retrieval)
-                    min_similarity=0.30,
-                    expansion_enabled=True,
-                    max_expansion_level="course",  # cap to avoid over-expansion at prompt level
-                    user_id=user_id,
-                    weak_node_ids=_weak_node_ids or None,
-                )
-                graph_context_text = graphrag_context_formatter.format(_graph_ctx)
-
-                yield AgentEvent(
-                    type=AgentEventType.THINKING,
-                    data={
-                        "step": "graphrag_prefetch",
-                        "seed_nodes": _graph_ctx.seed_node_ids,
-                        "expanded_nodes": len(_graph_ctx.expanded_node_ids),
-                        "prereq_chain_len": len(_graph_ctx.prereq_chain),
-                        "graph_expanded": _graph_ctx.graph_expanded,
-                    },
-                    session_id=session_id,
-                    turn_id=turn_id,
-                )
-        except Exception as _exc:
-            logger.warning("GraphRAG pre-fetch failed (non-fatal): %s", _exc)
 
     # -- Step 4: Build messages ------------------------------------------------
     # Authoring requests need a compact, tool-routing prompt. Full node lists
@@ -2060,9 +2011,12 @@ async def run_react_loop(
                 result_summary, ensure_ascii=False, default=str,
             )
             tool_limit = 8000 if tool_name in ("search_course_materials", "explain_concept") else 4000
-            result_content = _smart_truncate_tool_result(
-                tool_name, result_content, limit=tool_limit
-            )
+            if tool_name not in ("search_course_materials", "explain_concept"):
+                result_content = _smart_truncate_tool_result(
+                    tool_name, result_content, limit=tool_limit
+                )
+            # Evidence is packed against the selected model/key allowance at
+            # the gateway, preserving child anchors and graph relationships.
 
             messages.append({
                 "role": "tool",

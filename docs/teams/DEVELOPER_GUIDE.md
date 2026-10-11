@@ -129,3 +129,41 @@ changes. Do not duplicate long API references in skills.
 
 For contribution mechanics, PR checklist, migrations, event compatibility, and
 submodule rules, follow [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+## 9. Agent retrieval latency and context budgets
+
+Mentor graph retrieval runs on demand through `search_course_materials` and
+`explain_concept`; the ReAct loop does not run a second full GraphRAG retrieval
+before its first model call. Search embeds/indexes child passages; PostgreSQL
+parents supply surrounding context after the final rerank. Tool evidence keeps
+`chunk_id`, the original `child_text`, and `parent_chunk_id` so prompt packing
+can prefer matching evidence and retain citation metadata.
+
+Optional graph expansion, prerequisite lookup, seed metadata and neighbor
+fetches share `GRAPH_RETRIEVAL_TIMEOUT_SEC` (default 1.5 seconds), after base
+retrieval. Graph lookups start concurrently. Defaults cap seeds at 4,
+expanded nodes at 12, edges at 32, traversal at 2 hops, and final results at 12.
+Use `GRAPH_MAX_SEED_NODES`, `GRAPH_MAX_EXPANDED_NODES`, `GRAPH_MAX_EDGES` and
+`RETRIEVAL_MAX_TOP_K` to tune these limits. Rerank and parent hydration have
+separate `RETRIEVAL_RERANK_TIMEOUT_SEC` (1 second) and
+`RETRIEVAL_HYDRATION_TIMEOUT_SEC` (0.5 seconds) deadlines; timeout keeps base
+child evidence. These are optional-stage deadlines, not an end-to-end latency
+SLA for embedding/vector search, LMS scope resolution or model generation.
+Neo4j queries also carry server timeouts. Async cancellation cannot interrupt
+synchronous work that blocks the event loop or stop an already-running executor
+thread; use normal worker/offload boundaries for model inference.
+
+Graph metadata travels once beside evidence rather than being appended to each
+passage. Reranker candidates reserve up to four positions for graph neighbors.
+Neighbor evidence preserves course and explicit document filters; a successful
+lesson retrieval keeps its lesson filter. Graph relations are navigation hints,
+not substitutes for cited document evidence.
+
+The gateway packs each attempt against the selected model's context window and
+key/request allowance, including tool schemas. It reserves answer space and
+headroom before selecting evidence. Under pressure it keeps matched children
+and a compact graph block before adding parent windows, marks omitted/excerpted
+evidence, and fails or tries a larger binding if mandatory input cannot fit.
+Token counts are conservative estimates; they are not exact provider tokenizer
+counts. No new LLM call or shared retrieval cache is introduced. GraphRAG logs
+candidate counts and elapsed milliseconds for production latency observation.

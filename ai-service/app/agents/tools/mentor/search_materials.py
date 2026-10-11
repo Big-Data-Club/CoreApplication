@@ -95,6 +95,8 @@ class SearchMaterialsTool(BaseTool):
             graph_expansion_needed = getattr(execution_plan, "graph_expansion_needed", settings.graphrag_enabled)
             user_weakness_relevant = getattr(execution_plan, "user_weakness_relevant", False)
 
+        top_k = max(1, min(int(top_k), settings.retrieval_max_top_k))
+
         try:
             # ── Retrieval runner (reused for the low-similarity retry) ──────
             async def _retrieve(effective_min_similarity: float, effective_content_id: int | None = content_id):
@@ -129,18 +131,18 @@ class SearchMaterialsTool(BaseTool):
                     )
                     return ctx.ranked_chunks, graphrag_context_formatter.format_for_tool_result(ctx)
 
-                # ── Standard RAG fallback ──────────────────────────────────
-                from app.services.rag_service import rag_service
-                chunks, _resolved_scope = await rag_service.search_hierarchical(
-                    query=query,
-                    course_id=course_id,
-                    content_id=effective_content_id,
-                    top_k=top_k,
+                # Use the same bounded rerank/hydration path even when the
+                # planner does not need graph expansion.
+                from app.services.graphrag_service import graphrag_service
+                ctx = await graphrag_service.retrieve(
+                    query=query, course_id=course_id,
+                    content_id=effective_content_id, top_k=top_k,
                     min_similarity=effective_min_similarity,
                     expansion_enabled=expansion_enabled,
                     max_expansion_level=max_expansion_level,
+                    graph_enabled=False,
                 )
-                return chunks, {"graph_expanded": False}
+                return ctx.ranked_chunks, {"graph_expanded": False}
 
             chunks, graph_meta = await _retrieve(min_similarity)
 
@@ -196,7 +198,10 @@ class SearchMaterialsTool(BaseTool):
 
             results = [
                 {
+                    "chunk_id": c.chunk_id,
                     "text": c.chunk_text,
+                    **({"child_text": c.child_text, "parent_chunk_id": c.parent_chunk_id}
+                       if c.child_text else {}),
                     "similarity": round(c.similarity, 3),
                     "source_type": c.source_type,
                     "page_number": c.page_number,

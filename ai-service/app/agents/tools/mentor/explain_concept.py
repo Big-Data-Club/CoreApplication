@@ -248,7 +248,10 @@ class ExplainConceptTool(BaseTool):
             # verifiable references (the parent stamps stable ref indices).
             source_chunks = [
                 {
+                    "chunk_id": c.chunk_id,
                     "text": c.chunk_text,
+                    **({"child_text": c.child_text, "parent_chunk_id": c.parent_chunk_id}
+                       if c.child_text else {}),
                     "similarity": round(float(getattr(c, "similarity", 0.0) or 0.0), 3),
                     "source_type": getattr(c, "source_type", None) or "material",
                     "page_number": getattr(c, "page_number", None),

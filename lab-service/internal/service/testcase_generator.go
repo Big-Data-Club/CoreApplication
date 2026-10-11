@@ -26,7 +26,7 @@ type GenerateTestCasesRequest struct {
 // executor compiles once per batch. No teacher code runs in the API process.
 func GenerateTestCases(ctx context.Context, adapter runtime.RuntimeAdapter, labID, userID int64, req GenerateTestCasesRequest) ([]dto.CreateTestCaseRequest, error) {
 	switch req.Language {
-	case "python", "cpp", "java", "go", "c":
+	case "python", "cpp", "java", "go", "c", "rust", "scala":
 	default:
 		return nil, fmt.Errorf("unsupported generator language")
 	}

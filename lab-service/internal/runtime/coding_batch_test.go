@@ -183,3 +183,22 @@ func TestLargeCodingFixturesSplitIntoExecutablePayloads(t *testing.T) {
 		t.Fatalf("lost cases: %d", total)
 	}
 }
+
+func TestEnabledCodingLanguageSpecs(t *testing.T) {
+	e := &KubernetesCodingExecutor{cfg: config.CodingSandboxConfig{
+		PythonImage: "python:test", CImage: "gcc:test", CPPImage: "gcc:test",
+		JavaImage: "java:test", GoImage: "go:test", RustImage: "rust:test", ScalaImage: "scala:test",
+	}}
+	for _, language := range []string{"python", "c", "cpp", "java", "go", "rust", "scala"} {
+		spec, ok := e.languageSpec(language)
+		if !ok || spec.image == "" || spec.sourceFile == "" || spec.runCommand == "" {
+			t.Fatalf("missing executable sandbox spec for %s: %+v", language, spec)
+		}
+		if language != "python" && spec.compileCommand == "" {
+			t.Fatalf("missing compiler for %s", language)
+		}
+	}
+	if _, ok := e.languageSpec("unsupported"); ok {
+		t.Fatal("unsupported language accepted")
+	}
+}

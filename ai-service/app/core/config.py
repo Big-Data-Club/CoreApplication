@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     graph_context_depth: int = 2
     # Max chunks to fetch per expanded neighbor node (keeps context budget bounded).
     graph_neighbor_top_k: int = 3
+    # Optional graph work shares one deadline after base retrieval. No LLM
+    # calls are added to retrieval; slow dependencies fall back to base hits.
+    graph_retrieval_timeout_sec: float = Field(default=1.5, gt=0, le=10)
+    graph_max_seed_nodes: int = Field(default=4, ge=1, le=16)
+    graph_max_expanded_nodes: int = Field(default=12, ge=1, le=40)
+    graph_max_edges: int = Field(default=32, ge=1, le=128)
+    retrieval_max_top_k: int = Field(default=12, ge=1, le=32)
+    retrieval_rerank_timeout_sec: float = Field(default=1.0, gt=0, le=10)
+    retrieval_hydration_timeout_sec: float = Field(default=0.5, gt=0, le=10)
     # Multiplicative boost applied to chunks on a user's prerequisite learning
     # path during graph-guided re-ranking. 1.0 = no boost; 1.3 = 30% boost.
     graph_prereq_boost: float = 1.3

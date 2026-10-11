@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from neo4j import AsyncGraphDatabase, AsyncDriver
+from neo4j import AsyncGraphDatabase, AsyncDriver, Query
 from neo4j.exceptions import ServiceUnavailable
 
 from app.core.config import get_settings
@@ -483,6 +483,8 @@ class Neo4jService:
         node_ids: list[int],
         depth: int = 2,
         max_nodes: int = 40,
+        max_edges: int = 64,
+        course_id: int | None = None,
     ) -> dict[str, Any]:
         """
         Expand a set of seed node_ids into a subgraph of related concepts.
@@ -507,16 +509,20 @@ class Neo4jService:
         if not _settings.neo4j_enabled or not node_ids:
             return {"seed_node_ids": node_ids, "expanded_nodes": [], "edges": []}
 
+        depth = max(1, min(int(depth), 2))
+        max_nodes = max(1, min(int(max_nodes), 40))
+        max_edges = max(1, min(int(max_edges), 128))
         try:
             async with self._get_driver().session() as s:
                 # Multi-seed BFS expansion: start from any seed node,
                 # traverse up to `depth` hops in any direction.
                 result = await s.run(
-                    """
+                    Query(f"""
                     UNWIND $seed_ids AS seed_id
-                    MATCH path = (start:KnowledgeNode {id: seed_id})
-                                 -[*1..$depth]-(neighbor:KnowledgeNode)
+                    MATCH path = (start:KnowledgeNode {{id: seed_id}})
+                                 -[:PREREQUISITE|EXTENDS|EQUIVALENT|RELATED|CONTRASTS_WITH*1..{depth}]-(neighbor:KnowledgeNode)
                     WHERE NOT neighbor.id IN $seed_ids
+                      AND ($course_id IS NULL OR all(n IN nodes(path) WHERE n.course_id = $course_id))
                     WITH DISTINCT neighbor,
                          MIN(length(path)) AS hops
                     ORDER BY hops, neighbor.id
@@ -527,9 +533,9 @@ class Neo4jService:
                            neighbor.course_id   AS course_id,
                            neighbor.description AS description,
                            hops
-                    """,
+                    """, timeout=_settings.graph_retrieval_timeout_sec),
                     seed_ids=node_ids,
-                    depth=depth,
+                    course_id=course_id,
                     limit=max_nodes,
                 )
                 expanded = [dict(r) async for r in result]
@@ -537,7 +543,7 @@ class Neo4jService:
                 # Fetch edges within the full subgraph (seeds + expanded)
                 all_ids = node_ids + [n["id"] for n in expanded]
                 edge_result = await s.run(
-                    """
+                    Query("""
                     MATCH (a:KnowledgeNode)-[r]->(b:KnowledgeNode)
                     WHERE a.id IN $ids AND b.id IN $ids
                     RETURN a.id           AS source,
@@ -546,8 +552,11 @@ class Neo4jService:
                            r.strength     AS strength,
                            r.cross_course AS cross_course,
                            r.reason       AS reason
-                    """,
+                    ORDER BY source, target, relation_type
+                    LIMIT $edge_limit
+                    """, timeout=_settings.graph_retrieval_timeout_sec),
                     ids=all_ids,
+                    edge_limit=max_edges,
                 )
                 edges = [dict(r) async for r in edge_result]
 
@@ -567,6 +576,7 @@ class Neo4jService:
         self,
         target_node_id: int,
         max_depth: int = 4,
+        course_id: int | None = None,
     ) -> list[dict]:
         """
         Return the ordered prerequisite chain leading TO `target_node_id`.
@@ -584,12 +594,14 @@ class Neo4jService:
         if not _settings.neo4j_enabled:
             return []
 
+        max_depth = max(1, min(int(max_depth), 4))
         try:
             async with self._get_driver().session() as s:
                 result = await s.run(
-                    """
+                    Query(f"""
                     MATCH path = (prereq:KnowledgeNode)
-                                 -[:PREREQUISITE*1..$depth]->(target:KnowledgeNode {id: $target_id})
+                                 -[:PREREQUISITE*1..{max_depth}]->(target:KnowledgeNode {{id: $target_id}})
+                    WHERE $course_id IS NULL OR all(n IN nodes(path) WHERE n.course_id = $course_id)
                     WITH nodes(path) AS path_nodes, length(path) AS path_len
                     ORDER BY path_len DESC
                     LIMIT 1
@@ -598,9 +610,9 @@ class Neo4jService:
                            n.name      AS name,
                            n.name_vi   AS name_vi,
                            n.course_id AS course_id
-                    """,
+                    """, timeout=_settings.graph_retrieval_timeout_sec),
                     target_id=target_node_id,
-                    depth=max_depth,
+                    course_id=course_id,
                 )
                 return [dict(r) async for r in result]
 

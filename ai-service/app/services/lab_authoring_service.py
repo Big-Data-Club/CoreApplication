@@ -94,7 +94,7 @@ class LabProposal(BaseModel):
 
     @model_validator(mode='after')
     def starter_limits(self):
-        if any(lang not in ('python', 'cpp', 'java', 'go', 'c', 'sql') or len(code.encode()) > 32768 for lang, code in self.starter_code.items()):
+        if any(lang not in ('python', 'cpp', 'java', 'go', 'c', 'rust', 'scala', 'sql') or len(code.encode()) > 32768 for lang, code in self.starter_code.items()):
             raise ValueError('Unsupported or oversized starter code')
         return self
 

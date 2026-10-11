@@ -295,3 +295,23 @@ LLM provider/model binding thực tế.
 Smoke image Git được kiểm tra local với user 1000, root filesystem read-only,
 capabilities dropped và network none; bốn verifier pass, nhánh sai bị từ chối.
 Script tái lập: [`sandbox/terminal/smoke.sh`](../lab-service/sandbox/terminal/smoke.sh).
+
+### Coding language coverage
+
+Coding runners and teacher testcase generation support Python, C, C++, Java, Go,
+Rust and Scala; AI starter-code proposals accept the same languages. SQL uses
+the separate PostgreSQL runner. Each lab still selects its own enabled languages.
+The Scala image pins Scala 2.13.16 from the official GitHub release asset and
+verifies SHA-256 (the legacy Lightbend download endpoint returned HTTP 403 in CI).
+All Scala dependencies are installed at build time, so grading needs no network.
+
+Scala launchers require `bash`, which is explicitly installed in the runtime image.
+To verify both sample cases under learner sandbox restrictions:
+
+```sh
+docker build -t bdc-lab-scala-sandbox:local-test lab-service/sandbox/scala
+docker run --rm -i --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --user 1000:1000 --memory 256m \
+  --pids-limit 128 --tmpfs /tmp:rw,uid=1000,gid=1000,size=128m \
+  bdc-lab-scala-sandbox:local-test /bin/sh < lab-service/sandbox/scala/smoke.sh
+```
