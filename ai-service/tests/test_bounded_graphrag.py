@@ -189,3 +189,51 @@ async def test_qdrant_neighbors_preserve_document_and_course_filters(monkeypatch
         ("content_id", {"value": 10}), ("content_id", {"any": [10, 11]}),
     ]
     assert client.scroll.call_args.kwargs["limit"] == 6
+
+
+@pytest.mark.asyncio
+async def test_neo4j_queries_bound_depth_edges_scope_and_server_time(monkeypatch):
+    from unittest.mock import MagicMock
+    from app.services.neo4j_service import Neo4jService
+    monkeypatch.setattr(get_settings(), "neo4j_enabled", True)
+
+    class Records:
+        def __init__(self, rows):
+            self.rows = rows
+        async def __aiter__(self):
+            for row in self.rows:
+                yield row
+
+    session = AsyncMock()
+    session.run.side_effect = [Records([{"id": 2, "hops": 1}]), Records([]), Records([])]
+    context = AsyncMock()
+    context.__aenter__.return_value = session
+    driver = MagicMock()
+    driver.session.return_value = context
+    service = Neo4jService()
+    monkeypatch.setattr(service, "_get_driver", lambda: driver)
+    await service.get_concept_context([1], depth=100, max_nodes=12, max_edges=32, course_id=7)
+    await service.get_prerequisite_chain(1, max_depth=100, course_id=7)
+    expansion, edges, prereqs = session.run.call_args_list
+    assert "*1..2" in expansion.args[0].text
+    assert "$depth" not in expansion.args[0].text
+    assert expansion.kwargs["course_id"] == 7
+    assert expansion.kwargs["limit"] == 12
+    assert "LIMIT $edge_limit" in edges.args[0].text
+    assert edges.kwargs["edge_limit"] == 32
+    assert "*1..4" in prereqs.args[0].text
+    assert prereqs.kwargs["course_id"] == 7
+    assert expansion.args[0].timeout == get_settings().graph_retrieval_timeout_sec
+    assert edges.args[0].timeout == prereqs.args[0].timeout == expansion.args[0].timeout
+
+
+@pytest.mark.asyncio
+async def test_disabled_reranker_keeps_base_before_placeholder_neighbor_scores(retrieval, monkeypatch):
+    base, neighbor = chunk(1), chunk(99, node_id=2)
+    base.similarity = .2
+    neighbor.similarity = .7  # Graph lookup score does not measure query relevance.
+    rag_service.search_hierarchical.return_value = ([base], "course")
+    retrieval._expand_graph.return_value = {"expanded_nodes": [{"id": 2}], "edges": []}
+    monkeypatch.setattr(rag_service, "search_by_node_ids", AsyncMock(return_value=[neighbor]))
+    result = await retrieval.retrieve("query", top_k=1)
+    assert result.ranked_chunks == [base]

@@ -296,8 +296,10 @@ class GraphRAGService:
         graph_ids = {c.chunk_id for c in neighbor_chunks}
         graph_candidates = [c for c in all_chunks if c.chunk_id in graph_ids][:4]
         base_candidates = [c for c in all_chunks if c.chunk_id not in graph_ids][:top_k]
-        candidates = self._deduplicate(base_candidates + graph_candidates)
-        candidates.sort(key=lambda c: c.similarity, reverse=True)
+        candidate_ids = {c.chunk_id for c in base_candidates + graph_candidates}
+        # Neighbor scores are placeholders, not query similarities. Preserve
+        # base/boost order when reranking is disabled or times out.
+        candidates = [c for c in all_chunks if c.chunk_id in candidate_ids]
         ctx.ranked_chunks = await self._finalize(query, candidates, top_k)
         logger.info(
             "GraphRAG retrieve: query='%s' seed_nodes=%d expanded=%d "
