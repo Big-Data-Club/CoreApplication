@@ -24,6 +24,12 @@ grafana:
   ingress:
     enabled: false
 
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: monitoring
+      label: grafana_dashboard
+
 prometheus:
   prometheusSpec:
     # Required for k6's experimental-prometheus-rw output. Keep the service

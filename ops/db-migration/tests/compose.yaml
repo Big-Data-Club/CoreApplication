@@ -1,0 +1,38 @@
+services:
+  source:
+    image: postgres:${PG_MAJOR:-17}-bookworm
+    environment:
+      POSTGRES_PASSWORD: local-fixture-only
+    command: [postgres, -c, wal_level=logical, -c, max_replication_slots=20, -c, max_wal_senders=20]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  target:
+    image: postgres:${PG_MAJOR:-17}-bookworm
+    environment:
+      POSTGRES_PASSWORD: local-fixture-only
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  tests:
+    build:
+      context: ..
+      args:
+        PG_MAJOR: '${PG_MAJOR:-17}'
+    image: bdc-db-migration:local-test
+    command: [python3, /tests/integration.py]
+    volumes:
+      - ./integration.py:/tests/integration.py:ro
+    environment:
+      PYTHONPATH: /app
+    depends_on:
+      source:
+        condition: service_healthy
+      target:
+        condition: service_healthy

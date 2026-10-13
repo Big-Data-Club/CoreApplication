@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-db-operation
+  namespace: default
+# Runtime fields are intentionally absent. Reapplying must not reset a live lock.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-db-migration
+  namespace: default
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bdc-db-migration-recovery
+  namespace: default
+type: Opaque
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bdc-db-migration-console
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bdc-db-migration-console
+  template:
+    metadata:
+      labels:
+        app: bdc-db-migration-console
+    spec:
+      serviceAccountName: bdc-db-migration-console
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: console
+          image: bdc-db-migration:configure-immutable-tag
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: NAMESPACE
+              value: default
+            - name: PUBLIC_ORIGIN
+              value: https://bdc.hpcc.vn
+            - name: GRAFANA_URL
+              value: http://kps-grafana.monitoring.svc.cluster.local/monitor
+            - name: MIGRATION_IMAGE
+              value: bdc-db-migration:configure-immutable-tag
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          volumeMounts:
+            - name: profiles
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: profiles
+          configMap:
+            name: bdc-db-migration-profiles
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bdc-db-migration-console
+  namespace: default
+spec:
+  selector:
+    app: bdc-db-migration-console
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-db-migration-console
+  namespace: default
+spec:
+  rules:
+    - host: bdc.hpcc.vn
+      http:
+        paths:
+          - path: /monitor/migrations/
+            pathType: Prefix
+            backend:
+              service:
+                name: bdc-db-migration-console
+                port:
+                  name: http

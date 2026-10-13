@@ -1,0 +1,11 @@
+[
+  {
+    "id": "production-cloud-cutover",
+    "label": "Production: nguồn hiện tại → cloud đích đã cấu hình",
+    "enabled": false,
+    "prefixes": ["POSTGRES", "LMS_POSTGRES", "LAB_POSTGRES", "CHAT_POSTGRES", "AI_POSTGRES", "DUTYLOG_POSTGRES"],
+    "writers": ["auth-service", "lms-service", "lab-service", "chat-service", "ai-service", "ai-worker", "course-blueprint-worker", "ai-lab-authoring-worker", "dutylog-service"],
+    "timeout_seconds": 7200,
+    "max_lag_bytes": 2147483648
+  }
+]

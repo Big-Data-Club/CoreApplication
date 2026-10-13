@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-db-migration-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: '1'
+data:
+  bdc-db-migration.json: |
+    {
+      "uid": "bdc-db-migration", "title": "BDC · PostgreSQL Migration", "schemaVersion": 39,
+      "tags": ["bdc", "database", "operations"], "editable": false, "refresh": "10s",
+      "time": {"from": "now-6h", "to": "now"},
+      "links": [{"title": "Mở điều khiển chuyển DB", "type": "link", "url": "/monitor/migrations/", "targetBlank": false}],
+      "panels": [
+        {"id": 1, "type": "text", "title": "Chuyển cloud PostgreSQL", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 6},
+         "options": {"mode": "markdown", "content": "[**Mở điều khiển chuyển DB →**](/monitor/migrations/)\n\nChép dữ liệu và đồng bộ liên tục; tạm dừng ghi ở bước chuyển cuối. Cần phiên Grafana server Admin. Theo dõi từng bước trong trang điều khiển."}},
+        {"id": 2, "type": "timeseries", "title": "Migration Jobs", "gridPos": {"x": 0, "y": 6, "w": 24, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+         "targets": [
+           {"refId": "A", "expr": "sum(kube_job_status_active{namespace=\"default\",job_name=~\"db-migrate-.*\"})", "legendFormat": "Đang chạy"},
+           {"refId": "B", "expr": "sum(kube_job_status_succeeded{namespace=\"default\",job_name=~\"db-migrate-.*\"})", "legendFormat": "Hoàn tất"},
+           {"refId": "C", "expr": "sum(kube_job_status_failed{namespace=\"default\",job_name=~\"db-migrate-.*\"})", "legendFormat": "Thất bại"}
+         ]}
+      ],
+      "templating": {"list": [{"name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "label": "Prometheus"}]}
+    }

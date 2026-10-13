@@ -7,6 +7,16 @@ set -Eeuo pipefail
 DEPLOY_NAMESPACE="${DEPLOY_NAMESPACE:-default}"
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-12m}"
 
+# Keep schema/config/image changes mutually exclusive with online DB migration.
+# The full production workflow acquires this before its schema/Secret steps.
+if [[ -n "${BDC_OPERATION_OWNER:-}" ]]; then
+  python3 scripts/db-operation-lock.py check "$BDC_OPERATION_OWNER"
+else
+  BDC_OPERATION_OWNER="deploy:$(python3 -c 'import uuid; print(uuid.uuid4())')"
+  python3 scripts/db-operation-lock.py claim "$BDC_OPERATION_OWNER"
+  trap 'python3 scripts/db-operation-lock.py release "$BDC_OPERATION_OWNER"' EXIT
+fi
+
 deployments=(
   auth-service
   lms-service
@@ -129,7 +139,7 @@ kubectl cluster-info >/dev/null
   --phase pre
 # Config changes are safe to apply in place; only deployments selected below
 # are restarted, so unrelated workloads keep their current pods.
-kubectl apply -f k3s/base/configmap.yaml --namespace "$DEPLOY_NAMESPACE"
+python3 scripts/apply-runtime-config.py
 kubectl apply -f k3s/base/ingress.yaml --namespace "$DEPLOY_NAMESPACE"
 # Kafka is shared infrastructure for the AI workers. Applying an unchanged
 # StatefulSet is a no-op; applying a changed one performs the controlled

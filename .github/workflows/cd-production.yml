@@ -38,6 +38,14 @@ jobs:
           test -r "$KUBECONFIG"
           kubectl get nodes
 
+      - name: Acquire database operation lock
+        id: db_lock
+        run: |
+          set -euo pipefail
+          owner="legacy-deploy:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}"
+          python3 scripts/db-operation-lock.py claim "$owner"
+          echo "BDC_OPERATION_OWNER=$owner" >> "$GITHUB_ENV"
+
       - name: Selective Kubernetes Rollout
         run: |
           echo "🚀 Executing Kubernetes Rollout Restart on Self-Hosted Runner..."
@@ -91,6 +99,10 @@ jobs:
           ./scripts/k3s-maintenance.sh \
             --namespace default \
             --phase post
+
+      - name: Release database operation lock
+        if: always() && steps.db_lock.outcome == 'success'
+        run: python3 scripts/db-operation-lock.py release "$BDC_OPERATION_OWNER"
 
       - name: Deployment Summary
         if: always()

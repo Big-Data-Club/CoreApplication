@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chuyển PostgreSQL · BDC Monitor</title><link rel="stylesheet" href="style.css"><script src="app.js" defer></script></head>
+<body><main>
+<a href="/monitor/">← Grafana</a><h1>Chuyển PostgreSQL</h1>
+<p>Dữ liệu được chép và đồng bộ khi hệ thống vẫn chạy. Các service tạm dừng ghi ở bước chuyển kết nối, rồi tự khởi động với DB mới.</p>
+<label for="profile">Luồng chuyển đã cấu hình</label><select id="profile" disabled></select>
+<p id="profile-note">Đang tải cấu hình…</p>
+<button id="start" disabled>Bắt đầu chuyển DB</button>
+<p id="error" role="alert"></p>
+<section aria-live="polite"><h2>Tiến độ</h2><strong id="phase">Chưa có lượt chuyển</strong>
+<p id="progress"></p><p id="details"></p><p id="recovery"></p></section>
+<p class="muted">Đích phải là các database trống. Thời gian chép phụ thuộc dung lượng và đường truyền; thời gian gián đoạn cuối phụ thuộc lúc service dừng và khởi động lại.</p>
+</main></body></html>
