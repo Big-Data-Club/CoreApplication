@@ -218,6 +218,14 @@ operations component and do not grant Grafana server Admin to learners.
 
 ## Monitoring and recovery
 
+Dashboard links open the console in a new tab so the browser loads the
+separate application instead of routing within Grafana. If a Grafana-styled
+"Page not found" appears, paste `/monitor/migrations/` into a new tab or hard
+reload the page. A direct unauthenticated request to the console returns HTTP
+403 with a JSON login message; Grafana HTML instead indicates a routing or
+navigation problem. Sign in at `/monitor/login` as a Grafana server Admin
+before opening the console.
+
 The latest state is in ConfigMap `bdc-db-migration`; the lock is in
 `bdc-db-operation`. The old runtime fields and replica counts are kept in
 **Secret** `bdc-db-migration-recovery`. The dashboard exposes neither that

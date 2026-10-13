@@ -11,10 +11,10 @@ data:
       "uid": "bdc-db-migration", "title": "BDC · PostgreSQL Migration", "schemaVersion": 39,
       "tags": ["bdc", "database", "operations"], "editable": false, "refresh": "10s",
       "time": {"from": "now-6h", "to": "now"},
-      "links": [{"title": "Mở điều khiển chuyển DB", "type": "link", "url": "/monitor/migrations/", "targetBlank": false}],
+      "links": [{"title": "Mở điều khiển chuyển DB", "type": "link", "url": "/monitor/migrations/", "targetBlank": true}],
       "panels": [
         {"id": 1, "type": "text", "title": "Chuyển cloud PostgreSQL", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 6},
-         "options": {"mode": "markdown", "content": "[**Mở điều khiển chuyển DB →**](/monitor/migrations/)\n\nChép dữ liệu và đồng bộ liên tục; tạm dừng ghi ở bước chuyển cuối. Cần phiên Grafana server Admin. Theo dõi từng bước trong trang điều khiển."}},
+         "options": {"mode": "html", "content": "<p><a href=\"/monitor/migrations/\" target=\"_blank\" rel=\"noopener noreferrer\"><strong>Mở điều khiển chuyển DB →</strong></a></p><p>Chép dữ liệu và đồng bộ liên tục; tạm dừng ghi ở bước chuyển cuối. Cần phiên Grafana server Admin. Theo dõi từng bước trong trang điều khiển.</p>"}},
         {"id": 2, "type": "timeseries", "title": "Migration Jobs", "gridPos": {"x": 0, "y": 6, "w": 24, "h": 8},
          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
          "targets": [
