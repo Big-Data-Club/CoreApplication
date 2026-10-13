@@ -17,6 +17,7 @@ from server import BASE, Handler, grafana_admin, make_job, start, validate_reque
 RUN_ID = "a" * 32
 REQUEST_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 PROFILE = {"id": "test", "enabled": True, "label": "Test", "prefixes": sorted(PREFIXES), "writers": ["lms-service"]}
+TARGET_URL = "postgresql://tester:test-only@ep-target.region.neon.tech/fixture?sslmode=require"
 
 
 class FakeKube:
@@ -34,6 +35,9 @@ class FakeKube:
                     "selector": {"matchLabels": {"app": "lms-service"}}, "template": {"spec": {"containers": [{"env": [
                         {"valueFrom": {"secretKeyRef": {"name": "bdc-secrets", "key": "LMS_POSTGRES_DB"}}}]}]}}}}
         self.calls = []
+        self.endpoints = {name: {"runtime_url": f"postgresql://tester:test-only@{host}.invalid/fixture?sslmode=require",
+                                 "direct_url": f"postgresql://tester:test-only@{host}.invalid/fixture?sslmode=require"}
+                          for name, host in (("bdc-db-source", "source"), ("bdc-db-target", "target"))}
         self.create_error = False
         self.fail_patch = None
         self.fail_target_scale = False
@@ -50,11 +54,7 @@ class FakeKube:
         return {"items": []}
 
     def secret(self, name):
-        if name in ("bdc-db-source", "bdc-db-target"):
-            host = "source" if name.endswith("source") else "target"
-            url = f"postgresql://tester:test-only@{host}.invalid/fixture?sslmode=require"
-            return {"runtime_url": url, "direct_url": url}
-        raise AssertionError(name)
+        return copy.deepcopy(self.endpoints[name])
 
     def patch(self, resource, name, body):
         self.calls.append(("PATCH", resource, name, copy.deepcopy(body)))
@@ -66,6 +66,9 @@ class FakeKube:
             if self.fail_target_scale and count > 0:
                 raise APIError(500)
             self.dep["spec"]["replicas"] = count
+            return
+        if resource == "secrets" and name in self.endpoints:
+            self.endpoints[name].update(body["stringData"])
             return
         obj = self.objects.setdefault((resource, name), {})
         for key, value in body.items():
@@ -117,7 +120,7 @@ class MigrationTests(unittest.TestCase):
         self.addCleanup(query_mock.stop)
 
     def migrate(self):
-        start(self.kube, PROFILE, REQUEST_ID, 42)
+        start(self.kube, PROFILE, REQUEST_ID, 42, TARGET_URL)
         migration = Migration(self.kube, PROFILE, RUN_ID, FakeReplica)
         with patch("sys.stdout", new=io.StringIO()) as output:
             ok = migration.run()
@@ -130,8 +133,28 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(state(self.kube)["phase"], "succeeded")
         self.assertEqual(self.kube.get("configmaps", LOCK)["data"]["owner"], "")
         self.assertEqual(self.kube.dep["spec"]["replicas"], 2)
-        self.assertEqual(self.kube.get("configmaps", "bdc-config")["data"]["POSTGRES_HOST"], "target.invalid")
+        self.assertEqual(self.kube.get("configmaps", "bdc-config")["data"]["POSTGRES_HOST"], "ep-target.region.neon.tech")
+        self.assertEqual(self.kube.secret("bdc-db-source"), self.kube.secret("bdc-db-target"))
         self.assertEqual(migration.replicas[0].calls.index("fence") < migration.replicas[0].calls.index("finalize"), True)
+
+    def test_successive_destinations_become_sources(self):
+        self.assertTrue(self.migrate()[0])
+        request_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        next_url = "postgresql://tester:test-only@ep-next.region.neon.tech/fixture?sslmode=require"
+        start(self.kube, PROFILE, request_id, 42, next_url)
+        migration = Migration(self.kube, PROFILE, request_id.replace("-", ""), FakeReplica)
+        with patch("sys.stdout", new=io.StringIO()):
+            self.assertTrue(migration.run())
+        self.assertEqual(migration.source["runtime_url"], TARGET_URL)
+        self.assertEqual(self.kube.secret("bdc-db-source")["runtime_url"], next_url)
+        self.assertEqual(self.kube.get("configmaps", "bdc-config")["data"]["POSTGRES_HOST"], "ep-next.region.neon.tech")
+
+    def test_source_promotion_failure_keeps_lock(self):
+        self.kube.fail_patch = ("secrets", "bdc-db-source")
+        ok, _ = self.migrate()
+        self.assertFalse(ok)
+        self.assertEqual(state(self.kube)["phase"], "recovery_required")
+        self.assertEqual(self.kube.get("configmaps", LOCK)["data"]["owner"], "migration:" + RUN_ID)
 
     def test_preflight_failure_does_not_scale_or_patch_runtime(self):
         FakeReplica.failure = "preflight"
@@ -154,7 +177,7 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(state(self.kube)["phase"], "recovery_required")
         self.assertEqual(self.kube.get("configmaps", LOCK)["data"]["owner"], "migration:" + RUN_ID)
-        self.assertEqual(self.kube.get("configmaps", "bdc-config")["data"]["POSTGRES_HOST"], "target.invalid")
+        self.assertEqual(self.kube.get("configmaps", "bdc-config")["data"]["POSTGRES_HOST"], "ep-target.region.neon.tech")
 
     def test_failure_to_cleanup_keeps_lock(self):
         FakeReplica.failure = "cleanup"
@@ -164,15 +187,17 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(self.kube.get("configmaps", LOCK)["data"]["owner"])
 
     def test_duplicate_click_returns_same_job(self):
-        first = start(self.kube, PROFILE, REQUEST_ID, 1)
-        second = start(self.kube, PROFILE, REQUEST_ID, 1)
+        first = start(self.kube, PROFILE, REQUEST_ID, 1, TARGET_URL)
+        second = start(self.kube, PROFILE, REQUEST_ID, 1, TARGET_URL)
         self.assertEqual(first, second)
         self.assertEqual(sum(c[0] == "POST" for c in self.kube.calls), 1)
+        self.assertEqual(sum(c[2] == "bdc-db-target" for c in self.kube.calls), 1)
+        self.assertNotIn(TARGET_URL, json.dumps(first))
 
     def test_new_click_while_active_fails(self):
-        start(self.kube, PROFILE, REQUEST_ID, 1)
+        start(self.kube, PROFILE, REQUEST_ID, 1, TARGET_URL)
         with self.assertRaises(RuntimeError):
-            start(self.kube, PROFILE, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", 1)
+            start(self.kube, PROFILE, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", 1, TARGET_URL)
 
     def test_duplicate_job_execution_does_not_touch_completed_state(self):
         ok, _ = self.migrate()
@@ -186,7 +211,7 @@ class MigrationTests(unittest.TestCase):
     def test_ambiguous_job_creation_keeps_lock(self):
         self.kube.create_error = True
         with self.assertRaises(TimeoutError):
-            start(self.kube, PROFILE, REQUEST_ID, 1)
+            start(self.kube, PROFILE, REQUEST_ID, 1, TARGET_URL)
         self.assertTrue(self.kube.get("configmaps", LOCK)["data"]["owner"])
 
     def test_job_has_no_retry_no_urls_and_bounded_runtime(self):
@@ -196,7 +221,7 @@ class MigrationTests(unittest.TestCase):
         self.assertNotIn("postgresql://", json.dumps(job))
 
     def test_csrf_origin_and_json_are_required(self):
-        body = {"profile": "test", "request_id": REQUEST_ID}
+        body = {"profile": "test", "request_id": REQUEST_ID, "target_url": "postgresql://u:p@ep-example-pooler.region.neon.tech/db?sslmode=require&channel_binding=require"}
         good = {"Origin": "https://monitor.invalid", "Content-Type": "application/json"}
         validate_request(good, body)
         for headers in ({}, {**good, "Origin": "https://attacker.invalid"}, {**good, "Content-Type": "text/plain"}):
@@ -237,10 +262,12 @@ class MigrationTests(unittest.TestCase):
         spec.loader.exec_module(module)
         result = module.neon_urls("postgresql://fixture:p%40ss@ep-fixture-pooler.region.neon.tech/db?sslmode=require")
         self.assertEqual(result["direct_url"], "postgresql://fixture:p%40ss@ep-fixture.region.neon.tech/db?sslmode=require")
+        pooled = module.neon_urls("postgresql://fixture:masked@ep-fixture-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
+        self.assertEqual(pooled["direct_url"], "postgresql://fixture:masked@ep-fixture.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 
     def test_unknown_profile_returns_404_without_kubernetes_write(self):
         handler = Handler.__new__(Handler)
-        body = json.dumps({"profile": "missing", "request_id": REQUEST_ID}).encode()
+        body = json.dumps({"profile": "missing", "request_id": REQUEST_ID, "target_url": "postgresql://u:p@ep-example-pooler.region.neon.tech/db?sslmode=require"}).encode()
         handler.headers = {"Origin": "https://monitor.invalid", "Content-Type": "application/json", "Content-Length": str(len(body))}
         handler.path, handler.rfile = BASE + "api/runs", io.BytesIO(body)
         response = []

@@ -248,6 +248,10 @@ class Migration:
             self.target_writers_started = True  # never roll back past this point
             self.scale(self.snapshot["replicas"])
             self.wait(self.ready, 720, "Destination rollout requires operator recovery")
+            # The new live database is the next run's source. Failure here
+            # keeps the lock and requires operator recovery after target writes.
+            self.kube.patch("secrets", "bdc-db-source", {"stringData": {
+                "runtime_url": self.target["runtime_url"], "direct_url": self.target["direct_url"]}})
             self.update("succeeded")
             release(self.kube, "migration:" + self.run_id)
             return True

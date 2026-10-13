@@ -22,7 +22,7 @@ async function refresh() {
     const terminal = ['succeeded', 'failed_source_active'].includes(s.phase);
     byId('recovery').textContent = s.phase === 'recovery_required' || (s.job_failed && !terminal)
       ? 'Job đã dừng và giữ khóa chuyển DB. Kiểm tra K3s và hướng dẫn phục hồi trước khi tiếp tục.' : '';
-    byId('start').disabled = pending || !selectedProfiles.length || (!!s.phase && !terminal);
+    byId('start').disabled = pending || !selectedProfiles.length || !byId('target-url').value.trim() || (!!s.phase && !terminal);
   } catch (error) { byId('error').textContent = error.message; byId('start').disabled = true; }
 }
 byId('start').addEventListener('click', async () => {
@@ -32,13 +32,15 @@ byId('start').addEventListener('click', async () => {
   // Preserve the request ID after ambiguous network errors; reload/retry cannot
   // create a second Job for the same click.
   const profile = byId('profile').value;
+  const targetUrl = byId('target-url').value.trim();
   const key = `db-migration-request:${profile}`;
   const requestId = sessionStorage.getItem(key) || crypto.randomUUID();
   sessionStorage.setItem(key, requestId);
   try {
     await api('runs', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({profile, request_id: requestId})});
+      body: JSON.stringify({profile, request_id: requestId, target_url: targetUrl})});
     sessionStorage.removeItem(key);
+    byId('target-url').value = '';
   } catch (error) { byId('error').textContent = error.message; }
   pending = false;
   await refresh();
@@ -51,8 +53,9 @@ byId('start').addEventListener('click', async () => {
       byId('profile').appendChild(option);
     }
     byId('profile').disabled = !selectedProfiles.length;
-    byId('profile-note').textContent = selectedProfiles.length ? 'Kết nối nguồn và đích được lưu trong Kubernetes Secret.' : 'Chưa có luồng chuyển được bật. Người vận hành cần cấu hình nguồn, đích và danh sách service.';
+    byId('profile-note').textContent = selectedProfiles.length ? 'Nguồn hiện tại lưu trong Kubernetes Secret; nhập Neon URL đích mới ở dưới.' : 'Chưa có luồng chuyển được bật. Người vận hành cần cấu hình nguồn và danh sách service.';
     await refresh();
     setInterval(refresh, 4000);
   } catch (error) { byId('error').textContent = error.message; }
 })();
+byId('target-url').addEventListener('input', refresh);

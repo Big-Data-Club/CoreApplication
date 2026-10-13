@@ -27,6 +27,10 @@ rules:
   - apiGroups: [batch]
     resources: [jobs]
     verbs: [get, create]
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [bdc-db-target]
+    verbs: [patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -57,7 +61,7 @@ rules:
     verbs: [get]
   - apiGroups: ['']
     resources: [secrets]
-    resourceNames: [bdc-secrets, bdc-db-migration-recovery]
+    resourceNames: [bdc-secrets, bdc-db-migration-recovery, bdc-db-source]
     verbs: [patch]
   - apiGroups: [apps]
     resources: [deployments, statefulsets]

@@ -8,33 +8,19 @@ import os
 from pathlib import Path
 import subprocess
 import uuid
-from urllib.parse import urlsplit, parse_qs
-
-
-def neon_urls(url):
-    parts = urlsplit(url)
-    if (parts.scheme not in ("postgres", "postgresql") or not parts.hostname or
-            not parts.hostname.endswith(".neon.tech") or not parts.username or not parts.password or
-            parts.port not in (None, 5432) or not parts.path.strip("/")):
-        raise ValueError("Use a complete Neon PostgreSQL URL on port 5432")
-    options = parse_qs(parts.query)
-    if options.get("sslmode", [""])[0] not in ("require", "verify-full", "verify-ca"):
-        raise ValueError("Neon URLs must require TLS")
-    if set(options) - {"sslmode", "channel_binding"}:
-        raise ValueError("Only sslmode and channel_binding URL options are supported")
-    direct_host = parts.hostname.replace("-pooler.", ".", 1)
-    # Preserve percent-encoded user/password and all non-host URL components.
-    direct_netloc = parts.netloc.replace("@" + parts.hostname, "@" + direct_host, 1)
-    return {"runtime_url": url, "direct_url": parts._replace(netloc=direct_netloc).geturl()}
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops/db-migration"))
+from endpoints import neon_urls
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--enable", action="store_true", help="Enable the production profile after saving both endpoint Secrets")
+    parser.add_argument("--enable", action="store_true", help="Enable the production profile after saving endpoint Secrets")
+    parser.add_argument("--source-only", action="store_true", help="Enter the destination URL in /monitor/migrations/ for each run")
     args = parser.parse_args()
     source = neon_urls(getpass.getpass("Source runtime URL (hidden): "))
-    target = neon_urls(getpass.getpass("Destination runtime URL (hidden): "))
-    if source["direct_url"] == target["direct_url"]:
+    target = {} if args.source_only else neon_urls(getpass.getpass("Destination runtime URL (hidden): "))
+    if target and source["direct_url"] == target["direct_url"]:
         raise ValueError("Source and destination must differ")
     spec = importlib.util.spec_from_file_location("db_operation_lock", Path(__file__).with_name("db-operation-lock.py"))
     module = importlib.util.module_from_spec(spec)
@@ -57,7 +43,7 @@ def main():
             module.kubectl("patch", "configmap", "bdc-db-migration-settings", "--type=merge", "--patch-file=/dev/stdin", input_text=json.dumps(patch))
     finally:
         module.lock("release", owner)
-    print("Source and destination Secrets configured. No migration has started.")
+    print("Endpoint Secrets configured. No migration has started.")
     if args.enable:
         print("Profile enabled. Allow up to two minutes for the mounted settings to refresh, then reload /monitor/migrations/.")
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from kube import APIError, Kube, claim, release, save_state, state
+from endpoints import neon_urls
 
 BASE = "/monitor/migrations/"
 ASSETS = Path(__file__).parent / "static"
@@ -45,12 +46,13 @@ def validate_request(headers, body):
         raise ValueError("Invalid request origin")
     if headers.get("Content-Type", "").split(";")[0] != "application/json":
         raise ValueError("JSON required")
-    if set(body) != {"profile", "request_id"}:
-        raise ValueError("Expected profile and request_id")
+    if not isinstance(body, dict) or set(body) != {"profile", "request_id", "target_url"}:
+        raise ValueError("Expected profile, request_id and target_url")
     if not isinstance(body["profile"], str) or not re.fullmatch(r"[a-z0-9-]{1,40}", body["profile"]):
         raise ValueError("Invalid profile")
     if str(uuid.UUID(body["request_id"])) != body["request_id"]:
         raise ValueError("Invalid request ID")
+    neon_urls(body["target_url"])
 
 
 def make_job(profile, run_id, actor):
@@ -79,7 +81,7 @@ def make_job(profile, run_id, actor):
                               "volumes": [{"name": "scratch", "emptyDir": {"sizeLimit": "512Mi"}}]}}}}
 
 
-def start(kube, profile, request_id, actor):
+def start(kube, profile, request_id, actor, target_url):
     previous = state(kube)
     if previous.get("request_id") == request_id:
         if previous.get("profile") != profile["id"]:
@@ -92,9 +94,13 @@ def start(kube, profile, request_id, actor):
              "actor": actor, "phase": "queued", "updated_at": datetime.now(timezone.utc).isoformat(),
              "job": job["metadata"]["name"]}
     try:
+        # The URL is only sent to a Secret. Never put it in Job, ConfigMap
+        # state, response, or console logs.
+        kube.patch("secrets", "bdc-db-target", {"stringData": neon_urls(target_url)})
         save_state(kube, value)
     except Exception:
-        release(kube, "migration:" + run_id)
+        # A timed-out Secret patch may still be in flight. Retain the lock so
+        # another click cannot replace the destination for this run.
         raise
     # An ambiguous create/timeout MUST keep the lock: the Job may already exist.
     kube.request("POST", "jobs", body=job)
@@ -169,7 +175,7 @@ class Handler(BaseHTTPRequestHandler):
             profile = next((p for p in profiles() if p["id"] == body["profile"] and p.get("enabled")), None)
             if profile is None:
                 return self.send(404, {"error": "Enabled profile not found"})
-            value = start(Kube(), profile, body["request_id"], actor)
+            value = start(Kube(), profile, body["request_id"], actor, body["target_url"])
             self.send(202, value)
         except (ValueError, TypeError, KeyError, AttributeError):
             self.send(400, {"error": "Invalid migration request"})
