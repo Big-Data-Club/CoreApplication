@@ -13,13 +13,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops/db-migration")
 from endpoints import neon_urls
 
 
+class SetupError(RuntimeError):
+    """Safe, credential-free operator message."""
+
+
+def read_endpoint(label):
+    try:
+        entered = getpass.getpass(label + " runtime URL (hidden): ").strip()
+    except EOFError:
+        entered = ""
+    if not entered:
+        raise SetupError(f"No {label.lower()} URL was entered. Wait for this prompt, then paste the URL and press Enter.")
+    try:
+        return neon_urls(entered)
+    except (ValueError, TypeError):
+        raise SetupError(f"Invalid {label.lower()} Neon URL. Check scheme, host, database and sslmode=require.") from None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--enable", action="store_true", help="Enable the production profile after saving endpoint Secrets")
     parser.add_argument("--source-only", action="store_true", help="Enter the destination URL in /monitor/migrations/ for each run")
     args = parser.parse_args()
-    source = neon_urls(getpass.getpass("Source runtime URL (hidden): "))
-    target = {} if args.source_only else neon_urls(getpass.getpass("Destination runtime URL (hidden): "))
+    source = read_endpoint("Source")
+    target = {} if args.source_only else read_endpoint("Destination")
     if target and source["direct_url"] == target["direct_url"]:
         raise ValueError("Source and destination must differ")
     spec = importlib.util.spec_from_file_location("db_operation_lock", Path(__file__).with_name("db-operation-lock.py"))
@@ -51,5 +68,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except SetupError as exc:
+        raise SystemExit(str(exc))
     except (Exception, KeyboardInterrupt):
-        raise SystemExit("Endpoint configuration did not complete. Check Neon URL format, TLS and Kubernetes access.")
+        raise SystemExit("Endpoint configuration did not complete after URL entry. Check the database operation lock and Kubernetes access; no credentials were logged.")
