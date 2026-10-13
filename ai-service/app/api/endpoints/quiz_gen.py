@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.services.quiz_service import quiz_gen_service, sr_service, BLOOM_LEVELS
+from app.services.learning_context import AuthoringSource
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -39,15 +40,12 @@ class GenerateQuizRequest(BaseModel):
 
 
 class GenerateToBankRequest(BaseModel):
-    """Auto-generation INTO the course question bank.
-
-    When ``node_ids`` is empty, nodes are sampled from the whole course graph.
-    Otherwise generation is restricted to the selected course-owned nodes.
-    """
-    course_id: int
+    """Canonical LMS sources; legacy node-only clients retain the old route."""
+    course_id: int = Field(gt=0)
     count: int = Field(default=10, ge=1, le=30)
     bloom_levels: Optional[list[str]] = None
     node_ids: list[int] = Field(default_factory=list, max_length=100)
+    sources: Optional[list[AuthoringSource]] = Field(default=None, max_length=100)
     language: str = "vi"
     exclude_questions: list[str] = Field(default_factory=list, max_length=200)
 
@@ -55,6 +53,10 @@ class GenerateToBankRequest(BaseModel):
 class SuggestBankQuizMetadataRequest(BaseModel):
     questions: list[str] = Field(min_length=1, max_length=50)
     language: str = "vi"
+
+
+class GenerateFromSourcesRequest(GenerateToBankRequest):
+    sources: list[AuthoringSource] = Field(min_length=1, max_length=100)
 
 
 class ApproveRequest(BaseModel):
@@ -122,6 +124,12 @@ async def generate_quiz(body: GenerateQuizRequest, request: Request):
     }
 
 
+@router.post("/generate-from-sources")
+async def generate_from_sources(body: GenerateFromSourcesRequest, request: Request):
+    """Versioned by path so older AI deployments cannot ignore source scope."""
+    return await generate_to_bank(body, request)
+
+
 @router.post("/generate-to-bank")
 async def generate_to_bank(body: GenerateToBankRequest, request: Request):
     """
@@ -138,6 +146,7 @@ async def generate_to_bank(body: GenerateToBankRequest, request: Request):
             count=body.count,
             bloom_levels=body.bloom_levels,
             node_ids=body.node_ids,
+            sources=body.sources,
             language=body.language or "vi",
             exclude_questions=body.exclude_questions,
         )

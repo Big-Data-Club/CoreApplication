@@ -629,9 +629,10 @@ func orEmptyObject(b []byte) string {
 }
 
 // GenerateIntoBankRequest - teacher-facing knobs for AI generation.
-// An empty NodeIDs list samples the whole course graph. A non-empty list
-// restricts generation to those course-owned knowledge nodes.
+// Empty curriculum selection covers the course. NodeIDs is deprecated and
+// retained only for callers that have not upgraded to chapter/lesson scope.
 type GenerateIntoBankRequest struct {
+	AuthoringScope
 	Count       int      `json:"count" binding:"omitempty,min=1,max=30"`
 	BloomLevels []string `json:"bloom_levels"`
 	NodeIDs     []int64  `json:"node_ids" binding:"omitempty,max=100,dive,gt=0"`
@@ -665,11 +666,21 @@ func (s *QuestionBankService) GenerateIntoBank(
 		return nil, 0, err
 	}
 
+	var sources []ai.AuthoringSource
+	// Legacy node requests are accepted during rollout, but new requests use
+	// canonical lessons, including plain text that has not been indexed yet.
+	if len(req.NodeIDs) == 0 || len(req.SectionIDs)+len(req.ContentIDs) > 0 {
+		sources, err = resolveAuthoringSources(ctx, s.courseRepo, courseID, req.AuthoringScope)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
 	gen, err := s.aiClient.GenerateToBank(ctx, ai.GenerateToBankRequest{
 		CourseID:         courseID,
 		Count:            count,
 		BloomLevels:      req.BloomLevels,
 		NodeIDs:          req.NodeIDs,
+		Sources:          sources,
 		Language:         language,
 		ExcludeQuestions: excludes,
 	})

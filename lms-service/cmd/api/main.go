@@ -370,6 +370,7 @@ func main() {
 			flexCourses.POST("", courseHandler.CreateCourse)
 			flexCourses.POST("/:courseId/sections", courseHandler.CreateSection)
 			flexCourses.GET("/:courseId/sections", courseHandler.ListSections)
+			flexCourses.POST("/:courseId/authoring-context", courseHandler.AuthoringSources)
 			flexCourses.GET("/my", courseHandler.ListMyCourses)
 			// MCP writes are authorized by its own course-owner gate and call
 			// through the AI service using X-API-Secret. Keep their LMS routes

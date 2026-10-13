@@ -11,9 +11,10 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PositiveInt
 
 from app.services.studio.studio_service import studio_service
+from app.services.learning_context import lms_sources
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,12 @@ class CreateProjectRequest(BaseModel):
 
 class ContextSourceRequest(BaseModel):
     user_id: int = Field(..., gt=0)
-    type: str  # node | text | document_url
-    title: str = ""
+    type: str  # curriculum | text; node/document_url retained for older clients
+    title: str = Field(default="", max_length=1000)
     ref: Optional[int] = None
-    text: str = ""
+    text: str = Field(default="", max_length=2_000_000)
+    section_ids: list[PositiveInt] = Field(default_factory=list, max_length=100)
+    content_ids: list[PositiveInt] = Field(default_factory=list, max_length=100)
 
 
 class PlanActionRequest(BaseModel):
@@ -73,10 +76,13 @@ async def create_project(body: CreateProjectRequest,
                          x_ai_secret: Optional[str] = Header(None)):
     _verify(x_ai_secret)
     try:
+        await lms_sources(body.course_id, body.user_id, check_only=True)
         return await studio_service.create_project(
             course_id=body.course_id, created_by=body.user_id,
             kind=body.kind, title=body.title, settings_obj=body.settings,
         )
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -99,6 +105,8 @@ async def add_context(project_id: str, body: ContextSourceRequest,
         return await studio_service.add_context_source(
             project_id, await _uid(body.user_id), body.model_dump()
         )
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
     except ValueError as e:
         raise HTTPException(422, str(e))
 

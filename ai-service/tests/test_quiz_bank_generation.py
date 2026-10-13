@@ -10,25 +10,6 @@ from unittest.mock import AsyncMock, patch
 os.environ.setdefault("GROQ_API_KEY", "test")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# Keep this contract test independent of optional production SDKs.
-database_stub = types.ModuleType("app.core.database")
-database_stub.get_ai_conn = None
-llm_stub = types.ModuleType("app.core.llm")
-llm_stub.chat_complete_json = AsyncMock()
-llm_stub.build_quiz_generation_prompt = lambda **kwargs: []
-gateway_stub = types.ModuleType("app.core.llm_gateway")
-gateway_stub.TASK_QUIZ_GEN = "quiz_gen"
-rag_stub = types.ModuleType("app.services.rag_service")
-rag_stub.rag_service = types.SimpleNamespace()
-config_stub = types.ModuleType("app.core.config")
-config_stub.get_settings = lambda: types.SimpleNamespace(quiz_model="test")
-
-sys.modules.setdefault("app.core.database", database_stub)
-sys.modules.setdefault("app.core.llm", llm_stub)
-sys.modules.setdefault("app.core.llm_gateway", gateway_stub)
-sys.modules.setdefault("app.services.rag_service", rag_stub)
-sys.modules.setdefault("app.core.config", config_stub)
-
 from app.services import quiz_service as quiz_module
 from app.services.quiz_service import QuizGenerationService
 
@@ -117,9 +98,10 @@ class QuizBankGenerationTests(unittest.IsolatedAsyncioTestCase):
                 7, 2, "Indexing", "remember", "vi", []
             )
 
-        self.assertEqual(error, "")
-        self.assertIsNotNone(question)
+        self.assertEqual(error, "source material is not ready")
+        self.assertIsNone(question)
         self.assertEqual(rag.search_multilingual.await_args.kwargs["course_id"], 2)
+        self.assertEqual(rag.search_by_node_ids.await_args.kwargs["course_id"], 2)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,13 @@ a consumer is not automatically proof that a producer is implemented here.
 
 ## Architecture
 
+Authoring scope is resolved by LMS from chapter/lesson IDs and passed to AI over
+authenticated HTTP. AI reads only its own chunk/graph index; Studio persists
+lesson snapshots and the course bank stores source provenance in question
+settings. No new analytics event or Kafka schema is introduced. See
+[curriculum-scoped authoring](adr/2026-10-13-curriculum-scoped-authoring.md) for
+ownership, privacy purpose, failure behaviour and rollout order.
+
 ```text
 LMS micro-interactions  -- Kafka --> Personalize worker --> DuckDB Bronze
                                                        |        |

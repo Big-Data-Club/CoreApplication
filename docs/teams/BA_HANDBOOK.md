@@ -138,6 +138,15 @@ not ready for implementation.
 
 ## Handoff artefacts
 
+Studio và sinh câu hỏi trong khóa học dùng phạm vi khóa học → chương → bài học
+(văn bản, tài liệu, video, hình ảnh). Người soạn không phải chọn node hay chunk.
+AI tổng hợp các nguồn theo mục tiêu học tập; số bài micro và câu hỏi không bằng
+số node/chunk. Thiếu nội dung ở một bài đã chọn phải báo lỗi rõ ràng. Câu hỏi có
+đáp án không hợp lệ hoặc trích dẫn không khớp nguồn sẽ bị loại; giảng viên vẫn
+xem lại nội dung trước khi đưa vào bài kiểm tra. Chi tiết triển khai và giới hạn
+hiện tại: [quyết định phạm vi soạn nội dung](../adr/2026-10-13-curriculum-scoped-authoring.md).
+
+
 | Artefact | Owner | Location |
 |---|---|---|
 | Business requirement and acceptance criteria | BA/Product | Product tracker and linked PR |

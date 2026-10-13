@@ -784,7 +784,6 @@ func (c *Client) GetLinkAllStatus(ctx context.Context, courseID int64) (map[stri
 	return resp, nil
 }
 
-
 // GraphEdgeRequest is the payload for creating or updating a graph edge.
 type GraphEdgeRequest struct {
 	SourceNodeID  int64   `json:"source_node_id"`
@@ -1256,13 +1255,23 @@ func (c *Client) ParseQuizFile(ctx context.Context, filename string, contentType
 
 // ── Bank Auto-Generation ───────────────────────────────────────────────────────
 
+type AuthoringSource struct {
+	ContentID    int64  `json:"content_id"`
+	SectionID    int64  `json:"section_id"`
+	Title        string `json:"title"`
+	SectionTitle string `json:"section_title"`
+	Type         string `json:"type"`
+	Text         string `json:"text"`
+}
+
 type GenerateToBankRequest struct {
-	CourseID         int64    `json:"course_id"`
-	Count            int      `json:"count"`
-	BloomLevels      []string `json:"bloom_levels,omitempty"`
-	NodeIDs          []int64  `json:"node_ids,omitempty"`
-	Language         string   `json:"language"`
-	ExcludeQuestions []string `json:"exclude_questions"`
+	CourseID         int64             `json:"course_id"`
+	Count            int               `json:"count"`
+	BloomLevels      []string          `json:"bloom_levels,omitempty"`
+	NodeIDs          []int64           `json:"node_ids,omitempty"`
+	Sources          []AuthoringSource `json:"sources,omitempty"`
+	Language         string            `json:"language"`
+	ExcludeQuestions []string          `json:"exclude_questions"`
 }
 
 type GeneratedBankQuestion struct {
@@ -1312,12 +1321,17 @@ func (c *Client) SuggestBankQuizMetadata(ctx context.Context, questions []string
 }
 
 // GenerateToBank asks the ai-service to generate classified questions for the
-// course bank, optionally restricted to teacher-selected knowledge nodes.
+// course bank from LMS-resolved sources. The legacy node route is retained
+// only for older callers; the new path fails closed against an old AI version.
 func (c *Client) GenerateToBank(ctx context.Context, req GenerateToBankRequest) (*GenerateToBankResponse, error) {
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 420*time.Second)
 	defer cancel()
 	var resp GenerateToBankResponse
-	if err := c.post(ctxWithTimeout, "/ai/quiz/generate-to-bank", req, &resp); err != nil {
+	path := "/ai/quiz/generate-to-bank"
+	if req.Sources != nil {
+		path = "/ai/quiz/generate-from-sources"
+	}
+	if err := c.post(ctxWithTimeout, path, req, &resp); err != nil {
 		return nil, fmt.Errorf("ai.GenerateToBank: %w", err)
 	}
 	return &resp, nil

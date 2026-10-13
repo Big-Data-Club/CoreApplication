@@ -254,8 +254,8 @@ func (h *QuestionBankHandler) SuggestQuizMetadata(c *gin.Context) {
 
 // GenerateToBank godoc
 // @Summary AI auto-generate classified questions INTO the bank
-// @Description Nodes can be selected explicitly; an empty selection samples the
-// @Description course knowledge graph. The generator avoids duplicates. Generated
+// @Description Select chapters or lessons; an empty selection covers the course.
+// @Description AI synthesizes canonical material by learning objectives and avoids duplicates. Generated
 // @Description items are persisted with source=AI_GENERATED.
 // @Tags Question Bank
 // @Security BearerAuth

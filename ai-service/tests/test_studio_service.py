@@ -96,13 +96,11 @@ class StudioServiceSerializationTest(unittest.TestCase):
         }
 
         import asyncio
-        res = asyncio.run(self.service.add_context_source(
-            fake_uuid, 10, {"type": "node", "title": "Đồ thị tri thức", "ref": 101}
-        ))
-
-        self.assertFalse(res["duplicate"])
-        self.assertEqual(res["sources"], 1)
-        self.assertGreater(res["chars"], 0)
+        with self.assertRaises(ValueError):
+            asyncio.run(self.service.add_context_source(
+                fake_uuid, 10, {"type": "node", "title": "Đồ thị tri thức", "ref": 101}
+            ))
+        mock_conn.execute.assert_not_awaited()
 
     def test_llm_gateway_exports_task_content_studio(self) -> None:
         from app.core.llm_gateway import TASK_CONTENT_STUDIO, ALL_TASK_CODES
