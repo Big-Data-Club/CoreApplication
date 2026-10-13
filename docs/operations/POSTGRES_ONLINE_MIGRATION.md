@@ -145,6 +145,23 @@ repository directory with rights to update the monitoring release. If the
 checkout is on another branch or has local changes, reconcile it rather than
 forcing a reset.
 
+An earlier deploy applied the stateful `bdc-db-operation` ConfigMap while the
+deployment owned its lock. The console rolled out, but the final lock release
+failed with `Refusing to release another operation's lock`. The deploy script
+now creates lock, state, settings, and recovery resources only when absent and
+excludes them from subsequent `kubectl apply` calls. After this failure,
+inspect the lock owner and any migration Job before retrying the fixed workflow:
+
+```bash
+kubectl -n default get configmap bdc-db-operation -o jsonpath='{.data.owner}{"\n"}'
+kubectl -n default get jobs -l app=bdc-db-migration
+kubectl -n default get configmap bdc-db-migration-settings -o jsonpath='{.data.enabled_profiles}{"\n"}'
+```
+
+An empty owner means no operation currently holds the lock. If it names an
+operation, investigate its Job and state before releasing anything. Do not
+delete or clear a live migration lock merely to make CI green.
+
 `enable-db-migration-dashboard.py` reads the installed chart version of the
 `kps` release in `monitoring`, then uses that exact version and
 `--reuse-values` to enable Grafana's dashboard sidecar. Grafana may restart.

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Install/update the migration console without starting a migration."""
 import importlib.util
-import json
 import os
 from pathlib import Path
 import re
@@ -28,14 +27,49 @@ def render(image):
     return content.replace(placeholder, image)
 
 
+RUNTIME_OBJECTS = {
+    ("ConfigMap", "bdc-db-operation"),
+    ("ConfigMap", "bdc-db-migration"),
+    ("ConfigMap", "bdc-db-migration-settings"),
+    ("Secret", "bdc-db-migration-recovery"),
+}
+
+
+def split_manifests(manifests):
+    """Keep mutable state out of kubectl apply, including the live lock."""
+    static, runtime = [], {}
+    for document in re.split(r"(?m)^---\s*$", manifests):
+        if not document.strip():
+            continue
+        kind = re.search(r"(?m)^kind: ([A-Za-z]+)\s*$", document)
+        metadata = re.search(r"(?m)^metadata:\s*\n((?:[ \t].*\n?)*)", document)
+        name = re.search(r"(?m)^  name: ([a-z0-9-]+)\s*$", metadata.group(1)) if metadata else None
+        if not kind or not name:
+            raise RuntimeError("Rendered manifest has no kind or metadata.name")
+        identity = (kind.group(1), name.group(1))
+        if identity in RUNTIME_OBJECTS:
+            if identity in runtime:
+                raise RuntimeError("Duplicate runtime resource in rendered manifests")
+            runtime[identity] = document.strip() + "\n"
+        else:
+            static.append(document.strip())
+    if set(runtime) != RUNTIME_OBJECTS:
+        raise RuntimeError("Rendered manifests are missing runtime resources")
+    return "\n---\n".join(static) + "\n", runtime
+
+
+def ensure_runtime(kind, name, document):
+    resource = kind.lower()
+    existing = kubectl("-n", "default", "get", resource, name, "--ignore-not-found", "-o", "name")
+    if not existing.strip():
+        kubectl("create", "-f", "-", input_text=document)
+
+
 def main():
-    manifests = render(os.environ["MIGRATION_IMAGE"])
+    manifests, runtime = split_manifests(render(os.environ["MIGRATION_IMAGE"]))
     # Bootstrap only the lock before claiming it. Do not bootstrap by applying
     # the whole stack: an existing migration may own it already.
-    raw = kubectl("-n", "default", "get", "configmap", "bdc-db-operation", "--ignore-not-found", "-o", "name")
-    if not raw.strip():
-        obj = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "bdc-db-operation", "namespace": "default"}}
-        kubectl("create", "-f", "-", input_text=json.dumps(obj))
+    ensure_runtime("ConfigMap", "bdc-db-operation", runtime[("ConfigMap", "bdc-db-operation")])
     spec = importlib.util.spec_from_file_location("db_operation_lock", Path(__file__).with_name("db-operation-lock.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -44,6 +78,8 @@ def main():
     os.environ["DEPLOY_NAMESPACE"] = "default"
     module.lock("claim", owner)
     try:
+        for kind, name in sorted(RUNTIME_OBJECTS - {("ConfigMap", "bdc-db-operation")}):
+            ensure_runtime(kind, name, runtime[(kind, name)])
         kubectl("-n", "default", "get", "secret", "dockerhub-registry", "-o", "name")
         print(kubectl("apply", "-f", "-", input_text=manifests), end="")
         print(kubectl("-n", "default", "rollout", "status", "deployment/bdc-db-migration-console", "--timeout=5m"), end="")

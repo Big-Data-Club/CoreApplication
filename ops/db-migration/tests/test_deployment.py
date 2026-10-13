@@ -32,6 +32,11 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotIn("postgresql://", result)
         self.assertIn("name: bdc-db-migration-settings", result)
         self.assertNotIn("enabled_profiles:", result)
+        applied, runtime = deploy.split_manifests(result)
+        self.assertEqual(set(runtime), deploy.RUNTIME_OBJECTS)
+        for identity, document in runtime.items():
+            self.assertNotIn(document.strip(), applied, identity)
+        self.assertIn("name: bdc-db-migration-console", applied)
 
     def test_renderer_rejects_mutable_tags_before_kubectl(self):
         deploy = load_script("deploy-db-migration")
