@@ -27,6 +27,14 @@ Kafka and Redis run in the cluster. This runbook defines how to:
 
 ### Related recovery trajectories
 
+- [PostgreSQL migration through Grafana /monitor](../operations/POSTGRES_ONLINE_MIGRATION.md):
+  push-main deployment of the migration console/dashboard, logical replication,
+  shared deployment lock, runtime Secret cutover and recovery. First use requires
+  the documented Grafana dashboard setup and one-time source Neon endpoint setup.
+  Each run accepts a new destination URL in `/monitor/migrations/`; success
+  promotes that destination to the next source. Later pushes preserve Secrets
+  and the enabled profile.
+
 - [Neon PostgreSQL cutover and K3s recovery - 2026-08-29](../operations/NEON_CUTOVER_2026-08-29.md):
   six-database migration, runtime Secret recovery, disk-pressure remediation,
   Redis credential synchronization, and Neon pooler `search_path` repair.
