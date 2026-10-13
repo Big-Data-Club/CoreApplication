@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Provision Neon endpoint Secrets interactively; never print or persist URLs."""
 import getpass
+import argparse
 import importlib.util
 import json
 import os
@@ -28,6 +29,9 @@ def neon_urls(url):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--enable", action="store_true", help="Enable the production profile after saving both endpoint Secrets")
+    args = parser.parse_args()
     source = neon_urls(getpass.getpass("Source runtime URL (hidden): "))
     target = neon_urls(getpass.getpass("Destination runtime URL (hidden): "))
     if source["direct_url"] == target["direct_url"]:
@@ -38,6 +42,9 @@ def main():
     owner = "configure-endpoints:" + str(uuid.uuid4())
     module.lock("claim", owner)
     try:
+        # Require the installed controller; avoid a successful-looking setup
+        # against a different cluster or before first automatic deployment.
+        module.kubectl("get", "configmap", "bdc-db-migration-settings", "-o", "name")
         for name, data in (("bdc-db-source", source), ("bdc-db-target", target)):
             obj = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": {
                 "name": name, "namespace": os.environ.get("DEPLOY_NAMESPACE", "default")}, "stringData": data}
@@ -45,9 +52,14 @@ def main():
                                     input=json.dumps(obj), text=True, capture_output=True)
             if result.returncode:
                 raise RuntimeError("Could not provision endpoint Secret; no credentials were logged")
+        if args.enable:
+            patch = {"data": {"enabled_profiles": json.dumps(["production-cloud-cutover"])}}
+            module.kubectl("patch", "configmap", "bdc-db-migration-settings", "--type=merge", "--patch-file=/dev/stdin", input_text=json.dumps(patch))
     finally:
         module.lock("release", owner)
     print("Source and destination Secrets configured. No migration has started.")
+    if args.enable:
+        print("Profile enabled. Allow up to two minutes for the mounted settings to refresh, then reload /monitor/migrations/.")
 
 
 if __name__ == "__main__":

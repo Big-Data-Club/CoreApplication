@@ -178,7 +178,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def profiles():
-    return json.loads(Path(os.environ.get("PROFILES_FILE", "/config/profiles.json")).read_text())
+    configured = json.loads(Path(os.environ.get("PROFILES_FILE", "/config/profiles.json")).read_text())
+    settings = Path(os.environ.get("ENABLED_PROFILES_FILE", "/settings/enabled_profiles"))
+    if settings.exists():
+        enabled = set(json.loads(settings.read_text()))
+        for profile in configured:
+            profile["enabled"] = profile["id"] in enabled
+    return configured
 
 
 if __name__ == "__main__":

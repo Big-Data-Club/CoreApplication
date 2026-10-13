@@ -18,6 +18,13 @@ metadata:
   namespace: default
 type: Opaque
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-db-migration-settings
+  namespace: default
+# enabled_profiles is populated by interactive setup and preserved on deploy.
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -76,7 +83,13 @@ spec:
             - name: profiles
               mountPath: /config
               readOnly: true
+            - name: settings
+              mountPath: /settings
+              readOnly: true
       volumes:
+        - name: settings
+          configMap:
+            name: bdc-db-migration-settings
         - name: profiles
           configMap:
             name: bdc-db-migration-profiles

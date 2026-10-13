@@ -3,12 +3,16 @@ kind: ServiceAccount
 metadata:
   name: bdc-db-migration-console
   namespace: default
+imagePullSecrets:
+  - name: dockerhub-registry
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: bdc-db-migration-worker
   namespace: default
+imagePullSecrets:
+  - name: dockerhub-registry
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

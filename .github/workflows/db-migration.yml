@@ -1,0 +1,70 @@
+name: Build and deploy PostgreSQL migration console
+on:
+  push:
+    branches: [main]
+    paths: ['ops/db-migration/**', 'k3s/db-migration/**', 'scripts/*db-migration*', 'scripts/db-operation-lock.py', 'scripts/apply-runtime-config.py', '.github/workflows/db-migration.yml']
+  pull_request:
+    paths: ['ops/db-migration/**', 'k3s/db-migration/**', 'scripts/*db-migration*', 'scripts/db-operation-lock.py', 'scripts/apply-runtime-config.py', '.github/workflows/db-migration.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        postgres: ['16', '17']
+    env:
+      PG_MAJOR: ${{ matrix.postgres }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initial copy and concurrent writes on isolated databases
+        run: docker compose -p bdc-db-migration-test -f ops/db-migration/tests/compose.yaml up --build --abort-on-container-exit --exit-code-from tests
+      - name: Authorization, cutover failure and deployment configuration tests
+        run: docker run --rm -v "$PWD:/workspace:ro" -w /workspace --entrypoint python3 bdc-db-migration:local-test -m unittest discover -s ops/db-migration/tests -v
+      - name: Render Kubernetes manifests
+        run: kubectl kustomize k3s/db-migration > /tmp/migration.yaml
+      - name: Remove fixture containers
+        if: always()
+        run: docker compose -p bdc-db-migration-test -f ops/db-migration/tests/compose.yaml down --volumes
+
+  build:
+    needs: migration
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD || secrets.DOCKERHUB_TOKEN }}
+      - name: Build and publish migration image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ops/db-migration
+          push: true
+          platforms: linux/amd64
+          tags: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}/bdc-db-migration:${{ github.sha }}
+          build-args: PG_MAJOR=${{ vars.MIGRATION_PG_MAJOR || '17' }}
+          cache-from: type=gha,scope=bdc-db-migration
+          cache-to: type=gha,mode=max,scope=bdc-db-migration
+
+  deploy:
+    needs: build
+    runs-on: [self-hosted, linux, x64, production]
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    env:
+      KUBECONFIG: ${{ vars.PRODUCTION_KUBECONFIG || '/home/bdc_web/.kube/config' }}
+      MIGRATION_IMAGE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}/bdc-db-migration@${{ needs.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy console and dashboard; verify rollout
+        run: python3 scripts/deploy-db-migration.py
