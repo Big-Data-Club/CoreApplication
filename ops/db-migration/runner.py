@@ -46,6 +46,9 @@ class Migration:
         self.kube, self.profile, self.run_id = kube, profile, run_id
         self.factory = replica_factory
         self.replicas = []
+        self.prepared = []
+        self.active_replicas = []
+        self.max_active_replicas = 0
         self.workloads = {}
         self.quiesced = False
         self.config_changed = False
@@ -155,8 +158,8 @@ class Migration:
             self.replicas.append(replica)
             self.preflight_check = "database_prerequisites:" + ",".join(bindings)
             replica.preflight()
-        # Reserve one table-sync worker/slot in addition to the persistent
-        # per-database streams. Neon limits must be checked before any writes.
+        # All source slots must exist to retain WAL, but only a bounded number
+        # of destination subscriptions need apply workers at one time.
         self.preflight_check = "replication_capacity"
         count = len(self.replicas)
         source_conn, target_conn = self.replicas[0].source, self.replicas[0].target
@@ -167,22 +170,42 @@ class Migration:
         ):
             capacity = int(query(conn, "SHOW " + setting)[0][0])
             used = int(query(conn, used_sql)[0][0])
-            required = count + 2
+            required = count + 2 if endpoint_name == "source" else 2
             if capacity - used < required:
                 raise MigrationError(
                     f"Insufficient replication capacity on {endpoint_name}: {setting}={capacity}, "
                     f"in_use={used}, free={capacity - used}, required_free={required} "
                     f"for {count} databases. Increase the {endpoint_name} limit before retrying")
+            if endpoint_name == "destination":
+                # One spare worker is needed while one DB performs its initial
+                # table copy; at most three apply workers run concurrently.
+                self.max_active_replicas = min(3, capacity - used - 1)
+        # PostgreSQL 18 split origin capacity from max_replication_slots;
+        # older majors use max_replication_slots for both limits.
+        origin_setting = ("max_active_replication_origins" if target_conn.server_version >= 180000
+                          else "max_replication_slots")
+        origins = int(query(target_conn, "SHOW " + origin_setting)[0][0])
+        if origins < count + 1:
+            raise MigrationError(
+                f"Insufficient replication capacity on destination: {origin_setting}={origins}, "
+                f"required={count + 1} for {count} databases")
 
-    def copy_ready(self, count=None):
-        replicas = self.replicas[:count] if count else self.replicas
-        progress = [r.progress() for r in replicas]
+    def copy_ready(self, active):
+        progress = [r.progress() for r in self.prepared]
         lag = sum(p["lag_bytes"] or 0 for p in progress)
         if lag > self.profile.get("max_lag_bytes", 2147483648):
             raise MigrationError("Replication lag exceeded profile WAL budget")
         self.update("replicating", tables_ready=sum(p["ready"] for p in progress),
                     tables_total=sum(p["total"] for p in progress), lag_bytes=lag)
-        return all(r.caught_up() for r in replicas)
+        return all(r.caught_up() for r in active)
+
+    def switch_active(self, next_active):
+        for replica in self.active_replicas:
+            replica.pause()
+            self.wait(replica.no_workers, 30, "Paused subscription worker did not stop")
+        for replica in next_active:
+            replica.resume()
+        self.active_replicas = list(next_active)
 
     def scale(self, replicas):
         for name, count in replicas.items():
@@ -249,12 +272,26 @@ class Migration:
             self.update("preparing")
             copy_deadline = time.monotonic() + self.profile.get("timeout_seconds", 7200)
             for index, replica in enumerate(self.replicas):
+                if len(self.active_replicas) >= self.max_active_replicas:
+                    oldest = self.active_replicas.pop(0)
+                    oldest.pause()
+                    self.wait(oldest.no_workers, 30, "Paused subscription worker did not stop")
                 replica.prepare()
+                self.prepared.append(replica)
+                self.active_replicas.append(replica)
                 replica.verify_runtime(self.source["runtime_url"], self.run_id)
-                # Bootstrap one database at a time to avoid exhausting Neon's
-                # temporary table-sync slots. Earlier streams remain active.
-                self.wait(lambda: self.copy_ready(index + 1), max(1, copy_deadline - time.monotonic()), "Initial table copy timed out")
-            self.wait(self.copy_ready, max(1, copy_deadline - time.monotonic()), "Initial replication timed out")
+                # Bootstrap one database at a time. Disabled subscriptions
+                # retain their source slots and WAL until re-enabled.
+                self.wait(lambda: self.copy_ready(self.active_replicas),
+                          max(1, copy_deadline - time.monotonic()), "Initial table copy timed out")
+            # Drain the oldest group while writers are still online; the most
+            # recently active group then has only a short final backlog.
+            paused = [r for r in self.prepared if r not in self.active_replicas]
+            for offset in range(0, len(paused), self.max_active_replicas):
+                group = paused[offset:offset + self.max_active_replicas]
+                self.switch_active(group)
+                self.wait(lambda: self.copy_ready(group), max(1, copy_deadline - time.monotonic()),
+                          "Deferred replication did not catch up")
             for replica in self.replicas:
                 replica.verify_runtime(self.target["runtime_url"], self.run_id)
             self.update("quiescing")
@@ -264,7 +301,14 @@ class Migration:
             self.update("draining")
             for replica in self.replicas:
                 replica.fence()
-            self.wait(lambda: all(r.barrier_applied() for r in self.replicas), 60, "Final replication barrier timed out")
+            self.wait(lambda: all(r.barrier_applied() for r in self.active_replicas),
+                      60, "Final replication barrier timed out")
+            deferred = [r for r in self.replicas if r not in self.active_replicas]
+            for offset in range(0, len(deferred), self.max_active_replicas):
+                group = deferred[offset:offset + self.max_active_replicas]
+                self.switch_active(group)
+                self.wait(lambda: all(r.barrier_applied() for r in group),
+                          60, "Deferred final replication barrier timed out")
             for replica in self.replicas:
                 replica.finalize()
                 replica.verify_runtime(self.target["runtime_url"], self.run_id + ":final")

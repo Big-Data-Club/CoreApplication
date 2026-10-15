@@ -100,6 +100,7 @@ class Replica:
         self.tables = []
         self.materialized_views = []
         self.started = False
+        self.enabled = False
 
     def preflight(self):
         source_major = self.source.server_version // 10000
@@ -162,6 +163,21 @@ class Replica:
         dsn = make_dsn(self.source_url, dbname=self.database, application_name=APP)
         query(self.target, sql.SQL("CREATE SUBSCRIPTION {} CONNECTION {} PUBLICATION {} WITH (copy_data = true)").format(
             sql.Identifier(self.name), sql.Literal(dsn), sql.Identifier(self.name)))
+        self.enabled = True
+
+    def pause(self):
+        if self.enabled:
+            query(self.target, sql.SQL("ALTER SUBSCRIPTION {} DISABLE").format(sql.Identifier(self.name)))
+            self.enabled = False
+
+    def no_workers(self):
+        return query(self.target, "SELECT count(*) FROM pg_stat_subscription WHERE subname=%s AND pid IS NOT NULL",
+                     (self.name,))[0][0] == 0
+
+    def resume(self):
+        if not self.enabled:
+            query(self.target, sql.SQL("ALTER SUBSCRIPTION {} ENABLE").format(sql.Identifier(self.name)))
+            self.enabled = True
 
     def progress(self):
         ready, total = query(self.target, """SELECT count(*) FILTER (WHERE srsubstate='r'),count(*)

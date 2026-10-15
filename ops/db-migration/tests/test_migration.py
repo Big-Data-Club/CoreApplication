@@ -7,6 +7,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -97,6 +98,8 @@ class FakeReplica:
 
     def __init__(self, *_args):
         self.calls = []
+        self.source = SimpleNamespace(server_version=180000)
+        self.target = SimpleNamespace(server_version=180000)
 
     def __getattr__(self, name):
         def call(*args):
@@ -150,6 +153,85 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(migration.source["runtime_url"], TARGET_URL)
         self.assertEqual(self.kube.secret("bdc-db-source")["runtime_url"], next_url)
         self.assertEqual(self.kube.get("configmaps", "bdc-config")["data"]["POSTGRES_HOST"], "ep-next.region.neon.tech")
+
+    def test_six_databases_rotate_three_active_subscriptions_through_final_barrier(self):
+        for prefix in sorted(PREFIXES):
+            self.kube.objects[("secrets", "bdc-secrets")]["data"][prefix + "_DB"] = base64.b64encode(prefix.lower().encode()).decode()
+
+        class TrackedReplica(FakeReplica):
+            instances = []
+            maximum_active = 0
+
+            def __init__(self, *_args):
+                super().__init__(*_args)
+                self.enabled = False
+                self.seen_barrier = False
+                self.__class__.instances.append(self)
+
+            def mark_active(self):
+                active = sum(r.enabled for r in self.instances)
+                self.__class__.maximum_active = max(self.maximum_active, active)
+                if active > 3:
+                    raise AssertionError("More than three subscriptions active")
+
+            def prepare(self):
+                self.calls.append("prepare")
+                self.enabled = True
+                self.mark_active()
+
+            def pause(self):
+                self.calls.append("pause")
+                self.enabled = False
+
+            def no_workers(self):
+                return not self.enabled
+
+            def resume(self):
+                self.calls.append("resume")
+                self.enabled = True
+                self.mark_active()
+
+            def progress(self):
+                return {"ready": 2, "total": 2, "lag_bytes": 0, "streaming": self.enabled}
+
+            def caught_up(self):
+                return self.enabled
+
+            def barrier_applied(self):
+                if self.enabled:
+                    self.seen_barrier = True
+                return self.enabled
+
+            def finalize(self):
+                self.calls.append("finalize")
+                if not self.seen_barrier:
+                    raise AssertionError("Finalized before the subscription replayed its marker")
+
+        start(self.kube, PROFILE, REQUEST_ID, 42, TARGET_URL)
+        migration = Migration(self.kube, PROFILE, RUN_ID, TrackedReplica)
+        with patch("sys.stdout", new=io.StringIO()):
+            self.assertTrue(migration.run())
+        self.assertEqual(len(TrackedReplica.instances), 6)
+        self.assertEqual(TrackedReplica.maximum_active, 3)
+        self.assertTrue(all(r.seen_barrier for r in TrackedReplica.instances))
+        self.assertTrue(any("pause" in r.calls and "resume" in r.calls for r in TrackedReplica.instances))
+        self.assertEqual(state(self.kube)["phase"], "succeeded")
+
+    def test_postgres_17_checks_origin_capacity_using_replication_slots(self):
+        class PreviousMajor(FakeReplica):
+            def __init__(self, *_args):
+                super().__init__(*_args)
+                self.target.server_version = 170000
+
+        def checked_query(_conn, statement):
+            if "max_active_replication_origins" in statement:
+                raise AssertionError("PostgreSQL 17 has no separate origin capacity setting")
+            return [(20,)] if statement.startswith("SHOW ") else [(0,)]
+
+        start(self.kube, PROFILE, REQUEST_ID, 42, TARGET_URL)
+        migration = Migration(self.kube, PROFILE, RUN_ID, PreviousMajor)
+        with patch("runner.query", side_effect=checked_query), patch("sys.stdout", new=io.StringIO()):
+            self.assertTrue(migration.run())
 
     def test_source_promotion_failure_keeps_lock(self):
         self.kube.fail_patch = ("secrets", "bdc-db-source")

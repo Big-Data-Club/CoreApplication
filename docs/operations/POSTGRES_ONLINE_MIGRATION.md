@@ -29,8 +29,10 @@ Applications keep writing to the source during the initial copy. Native
 PostgreSQL logical replication sends changes directly from source to
 destination; the full dump does not pass through a laptop or K3s disk.
 `pg_dump --schema-only` prepares the destination schema. Databases are
-bootstrapped one at a time to limit temporary table-sync slot demand while
-earlier streams continue running.
+bootstrapped one at a time. Up to three subscriptions stay active on the
+destination; completed ones are paused when another database needs a worker.
+Their source slots retain WAL, and they are resumed and caught up before
+cutover. The final write pause includes one last catch-up for paused databases.
 
 The Job holds `ACCESS SHARE` locks on source tables to block schema changes
 and `TRUNCATE`; INSERT/UPDATE/DELETE remain available. After all tables have
@@ -81,20 +83,13 @@ application connection or readiness behavior.
   Operators must separately inventory external clients and credentials that
   do not follow these conventions. Reserve the destination for migration;
   no external writers may use it before cutover.
-- Allow enough replication slots, WAL senders, and logical workers for the
-  database count plus two beyond current use. Profiles bound lag and time.
-  Monitor retained WAL on Neon; the lag threshold is not a provider storage
-  quota control.
-
-For six distinct application databases, the destination needs at least eight
-free `max_logical_replication_workers` slots under the current all-at-once
-cutover design. A destination with a limit of four cannot keep all six
-subscriptions active through cutover. This PostgreSQL parameter is set at
-server start, so restarting K3s Pods or lowering the pipeline's preflight
-threshold cannot add workers. Ask the destination provider to raise the limit
-to at least eight, or use a destination that offers that capacity; also verify
-`max_worker_processes` and `max_active_replication_origins`. If that capacity
-is unavailable, use a separate migration plan with a longer write pause.
+- Source replication slots and WAL senders need database count plus two free
+  slots under the existing conservative limit. The destination needs at least
+  two free logical workers (one apply and one table-sync); with four free, it
+  runs up to three subscriptions concurrently. It also needs at least database
+  count plus one `max_active_replication_origins`. Profiles bound aggregate
+  retained WAL and time. A paused subscription's slot retains WAL until it is
+  resumed or removed; the lag threshold is not a provider storage quota.
 
 ## Prepare Neon
 
@@ -343,9 +338,10 @@ Compose uses PostgreSQL fixtures on tmpfs, exposes no host port, and does not
 connect to Neon. Set `PG_MAJOR=16` or `PG_MAJOR=17` to test those versions;
 PG18 is the default. An explicit fixture data directory keeps data on tmpfs
 across the PostgreSQL Docker image directory conventions. The
-integration test compares two databases after concurrent
-INSERT/UPDATE/DELETE, final markers, used and unused sequences, quoted
-identifiers, DDL guarding, and slot cleanup. Unit tests cover auth/CSRF,
+integration test compares six databases on a four-worker destination after
+pausing and resuming subscriptions, concurrent INSERT/UPDATE/DELETE, final
+markers, used and unused sequences, quoted identifiers, DDL guarding, and
+slot cleanup. Unit tests cover auth/CSRF,
 idempotency, duplicate Jobs, patch failures, and recovery boundaries.
 Staging checks of K3s readiness, ingress, Grafana cookies, RBAC, and real
 Neon limits are still required before a production cutover. Local tests do
