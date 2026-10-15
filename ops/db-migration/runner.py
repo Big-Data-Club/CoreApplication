@@ -160,15 +160,19 @@ class Migration:
         self.preflight_check = "replication_capacity"
         count = len(self.replicas)
         source_conn, target_conn = self.replicas[0].source, self.replicas[0].target
-        for conn, setting, used_sql in (
-            (source_conn, "max_replication_slots", "SELECT count(*) FROM pg_replication_slots"),
-            (source_conn, "max_wal_senders", "SELECT count(*) FROM pg_stat_activity WHERE backend_type='walsender'"),
-            (target_conn, "max_logical_replication_workers", "SELECT count(*) FROM pg_stat_subscription WHERE pid IS NOT NULL"),
+        for conn, endpoint_name, setting, used_sql in (
+            (source_conn, "source", "max_replication_slots", "SELECT count(*) FROM pg_replication_slots"),
+            (source_conn, "source", "max_wal_senders", "SELECT count(*) FROM pg_stat_activity WHERE backend_type='walsender'"),
+            (target_conn, "destination", "max_logical_replication_workers", "SELECT count(*) FROM pg_stat_subscription WHERE pid IS NOT NULL"),
         ):
             capacity = int(query(conn, "SHOW " + setting)[0][0])
-            used = query(conn, used_sql)[0][0]
-            if capacity - used < count + 2:
-                raise MigrationError("Insufficient replication capacity: " + setting + "; reserve database count + 2")
+            used = int(query(conn, used_sql)[0][0])
+            required = count + 2
+            if capacity - used < required:
+                raise MigrationError(
+                    f"Insufficient replication capacity on {endpoint_name}: {setting}={capacity}, "
+                    f"in_use={used}, free={capacity - used}, required_free={required} "
+                    f"for {count} databases. Increase the {endpoint_name} limit before retrying")
 
     def copy_ready(self, count=None):
         replicas = self.replicas[:count] if count else self.replicas

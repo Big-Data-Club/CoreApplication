@@ -86,6 +86,16 @@ application connection or readiness behavior.
   Monitor retained WAL on Neon; the lag threshold is not a provider storage
   quota control.
 
+For six distinct application databases, the destination needs at least eight
+free `max_logical_replication_workers` slots under the current all-at-once
+cutover design. A destination with a limit of four cannot keep all six
+subscriptions active through cutover. This PostgreSQL parameter is set at
+server start, so restarting K3s Pods or lowering the pipeline's preflight
+threshold cannot add workers. Ask the destination provider to raise the limit
+to at least eight, or use a destination that offers that capacity; also verify
+`max_worker_processes` and `max_active_replication_origins`. If that capacity
+is unavailable, use a separate migration plan with a longer write pause.
+
 ## Prepare Neon
 
 1. On the **source** project, enable **Settings → Postgres → Logical
