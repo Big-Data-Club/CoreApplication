@@ -86,10 +86,12 @@ application connection or readiness behavior.
 - Source replication slots and WAL senders need database count plus two free
   slots under the existing conservative limit. The destination needs at least
   two free logical workers (one apply and one table-sync); with four free, it
-  runs up to three subscriptions concurrently. It also needs at least database
-  count plus one `max_active_replication_origins`. Profiles bound aggregate
-  retained WAL and time. A paused subscription's slot retains WAL until it is
-  resumed or removed; the lag threshold is not a provider storage quota.
+  runs up to three subscriptions concurrently. It also needs replication
+  origin capacity of at least database count plus one, set by
+  `max_active_replication_origins` on PostgreSQL 18 or `max_replication_slots`
+  on PostgreSQL 16 and 17. Profiles bound aggregate retained WAL and time.
+  A paused subscription's slot retains WAL until it is resumed or removed;
+  the lag threshold is not a provider storage quota.
 
 ## Prepare Neon
 

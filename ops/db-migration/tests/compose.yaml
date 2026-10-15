@@ -16,7 +16,7 @@ services:
     environment:
       POSTGRES_PASSWORD: local-fixture-only
       PGDATA: /var/lib/postgresql/fixture
-    command: [postgres, -c, max_logical_replication_workers=4, -c, max_worker_processes=17, -c, max_active_replication_origins=10]
+    command: [postgres, -c, max_logical_replication_workers=4, -c, max_worker_processes=17]
     tmpfs: [/var/lib/postgresql]
     healthcheck:
       test: [CMD-SHELL, pg_isready -U postgres]
