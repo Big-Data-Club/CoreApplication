@@ -26,6 +26,7 @@ from app.services.studio.doc_renderer import render_plan_to_markdown
 from app.services.studio.plan_schema import PlanSection, StudioPlan, coerce_plan
 from app.services.studio.pptx_renderer import render_plan_to_pptx_bytes
 from app.services.studio.authoring_context import prepare_authoring_context, select_evidence
+from app.core.llm_gateway.evidence_budget import make_evidence_packer
 from app.core.llm_gateway.token_budget import estimate_tokens
 
 logger = logging.getLogger(__name__)
@@ -259,6 +260,8 @@ class StudioService:
                     task=TASK_CONTENT_STUDIO,
                     temperature=0.25,
                     max_tokens=min(2600, 350 + 700 * len(batch)),
+                    message_packer=make_evidence_packer(batch_evidence, query=" ".join(s.title for _, s in batch)),
+                    min_completion_tokens=1200,
                 )
                 values = result.get("sections") if isinstance(result, dict) else None
                 if not isinstance(values, list):
@@ -334,6 +337,8 @@ class StudioService:
             ],
             temperature=0.4,
             max_tokens=output_tokens,
+            message_packer=make_evidence_packer(prepared.text),
+            min_completion_tokens=1200,
         ))
 
         plan, warnings = coerce_plan(

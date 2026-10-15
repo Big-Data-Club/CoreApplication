@@ -88,9 +88,9 @@ class LLMGateway:
                 lease = await self.key_pool.lease(binding.model.provider_id)
             except NoKeyAvailableError:
                 continue
-            return self._request_budget(binding.model.context_window, lease.record.tpm_limit)
+            return self._request_budget(binding.model.context_window, lease.record.tpm_limit, binding.model)
         if chain:
-            return self._request_budget(chain[0].model.context_window)
+            return self._request_budget(chain[0].model.context_window, model=chain[0].model)
         return settings.llm_request_token_budget
  
     # ── Public API ───────────────────────────────────────────────────────────
@@ -232,6 +232,7 @@ class LLMGateway:
         req: ChatRequest,
         attempt_no: int,
         fallback_used: bool,
+        _context_retry: bool = False,
     ) -> ChatResponse:
         model = binding.model
         adapter_cls = get_adapter_class(model.adapter_type)
@@ -243,7 +244,7 @@ class LLMGateway:
             req.max_tokens, binding.max_tokens, model.default_max_tokens,
         ))
         if not req.message_packer:
-            self._fit_completion_budget(req, model.context_window, requested_max_tokens, model=model)
+            self._fit_completion_budget(req, model.context_window, requested_max_tokens)
         json_mode = (
             req.json_mode if req.json_mode is not None
             else binding.json_mode
@@ -319,6 +320,12 @@ class LLMGateway:
                     fallback_used=fallback_used, attempt_no=attempt_no,
                     error_code="context_length", error_message=str(exc),
                 )
+                if req.message_packer and not _context_retry:
+                    smaller = self._smaller_binding(binding, lease.record.tpm_limit, exc)
+                    return await self._call_binding(
+                        binding=smaller, req=req, attempt_no=attempt_no + 1,
+                        fallback_used=fallback_used, _context_retry=True,
+                    )
                 raise
             except ProviderError as exc:
                 elapsed = int((time.monotonic() - start) * 1000)
@@ -428,6 +435,7 @@ class LLMGateway:
         req: ChatRequest,
         attempt_no: int,
         fallback_used: bool,
+        _context_retry: bool = False,
     ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
         model = binding.model
         adapter_cls = get_adapter_class(model.adapter_type)
@@ -439,7 +447,7 @@ class LLMGateway:
             req.max_tokens, binding.max_tokens, model.default_max_tokens,
         ))
         if not req.message_packer:
-            self._fit_completion_budget(req, model.context_window, requested_max_tokens, model=model)
+            self._fit_completion_budget(req, model.context_window, requested_max_tokens)
         json_mode = (
             req.json_mode if req.json_mode is not None
             else binding.json_mode
@@ -509,6 +517,18 @@ class LLMGateway:
                 await self.key_pool.record_auth_failure(lease.id, str(exc))
                 last_key_error = exc
                 continue
+            except ContextLengthError as exc:
+                if not first_chunk:
+                    raise
+                if req.message_packer and not _context_retry:
+                    smaller = self._smaller_binding(binding, lease.record.tpm_limit, exc)
+                    async for item in self._stream_binding(
+                        binding=smaller, req=req, attempt_no=attempt_no + 1,
+                        fallback_used=fallback_used, _context_retry=True,
+                    ):
+                        yield item
+                    return
+                raise
             except ProviderError as exc:
                 if not first_chunk: raise
                 await self.key_pool.record_generic_failure(lease.id, str(exc))
@@ -538,9 +558,23 @@ class LLMGateway:
             **kwargs,
         )
 
+    def _smaller_binding(self, binding: TaskBinding, tpm_limit: int | None, error: ContextLengthError) -> TaskBinding:
+        current = self._request_budget(binding.model.context_window, tpm_limit, binding.model)
+        smaller = max(1, int(current * 0.65))
+        if error.max_request_tokens:
+            smaller = min(smaller, error.max_request_tokens)
+        model = replace(binding.model, config={**binding.model.config, "request_token_budget": smaller})
+        return replace(binding, model=model)
+
     @staticmethod
-    def _request_budget(context_window: int, key_tpm_limit: int | None = None) -> int:
+    def _request_budget(context_window: int, key_tpm_limit: int | None = None, model: Model | None = None) -> int:
         budget = min(settings.llm_request_token_budget, context_window)
+        if model and model.adapter_type == "groq" and not key_tpm_limit:
+            budget = min(budget, settings.llm_groq_request_token_budget)
+        if model and isinstance(model.config, dict):
+            configured = model.config.get("request_token_budget")
+            if isinstance(configured, int) and configured > 0:
+                budget = min(budget, configured)
         if key_tpm_limit:
             safety_ratio = min(0.9, max(0.5, settings.llm_tpm_safety_ratio))
             budget = min(budget, max(256, int(key_tpm_limit * safety_ratio)))
@@ -566,7 +600,7 @@ class LLMGateway:
     ) -> tuple[ChatRequest, int]:
         prepared = req
         if req.message_packer:
-            budget = self._request_budget(model.context_window, key_tpm_limit)
+            budget = self._request_budget(model.context_window, key_tpm_limit, model)
             # Reserve useful answer space before selecting evidence. Keeping
             # only the minimum output allowance could starve an agent answer.
             output_reserve = max(self._minimum_completion(req, model), min(requested_max_tokens, budget // 4))
@@ -601,7 +635,7 @@ class LLMGateway:
         # only message content let a tool-heavy request pass preflight then
         # fail at Groq with a TPM 413.
         prompt_tokens = estimate_request_tokens(req.messages, req.extra)
-        request_budget = LLMGateway._request_budget(context_window, key_tpm_limit)
+        request_budget = LLMGateway._request_budget(context_window, key_tpm_limit, model)
         available = request_budget - prompt_tokens
         min_completion = LLMGateway._minimum_completion(req, model)
         if available < min_completion:

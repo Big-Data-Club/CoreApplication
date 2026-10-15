@@ -30,6 +30,8 @@ import httpx
 from app.core.config import get_settings
 from app.core.llm import chat_complete_json
 from app.core.llm_gateway import TASK_SECTION_OVERVIEW_GEN
+from app.core.llm_gateway.evidence_budget import make_evidence_packer
+from app.core.llm_gateway.errors import ContextLengthError
 from app.core.llm_gateway.token_budget import (
     estimate_tokens,
     pack_by_token_budget,
@@ -240,6 +242,7 @@ class SectionOverviewService:
         task: str = "",
         add_log = None,
         max_retries: int = 3,
+        evidence_text: str | None = None,
     ) -> dict:
         """
         Call chat_complete_json with exponential backoff on failure.
@@ -254,10 +257,14 @@ class SectionOverviewService:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     task=task,
+                    message_packer=make_evidence_packer(evidence_text) if evidence_text else None,
                 )
                 if isinstance(result, dict):
                     return result
                 raise ValueError(f"LLM returned invalid response type: {type(result)}")
+            except ContextLengthError:
+                # Repeating the same mandatory payload cannot fix its size.
+                raise
             except Exception as exc:
                 if attempt == max_retries:
                     if add_log:
@@ -599,6 +606,7 @@ class SectionOverviewService:
                 model=settings.quiz_model,
                 temperature=0.4,
                 max_tokens=2200,
+                evidence_text=synopses_combined,
                 task=TASK_SECTION_OVERVIEW_GEN,
                 add_log=add_log,
             )
@@ -1007,16 +1015,20 @@ class SectionOverviewService:
         groups = []
         current_group = []
         current_chars = 0
+        current_tokens = 0
         
         for item in expanded_nodes:
             node_chars = sum(len(c) for c in item.get("chunks", []))
-            if (len(current_group) >= max_nodes_per_agent) or (current_group and (current_chars + node_chars > max_chars_per_agent)):
+            node_tokens = sum(estimate_tokens(c) for c in item.get("chunks", []))
+            if (len(current_group) >= max_nodes_per_agent) or (current_group and (current_chars + node_chars > max_chars_per_agent or current_tokens + node_tokens > _SOURCE_BATCH_TOKENS)):
                 groups.append(current_group)
                 current_group = [item]
                 current_chars = node_chars
+                current_tokens = node_tokens
             else:
                 current_group.append(item)
                 current_chars += node_chars
+                current_tokens += node_tokens
         if current_group:
             groups.append(current_group)
             
@@ -1072,6 +1084,7 @@ class SectionOverviewService:
                         model=settings.quiz_model,
                         temperature=0.2,
                         max_tokens=1200,
+                        evidence_text=source,
                         task=TASK_SECTION_OVERVIEW_GEN,
                         add_log=add_log,
                     )
@@ -1150,6 +1163,7 @@ class SectionOverviewService:
                     model=settings.quiz_model,
                     temperature=0.3,
                     max_tokens=1600,
+                    evidence_text=nodes_context,
                     task=TASK_SECTION_OVERVIEW_GEN,
                     add_log=add_log,
                 )
@@ -1262,6 +1276,7 @@ class SectionOverviewService:
                     model=settings.quiz_model,
                     temperature=0.5,
                     max_tokens=4000,
+                    evidence_text=nodes_context,
                     task=TASK_SECTION_OVERVIEW_GEN,
                     add_log=add_log,
                 )

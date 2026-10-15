@@ -154,6 +154,7 @@ class FlashcardService:
         from app.core.llm import chat_complete_json, build_flashcard_generation_prompt
         from app.services.rag_service import rag_service
         from app.core.llm_gateway import TASK_FLASHCARD_GEN
+        from app.core.llm_gateway.evidence_budget import make_evidence_packer
 
         settings = get_settings()
 
@@ -224,6 +225,7 @@ class FlashcardService:
             model=settings.quiz_model,
             temperature=0.7,
             task=TASK_FLASHCARD_GEN,
+            message_packer=make_evidence_packer("\n---\n".join(f"[Source {i+1}] {text}" for i, text in enumerate(context_texts)), query=node_name),
         )
         # Accept both {"flashcards": [...]} and a bare [...] array - some
         # providers drop the wrapper key.

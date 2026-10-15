@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.database import get_ai_conn
+from app.core.llm_gateway.errors import LLMGatewayError
 from app.services.diagnosis_service import diagnosis_service
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,8 @@ async def diagnose_error(body: DiagnoseRequest, request: Request):
             answer_options=body.answer_options,
             node_id=body.node_id,
         )
+    except LLMGatewayError:
+        raise HTTPException(status_code=503, detail="Diagnosis is temporarily unavailable. Please retry.")
     except Exception as e:
         logger.error(f"Diagnosis failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

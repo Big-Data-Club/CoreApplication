@@ -20,6 +20,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.llm import chat_complete_json
 from app.core.llm_gateway import TASK_MICRO_QUIZ_GEN
+from app.core.llm_gateway.evidence_budget import make_evidence_packer
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -285,6 +286,7 @@ class MicroQuizService:
                     temperature=0.4,
                     max_tokens=2000,
                     task=TASK_MICRO_QUIZ_GEN,
+                    message_packer=make_evidence_packer(truncated),
                 )
             except Exception as exc:
                 logger.error("Quiz question LLM failed: %s", exc)

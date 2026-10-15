@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from app.core.database import get_ai_conn
 from app.core.llm import chat_complete_json, build_diagnosis_prompt
 from app.core.llm_gateway import TASK_DIAGNOSIS
+from app.core.llm_gateway.evidence_budget import make_evidence_packer
 from app.core.cache import diagnosis_cache
 from app.services.rag_service import rag_service, RetrievedChunk
 from app.core.config import get_settings
@@ -88,7 +89,16 @@ class DiagnosisService:
                 logger.warning("Parent hydration failed: %s", exc)
 
         # ── 4. LLM diagnosis ─────────────────────────────────────────────────
-        context_texts = [c.chunk_text for c in chunks] if chunks else []
+        # Matched child evidence comes first; repeated parent windows do not
+        # need to consume the prompt once for every matching child.
+        context_texts = []
+        seen_parents: set[str] = set()
+        for chunk in chunks:
+            text = chunk.child_text or chunk.chunk_text
+            if chunk.child_text and chunk.chunk_text not in seen_parents:
+                text += "\nSurrounding passage:\n" + chunk.chunk_text
+                seen_parents.add(chunk.chunk_text)
+            context_texts.append(text)
         if not context_texts and correct_answer:
             context_texts = [f"Đáp án đúng: {correct_answer}"]
 
@@ -102,16 +112,17 @@ class DiagnosisService:
         )
 
         try:
-            llm_result = await chat_complete_json(messages=messages, task=TASK_DIAGNOSIS)
+            evidence = "\n---\n".join(f"[Segment {i+1}] {c}" for i, c in enumerate(context_texts))
+            llm_result = await chat_complete_json(
+                messages=messages, task=TASK_DIAGNOSIS,
+                message_packer=make_evidence_packer(evidence, query=f"{question_text} {correct_answer} {wrong_answer}"),
+                min_completion_tokens=768,
+            )
         except Exception as exc:
             logger.error("LLM diagnosis failed: %s", exc)
-            llm_result = {
-                "explanation":     "Không thể phân tích lỗi lúc này." if language == "vi" else "Unable to analyze at this time.",
-                "gap_type":        "other",
-                "knowledge_gap":   "",
-                "study_suggestion": "Xem lại tài liệu liên quan." if language == "vi" else "Review related materials.",
-                "confidence":      0.5,
-            }
+            # A transient provider failure is not a diagnosis. Do not persist
+            # or cache an invented result as if analysis succeeded.
+            raise
         # LLM may emit a bare array - collapse so downstream .get() is safe.
         from app.core.llm import ensure_dict
         llm_result = ensure_dict(llm_result)

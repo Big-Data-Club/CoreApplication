@@ -25,6 +25,20 @@ metadata:
   namespace: default
 # enabled_profiles is populated by interactive setup and preserved on deploy.
 ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bdc-db-source
+  namespace: default
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bdc-db-target
+  namespace: default
+type: Opaque
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -6,10 +6,14 @@
 <p>Dữ liệu được chép và đồng bộ khi hệ thống vẫn chạy. Các service tạm dừng ghi ở bước chuyển kết nối, rồi tự khởi động với DB mới.</p>
 <label for="profile">Luồng chuyển đã cấu hình</label><select id="profile" disabled></select>
 <p id="profile-note">Đang tải cấu hình…</p>
-<label for="target-url">URL Neon đích cho lượt chuyển này</label>
+<label for="source-url">1. URL Neon nguồn đang được ứng dụng sử dụng</label>
+<input id="source-url" type="password" autocomplete="off" spellcheck="false" placeholder="postgresql://…">
+<p class="muted">Nhập nguồn lần đầu; các lần sau có thể để trống để dùng nguồn đã lưu. Job kiểm tra nguồn khớp kết nối ứng dụng trước khi chuyển.</p>
+<label for="target-url">2. URL Neon đích cho lượt chuyển này</label>
 <input id="target-url" type="password" autocomplete="off" spellcheck="false" placeholder="postgresql://…" required>
 <p class="muted">Mỗi lượt nhập URL đích mới. Khi chuyển thành công, đích tự trở thành nguồn của lượt sau. URL chỉ gửi tới Kubernetes Secret.</p>
 <button id="start" disabled>Bắt đầu chuyển DB</button>
+<p class="muted">Luồng này chuyển toàn bộ DB ứng dụng và giữ nguyên tên. Đường dẫn /neondb trong URL đích là DB kết nối quản trị; dữ liệu ai được chép sang ai trên server đích.</p>
 <p id="error" role="alert"></p>
 <section aria-live="polite"><h2>Tiến độ</h2><strong id="phase">Chưa có lượt chuyển</strong>
 <p id="progress"></p><p id="details"></p><p id="recovery"></p></section>

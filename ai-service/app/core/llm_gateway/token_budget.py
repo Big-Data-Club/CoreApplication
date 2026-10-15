@@ -28,7 +28,8 @@ def estimate_tokens(value: Any) -> int:
         text = value
     else:
         text = json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
-    return max(1, math.ceil(len(text) / _CHARS_PER_TOKEN))
+    unicode_bytes = len(text.encode("utf-8")) - len(text)
+    return max(1, math.ceil(len(text) / _CHARS_PER_TOKEN + unicode_bytes / 2))
 
 
 def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
@@ -72,6 +73,8 @@ def split_text_preserving_content(text: str, max_tokens: int) -> list[str]:
     if estimate_tokens(text) <= max_tokens:
         return [text]
 
+    # A Unicode character can use several tokenizer bytes. A fixed character
+    # cap alone does not bound Vietnamese, CJK, emoji, or code safely.
     max_chars = max(1, int(max_tokens * _CHARS_PER_TOKEN))
     paragraphs = text.splitlines(keepends=True)
     pieces: list[str] = []
@@ -80,7 +83,24 @@ def split_text_preserving_content(text: str, max_tokens: int) -> list[str]:
     def flush() -> None:
         nonlocal current
         if current:
-            pieces.append(current)
+            if estimate_tokens(current) <= max_tokens:
+                pieces.append(current)
+            else:
+                remaining = current
+                while remaining:
+                    low, high = 0, len(remaining)
+                    while low < high:
+                        mid = (low + high + 1) // 2
+                        if estimate_tokens(remaining[:mid]) <= max_tokens:
+                            low = mid
+                        else:
+                            high = mid - 1
+                    if low == 0:
+                        raise ValueError("Token budget cannot hold one Unicode character")
+                    cut = remaining.rfind(" ", 0, low + 1)
+                    cut = cut if cut > low // 2 else low
+                    pieces.append(remaining[:cut])
+                    remaining = remaining[cut:]
             current = ""
 
     for paragraph in paragraphs:
@@ -97,7 +117,8 @@ def split_text_preserving_content(text: str, max_tokens: int) -> list[str]:
             cut = remaining.rfind(" ", 0, max_chars + 1)
             if cut <= 0:
                 cut = max_chars
-            pieces.append(remaining[:cut])
+            current = remaining[:cut]
+            flush()
             remaining = remaining[cut:]
         current = remaining
     flush()
@@ -119,6 +140,8 @@ def pack_by_token_budget(items: Iterable[Any], max_tokens: int) -> list[list[Any
             expanded = [item]
         for part in expanded:
             cost = estimate_tokens(part)
+            if cost > max_tokens:
+                raise ValueError("Structured item exceeds batch token budget; split it explicitly")
             if current and current_tokens + cost > max_tokens:
                 batches.append(current)
                 current, current_tokens = [], 0

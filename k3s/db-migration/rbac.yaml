@@ -29,7 +29,7 @@ rules:
     verbs: [get, create]
   - apiGroups: ['']
     resources: [secrets]
-    resourceNames: [bdc-db-target]
+    resourceNames: [bdc-db-source, bdc-db-target]
     verbs: [patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

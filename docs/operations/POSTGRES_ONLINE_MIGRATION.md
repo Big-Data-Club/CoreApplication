@@ -134,13 +134,14 @@ CoreApplication checkout on a server with the operations kubeconfig:
 git pull --ff-only origin main
 kubectl -n default rollout status deployment/bdc-db-migration-console --timeout=5m
 python3 scripts/enable-db-migration-dashboard.py
-python3 scripts/configure-db-migration.py --source-only --enable
+kubectl -n default patch configmap bdc-db-migration-settings --type=merge \
+  -p '{"data":{"enabled_profiles":"[\"production-cloud-cutover\"]"}}'
 ```
 
 The dashboard setup is a one-time Helm operation. The reported deployment and
 dashboard setup have already succeeded; do not repeat them merely because
-endpoint setup failed. Run `configure-db-migration.py` again after resolving
-its input or Kubernetes error. Use `python3`, `kubectl`, and `helm` from the
+endpoint setup failed. Enter the source and destination in the console after
+the updated deployment succeeds. Use `python3`, `kubectl`, and `helm` from the
 repository directory with rights to update the monitoring release. If the
 checkout is on another branch or has local changes, reconcile it rather than
 forcing a reset.
@@ -148,7 +149,7 @@ forcing a reset.
 An earlier deploy applied the stateful `bdc-db-operation` ConfigMap while the
 deployment owned its lock. The console rolled out, but the final lock release
 failed with `Refusing to release another operation's lock`. The deploy script
-now creates lock, state, settings, and recovery resources only when absent and
+now creates lock, state, settings, endpoint Secrets, and recovery resources only when absent and
 excludes them from subsequent `kubectl apply` calls. After this failure,
 inspect the lock owner and any migration Job before retrying the fixed workflow:
 
@@ -171,35 +172,35 @@ Later pushes update the dashboard ConfigMap and console without repeating
 Helm. The dashboard is at `/monitor/d/bdc-db-migration/`; the console is at
 `/monitor/migrations/`.
 
-With `--source-only --enable`, the setup script asks once for the **source
-runtime URL** using a hidden prompt. Wait until `Source runtime URL (hidden):`
-appears, paste the URL currently used by applications, then press Enter. It
-does not ask for a destination. Enter a **new destination runtime URL** in
-`/monitor/migrations/` for each run. The URL must point to an existing
-administrative database, such as `neondb`; the Job gets application database
-names from the runtime bindings. Neon pooled URLs containing
-`sslmode=require&channel_binding=require` are accepted. The direct URL for
-replication is derived by removing `-pooler` from the hostname. URLs are not
-placed in Jobs, status ConfigMaps, or application logs, but remain in
-Kubernetes Secrets and could appear in cluster audit logs if request bodies
-are recorded.
+Enter the **source runtime URL** and **destination runtime URL** in
+`/monitor/migrations/`. Both inputs are password fields. The source must match
+the endpoint and credentials currently used by all application bindings;
+preflight rejects a mismatch before stopping writers. The URL database path
+is an administrative connection, not a database selection: a source URL ending
+in `/ai` and a destination ending in `/neondb` still move all six configured
+bindings and preserve each database name, including `ai` → `ai`.
 
-The script writes the source Secret and ensures a destination Secret exists
-through stdin using server-side apply, then enables the profile in
-`bdc-db-migration-settings`. It never places credentials on a command line,
-in Git, or in a last-applied annotation. It does not start a migration. Omit
-`--enable` if the profile should remain disabled. Later pushes preserve the
-endpoint Secrets, enabled profile, lock, and recovery snapshot. Allow up to
-two minutes for the mounted settings to refresh, then reload the console.
+Neon pooled URLs containing `sslmode=require&channel_binding=require` are
+accepted. The direct URL for replication is derived by removing `-pooler`
+from the hostname. URLs are stored only in Kubernetes Secrets, not Jobs,
+status ConfigMaps, or application logs. Cluster audit policies that record
+Secret request bodies can still capture them.
+
+Deployment creates empty endpoint Secrets only when absent. Later pushes
+preserve endpoint credentials, enabled profiles, the lock, and recovery
+snapshot. Allow up to two minutes for mounted settings to refresh, then reload
+the console. As an optional CLI alternative,
+`python3 scripts/configure-db-migration.py --enable` accepts both URLs through
+hidden prompts; it configures endpoints but does not start migration.
 
 Before starting, complete **Prepare Neon**, especially source logical
 replication, and compare [profiles.json](../../k3s/db-migration/profiles.json)
 with actual cluster writers. Sign in as a Grafana server Admin, select the
-profile, enter the destination URL, and start the migration. Viewer,
+profile, enter the source and destination URLs, and start the migration. Viewer,
 Editor, and organization Admin accounts cannot call the control API.
 
-For A→B, configure A once on K3s and enter B in the console. After
-`succeeded`, the source Secret becomes B. For B→C, enter only C; likewise
+For A→B, enter A and B in the console. After `succeeded`, the source Secret
+becomes B. For B→C, leave source blank to use saved B and enter C; likewise
 for C→D. A failed or `recovery_required` run does not promote the source.
 Resolve the status and lock before another attempt. Each destination needs
 empty databases and the permissions and replication settings above.
@@ -210,7 +211,7 @@ an old standalone Grafana manifest. Scripts in the older
 `Backup-and-Migration-DB` repository do not share the new lock; do not run
 them concurrently with the console or deployment.
 
-RBAC separates the console (state, lock, destination Secret patch, Job
+RBAC separates the console (state, lock, endpoint Secret patch, Job
 creation) from the worker (endpoint Secret reads, runtime/recovery Secret
 patches, source promotion, and approved writer scaling). Namespace Job
 creation is still a powerful operational privilege. Treat the console as an

@@ -7,6 +7,7 @@ import asyncio
 from app.core.llm import chat_complete_json
 from app.core.llm_gateway import TASK_CONTENT_STUDIO
 from app.core.llm_gateway.token_budget import estimate_tokens
+from app.core.llm_gateway.evidence_budget import make_evidence_packer
 from app.services.learning_context import LearningContext
 from app.services.studio.authoring_context import prepare_authoring_context, select_evidence
 
@@ -44,7 +45,8 @@ async def plan_learning_units(context: LearningContext, *, kind: str, language: 
             "minutes_per_unit": target_minutes, "evidence": prepared.text,
             "relationships": context.relations,
         }, ensure_ascii=False)},
-    ], task=TASK_CONTENT_STUDIO, temperature=0.2, max_tokens=output_tokens), timeout=180)
+    ], task=TASK_CONTENT_STUDIO, temperature=0.2, max_tokens=output_tokens,
+        message_packer=make_evidence_packer(prepared.text), min_completion_tokens=1200), timeout=180)
     units = raw.get("units") if isinstance(raw, dict) else None
     limit = count or 12
     if not isinstance(units, list) or not 1 <= len(units) <= limit or (count and len(units) != count):

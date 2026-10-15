@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     # immediately. Override per environment if any provider still enforces a
     # low TPM tier.
     llm_request_token_budget: int = 30000
+    # Conservative Groq envelope until an operator configures actual key TPM.
+    # Model context capacity is not the organization's per-minute allowance.
+    llm_groq_request_token_budget: int = 6000
     llm_min_completion_tokens: int = 128
     # A provider may use a tokenizer that differs slightly from the gateway's
     # conservative estimate.  Reserve headroom for TPM enforcement.

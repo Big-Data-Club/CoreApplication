@@ -217,7 +217,8 @@ class MicroLessonService:
         next_unit: Optional[dict] = None,
     ) -> Optional[GeneratedLesson]:
         from app.services.studio.authoring_context import prepare_authoring_context
-        prepared = await prepare_authoring_context(unit["sources"], requested_output_tokens=4000, fixed_prompt_tokens=1500)
+        from app.core.llm_gateway.evidence_budget import make_evidence_packer
+        prepared = await prepare_authoring_context(unit["sources"], requested_output_tokens=4000, fixed_prompt_tokens=1500, task=TASK_MICRO_LESSON_GEN)
         markdown_doc = "\n\n".join(s["text"] for s in unit["sources"])
         truncated = prepared.text
 
@@ -292,6 +293,8 @@ class MicroLessonService:
                 temperature=0.25,
                 max_tokens=4000,
                 task=TASK_MICRO_LESSON_GEN,
+                message_packer=make_evidence_packer(truncated, query=f"{unit['title']} {unit['objective']}"),
+                min_completion_tokens=2000,
             )
         except Exception as exc:
             logger.error("Lesson generation LLM failed: %s", exc)

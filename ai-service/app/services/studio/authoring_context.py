@@ -17,6 +17,8 @@ from app.core.config import get_settings
 from app.core.llm import chat_complete_json
 from app.core.llm_gateway import TASK_CONTENT_STUDIO, get_gateway
 from app.core.llm_gateway.token_budget import estimate_tokens, split_text_preserving_content
+from app.core.llm_gateway.evidence_budget import compact_evidence, make_evidence_packer
+from app.core.llm_gateway.errors import ContextLengthError
 
 
 @dataclass(slots=True)
@@ -56,8 +58,14 @@ async def _request_budget(task: str, requested_output_tokens: int, fixed_prompt_
     settings = get_settings()
     hard_limit = settings.llm_request_token_budget
     try:
-        chain = await get_gateway().registry.get_binding_chain(task)
-        windows = [binding.model.context_window for binding in chain if binding.model.context_window > 0]
+        gateway = get_gateway()
+        chain = await gateway.registry.get_binding_chain(task)
+        windows = []
+        for binding in chain:
+            keys = await gateway.registry.list_api_keys(provider_id=binding.model.provider_id)
+            limits = [key.tpm_limit for key in keys if key.status in ("active", "cooldown")]
+            windows.extend(gateway._request_budget(binding.model.context_window, limit, binding.model)
+                           for limit in (limits or [None]))
         if windows:
             # A context prepared for the smallest fallback works for every
             # configured model rather than failing only after a provider switch.
@@ -65,7 +73,11 @@ async def _request_budget(task: str, requested_output_tokens: int, fixed_prompt_
     except Exception:
         pass
     guard = max(384, int(hard_limit * 0.08))
-    return max(900, hard_limit - requested_output_tokens - fixed_prompt_tokens - guard)
+    output_reserve = min(requested_output_tokens, max(768, hard_limit // 3))
+    available = hard_limit - output_reserve - fixed_prompt_tokens - guard
+    if available < 128:
+        raise ContextLengthError("Authoring instructions and requested output leave no useful source budget; use smaller output batches or a larger binding")
+    return available
 
 
 def _source_block(index: int, entry: dict[str, Any], text: str | None = None) -> str:
@@ -104,11 +116,11 @@ def _normalise_card(index: int, entry: dict[str, Any], value: Any) -> str:
     return "\n".join(lines)
 
 
-async def _summarise_source(index: int, entry: dict[str, Any], per_call_budget: int) -> tuple[str, list[str]]:
+async def _summarise_source(index: int, entry: dict[str, Any], per_call_budget: int, task: str = TASK_CONTENT_STUDIO) -> tuple[str, list[str]]:
     body = str(entry.get("text") or "").strip()
     if not body:
         return _source_block(index, entry, "(empty source)"), []
-    chunks = split_text_preserving_content(body, max(600, per_call_budget))
+    chunks = split_text_preserving_content(body, per_call_budget)
     cards: list[str] = []
     warnings: list[str] = []
     for part_no, chunk in enumerate(chunks, 1):
@@ -121,9 +133,10 @@ async def _summarise_source(index: int, entry: dict[str, Any], per_call_budget: 
                         f"SOURCE:\n{chunk}"
                     )},
                 ],
-                task=TASK_CONTENT_STUDIO,
+                task=task,
                 temperature=0.1,
                 max_tokens=650,
+                message_packer=make_evidence_packer(chunk),
             )
             cards.append(_normalise_card(index, entry, value))
         except Exception:
@@ -155,12 +168,12 @@ async def prepare_authoring_context(
 
     # Each map call stays below the same request envelope. Calls are bounded so
     # a large context pack cannot stampede the provider/key pool.
-    per_call_budget = max(900, min(3200, token_budget - 900))
+    per_call_budget = max(128, min(3200, token_budget))
     semaphore = asyncio.Semaphore(3)
 
     async def mapped(i: int, entry: dict[str, Any]) -> tuple[str, list[str]]:
         async with semaphore:
-            return await _summarise_source(i, entry, per_call_budget)
+            return await _summarise_source(i, entry, per_call_budget, task)
 
     mapped_results = await asyncio.gather(*(mapped(i, entry) for i, entry in enumerate(entries, 1)))
     cards = [result[0] for result in mapped_results]
@@ -170,9 +183,7 @@ async def prepare_authoring_context(
     # Guarantee final preflight while keeping every source represented. Share
     # the available budget fairly instead of dropping the tail sources.
     if estimate_tokens(reduced_text) > token_budget:
-        per_source_tokens = max(120, token_budget // max(1, len(cards)))
-        bounded_cards = [split_text_preserving_content(card, per_source_tokens)[0] for card in cards]
-        reduced_text = "\n\n".join(bounded_cards)
+        reduced_text = compact_evidence(reduced_text, token_budget)
         warnings.append("Evidence cards were compacted fairly to fit the configured model budget")
 
     estimated = estimate_tokens(reduced_text)

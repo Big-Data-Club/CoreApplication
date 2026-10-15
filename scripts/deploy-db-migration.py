@@ -32,6 +32,8 @@ RUNTIME_OBJECTS = {
     ("ConfigMap", "bdc-db-migration"),
     ("ConfigMap", "bdc-db-migration-settings"),
     ("Secret", "bdc-db-migration-recovery"),
+    ("Secret", "bdc-db-source"),
+    ("Secret", "bdc-db-target"),
 }
 
 

@@ -194,6 +194,26 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(sum(c[2] == "bdc-db-target" for c in self.kube.calls), 1)
         self.assertNotIn(TARGET_URL, json.dumps(first))
 
+    def test_explicit_source_and_target_are_secret_only_and_retry_is_idempotent(self):
+        source_url = "postgresql://tester:test-only@ep-source.region.neon.tech/ai?sslmode=require"
+        first = start(self.kube, PROFILE, REQUEST_ID, 1, TARGET_URL, source_url)
+        call_count = len(self.kube.calls)
+        self.assertEqual(start(self.kube, PROFILE, REQUEST_ID, 1, TARGET_URL, source_url), first)
+        self.assertEqual(len(self.kube.calls), call_count)
+        self.assertEqual(self.kube.secret("bdc-db-source")["runtime_url"], source_url)
+        self.assertNotIn(source_url, json.dumps(first))
+        self.assertNotIn(source_url, json.dumps([c for c in self.kube.calls if c[1] != "secrets"]))
+        migration = Migration(self.kube, PROFILE, RUN_ID, FakeReplica)
+        with patch("sys.stdout", new=io.StringIO()):
+            self.assertFalse(migration.run())  # source differs from live application bindings
+        self.assertEqual(state(self.kube)["phase"], "failed_source_active")
+        self.assertFalse(any(c[2].endswith("/scale") for c in self.kube.calls))
+
+    def test_same_endpoint_with_different_database_paths_is_rejected_before_lock(self):
+        with self.assertRaises(ValueError):
+            start(self.kube, PROFILE, REQUEST_ID, 1, TARGET_URL, TARGET_URL.replace("/fixture?", "/ai?"))
+        self.assertFalse(self.kube.calls)
+
     def test_new_click_while_active_fails(self):
         start(self.kube, PROFILE, REQUEST_ID, 1, TARGET_URL)
         with self.assertRaises(RuntimeError):

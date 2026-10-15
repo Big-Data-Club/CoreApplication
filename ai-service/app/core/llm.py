@@ -80,6 +80,8 @@ async def chat_complete(
     *,
     task: str = TASK_CHAT,
     request_id: str | None = None,
+    message_packer: Any = None,
+    min_completion_tokens: int | None = None,
     **extra: Any,
 ) -> str:
     """
@@ -99,6 +101,8 @@ async def chat_complete(
         json_mode=json_mode,
         model_hint=model,
         request_id=request_id,
+        message_packer=message_packer,
+        min_completion_tokens=min_completion_tokens,
         extra=extra or {},
     ))
     return response.content
@@ -112,6 +116,8 @@ async def chat_complete_json(
     *,
     task: str = TASK_CHAT,
     request_id: str | None = None,
+    message_packer: Any = None,
+    min_completion_tokens: int | None = None,
 ) -> dict | list:
     """JSON-returning completion with provider-independent recovery.
 
@@ -130,6 +136,8 @@ async def chat_complete_json(
             json_mode=True,
             task=task,
             request_id=request_id,
+            message_packer=message_packer,
+            min_completion_tokens=min_completion_tokens,
         )
     except ProviderError as exc:
         if not _is_native_json_rejection(exc):
@@ -146,6 +154,8 @@ async def chat_complete_json(
             json_mode=False,
             task=task,
             request_id=request_id,
+            message_packer=message_packer,
+            min_completion_tokens=min_completion_tokens,
         )
     try:
         return _extract_json(raw)
@@ -166,6 +176,8 @@ async def chat_complete_structured(
     *,
     task: str = TASK_QUIZ_GEN,
     request_id: str | None = None,
+    message_packer: Any = None,
+    min_completion_tokens: int | None = None,
 ) -> M:
     """
     Structured-output call that returns a validated Pydantic model.
@@ -205,6 +217,8 @@ async def chat_complete_structured(
                 json_mode=False if retry_without_native_json else native_json_mode,
                 task=task,
                 request_id=request_id,
+                message_packer=message_packer,
+                min_completion_tokens=min_completion_tokens,
                 **(provider_extra or {}),
             )
         except ProviderError as exc:

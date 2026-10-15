@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator, Optional
 import logging
+import re
 
 from groq import AsyncGroq
 from groq._exceptions import (
@@ -44,6 +45,17 @@ def _is_tpm_rate_limit(status: int | None, message: str) -> bool:
     return status in (413, 429) and (
         "tokens per minute" in normalized or "rate_limit_exceeded" in normalized
     )
+
+
+def _oversize_error(status: int | None, message: str) -> ContextLengthError | None:
+    normalized = message.lower()
+    if status not in (400, 413, 429):
+        return None
+    if not any(term in normalized for term in ("context_length", "maximum context length", "request too large")):
+        return None
+    match = re.search(r"\blimit\s*:?\s*([\d,]+)", normalized)
+    limit = int(match.group(1).replace(",", "")) if match else None
+    return ContextLengthError("Groq rejected the request token size", max_request_tokens=max(1, int(limit * 0.75)) if limit else None)
 
 
 class GroqAdapter(LLMAdapter):
@@ -85,6 +97,9 @@ class GroqAdapter(LLMAdapter):
         try:
             response = await client.chat.completions.create(**kwargs)
         except RateLimitError as exc:
+            oversized = _oversize_error(getattr(exc, "status_code", 429), str(exc))
+            if oversized:
+                raise oversized from exc
             raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
         except AuthenticationError as exc:
             raise AuthError(str(exc)) from exc
@@ -111,6 +126,9 @@ class GroqAdapter(LLMAdapter):
             except Exception:
                 pass
             msg = str(exc)
+            oversized = _oversize_error(status, msg)
+            if oversized:
+                raise oversized from exc
             if status in (401, 403):
                 raise AuthError(msg, status_code=status) from exc
             if _is_tpm_rate_limit(status, msg):
@@ -203,6 +221,9 @@ class GroqAdapter(LLMAdapter):
                     )
                 yield content, usage, chunk
         except RateLimitError as exc:
+            oversized = _oversize_error(getattr(exc, "status_code", 429), str(exc))
+            if oversized:
+                raise oversized from exc
             raise RateLimitedError(str(exc), retry_after=self._get_retry_after(exc)) from exc
         except AuthenticationError as exc:
             raise AuthError(str(exc)) from exc
@@ -221,6 +242,9 @@ class GroqAdapter(LLMAdapter):
             except Exception:
                 pass
             msg = str(exc)
+            oversized = _oversize_error(status, msg)
+            if oversized:
+                raise oversized from exc
             if _is_tpm_rate_limit(status, msg):
                 raise RateLimitedError(msg, retry_after=self._get_retry_after(exc)) from exc
             retryable = status in (408, 409, 425) or (status is not None and status >= 500)

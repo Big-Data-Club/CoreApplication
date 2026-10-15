@@ -8,6 +8,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.parse import urlsplit
 
 from kube import APIError, Kube, claim, release, save_state, state
 from endpoints import neon_urls
@@ -46,13 +47,17 @@ def validate_request(headers, body):
         raise ValueError("Invalid request origin")
     if headers.get("Content-Type", "").split(";")[0] != "application/json":
         raise ValueError("JSON required")
-    if not isinstance(body, dict) or set(body) != {"profile", "request_id", "target_url"}:
+    if not isinstance(body, dict) or set(body) not in ({"profile", "request_id", "target_url"}, {"profile", "request_id", "source_url", "target_url"}):
         raise ValueError("Expected profile, request_id and target_url")
     if not isinstance(body["profile"], str) or not re.fullmatch(r"[a-z0-9-]{1,40}", body["profile"]):
         raise ValueError("Invalid profile")
     if str(uuid.UUID(body["request_id"])) != body["request_id"]:
         raise ValueError("Invalid request ID")
     neon_urls(body["target_url"])
+    if "source_url" in body and not isinstance(body["source_url"], str):
+        raise ValueError("Source URL must be a string")
+    if body.get("source_url"):
+        neon_urls(body["source_url"])
 
 
 def make_job(profile, run_id, actor):
@@ -81,13 +86,17 @@ def make_job(profile, run_id, actor):
                               "volumes": [{"name": "scratch", "emptyDir": {"sizeLimit": "512Mi"}}]}}}}
 
 
-def start(kube, profile, request_id, actor, target_url):
+def start(kube, profile, request_id, actor, target_url, source_url=None):
     previous = state(kube)
     if previous.get("request_id") == request_id:
         if previous.get("profile") != profile["id"]:
             raise ValueError("Request ID already used for another profile")
         return previous
     run_id = request_id.replace("-", "")
+    target = neon_urls(target_url)
+    source = neon_urls(source_url) if source_url else None
+    if source and urlsplit(source["direct_url"]).hostname == urlsplit(target["direct_url"]).hostname:
+        raise ValueError("Source and destination must be different Neon endpoints")
     job = make_job(profile, run_id, actor)
     claim(kube, "migration:" + run_id)
     value = {"run_id": run_id, "request_id": request_id, "profile": profile["id"],
@@ -96,7 +105,9 @@ def start(kube, profile, request_id, actor, target_url):
     try:
         # The URL is only sent to a Secret. Never put it in Job, ConfigMap
         # state, response, or console logs.
-        kube.patch("secrets", "bdc-db-target", {"stringData": neon_urls(target_url)})
+        if source:
+            kube.patch("secrets", "bdc-db-source", {"stringData": source})
+        kube.patch("secrets", "bdc-db-target", {"stringData": target})
         save_state(kube, value)
     except Exception:
         # A timed-out Secret patch may still be in flight. Retain the lock so
@@ -168,14 +179,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(404, {"error": "Not found"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 2048:
+            if not 0 < length <= 8192:
                 raise ValueError("Invalid body size")
             body = json.loads(self.rfile.read(length))
             validate_request(self.headers, body)
             profile = next((p for p in profiles() if p["id"] == body["profile"] and p.get("enabled")), None)
             if profile is None:
                 return self.send(404, {"error": "Enabled profile not found"})
-            value = start(Kube(), profile, body["request_id"], actor, body["target_url"])
+            value = start(Kube(), profile, body["request_id"], actor, body["target_url"], body.get("source_url"))
             self.send(202, value)
         except (ValueError, TypeError, KeyError, AttributeError):
             self.send(400, {"error": "Invalid migration request"})

@@ -33,14 +33,16 @@ byId('start').addEventListener('click', async () => {
   // create a second Job for the same click.
   const profile = byId('profile').value;
   const targetUrl = byId('target-url').value.trim();
+  const sourceUrl = byId('source-url').value.trim();
   const key = `db-migration-request:${profile}`;
   const requestId = sessionStorage.getItem(key) || crypto.randomUUID();
   sessionStorage.setItem(key, requestId);
   try {
     await api('runs', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({profile, request_id: requestId, target_url: targetUrl})});
+      body: JSON.stringify({profile, request_id: requestId, source_url: sourceUrl, target_url: targetUrl})});
     sessionStorage.removeItem(key);
     byId('target-url').value = '';
+    byId('source-url').value = '';
   } catch (error) { byId('error').textContent = error.message; }
   pending = false;
   await refresh();
@@ -53,7 +55,7 @@ byId('start').addEventListener('click', async () => {
       byId('profile').appendChild(option);
     }
     byId('profile').disabled = !selectedProfiles.length;
-    byId('profile-note').textContent = selectedProfiles.length ? 'Nguồn hiện tại lưu trong Kubernetes Secret; nhập Neon URL đích mới ở dưới.' : 'Chưa có luồng chuyển được bật. Người vận hành cần cấu hình nguồn và danh sách service.';
+    byId('profile-note').textContent = selectedProfiles.length ? 'Nhập nguồn → đích. Các URL được lưu trong Kubernetes Secret.' : 'Chưa có luồng chuyển được bật. Người vận hành cần bật profile production-cloud-cutover.';
     await refresh();
     setInterval(refresh, 4000);
   } catch (error) { byId('error').textContent = error.message; }

@@ -41,8 +41,9 @@ class AuthError(ProviderError):
 class ContextLengthError(ProviderError):
     """Prompt exceeds the model's context window."""
  
-    def __init__(self, message: str):
+    def __init__(self, message: str, *, max_request_tokens: int | None = None):
         super().__init__(message, status_code=400, retryable=False)
+        self.max_request_tokens = max_request_tokens
  
  
 class EmptyCompletionError(ProviderError):
