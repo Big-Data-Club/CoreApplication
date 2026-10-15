@@ -163,6 +163,10 @@ class Migration:
             self.replicas.append(replica)
             self.preflight_check = "database_prerequisites:" + ",".join(bindings)
             replica.preflight()
+            for label, url in (("source", self.source["runtime_url"]),
+                               ("destination", self.target["runtime_url"])):
+                self.preflight_check = "runtime_connectivity:" + label + ":" + ",".join(bindings)
+                replica.check_runtime_endpoint(url)
         # All source slots must exist to retain WAL, but only a bounded number
         # of destination subscriptions need apply workers at one time.
         self.preflight_check = "replication_capacity"

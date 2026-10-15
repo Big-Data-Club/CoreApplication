@@ -34,9 +34,12 @@ class MigrationError(RuntimeError):
     """Safe, authored explanation that can be shown in the operations UI."""
 
 
-def connect(url, database):
+def connect(url, database, runtime=False):
+    # PgBouncer can reject startup GUCs in the options packet. Runtime
+    # verification only runs short SELECTs, so it needs no session limits.
+    options = {} if runtime else {"options": "-c statement_timeout=60000 -c lock_timeout=15000"}
     conn = psycopg2.connect(make_dsn(url, dbname=database, application_name=APP,
-                                   connect_timeout=15), options="-c statement_timeout=60000 -c lock_timeout=15000")
+                                   connect_timeout=15), **options)
     conn.autocommit = True
     return conn
 
@@ -213,13 +216,22 @@ class Replica:
         return query(self.target, sql.SQL("SELECT token FROM {} WHERE id=1").format(identifier(SCHEMA, "barrier"))) == [(self.token + ":final",)]
 
     def verify_runtime(self, url, expected):
-        conn = connect(url, self.database)
+        conn = connect(url, self.database, runtime=True)
         try:
             actual = query(conn, sql.SQL("SELECT token FROM {} WHERE id=1").format(identifier(SCHEMA, "barrier")))
             if actual != [(expected,)]:
                 raise MigrationError("Runtime endpoint does not reach the intended database")
             if query(conn, "SELECT current_schema()")[0][0] != "public":
                 raise MigrationError("Runtime endpoint search_path must resolve to public")
+        finally:
+            conn.close()
+
+    def check_runtime_endpoint(self, url):
+        conn = connect(url, self.database, runtime=True)
+        try:
+            actual = query(conn, "SELECT current_database(), current_schema()")
+            if actual != [(self.database, "public")]:
+                raise MigrationError("Runtime endpoint does not resolve to the intended public database")
         finally:
             conn.close()
 

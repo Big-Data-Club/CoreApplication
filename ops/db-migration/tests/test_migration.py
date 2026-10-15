@@ -15,7 +15,7 @@ import psycopg2
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kube import APIError, LOCK, MANAGED, STATE, claim, state
 from runner import Migration, PREFIXES, endpoint, uses_database
-from replication import MigrationError, Replica
+from replication import MigrationError, Replica, connect
 from server import BASE, Handler, grafana_admin, make_job, start, validate_request
 
 RUN_ID = "a" * 32
@@ -253,6 +253,31 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(diagnostic["failed_check"].startswith("database_prerequisites:"))
         self.assertIn("Operation failed", diagnostic["error"])
         self.assertNotIn("postgresql://", self.output + json.dumps(state(self.kube)))
+
+    def test_runtime_connection_omits_startup_options_for_poolers(self):
+        conn = MagicMock()
+        with patch("replication.psycopg2.connect", return_value=conn) as open_connection:
+            connect(TARGET_URL, "fixture", runtime=True)
+            self.assertEqual(open_connection.call_args.kwargs, {})
+            connect(TARGET_URL, "fixture")
+            self.assertIn("options", open_connection.call_args.kwargs)
+
+    def test_runtime_endpoint_failure_is_caught_before_preparing(self):
+        class BrokenRuntime(FakeReplica):
+            def check_runtime_endpoint(self, _url):
+                raise psycopg2.OperationalError("postgresql://private-user:private-password@example.invalid/db")
+
+        start(self.kube, PROFILE, REQUEST_ID, 42, TARGET_URL)
+        migration = Migration(self.kube, PROFILE, RUN_ID, BrokenRuntime)
+        output = io.StringIO()
+        with patch("sys.stdout", new=output):
+            self.assertFalse(migration.run())
+        diagnostic = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(diagnostic["failed_phase"], "preflight")
+        self.assertEqual(diagnostic["failed_check"], "runtime_connectivity:source:" + ",".join(sorted(PREFIXES)))
+        self.assertEqual(diagnostic["error_kind"], "postgres_connection")
+        self.assertNotIn("private-password", output.getvalue() + json.dumps(state(self.kube)))
+        self.assertFalse(any(c[2].endswith("/scale") for c in self.kube.calls))
 
     def test_prepare_failure_reports_safe_step_without_connection_details(self):
         class BrokenReplica(FakeReplica):

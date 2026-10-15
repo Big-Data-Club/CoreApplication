@@ -100,8 +100,10 @@ application connection or readiness behavior.
    a project-level setting and restarts compute when first enabled; do this
    before a cutover.
 2. Use **direct** URLs without `-pooler` for replication. Runtime URLs may use
-   pooling. The Job uses markers to verify that runtime endpoints reach the
-   expected databases; `current_schema()` must be `public`.
+   pooling. Preflight opens each source and destination runtime endpoint with
+   short, read-only checks, without session startup options that PgBouncer may
+   reject. The Job later uses markers to verify that runtime endpoints reach
+   the expected databases; `current_schema()` must be `public`.
 3. Use roles created through the Neon Console/API with appropriate
    replication permissions. Check schema ownership and publication or
    subscription creation rights. With IP Allow enabled, permit the
