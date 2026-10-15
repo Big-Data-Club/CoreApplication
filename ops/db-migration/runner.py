@@ -3,9 +3,12 @@ import base64
 import json
 import os
 import signal
+import subprocess
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, parse_qs, unquote
+
+import psycopg2
 
 from kube import APIError, Kube, LOCK, MANAGED, STATE, release, save_state, state
 from replication import MigrationError, Replica, query
@@ -56,13 +59,14 @@ class Migration:
         self.snapshot = None
         self.status = state(kube)
         self.preflight_check = None
+        self.current_replica = None
 
     def update(self, phase, **fields):
         self.status.update(phase=phase, updated_at=datetime.now(timezone.utc).isoformat(), **fields)
         save_state(self.kube, self.status)
         # Only authored diagnostics may be passed here. Never log the whole
         # state, endpoint data, database exception text, or a traceback.
-        diagnostic_fields = ("failed_phase", "failed_check", "error", "sqlstate")
+        diagnostic_fields = ("failed_phase", "failed_check", "error", "error_kind", "sqlstate")
         print(json.dumps({"phase": phase, "run_id": self.run_id,
                           **{key: fields[key] for key in diagnostic_fields if fields.get(key) is not None}}), flush=True)
 
@@ -155,6 +159,7 @@ class Migration:
             bindings = [p for p in sorted(PREFIXES) if decoded[p + "_DB"] == database]
             self.preflight_check = "database_connection:" + ",".join(bindings)
             replica = self.factory(self.source["direct_url"], self.target["direct_url"], database, self.run_id, index)
+            replica.safe_binding = ",".join(bindings)
             self.replicas.append(replica)
             self.preflight_check = "database_prerequisites:" + ",".join(bindings)
             replica.preflight()
@@ -272,16 +277,20 @@ class Migration:
             self.update("preparing")
             copy_deadline = time.monotonic() + self.profile.get("timeout_seconds", 7200)
             for index, replica in enumerate(self.replicas):
+                self.current_replica = replica
                 if len(self.active_replicas) >= self.max_active_replicas:
                     oldest = self.active_replicas.pop(0)
+                    replica.prepare_step = "pause_subscription"
                     oldest.pause()
                     self.wait(oldest.no_workers, 30, "Paused subscription worker did not stop")
                 replica.prepare()
                 self.prepared.append(replica)
                 self.active_replicas.append(replica)
+                replica.prepare_step = "verify_source_runtime"
                 replica.verify_runtime(self.source["runtime_url"], self.run_id)
                 # Bootstrap one database at a time. Disabled subscriptions
                 # retain their source slots and WAL until re-enabled.
+                replica.prepare_step = "initial_copy"
                 self.wait(lambda: self.copy_ready(self.active_replicas),
                           max(1, copy_deadline - time.monotonic()), "Initial table copy timed out")
             # Drain the oldest group while writers are still online; the most
@@ -289,10 +298,15 @@ class Migration:
             paused = [r for r in self.prepared if r not in self.active_replicas]
             for offset in range(0, len(paused), self.max_active_replicas):
                 group = paused[offset:offset + self.max_active_replicas]
+                self.current_replica = group[0]
+                group[0].prepare_step = "resume_deferred_subscription"
                 self.switch_active(group)
+                group[0].prepare_step = "deferred_copy"
                 self.wait(lambda: self.copy_ready(group), max(1, copy_deadline - time.monotonic()),
                           "Deferred replication did not catch up")
             for replica in self.replicas:
+                self.current_replica = replica
+                replica.prepare_step = "verify_target_runtime"
                 replica.verify_runtime(self.target["runtime_url"], self.run_id)
             self.update("quiescing")
             self.quiesced = True
@@ -342,12 +356,29 @@ class Migration:
                         self.restore_source()
                 except Exception:
                     recovered = False
-            reason = str(exc) if isinstance(exc, MigrationError) else "Operation failed; inspect prerequisites and database connectivity"
+            reason = (str(exc) if isinstance(exc, MigrationError)
+                      else "Operation failed; inspect prerequisites and database connectivity")
             if isinstance(exc, APIError):
                 reason = f"Kubernetes API request failed (HTTP {exc.status}); check worker RBAC and required resources"
+            if isinstance(exc, psycopg2.OperationalError):
+                error_kind = "postgres_connection"
+            elif isinstance(exc, psycopg2.Error):
+                error_kind = "postgres_sql"
+            elif isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
+                error_kind = "timeout"
+            elif isinstance(exc, MigrationError):
+                error_kind = "migration_precondition"
+            elif isinstance(exc, APIError):
+                error_kind = "kubernetes_api"
+            else:
+                error_kind = "unexpected"
+            failed_check = self.preflight_check if failed_phase == "preflight" else None
+            if failed_phase == "preparing" and self.current_replica is not None:
+                step = self.current_replica.__dict__.get("prepare_step", "unknown")
+                failed_check = "prepare:" + self.current_replica.safe_binding + ":" + step
             self.update("failed_source_active" if recovered else "recovery_required", failed_phase=failed_phase,
-                        failed_check=self.preflight_check if failed_phase == "preflight" else None,
-                        error=reason, sqlstate=getattr(exc, "pgcode", None))
+                        failed_check=failed_check,
+                        error=reason, error_kind=error_kind, sqlstate=getattr(exc, "pgcode", None))
             if recovered:
                 release(self.kube, "migration:" + self.run_id)
             return False

@@ -260,6 +260,14 @@ older images. New images also log the safe error, `failed_phase`, and
 connection URLs, and credential values are deliberately excluded. Confirm the
 recorded `run_id` matches the failed Job; this ConfigMap contains the latest run.
 
+For a failure in `preparing`, newer images report `failed_check` as
+`prepare:<binding>:<step>` and `error_kind` as a safe category such as
+`postgres_connection`, `postgres_sql`, or `timeout`. The binding is an
+application configuration prefix, not a database name. A failure before the
+first `replicating` event occurred during preparation or runtime verification
+of the first database. Do not retry against a destination with partial schema
+or data; use a new empty destination after addressing the reported step.
+
 The reported 2026-10-15 preflight failure was a PostgreSQL major-version
 mismatch. Both Neon endpoints were reported as PG18 while the repository's
 previous migration image default was PG17. Check the deployed client with:

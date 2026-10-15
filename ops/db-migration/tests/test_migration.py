@@ -10,6 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import psycopg2
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kube import APIError, LOCK, MANAGED, STATE, claim, state
 from runner import Migration, PREFIXES, endpoint, uses_database
@@ -251,6 +253,24 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(diagnostic["failed_check"].startswith("database_prerequisites:"))
         self.assertIn("Operation failed", diagnostic["error"])
         self.assertNotIn("postgresql://", self.output + json.dumps(state(self.kube)))
+
+    def test_prepare_failure_reports_safe_step_without_connection_details(self):
+        class BrokenReplica(FakeReplica):
+            def prepare(self):
+                self.prepare_step = "subscription"
+                raise psycopg2.OperationalError("postgresql://private-user:private-password@example.invalid/db")
+
+        start(self.kube, PROFILE, REQUEST_ID, 42, TARGET_URL)
+        migration = Migration(self.kube, PROFILE, RUN_ID, BrokenReplica)
+        output = io.StringIO()
+        with patch("sys.stdout", new=output):
+            self.assertFalse(migration.run())
+        diagnostic = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(diagnostic["failed_phase"], "preparing")
+        self.assertEqual(diagnostic["failed_check"], "prepare:" + ",".join(sorted(PREFIXES)) + ":subscription")
+        self.assertEqual(diagnostic["error_kind"], "postgres_connection")
+        self.assertNotIn("private-password", output.getvalue() + json.dumps(state(self.kube)))
+        self.assertEqual(state(self.kube)["phase"], "failed_source_active")
 
     def test_binding_mismatch_reports_field_without_credential_values(self):
         secret = self.kube.objects[("secrets", "bdc-secrets")]["data"]

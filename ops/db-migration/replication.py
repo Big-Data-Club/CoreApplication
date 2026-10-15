@@ -146,21 +146,28 @@ class Replica:
 
     def prepare(self):
         # Prevent ALTER/DROP on existing tables while allowing normal DML.
+        self.prepare_step = "source_guard_connection"
         self.guard = connect(self.source_url, self.database)
         self.guard.autocommit = False
         names = sql.SQL(", ").join(identifier(t[0], t[1]) for t in self.tables)
+        self.prepare_step = "source_schema_lock"
         query(self.guard, sql.SQL("LOCK TABLE {} IN ACCESS SHARE MODE").format(names))
+        self.prepare_step = "schema_dump"
         self.dump = schema_dump(self.source_url, self.database)
+        self.prepare_step = "schema_restore"
         query(self.target, self.dump)
         query(self.target, 'SET statement_timeout=60000; SET lock_timeout=15000; SET search_path TO "$user", public')
         self.started = True  # cleanup checks object existence after partial failure
+        self.prepare_step = "replication_control"
         for conn in (self.source, self.target):
             query(conn, sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(SCHEMA)))
             query(conn, sql.SQL("CREATE TABLE {} (id integer PRIMARY KEY, token text NOT NULL)").format(identifier(SCHEMA, "barrier")))
         query(self.source, sql.SQL("INSERT INTO {} VALUES (1, %s)").format(identifier(SCHEMA, "barrier")), (self.token,))
         published = sql.SQL(", ").join([identifier(t[0], t[1]) for t in self.tables] + [identifier(SCHEMA, "barrier")])
+        self.prepare_step = "publication"
         query(self.source, sql.SQL("CREATE PUBLICATION {} FOR TABLE {}").format(sql.Identifier(self.name), published))
         dsn = make_dsn(self.source_url, dbname=self.database, application_name=APP)
+        self.prepare_step = "subscription"
         query(self.target, sql.SQL("CREATE SUBSCRIPTION {} CONNECTION {} PUBLICATION {} WITH (copy_data = true)").format(
             sql.Identifier(self.name), sql.Literal(dsn), sql.Identifier(self.name)))
         self.enabled = True
