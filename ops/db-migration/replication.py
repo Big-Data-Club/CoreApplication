@@ -104,7 +104,11 @@ class Replica:
         version = subprocess.run(["pg_dump", "--version"], capture_output=True, check=True).stdout.decode()
         client_major = int(re.search(r"(\d+)\.", version).group(1))
         if source_major < 16 or source_major != target_major or source_major != client_major:
-            raise MigrationError("Use matching PostgreSQL 16+ source, target and client major versions")
+            raise MigrationError(
+                f"PostgreSQL major version mismatch: source={source_major}, destination={target_major}, "
+                f"pg_dump={client_major}. This pipeline requires matching versions (16+). "
+                "If source and destination match, set MIGRATION_PG_MAJOR to that version and rebuild/deploy "
+                "the migration image. Otherwise, provision an empty destination matching the source version.")
         if query(self.source, "SHOW wal_level")[0][0] != "logical":
             raise MigrationError("Source must enable logical replication before migration")
         if query(self.source, "SELECT count(*) FROM pg_largeobject_metadata")[0][0]:

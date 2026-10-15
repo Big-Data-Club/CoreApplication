@@ -1,4 +1,4 @@
-ARG PG_MAJOR=17
+ARG PG_MAJOR=18
 FROM postgres:${PG_MAJOR}-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-psycopg2 ca-certificates \
     && rm -rf /var/lib/apt/lists/*

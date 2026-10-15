@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, parse_qs, unquote
 
-from kube import Kube, LOCK, MANAGED, STATE, release, save_state, state
+from kube import APIError, Kube, LOCK, MANAGED, STATE, release, save_state, state
 from replication import MigrationError, Replica, query
 
 PREFIXES = {"POSTGRES", "LMS_POSTGRES", "LAB_POSTGRES", "CHAT_POSTGRES", "AI_POSTGRES", "DUTYLOG_POSTGRES"}
@@ -52,11 +52,16 @@ class Migration:
         self.target_writers_started = False
         self.snapshot = None
         self.status = state(kube)
+        self.preflight_check = None
 
     def update(self, phase, **fields):
         self.status.update(phase=phase, updated_at=datetime.now(timezone.utc).isoformat(), **fields)
         save_state(self.kube, self.status)
-        print(json.dumps({"phase": phase, "run_id": self.run_id}), flush=True)
+        # Only authored diagnostics may be passed here. Never log the whole
+        # state, endpoint data, database exception text, or a traceback.
+        diagnostic_fields = ("failed_phase", "failed_check", "error", "sqlstate")
+        print(json.dumps({"phase": phase, "run_id": self.run_id,
+                          **{key: fields[key] for key in diagnostic_fields if fields.get(key) is not None}}), flush=True)
 
     def wait(self, predicate, seconds, label):
         deadline = time.monotonic() + seconds
@@ -66,12 +71,17 @@ class Migration:
             time.sleep(2)
 
     def preflight(self):
+        self.preflight_check = "operation_lock"
         if self.kube.get("configmaps", LOCK).get("data", {}).get("owner") != "migration:" + self.run_id:
             raise MigrationError("Migration does not own the operation lock")
         if set(self.profile["prefixes"]) != PREFIXES:
             raise MigrationError("Profile must cover all production PostgreSQL bindings")
+        self.preflight_check = "endpoint_configuration"
         self.source = self.kube.secret("bdc-db-source")
         self.target = self.kube.secret("bdc-db-target")
+        for label, values in (("source", self.source), ("destination", self.target)):
+            if not all(values.get(key) for key in ("runtime_url", "direct_url")):
+                raise MigrationError("Missing " + label + " endpoint URLs; configure both endpoints in the migration console")
         src = endpoint(self.source["runtime_url"], runtime=True)
         dst = endpoint(self.target["runtime_url"], runtime=True)
         source_direct = endpoint(self.source["direct_url"])
@@ -82,17 +92,26 @@ class Migration:
             raise MigrationError("Target runtime role must own the restored schema")
         if self.source["direct_url"] == self.target["direct_url"]:
             raise MigrationError("Source and target must differ")
+        self.preflight_check = "runtime_bindings"
         live_config = self.kube.get("configmaps", "bdc-config")
         live_secret = self.kube.get("secrets", "bdc-secrets")
         decoded = {key: base64.b64decode(value).decode() for key, value in live_secret["data"].items()}
         databases = set()
         for prefix in sorted(PREFIXES):
-            if (live_config["data"][prefix + "_HOST"] != src["host"] or
-                    decoded[prefix + "_USER"] != src["user"] or decoded[prefix + "_PASSWORD"] != src["password"]):
-                raise MigrationError("Source profile does not match every current application binding")
+            if not live_config.get("data", {}).get(prefix + "_HOST") or not all(
+                    decoded.get(prefix + suffix) for suffix in ("_USER", "_PASSWORD", "_DB")):
+                raise MigrationError("Missing runtime configuration for " + prefix)
+            mismatches = [field for field, actual, expected in (
+                ("host", live_config["data"][prefix + "_HOST"], src["host"]),
+                ("user", decoded[prefix + "_USER"], src["user"]),
+                ("password", decoded[prefix + "_PASSWORD"], src["password"])) if actual != expected]
+            if mismatches:
+                raise MigrationError("Source profile does not match " + prefix + " (" + ", ".join(mismatches) +
+                                     "); enter the source URL currently used by the applications")
             databases.add(decoded[prefix + "_DB"])
         if live_config["data"].get("AI_DB_SSL") != src["sslmode"]:
             raise MigrationError("Source profile TLS setting does not match runtime configuration")
+        self.preflight_check = "writer_inventory"
         for dep in self.kube.get("deployments")["items"]:
             if uses_database(dep["spec"]["template"]):
                 self.workloads[dep["metadata"]["name"]] = dep
@@ -124,14 +143,21 @@ class Migration:
             "replicas": {name: dep["spec"].get("replicas", 1) for name, dep in self.workloads.items()}}
         # Only the recovery Secret contains old credential values. Dashboard
         # state, logs, ConfigMaps and Pod specifications never contain URLs.
+        self.preflight_check = "recovery_snapshot"
         self.kube.patch("secrets", RECOVERY, {"stringData": {"snapshot": json.dumps(self.snapshot), "run_id": self.run_id}})
         self.destination = dst
         for index, database in enumerate(sorted(databases)):
+            # Binding keys are fixed application identifiers; DB names and
+            # endpoint values must never appear in diagnostics.
+            bindings = [p for p in sorted(PREFIXES) if decoded[p + "_DB"] == database]
+            self.preflight_check = "database_connection:" + ",".join(bindings)
             replica = self.factory(self.source["direct_url"], self.target["direct_url"], database, self.run_id, index)
             self.replicas.append(replica)
+            self.preflight_check = "database_prerequisites:" + ",".join(bindings)
             replica.preflight()
         # Reserve one table-sync worker/slot in addition to the persistent
         # per-database streams. Neon limits must be checked before any writes.
+        self.preflight_check = "replication_capacity"
         count = len(self.replicas)
         source_conn, target_conn = self.replicas[0].source, self.replicas[0].target
         for conn, setting, used_sql in (
@@ -269,7 +295,10 @@ class Migration:
                 except Exception:
                     recovered = False
             reason = str(exc) if isinstance(exc, MigrationError) else "Operation failed; inspect prerequisites and database connectivity"
+            if isinstance(exc, APIError):
+                reason = f"Kubernetes API request failed (HTTP {exc.status}); check worker RBAC and required resources"
             self.update("failed_source_active" if recovered else "recovery_required", failed_phase=failed_phase,
+                        failed_check=self.preflight_check if failed_phase == "preflight" else None,
                         error=reason, sqlstate=getattr(exc, "pgcode", None))
             if recovered:
                 release(self.kube, "migration:" + self.run_id)

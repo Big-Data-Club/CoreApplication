@@ -50,8 +50,8 @@ application connection or readiness behavior.
 ## Scope and prerequisites
 
 - Source, destination, and client must use the same PostgreSQL major version,
-  16 or later. The image defaults to PG17 following the [earlier cutover
-  record](NEON_CUTOVER_2026-08-29.md); the Job checks versions again.
+  16 or later. The image defaults to PG18, matching the operator-reported source
+  and destination versions on 2026-10-15; the Job checks versions again.
 - The six bindings `POSTGRES`, `LMS_POSTGRES`, `LAB_POSTGRES`, `CHAT_POSTGRES`,
   `AI_POSTGRES`, and `DUTYLOG_POSTGRES` must share the configured source,
   role, and TLS mode. Database names come from `bdc-secrets`; do not guess or
@@ -112,7 +112,7 @@ pushes to `main` that change `ops/db-migration/`, `k3s/db-migration/`, related
 scripts, or the workflow itself. It can also be started through **Actions →
 Build and deploy PostgreSQL migration console → Run workflow**, on `main`.
 
-The workflow tests against PG16 and PG17, builds the image (PG17 by default),
+The workflow tests against PG16, PG17 and PG18, builds the image (PG18 by default),
 pushes a commit-SHA tag to Docker Hub, and deploys by digest on the
 `[self-hosted, linux, x64, production]` runner. Deployment shares the
 `production` concurrency group and database operation lock with application
@@ -122,7 +122,7 @@ start a data migration.**
 
 It uses the existing `DOCKER_USERNAME`/`DOCKER_PASSWORD` (or
 `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`), `PRODUCTION_KUBECONFIG`, and
-`default/dockerhub-registry` Secret. If PostgreSQL is not major 17, set the
+`default/dockerhub-registry` Secret. If PostgreSQL is not major 18, set the
 `MIGRATION_PG_MAJOR` repository variable before building. Do not place Neon
 credentials in GitHub. The `production` environment retains its existing
 approval rules.
@@ -242,6 +242,30 @@ kubectl -n default logs job/<exact-job-name>
 kubectl -n default get deployments
 ```
 
+If Pod logs only show `preflight` followed by `failed_source_active`, read
+the state ConfigMap above: `error` and `sqlstate` hold the diagnostic even for
+older images. New images also log the safe error, `failed_phase`, and
+`failed_check`, and show the check in the console. Raw database exception text,
+connection URLs, and credential values are deliberately excluded. Confirm the
+recorded `run_id` matches the failed Job; this ConfigMap contains the latest run.
+
+The reported 2026-10-15 preflight failure was a PostgreSQL major-version
+mismatch. Both Neon endpoints were reported as PG18 while the repository's
+previous migration image default was PG17. Check the deployed client with:
+
+```bash
+kubectl -n default exec deployment/bdc-db-migration-console -- pg_dump --version
+```
+
+For PG18 → PG18, set the GitHub Actions **repository variable**
+`MIGRATION_PG_MAJOR` to `18`, then run **Build and deploy PostgreSQL migration
+console** on `main` and wait for deployment to succeed. An existing value of
+`17` overrides the new default and must be updated. Confirm `pg_dump` reports
+18 before starting a new migration in Grafana. A rollout restart alone does
+not rebuild the client. This particular version-check failure occurs before
+schema copy, scaling, or runtime host changes; it may create an empty target
+database. It does not require deleting the source or resetting the lock.
+
 | State | Meaning and action |
 |---|---|
 | `failed_source_active` | Destination writes did not start. Replication was cleaned up and source runtime fields and replicas were restored if changed; the lock was released. The destination may contain partial data. Use a new empty destination for the next attempt. |
@@ -302,7 +326,9 @@ kubectl kustomize k3s/db-migration
 ```
 
 Compose uses PostgreSQL fixtures on tmpfs, exposes no host port, and does not
-connect to Neon. Set `PG_MAJOR=16` for PG16; PG17 is the default. The
+connect to Neon. Set `PG_MAJOR=16` or `PG_MAJOR=17` to test those versions;
+PG18 is the default. An explicit fixture data directory keeps data on tmpfs
+across the PostgreSQL Docker image directory conventions. The
 integration test compares two databases after concurrent
 INSERT/UPDATE/DELETE, final markers, used and unused sequences, quoted
 identifiers, DDL guarding, and slot cleanup. Unit tests cover auth/CSRF,

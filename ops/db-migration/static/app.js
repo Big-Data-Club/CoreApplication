@@ -18,7 +18,7 @@ async function refresh() {
     byId('phase').textContent = phases[s.phase] || 'Chưa có lượt chuyển';
     byId('progress').textContent = s.tables_total ? `${s.tables_ready}/${s.tables_total} bảng đã chép · Chênh lệch WAL: ${s.lag_bytes ?? '…'} byte` : '';
     byId('details').textContent = s.job ? `Job: ${s.job} · Cập nhật: ${s.updated_at}` : '';
-    if (s.error) byId('error').textContent = `${s.error}${s.sqlstate ? ` (SQLSTATE ${s.sqlstate})` : ''}`;
+    if (s.error) byId('error').textContent = `${s.failed_check ? `[${s.failed_check}] ` : ''}${s.error}${s.sqlstate ? ` (SQLSTATE ${s.sqlstate})` : ''}`;
     const terminal = ['succeeded', 'failed_source_active'].includes(s.phase);
     byId('recovery').textContent = s.phase === 'recovery_required' || (s.job_failed && !terminal)
       ? 'Job đã dừng và giữ khóa chuyển DB. Kiểm tra K3s và hướng dẫn phục hồi trước khi tiếp tục.' : '';

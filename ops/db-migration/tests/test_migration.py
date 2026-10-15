@@ -7,11 +7,12 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kube import APIError, LOCK, MANAGED, STATE, claim, state
 from runner import Migration, PREFIXES, endpoint, uses_database
+from replication import MigrationError, Replica
 from server import BASE, Handler, grafana_admin, make_job, start, validate_request
 
 RUN_ID = "a" * 32
@@ -124,6 +125,7 @@ class MigrationTests(unittest.TestCase):
         migration = Migration(self.kube, PROFILE, RUN_ID, FakeReplica)
         with patch("sys.stdout", new=io.StringIO()) as output:
             ok = migration.run()
+        self.output = output.getvalue()
         self.assertNotIn("credentials", output.getvalue())
         return ok, migration
 
@@ -162,6 +164,50 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(state(self.kube)["phase"], "failed_source_active")
         self.assertFalse(any(c[2].endswith("/scale") for c in self.kube.calls))
+        diagnostic = json.loads(self.output.splitlines()[-1])
+        self.assertEqual(diagnostic["failed_phase"], "preflight")
+        self.assertTrue(diagnostic["failed_check"].startswith("database_prerequisites:"))
+        self.assertIn("Operation failed", diagnostic["error"])
+        self.assertNotIn("postgresql://", self.output + json.dumps(state(self.kube)))
+
+    def test_binding_mismatch_reports_field_without_credential_values(self):
+        secret = self.kube.objects[("secrets", "bdc-secrets")]["data"]
+        secret["AI_POSTGRES_PASSWORD"] = base64.b64encode(b"private-password-fixture").decode()
+        self.assertFalse(self.migrate()[0])
+        diagnostic = json.loads(self.output.splitlines()[-1])
+        self.assertEqual(diagnostic["failed_check"], "runtime_bindings")
+        self.assertIn("AI_POSTGRES (password)", diagnostic["error"])
+        self.assertNotIn("private-password-fixture", self.output + json.dumps(state(self.kube)))
+        self.assertFalse(any(c[2].endswith("/scale") for c in self.kube.calls))
+
+    def test_kubernetes_failure_reports_status_and_check(self):
+        self.kube.fail_patch = ("secrets", "bdc-db-migration-recovery")
+        self.assertFalse(self.migrate()[0])
+        diagnostic = json.loads(self.output.splitlines()[-1])
+        self.assertEqual(diagnostic["failed_check"], "recovery_snapshot")
+        self.assertIn("HTTP 500", diagnostic["error"])
+
+    def test_version_mismatch_reports_all_three_major_versions(self):
+        replica = Replica.__new__(Replica)
+        replica.source = MagicMock(server_version=180001)
+        replica.target = MagicMock(server_version=180002)
+        with patch("replication.subprocess.run", return_value=MagicMock(stdout=b"pg_dump (PostgreSQL) 17.6")), \
+                patch("replication.query") as query_mock:
+            with self.assertRaises(MigrationError) as raised:
+                replica.preflight()
+            query_mock.assert_not_called()
+        self.assertIn("source=18, destination=18, pg_dump=17", str(raised.exception))
+        self.assertIn("MIGRATION_PG_MAJOR", str(raised.exception))
+
+    def test_matching_postgres_18_passes_prerequisites(self):
+        replica = Replica.__new__(Replica)
+        replica.source = MagicMock(server_version=180001)
+        replica.target = MagicMock(server_version=180002)
+        tables = [("public", "fixture", "r", "p", "d", True, False, False)]
+        with patch("replication.subprocess.run", return_value=MagicMock(stdout=b"pg_dump (PostgreSQL) 18.1")), \
+                patch("replication.query", side_effect=[[("logical",)], [(0,)], [(0,)], [], [(0,)], [], [], tables]):
+            replica.preflight()
+        self.assertEqual(replica.tables, tables)
 
     def test_partial_config_failure_restores_source_before_resuming(self):
         self.kube.fail_patch = ("secrets", "bdc-secrets")
