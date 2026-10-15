@@ -1,7 +1,9 @@
 """PostgreSQL initial COPY + WAL streaming, with a committed marker at cutover.
 
-Only ordinary permanent tables are supported. Unsupported data is rejected, never
-silently omitted. Connections use a dedicated application_name for diagnostics.
+Only ordinary permanent tables are published. A single ordinary materialized
+view per database is rebuilt after replication catches up and writers stop.
+Unsupported data is rejected, never silently omitted. Connections use a
+dedicated application_name for diagnostics.
 """
 import hashlib
 import os
@@ -96,6 +98,7 @@ class Replica:
             raise
         self.guard = None
         self.tables = []
+        self.materialized_views = []
         self.started = False
 
     def preflight(self):
@@ -121,14 +124,24 @@ class Replica:
         if query(self.source, "SELECT 1 FROM pg_namespace WHERE nspname=%s", (SCHEMA,)) or query(
                 self.target, "SELECT 1 FROM pg_namespace WHERE nspname=%s", (SCHEMA,)):
             raise MigrationError("Previous migration artifacts need operator cleanup")
-        self.tables = query(self.source, TABLES)
+        relations = query(self.source, TABLES)
+        self.tables = []
+        self.materialized_views = []
+        for schema, name, kind, persistence, identity, primary, extension, rls in relations:
+            if kind == "m" and persistence == "p" and not extension and not rls:
+                self.materialized_views.append((schema, name))
+            elif kind != "r" or persistence != "p" or extension or rls:
+                raise MigrationError("Partitioned, unlogged, foreign, extension-owned or RLS tables require a custom plan")
+            elif identity not in ("f", "i") and not (identity == "d" and primary):
+                raise MigrationError("All source tables need a primary key or explicit replica identity")
+            else:
+                self.tables.append((schema, name, kind, persistence, identity, primary, extension, rls))
+        # Multiple materialized views may depend on each other. Their refresh
+        # order is not known from the catalog listing, so fail closed.
+        if len(self.materialized_views) > 1:
+            raise MigrationError("Multiple materialized views need an explicit refresh order")
         if not self.tables:
             raise MigrationError("Source database has no supported tables")
-        for _, _, kind, persistence, identity, primary, extension, rls in self.tables:
-            if kind != "r" or persistence != "p" or extension or rls:
-                raise MigrationError("Partitioned, unlogged, foreign, materialized, extension-owned or RLS tables require a custom plan")
-            if identity not in ("f", "i") and not (identity == "d" and primary):
-                raise MigrationError("All source tables need a primary key or explicit replica identity")
 
     def prepare(self):
         # Prevent ALTER/DROP on existing tables while allowing normal DML.
@@ -198,6 +211,11 @@ class Replica:
             last, called = query(self.source, sql.SQL("SELECT last_value,is_called FROM {}").format(identifier(schema, name)))[0]
             qualified = identifier(schema, name).as_string(self.target)
             query(self.target, "SELECT setval(%s::regclass,%s,%s)", (qualified, last, called))
+        # pg_dump --schema-only creates materialized views WITH NO DATA.
+        # Refresh only after the final per-database marker commits and writers
+        # are fenced, so the destination view reflects the copied base tables.
+        for schema, name in self.materialized_views:
+            query(self.target, sql.SQL("REFRESH MATERIALIZED VIEW {}").format(identifier(schema, name)))
         # The ordered marker + all tables in 'r' verifies replication delivery;
         # avoid full COUNT(*) scans during the short write pause.
         p = self.progress()

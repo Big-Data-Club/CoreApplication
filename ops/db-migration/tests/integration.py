@@ -34,7 +34,10 @@ def main():
               CREATE SEQUENCE "unused sequence" START 17;
               CREATE SCHEMA "odd schema";
               CREATE TABLE "odd schema"."quoted table"(id integer PRIMARY KEY, value text);
-              INSERT INTO "odd schema"."quoted table" VALUES (1,'quoted');""")
+              INSERT INTO "odd schema"."quoted table" VALUES (1,'quoted');
+              CREATE MATERIALIZED VIEW item_summary AS
+                SELECT count(*) AS total, sum(id)::bigint AS id_sum FROM items WITH DATA;
+              CREATE UNIQUE INDEX item_summary_total ON item_summary(total);""")
         replica = Replica(SOURCE, TARGET, database, "a" * 32, index)
         # Unsupported sources must fail before changing the target.
         query(source, "CREATE TABLE missing_identity(value text)")
@@ -85,6 +88,8 @@ def main():
         assert query(replica.source, "SELECT * FROM items ORDER BY id") == query(replica.target, "SELECT * FROM items ORDER BY id")
         assert query(replica.target, "SELECT count(*) FROM disposable") == [(0,)]
         assert query(replica.target, 'SELECT * FROM "odd schema"."quoted table"') == [(1, "quoted")]
+        assert query(replica.target, "SELECT id_sum FROM item_summary")[0][0] == query(replica.target, "SELECT sum(id) FROM items")[0][0]
+        assert query(replica.target, "SELECT id_sum FROM item_summary") != query(replica.source, "SELECT id_sum FROM item_summary")
         source_sequence = query(replica.source, "SELECT last_value,is_called FROM items_id_seq")[0]
         assert query(replica.target, "SELECT last_value,is_called FROM items_id_seq")[0] == source_sequence
         assert query(replica.target, '''SELECT nextval('"unused sequence"')''') == [(17,)]
@@ -92,7 +97,7 @@ def main():
         replica.cleanup()
         assert not query(replica.source, "SELECT 1 FROM pg_replication_slots WHERE slot_name=%s", (replica.name,))
         replica.close()
-    print("PASS: automatic target DB creation, two databases, initial COPY, concurrent INSERT/UPDATE/DELETE, DDL guard, final barriers, sequences, quoted identifiers and slot cleanup", flush=True)
+    print("PASS: automatic target DB creation, two databases, initial COPY, concurrent INSERT/UPDATE/DELETE, materialized view refresh, DDL guard, final barriers, sequences, quoted identifiers and slot cleanup", flush=True)
 
 
 if __name__ == "__main__":

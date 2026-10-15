@@ -67,9 +67,13 @@ application connection or readiness behavior.
   implementation uses `--no-owner --no-acl`; it does not migrate roles or
   grants and does not support deployments with multiple runtime roles.
 - Only ordinary permanent tables with a suitable primary key or replica
-  identity are supported. Partitioned, unlogged, foreign, materialized,
-  extension-owned, or RLS tables and large objects are rejected before
-  writers stop. Other databases outside the six bindings are out of scope.
+  identity are published. A single ordinary materialized view per database,
+  such as AI's `public.concept_chunk_map`, is created by the schema dump and
+  refreshed from copied tables after the final replication marker. The refresh
+  runs during the writer pause and may lengthen cutover for large views.
+  Multiple materialized views, partitioned, unlogged, foreign,
+  extension-owned, or RLS tables and large objects are rejected before writers
+  stop. Other databases outside the six bindings are out of scope.
 - Freeze source DDL throughout the run, including DDL from personal clients.
   All writers must be approved Deployments. Preflight checks consumers of
   `bdc-secrets` and rejects unknown consumers, HPAs on writers,
