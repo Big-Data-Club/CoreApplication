@@ -297,6 +297,42 @@ class MigrationTests(unittest.TestCase):
         self.assertNotIn("private-password", output.getvalue() + json.dumps(state(self.kube)))
         self.assertEqual(state(self.kube)["phase"], "failed_source_active")
 
+    def test_lost_guard_is_detected_before_writers_stop(self):
+        class LostGuard(FakeReplica):
+            def guard_heartbeat(self):
+                raise psycopg2.OperationalError("postgresql://private-user:private-password@example.invalid/db")
+
+        start(self.kube, PROFILE, REQUEST_ID, 42, TARGET_URL)
+        migration = Migration(self.kube, PROFILE, RUN_ID, LostGuard)
+        output = io.StringIO()
+        with patch("sys.stdout", new=output):
+            self.assertFalse(migration.run())
+        diagnostic = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(diagnostic["failed_phase"], "preparing")
+        self.assertEqual(diagnostic["failed_check"], "prepare:" + ",".join(sorted(PREFIXES)) + ":source_guard_heartbeat")
+        self.assertEqual(diagnostic["error_kind"], "postgres_connection")
+        self.assertFalse(any(c[2].endswith("/scale") for c in self.kube.calls))
+        self.assertNotIn("private-password", output.getvalue() + json.dumps(state(self.kube)))
+
+    def test_guard_failure_during_drain_reports_exact_safe_step_and_restores_source(self):
+        class LostGuard(FakeReplica):
+            def fence(self):
+                self.drain_step = "source_guard_fence"
+                raise psycopg2.OperationalError("postgresql://private-user:private-password@example.invalid/db")
+
+        start(self.kube, PROFILE, REQUEST_ID, 42, TARGET_URL)
+        migration = Migration(self.kube, PROFILE, RUN_ID, LostGuard)
+        output = io.StringIO()
+        with patch("sys.stdout", new=output):
+            self.assertFalse(migration.run())
+        diagnostic = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(diagnostic["failed_phase"], "draining")
+        self.assertEqual(diagnostic["failed_check"], "drain:" + ",".join(sorted(PREFIXES)) + ":source_guard_fence")
+        self.assertEqual(diagnostic["error_kind"], "postgres_connection")
+        self.assertEqual(state(self.kube)["phase"], "failed_source_active")
+        self.assertEqual(self.kube.dep["spec"]["replicas"], 2)
+        self.assertNotIn("private-password", output.getvalue() + json.dumps(state(self.kube)))
+
     def test_binding_mismatch_reports_field_without_credential_values(self):
         secret = self.kube.objects[("secrets", "bdc-secrets")]["data"]
         secret["AI_POSTGRES_PASSWORD"] = base64.b64encode(b"private-password-fixture").decode()

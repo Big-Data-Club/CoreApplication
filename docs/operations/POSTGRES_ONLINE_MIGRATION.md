@@ -270,6 +270,14 @@ first `replicating` event occurred during preparation or runtime verification
 of the first database. Do not retry against a destination with partial schema
 or data; use a new empty destination after addressing the reported step.
 
+The source schema guard holds a transaction open while initial replication
+runs. Some Neon sources set `idle_in_transaction_session_timeout` to five
+minutes, which can close an idle guard before the final write fence. The Job
+sets this timeout to zero only within its guard transaction and checks that
+connection during replication, so a lost guard fails while source writers are
+still running. A failure in `draining` reports
+`failed_check=drain:<binding>:<step>` without exposing database credentials.
+
 The reported 2026-10-15 preflight failure was a PostgreSQL major-version
 mismatch. Both Neon endpoints were reported as PG18 while the repository's
 previous migration image default was PG17. Check the deployed client with:

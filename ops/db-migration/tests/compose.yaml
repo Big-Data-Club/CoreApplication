@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_PASSWORD: local-fixture-only
       PGDATA: /var/lib/postgresql/fixture
-    command: [postgres, -c, wal_level=logical, -c, max_replication_slots=20, -c, max_wal_senders=20]
+    command: [postgres, -c, wal_level=logical, -c, max_replication_slots=20, -c, max_wal_senders=20, -c, idle_in_transaction_session_timeout=5min]
     tmpfs: [/var/lib/postgresql]
     healthcheck:
       test: [CMD-SHELL, pg_isready -U postgres]

@@ -57,6 +57,7 @@ def main():
             old.pause()
             wait(old.no_workers)
         replica.prepare()
+        assert query(replica.guard, "SHOW idle_in_transaction_session_timeout") == [("0",)]
         replica.verify_runtime(SOURCE, "a" * 32)
         replicas.append(replica)
         scheduler.active_replicas.append(replica)

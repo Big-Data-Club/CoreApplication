@@ -200,13 +200,34 @@ class Migration:
                 f"required={count + 1} for {count} databases")
 
     def copy_ready(self, active):
-        progress = [r.progress() for r in self.prepared]
+        for replica in self.prepared:
+            self.current_replica = replica
+            replica.prepare_step = "source_guard_heartbeat"
+            replica.guard_heartbeat()
+        progress = []
+        for replica in self.prepared:
+            self.current_replica = replica
+            replica.prepare_step = "replication_progress"
+            progress.append(replica.progress())
         lag = sum(p["lag_bytes"] or 0 for p in progress)
         if lag > self.profile.get("max_lag_bytes", 2147483648):
             raise MigrationError("Replication lag exceeded profile WAL budget")
         self.update("replicating", tables_ready=sum(p["ready"] for p in progress),
                     tables_total=sum(p["total"] for p in progress), lag_bytes=lag)
-        return all(r.caught_up() for r in active)
+        for replica in active:
+            self.current_replica = replica
+            replica.prepare_step = "replication_catch_up"
+            if not replica.caught_up():
+                return False
+        return True
+
+    def barriers_applied(self, replicas):
+        for replica in replicas:
+            self.current_replica = replica
+            replica.drain_step = "final_barrier"
+            if not replica.barrier_applied():
+                return False
+        return True
 
     def switch_active(self, next_active):
         for replica in self.active_replicas:
@@ -318,21 +339,28 @@ class Migration:
             self.wait(self.no_writer_pods, 120, "Writers did not terminate")
             self.update("draining")
             for replica in self.replicas:
+                self.current_replica = replica
                 replica.fence()
-            self.wait(lambda: all(r.barrier_applied() for r in self.active_replicas),
+            self.wait(lambda: self.barriers_applied(self.active_replicas),
                       60, "Final replication barrier timed out")
             deferred = [r for r in self.replicas if r not in self.active_replicas]
             for offset in range(0, len(deferred), self.max_active_replicas):
                 group = deferred[offset:offset + self.max_active_replicas]
+                self.current_replica = group[0]
+                group[0].drain_step = "resume_deferred_subscription"
                 self.switch_active(group)
-                self.wait(lambda: all(r.barrier_applied() for r in group),
+                self.wait(lambda: self.barriers_applied(group),
                           60, "Deferred final replication barrier timed out")
             for replica in self.replicas:
+                self.current_replica = replica
                 replica.finalize()
+                replica.drain_step = "verify_target_runtime"
                 replica.verify_runtime(self.target["runtime_url"], self.run_id + ":final")
             # Drop replication before target writes; retain table locks until
             # application restart. Failure here still permits source recovery.
             for replica in self.replicas:
+                self.current_replica = replica
+                replica.drain_step = "cleanup_replication"
                 replica.cleanup()
             self.update("cutover")
             self.patch_destination()
@@ -380,6 +408,9 @@ class Migration:
             if failed_phase == "preparing" and self.current_replica is not None:
                 step = self.current_replica.__dict__.get("prepare_step", "unknown")
                 failed_check = "prepare:" + self.current_replica.safe_binding + ":" + step
+            if failed_phase == "draining" and self.current_replica is not None:
+                step = self.current_replica.__dict__.get("drain_step", "unknown")
+                failed_check = "drain:" + self.current_replica.safe_binding + ":" + step
             self.update("failed_source_active" if recovered else "recovery_required", failed_phase=failed_phase,
                         failed_check=failed_check,
                         error=reason, error_kind=error_kind, sqlstate=getattr(exc, "pgcode", None))

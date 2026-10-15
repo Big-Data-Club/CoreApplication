@@ -152,6 +152,10 @@ class Replica:
         self.prepare_step = "source_guard_connection"
         self.guard = connect(self.source_url, self.database)
         self.guard.autocommit = False
+        # This transaction deliberately holds ACCESS SHARE locks throughout
+        # initial COPY. Providers may otherwise close it after a short idle
+        # interval (the observed Neon source limit is five minutes).
+        query(self.guard, "SET LOCAL idle_in_transaction_session_timeout = 0")
         names = sql.SQL(", ").join(identifier(t[0], t[1]) for t in self.tables)
         self.prepare_step = "source_schema_lock"
         query(self.guard, sql.SQL("LOCK TABLE {} IN ACCESS SHARE MODE").format(names))
@@ -174,6 +178,11 @@ class Replica:
         query(self.target, sql.SQL("CREATE SUBSCRIPTION {} CONNECTION {} PUBLICATION {} WITH (copy_data = true)").format(
             sql.Identifier(self.name), sql.Literal(dsn), sql.Identifier(self.name)))
         self.enabled = True
+
+    def guard_heartbeat(self):
+        # Detect a lost lock session while writers are still on the source,
+        # before the write pause starts.
+        query(self.guard, "SELECT 1")
 
     def pause(self):
         if self.enabled:
@@ -205,11 +214,14 @@ class Replica:
         # Acquire after managed writers stop. This also drains in-flight writes
         # and prevents outside DML on existing tables until handover finishes.
         names = sql.SQL(", ").join(identifier(t[0], t[1]) for t in self.tables)
+        self.drain_step = "source_guard_fence"
         query(self.guard, sql.SQL("LOCK TABLE {} IN SHARE MODE").format(names))
+        self.drain_step = "source_schema_fingerprint"
         if fingerprint(schema_dump(self.source_url, self.database)) != fingerprint(self.dump):
             raise MigrationError("Source schema changed while copying; cutover aborted")
         # A WAL marker is database-specific: cluster-wide LSN polling alone can
         # hang on writes from unrelated databases or acknowledge the wrong DB.
+        self.drain_step = "source_final_marker"
         query(self.source, sql.SQL("UPDATE {} SET token=%s WHERE id=1").format(identifier(SCHEMA, "barrier")), (self.token + ":final",))
 
     def barrier_applied(self):
@@ -236,10 +248,12 @@ class Replica:
             conn.close()
 
     def finalize(self):
+        self.drain_step = "verify_final_barrier"
         if not self.barrier_applied():
             raise MigrationError("Destination has not applied the final committed marker")
         # Sequence state is not part of logical replication. Copy both last_value
         # and is_called while source writers remain fenced.
+        self.drain_step = "copy_sequence_state"
         sequences = query(self.source, """SELECT schemaname,sequencename FROM pg_sequences
             WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2""")
         for schema, name in sequences:
@@ -250,9 +264,11 @@ class Replica:
         # Refresh only after the final per-database marker commits and writers
         # are fenced, so the destination view reflects the copied base tables.
         for schema, name in self.materialized_views:
+            self.drain_step = "refresh_materialized_view"
             query(self.target, sql.SQL("REFRESH MATERIALIZED VIEW {}").format(identifier(schema, name)))
         # The ordered marker + all tables in 'r' verifies replication delivery;
         # avoid full COUNT(*) scans during the short write pause.
+        self.drain_step = "verify_table_sync"
         p = self.progress()
         if p["ready"] != len(self.tables) + 1:
             raise MigrationError("Not every table has completed initial synchronization")
