@@ -137,6 +137,15 @@ clear_terminating_pods() {
   fi
 }
 
+# Bootstrap before any application rollout. Normal farm changes select Auth too
+# so its env-based consumer flag is picked up by the new pod.
+if [[ " ${deployments[*]} " == *" farm-service "* ]]; then
+  if [[ " ${deployments[*]} " != *" auth-service "* ]]; then
+    echo "Farm rollout must include auth-service (SERVICES=auth-service,farm-service)." >&2
+    exit 2
+  fi
+fi
+
 kubectl cluster-info >/dev/null
 ./scripts/k3s-maintenance.sh \
   --namespace "$DEPLOY_NAMESPACE" \
@@ -160,9 +169,8 @@ fi
 if [[ ",${SERVICES:-}," == *",lab-service,"* ]]; then
   kubectl apply -f k3s/base/lab-sandbox-policy.yaml
 fi
-if [[ ",${SERVICES:-}," == *",farm-service,"* ]]; then
-  # Secret values are never printed. Provisioning belongs to the operator.
-  kubectl get secret bdc-farm-secrets --namespace "$DEPLOY_NAMESPACE" >/dev/null
+if [[ " ${deployments[*]} " == *" farm-service "* ]]; then
+  python3 scripts/bootstrap-knowledge-farm.py
   kubectl apply -f k3s/base/farm-topic-job.yaml --namespace "$DEPLOY_NAMESPACE"
   kubectl wait --for=condition=complete job/farm-reward-topic-v1 --namespace "$DEPLOY_NAMESPACE" --timeout=180s
 fi

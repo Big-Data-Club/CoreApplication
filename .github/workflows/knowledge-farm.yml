@@ -5,6 +5,9 @@ on:
       - 'farm-service/**'
       - 'auth-and-management-service/**'
       - 'scripts/test-knowledge-farm.sh'
+      - 'scripts/bootstrap-knowledge-farm.py'
+      - 'scripts/farm-bootstrap/**'
+      - 'scripts/test-farm-bootstrap.sh'
       - '.github/workflows/knowledge-farm.yml'
   push:
     branches: [main]
@@ -12,6 +15,9 @@ on:
       - 'farm-service/**'
       - 'auth-and-management-service/**'
       - 'scripts/test-knowledge-farm.sh'
+      - 'scripts/bootstrap-knowledge-farm.py'
+      - 'scripts/farm-bootstrap/**'
+      - 'scripts/test-farm-bootstrap.sh'
       - '.github/workflows/knowledge-farm.yml'
 permissions:
   contents: read
@@ -21,4 +27,5 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - run: bash scripts/test-farm-bootstrap.sh
       - run: bash scripts/test-knowledge-farm.sh

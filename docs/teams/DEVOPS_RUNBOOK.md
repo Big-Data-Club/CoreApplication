@@ -867,3 +867,11 @@ not activate it on existing Auth deployments. The base Kustomize farm workload
 requires its own secrets before startup. No database is shared with LMS/Auth.
 See [canonical deployment/recovery instructions](../features/KNOWLEDGE_FARM.md#rollout-k3s),
 including backlog monitoring, replay retention and coordinated event-key rotation.
+
+### Knowledge Farm database bootstrap
+
+Farm production rollout provisions `gamefarm` on the current Auth Neon host,
+creates its application role, and runs Auth/Farm migrations before enabling
+rewards. Select `auth-service,farm-service` together. Credentials/signing keys
+are retained across retries. See [Knowledge Farm rollout and server commands](../features/KNOWLEDGE_FARM.md#rollout-k3s)
+for prerequisites, CI reruns, failure diagnosis and end-to-end verification.

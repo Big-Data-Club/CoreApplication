@@ -43,6 +43,12 @@ jobs:
           filters: |
             auth:
               - 'auth-and-management-service/**'
+              - 'farm-service/**'
+              - 'scripts/bootstrap-knowledge-farm.py'
+              - 'scripts/test-farm-bootstrap.sh'
+              - 'scripts/farm-bootstrap/**'
+              - 'k3s/base/farm-service-deployment.yaml'
+              - 'k3s/base/farm-topic-job.yaml'
               - 'k3s/base/auth-service-deployment.yaml'
               - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
@@ -90,6 +96,9 @@ jobs:
               # production selection itself.
               - '.github/workflows/production.yml'
             farm:
+              - 'scripts/bootstrap-knowledge-farm.py'
+              - 'scripts/test-farm-bootstrap.sh'
+              - 'scripts/farm-bootstrap/**'
               - 'farm-service/**'
               - 'k3s/base/farm-service-deployment.yaml'
               - 'k3s/base/farm-topic-job.yaml'
@@ -190,6 +199,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - run: bash scripts/test-farm-bootstrap.sh
       - run: bash scripts/test-knowledge-farm.sh
 
   build:

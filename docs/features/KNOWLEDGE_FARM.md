@@ -113,24 +113,92 @@ PG* variables nên password không phải ghép vào URL.
 
 ## Rollout K3s
 
-1. Provision database/role riêng cho farm. Tạo Secret `bdc-farm-secrets` với
-   `FARM_DATABASE_URL` (TLS), `FARM_EVENT_SECRET` (>=32 byte), và
-   `FARM_REWARDS_ENABLED=true` qua công cụ quản lý secret được phép. Không in
-   giá trị ra logs. Farm dùng JWT hiện có từ `bdc-secrets`.
-2. Áp dụng migration Auth
-   `auth-and-management-service/migrations/V20261017__farm_score_receipts.sql`
-   vào database Auth. Không chỉnh migration cũ.
-3. Tạo topic bằng `k3s/base/farm-topic-job.yaml`, deploy Auth consumer trước,
-   rồi farm-service và frontend. Production selector có image `bdc-farm` và
-   deploy script kiểm tra Secret, chờ topic Job hoàn thành. Frontend vẫn dùng
-   quy trình build/deploy riêng của submodule; parent workflow không build nó.
-4. Kiểm tra `/ready`, group `auth-farm-rewards-v1`, làm một lượt học bằng tài
-   khoản thử. Đối chiếu một outbox, một inbox, và đúng +5 trong tổng điểm.
-   Replay cùng event phải giữ nguyên điểm.
+Production deploy tự gọi `scripts/bootstrap-knowledge-farm.py` trước rollout khi
+chọn Farm. Không cần SSH chỉnh `.env` hay thêm mật khẩu Farm vào GitHub:
 
-Base Kustomize có farm Deployment và topic Job: phải provision Secret trước
-khi áp dụng cả base. Không coi workflow xanh không chọn service là đã deploy.
-Chưa deploy production chỉ vì thay đổi source local.
+1. Đọc endpoint Auth đang dùng từ `bdc-config` và credentials trong
+   `bdc-secrets`. Với Neon, Job dùng endpoint trực tiếp bỏ hậu tố `-pooler`;
+   ứng dụng vẫn dùng host hiện có. Database mới tên **`gamefarm`**, cùng Neon
+   project/branch/compute với Auth, không phải một project Neon khác.
+2. Tạo role SQL riêng `gamefarm_app` và database nếu chưa có. Mật khẩu ngẫu
+   nhiên và secret ký event được lưu trong `bdc-farm-secrets`, giữ nguyên khi
+   retry. App Farm chỉ nhận credentials của role riêng, không nhận tài khoản
+   quản trị Auth. Bootstrap là tác vụ quản trị triển khai, không phải API runtime.
+3. Job PostgreSQL chạy migration inbox trong database Auth; sau đó đăng nhập
+   bằng role Farm và chạy `farm-service/migrations/V*.sql` trong `gamefarm`.
+   Mỗi database có ledger `farm_deploy_migrations`, checksum, transaction và
+   advisory lock. Migration đã áp dụng không chạy lại; checksum khác thì dừng.
+   Thêm file V002, V003... cho thay đổi tiếp theo, không sửa V001.
+4. Chỉ sau khi hai schema sẵn sàng mới đặt `FARM_REWARDS_ENABLED=true`, tạo
+   topic Kafka, rồi rollout Auth và Farm. Selector tự build cả hai khi mã Farm
+   hoặc bootstrap thay đổi. Frontend vẫn build/deploy qua workflow submodule.
+
+Điều kiện ban đầu: cluster đã có `bdc-config`, `bdc-secrets`, Kafka; tài khoản
+DB trong `bdc-secrets` có quyền quản lý role/database và migrate schema Auth.
+Role mặc định Neon (`neondb_owner`, thành viên `neon_superuser`) có quyền
+CREATEDB/CREATEROLE; xem [Neon roles](https://neon.com/docs/manage/roles).
+Nếu tài khoản hiện tại đã bị giới hạn, quản trị viên phải provision quyền/tài
+khoản qua kho secret được duyệt trước; CI không tự nâng quyền. Database đã có
+owner khác hoặc URL Farm trỏ database/host khác sẽ bị từ chối, không tự di
+chuyển dữ liệu. Không xóa `bdc-farm-secrets` để retry vì có event đang dùng
+secret cũ. Nếu bootstrap lỗi, log chỉ báo giai đoạn, không in SQL/password.
+
+### Chạy CI/CD
+
+Push **frontend trước**, sau đó push parent `main` với submodule pointer mới.
+Parent workflow tự build/test/bootstrap/rollout khi diff chọn Farm. Không coi
+workflow xanh không chọn service là đã deploy. Chạy lại image đã build bằng
+GitHub CLI từ repo parent (thay tag bằng SHA/tag đã tồn tại cho cả hai image):
+
+```bash
+gh workflow run production.yml --ref main \
+  -f image_tag=YOUR_PUBLISHED_TAG \
+  -f services=auth-service,farm-service
+gh run list --workflow production.yml --limit 3
+# Dùng ID vừa hiển thị:
+gh run watch RUN_ID --exit-status
+```
+
+### Chạy end-to-end trên server khi cần
+
+Dùng checkout đúng release và kubeconfig có quyền quản trị namespace. Không
+cần copy mật khẩu từ Neon ra terminal. Hai image `bdc-backend` và `bdc-farm`
+phải đã được CI publish cùng tag; lệnh này không build image trên server.
+
+```bash
+cd /path/to/CoreApplication
+git pull --ff-only origin main
+export KUBECONFIG=/path/to/authorized/kubeconfig
+export DEPLOY_NAMESPACE=default
+export REGISTRY_NAMESPACE=YOUR_DOCKERHUB_NAMESPACE
+export IMAGE_TAG=YOUR_PUBLISHED_TAG
+export SERVICES=auth-service,farm-service
+bash scripts/deploy-production.sh
+kubectl -n "$DEPLOY_NAMESPACE" rollout status deployment/auth-service --timeout=12m
+kubectl -n "$DEPLOY_NAMESPACE" rollout status deployment/farm-service --timeout=12m
+kubectl -n "$DEPLOY_NAMESPACE" wait --for=condition=complete job/farm-reward-topic-v1 --timeout=180s
+kubectl -n "$DEPLOY_NAMESPACE" port-forward service/farm-service 8087:8087
+```
+
+Ở terminal thứ hai, `curl --fail http://127.0.0.1:8087/ready`. Deploy frontend
+qua pipeline riêng với server env `FARM_SERVICE_URL=http://farm-service:8087`
+(khi frontend trong cùng namespace). Đăng nhập bằng tài khoản thử, mở
+`/knowledge-farm`, chăm sóc → chờ trưởng thành → trả lời đúng → thu hoạch.
+Kiểm tra tổng điểm tăng đúng 5 sau khi consumer xử lý; kiểm tra log Auth/Farm
+và consumer lag nếu điểm chưa về. Không dùng browser smoke mock để chứng minh
+kết nối production.
+
+Deploy script dùng DB operation lock hiện có và dừng trước rollout nếu
+bootstrap lỗi. Job lỗi được giữ tối đa một giờ, tên Job có trong CI log;
+`kubectl logs -n default job/FARM_BOOTSTRAP_JOB_NAME` cho biết giai đoạn lỗi.
+ConfigMap SQL của Job lỗi không chứa secret; xóa bằng
+`kubectl delete configmap -n default FARM_BOOTSTRAP_JOB_NAME` sau điều tra.
+Database/migrations đã commit không bị rollback khi image rollout thất bại.
+Base Kustomize không tự chạy script: dùng deploy script/pipeline cho lần đầu.
+
+Kiểm tra bootstrap độc lập bằng `bash scripts/test-farm-bootstrap.sh`: 7 unit
+checks và PostgreSQL tạm kiểm tra provision, retry, role không phải superuser,
+và từ chối checksum sai. Test không kết nối Neon production.
 
 ## Vận hành và khôi phục
 
@@ -177,8 +245,9 @@ Nguồn .env thật không được mount vào các container test.
   passed. HTTP auth/validation and cross-user challenge rejection covered.
 - Java 21: `mvn test` passed 7 tests, including a real Kafka broker, concurrent
   duplicate delivery, canonical score increment and transactional rollback.
-- Frontend: 5 BFF tests passed; TypeScript and production build passed. Full
-  lint had 0 errors (pre-existing warnings remain elsewhere in the frontend).
+- Frontend: 5 BFF tests passed; TypeScript and production build passed.
+  Follow-up fix converted browser smoke to ESM: full `pnpm lint` now reports
+  0 errors / 431 existing warnings, including the smoke script.
 - Browser smoke on the production build: quiz and recall harvest, desktop and
   mobile learner navigation, species learning cards, light/dark presentation,
   scroll reachability and no horizontal overflow/page errors. UI smoke uses
@@ -186,7 +255,7 @@ Nguồn .env thật không được mount vào các container test.
 - Both Compose variants, Kustomize rendering, shell syntax and diff whitespace
   checks passed. No production rollout or live-account test was performed.
 
-The optional browser script is `frontend/tests/knowledge-farm/smoke.cjs`.
+The optional browser script is `frontend/tests/knowledge-farm/smoke.mjs`.
 It requires a local production Next server on `FARM_SMOKE_URL`, a dedicated
 `NEXTAUTH_SECRET` matching `FARM_SMOKE_SECRET`, and Playwright Chromium.
 Screenshots are written only to `/tmp/knowledge-farm-*.png`. Never point it
