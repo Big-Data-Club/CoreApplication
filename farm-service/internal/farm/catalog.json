@@ -1,0 +1,110 @@
+[
+  {
+    "kind": "rice_crop",
+    "label": "Lúa nước",
+    "seconds": 120,
+    "category": "crop",
+    "care": "Tưới nước",
+    "product": "Thóc",
+    "environment": "Ruộng bằng phẳng, có nguồn nước và hệ thống điều tiết nước phù hợp. Cách quản lý nước thay đổi theo giống và phương thức canh tác.",
+    "steps": [
+      "Chọn giống và chuẩn bị đất, làm phẳng mặt ruộng.",
+      "Gieo sạ hoặc ươm mạ rồi cấy.",
+      "Chăm sóc nước, dinh dưỡng; theo dõi cỏ dại và sâu bệnh.",
+      "Thu hoạch khi lúa chín, tuốt hạt rồi làm khô để bảo quản."
+    ],
+    "fact": "Lúa ngoài đời trải qua cả một vụ; không lớn trong hai phút và không phải giống nào cũng cần ngập liên tục.",
+    "source_title": "FAO · Rice in human nutrition",
+    "source_url": "https://www.fao.org/4/t0567e/T0567E03.htm"
+  },
+  {
+    "kind": "water_spinach",
+    "label": "Rau muống",
+    "seconds": 100,
+    "category": "crop",
+    "care": "Tưới nước",
+    "product": "Rau muống",
+    "environment": "Cây ưa điều kiện ấm và cần nhiều nước. Rau muống trồng cạn cần đất ẩm; nguồn nước tưới phải phù hợp với cây thực phẩm.",
+    "steps": [
+      "Chuẩn bị luống và chọn hạt hoặc hom khỏe.",
+      "Gieo hạt hoặc trồng hom theo phương thức canh tác.",
+      "Giữ ẩm, làm cỏ và theo dõi tình trạng cây.",
+      "Cắt phần ngọn non; chăm sóc phần gốc nếu tiếp tục thu các lứa sau."
+    ],
+    "fact": "Rau muống có thể được trồng bằng hạt hoặc hom, không chỉ trồng nổi trên mặt nước.",
+    "source_title": "World Vegetable Center · Cultural practices for kangkong",
+    "source_url": "https://worldveg.tind.io/record/39509/files/e03423.pdf"
+  },
+  {
+    "kind": "flower",
+    "label": "Hoa vạn thọ",
+    "seconds": 95,
+    "category": "crop",
+    "care": "Tưới nước",
+    "product": "Hoa",
+    "environment": "Ưa nhiều nắng và đất thoát nước. Chọn giống phù hợp với không gian trồng; giữ ẩm khi gieo hạt.",
+    "steps": [
+      "Gieo hạt vào giá thể phù hợp.",
+      "Chuyển cây con khỏe ra nơi đủ nắng.",
+      "Tưới theo độ ẩm đất, tránh để úng.",
+      "Ngắt hoa tàn để khuyến khích cây tiếp tục nở."
+    ],
+    "fact": "Không phải mọi loài hoa đều thích bóng râm; vạn thọ cần nhiều nắng để nở tốt.",
+    "source_title": "University of Minnesota Extension · Marigolds",
+    "source_url": "https://extension.umn.edu/garden-and-home/yard-and-garden/gardening-in-minnesota/marigolds"
+  },
+  {
+    "kind": "chicken",
+    "label": "Gà mái",
+    "seconds": 180,
+    "category": "animal",
+    "care": "Cho ăn và thay nước",
+    "product": "Trứng",
+    "environment": "Chuồng khô, thông thoáng, có nơi đậu và ổ đẻ; bảo vệ khỏi thú săn mồi. Luôn có thức ăn phù hợp và nước sạch.",
+    "steps": [
+      "Chuẩn bị chuồng, chất độn, máng ăn và nước.",
+      "Chọn gà khỏe và thức ăn phù hợp lứa tuổi.",
+      "Cho ăn, thay nước và quan sát hằng ngày.",
+      "Vệ sinh chuồng và thu trứng đều đặn."
+    ],
+    "fact": "Gà mái có thể đẻ trứng khi không có gà trống; gà trống cần cho trứng có khả năng phát triển thành gà con.",
+    "source_title": "University of Minnesota Extension · Raising chickens for eggs",
+    "source_url": "https://extension.umn.edu/agriculture/animals-and-livestock/poultry/raising-chickens-for-eggs"
+  },
+  {
+    "kind": "fish",
+    "label": "Cá nước ngọt",
+    "seconds": 210,
+    "category": "animal",
+    "care": "Chăm ao và cho ăn",
+    "product": "Cá",
+    "environment": "Ao có chất lượng nước phù hợp với loài nuôi, đủ oxy hòa tan và mật độ phù hợp. Nhu cầu cụ thể tùy loài cá.",
+    "steps": [
+      "Chuẩn bị ao và kiểm tra điều kiện nước.",
+      "Chọn cá giống khỏe, thả với mật độ phù hợp.",
+      "Cho ăn theo nhu cầu; theo dõi oxy và chất lượng nước.",
+      "Theo dõi tăng trưởng rồi thu hoạch khi đạt kích thước phù hợp."
+    ],
+    "fact": "Cá sống trong nước vẫn cần oxy. Cho ăn nhiều không bù được tình trạng nước thiếu oxy.",
+    "source_title": "FAO · Freshwater pond fish culture",
+    "source_url": "https://www.fao.org/4/t0555e/t0555e02.htm"
+  },
+  {
+    "kind": "bee",
+    "label": "Ong mật",
+    "seconds": 165,
+    "category": "animal",
+    "care": "Chăm tổ ong",
+    "product": "Mật ong",
+    "environment": "Đàn ong cần tổ phù hợp và nguồn hoa cung cấp mật, phấn. Việc quản lý đàn phải theo mùa và điều kiện địa phương.",
+    "steps": [
+      "Tìm hiểu kỹ thuật và chuẩn bị tổ, đồ bảo hộ.",
+      "Bố trí đàn ở nơi phù hợp, có nguồn hoa.",
+      "Kiểm tra sức khỏe đàn, ong chúa và nguồn thức ăn.",
+      "Chỉ lấy phần mật dư, để lại đủ dự trữ cho đàn."
+    ],
+    "fact": "Ong giúp thụ phấn khi đi kiếm ăn. Nuôi ong là chăm sóc cả một đàn, không chỉ một con ong.",
+    "source_title": "Penn State Extension · Beekeeping — Honey Bees",
+    "source_url": "https://extension.psu.edu/beekeeping-honey-bees"
+  }
+]

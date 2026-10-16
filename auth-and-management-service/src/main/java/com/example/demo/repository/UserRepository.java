@@ -18,6 +18,10 @@ import java.util.Set;
 
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("UPDATE User u SET u.totalScore = COALESCE(u.totalScore, 0) + :delta, u.updatedAt = CURRENT_TIMESTAMP WHERE u.id = :id")
+    int incrementTotalScore(@Param("id") Long id, @Param("delta") int delta);
+
     /**
      * Serializes lazy user-profile creation for a user.  The profile config
      * screen loads and saves concurrently on first use, so an unlocked lookup

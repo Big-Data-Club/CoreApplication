@@ -89,6 +89,11 @@ jobs:
               # Keep a workflow fix deployable: this file controls the chat
               # production selection itself.
               - '.github/workflows/production.yml'
+            farm:
+              - 'farm-service/**'
+              - 'k3s/base/farm-service-deployment.yaml'
+              - 'k3s/base/farm-topic-job.yaml'
+              - 'scripts/deploy-production.sh'
             dutylog:
               - 'dutylog/**'
               - 'k3s/base/dutylog-service-deployment.yaml'
@@ -105,6 +110,7 @@ jobs:
           LMS_CHANGED: ${{ steps.changes.outputs.lms }}
           LAB_CHANGED: ${{ steps.changes.outputs.lab }}
           CHAT_CHANGED: ${{ steps.changes.outputs.chat }}
+          FARM_CHANGED: ${{ steps.changes.outputs.farm }}
           DUTYLOG_CHANGED: ${{ steps.changes.outputs.dutylog }}
           MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
           MANUAL_SERVICES: ${{ inputs.services }}
@@ -155,6 +161,10 @@ jobs:
             items+=('{"image":"bdc-chat","context":"chat-service"}')
             services+=(chat-service)
           fi
+          if [[ "${FARM_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-farm","context":"farm-service"}')
+            services+=(farm-service)
+          fi
           if [[ "${DUTYLOG_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-dutylog","context":"dutylog/backend"}')
             services+=(dutylog-service)
@@ -172,10 +182,20 @@ jobs:
           echo "services=${services[*]}" >> "$GITHUB_OUTPUT"
           echo 'should_build=true' >> "$GITHUB_OUTPUT"
 
+  verify-farm:
+    name: Verify farm score transactions
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_build == 'true' && (contains(needs.detect-changes.outputs.services, 'farm-service') || contains(needs.detect-changes.outputs.services, 'auth-service'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-knowledge-farm.sh
+
   build:
     name: Build ${{ matrix.image }}
-    needs: detect-changes
-    if: needs.detect-changes.outputs.should_build == 'true'
+    needs: [detect-changes, verify-farm]
+    if: always() && needs.detect-changes.outputs.should_build == 'true' && (needs.verify-farm.result == 'success' || needs.verify-farm.result == 'skipped')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -220,11 +240,12 @@ jobs:
 
   deploy:
     name: Roll out production
-    needs: [detect-changes, build]
+    needs: [detect-changes, verify-farm, build]
     if: >-
       always() && needs.detect-changes.result == 'success' &&
       needs.detect-changes.outputs.services != '' &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (needs.verify-farm.result == 'success' || needs.verify-farm.result == 'skipped') &&
+      (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.detect-changes.outputs.should_build == 'false'))
     runs-on: [self-hosted, linux, x64, production]
     environment: production
     env:

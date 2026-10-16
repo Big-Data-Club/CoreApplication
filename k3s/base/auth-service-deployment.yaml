@@ -27,6 +27,19 @@ spec:
         - configMapRef:
             name: bdc-config
         env:
+        # Optional until farm database/topic and receipt migration are provisioned.
+        - name: FARM_REWARDS_ENABLED
+          valueFrom:
+            secretKeyRef:
+              name: bdc-farm-secrets
+              key: FARM_REWARDS_ENABLED
+              optional: true
+        - name: FARM_EVENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-farm-secrets
+              key: FARM_EVENT_SECRET
+              optional: true
         # Load sensitive database configurations from secrets
         - name: POSTGRES_DB
           valueFrom:

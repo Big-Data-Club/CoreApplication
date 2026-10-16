@@ -1,0 +1,24 @@
+name: Knowledge farm contracts and persistence
+on:
+  pull_request:
+    paths:
+      - 'farm-service/**'
+      - 'auth-and-management-service/**'
+      - 'scripts/test-knowledge-farm.sh'
+      - '.github/workflows/knowledge-farm.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'farm-service/**'
+      - 'auth-and-management-service/**'
+      - 'scripts/test-knowledge-farm.sh'
+      - '.github/workflows/knowledge-farm.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-knowledge-farm.sh

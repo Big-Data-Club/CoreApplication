@@ -159,6 +159,9 @@ file:
   upload-dir: uploads
 
 app:
+  farm:
+    rewards-enabled: ${FARM_REWARDS_ENABLED:false}
+    event-secret: ${FARM_EVENT_SECRET:}
   default-role: ROLE_USER
   upload:
     dir: uploads/profiles/

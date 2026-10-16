@@ -855,3 +855,15 @@ read it, and an interrupted lease recovers. Validate the task bindings for
 logs; READY is a proposal, not publication. Terminal Git labs additionally need
 a built and pinned image from `lab-service/sandbox/terminal/Dockerfile`.
 Docker build/run remains unavailable on the default terminal runtime.
+
+## Knowledge Farm rollout
+
+The production selector now builds `bdc-farm` for `farm-service/` changes.
+Provision the dedicated farm database and `bdc-farm-secrets`, apply the Auth
+receipt migration, then roll out Auth, farm and the frontend submodule in that
+order. The deploy script creates/waits for the reward topic Job. Consumer
+activation is opt-in through `FARM_REWARDS_ENABLED`; missing farm secrets do
+not activate it on existing Auth deployments. The base Kustomize farm workload
+requires its own secrets before startup. No database is shared with LMS/Auth.
+See [canonical deployment/recovery instructions](../features/KNOWLEDGE_FARM.md#rollout-k3s),
+including backlog monitoring, replay retention and coordinated event-key rotation.

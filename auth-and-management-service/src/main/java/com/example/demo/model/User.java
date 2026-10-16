@@ -13,6 +13,7 @@ import java.util.Set;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
+@org.hibernate.annotations.DynamicUpdate
 @Table(name = "users")
 @Getter
 @Setter

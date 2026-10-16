@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: farm-reward-topic-v1
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: create-topic
+        image: bitnamilegacy/kafka:3.7.0
+        env:
+        - name: KAFKA_HEAP_OPTS
+          value: -Xms32m -Xmx128m
+        command: [bash, -ec]
+        args:
+        - kafka-topics.sh --bootstrap-server kafka-service:9092 --create --if-not-exists --topic farm.harvest.reward.v1 --partitions 3 --replication-factor 1 --config retention.ms=2592000000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi

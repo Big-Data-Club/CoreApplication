@@ -29,6 +29,7 @@ deployments=(
   personalize-service
   recommender-service
   dutylog-service
+  farm-service
 )
 
 # A deployment job may roll out only the workloads whose image was published.
@@ -51,6 +52,7 @@ declare -A containers=(
   [personalize-service]=personalize-service
   [recommender-service]=recommender-service
   [frontend]=frontend
+  [farm-service]=farm-service
   [dutylog-service]=dutylog-service
 )
 
@@ -66,6 +68,7 @@ declare -A images=(
   [personalize-service]=bdc-personalize
   [recommender-service]=bdc-recommender
   [frontend]=bdc-frontend
+  [farm-service]=bdc-farm
   [dutylog-service]=bdc-dutylog
 )
 
@@ -79,6 +82,7 @@ declare -A manifests=(
   [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml
   [ai-lab-authoring-worker]=k3s/base/ai-lab-authoring-worker-deployment.yaml
   [lab-service]=k3s/base/lab-service-deployment.yaml
+  [farm-service]=k3s/base/farm-service-deployment.yaml
   [dutylog-service]=k3s/base/dutylog-service-deployment.yaml
 )
 
@@ -155,6 +159,12 @@ fi
 # does not start learner workloads by itself.
 if [[ ",${SERVICES:-}," == *",lab-service,"* ]]; then
   kubectl apply -f k3s/base/lab-sandbox-policy.yaml
+fi
+if [[ ",${SERVICES:-}," == *",farm-service,"* ]]; then
+  # Secret values are never printed. Provisioning belongs to the operator.
+  kubectl get secret bdc-farm-secrets --namespace "$DEPLOY_NAMESPACE" >/dev/null
+  kubectl apply -f k3s/base/farm-topic-job.yaml --namespace "$DEPLOY_NAMESPACE"
+  kubectl wait --for=condition=complete job/farm-reward-topic-v1 --namespace "$DEPLOY_NAMESPACE" --timeout=180s
 fi
 # Apply manifests only for selected workloads that require spec-level changes.
 # Capture the previous immutable image before apply so rollback remains correct

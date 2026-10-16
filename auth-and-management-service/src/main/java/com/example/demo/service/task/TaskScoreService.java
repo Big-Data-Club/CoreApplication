@@ -136,11 +136,7 @@ public class TaskScoreService {
                     Collectors.summingInt(TaskScore::getScore)
                 ));
         
-        var users = userRepo.findAllById(userScoreDeltas.keySet());
-        users.forEach(u -> u.setTotalScore(
-            u.getTotalScore() + userScoreDeltas.get(u.getId())
-        ));
-        userRepo.saveAll(users);
+        userScoreDeltas.forEach(userRepo::incrementTotalScore);
 
         log.info("Applied scores to {} users for task {}", pending.size(), taskId);
         return taskScoreRepo.findByTaskId(taskId).stream()
@@ -219,11 +215,10 @@ public class TaskScoreService {
     // ── Private helpers ──────────────────────────────────────────────────────
 
     /**
-     * Cộng/trừ điểm vào totalScore, save ngay - không cần load user lại.
+     * Cộng/trừ điểm nguyên tử; không ghi đè điểm nông trại từ consumer đồng thời.
      */
     private void adjustUserScore(User user, int delta) {
-        user.setTotalScore((user.getTotalScore() != null ? user.getTotalScore() : 0) + delta);
-        userRepo.save(user);
+        userRepo.incrementTotalScore(user.getId(), delta);
     }
 
     private User requireAdminOrManager(Long userId) {

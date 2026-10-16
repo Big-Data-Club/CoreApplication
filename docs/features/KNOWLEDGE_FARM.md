@@ -1,0 +1,193 @@
+# Nông trại kiến thức
+
+Owner: Farm / Auth / Frontend maintainers. Implementation: `farm-service/`,
+`auth-and-management-service/src/main/java/com/example/demo/service/farm/`,
+`frontend/src/features/knowledge-farm/`.
+
+## Phạm vi hiện tại
+
+Game học tập tại `/knowledge-farm`, có mục trên sidebar. Sáu ô khởi đầu gồm
+lúa, rau muống, hoa vạn thọ, gà mái, cá nước ngọt và ong mật. Sprite và ý tưởng
+chọn ô/chăm sóc/nghỉ sau thu hoạch được chuyển từ source XanhMarket VuiVe do
+người dùng cung cấp. Không có broker, đơn hàng, giao dịch, camera, IoT hoặc
+kết nối nông trại thật. UI dùng React grid và sprite, không tải Phaser.
+
+Mỗi loại có thông tin môi trường, quy trình chăm sóc thực tế, điều thú vị và
+liên kết nguồn trong `farm-service/internal/farm/catalog.json`. Đây là kiến
+thức nhập môn; đồng hồ game, một nút chăm sóc và tái sinh 40 giây không mô
+phỏng đầy đủ quy trình sinh học thực tế.
+
+1. Chọn ô, đọc thẻ kiến thức và chăm sóc miễn phí.
+2. Server lưu thời điểm có thể thu hoạch; tải lại trang không làm mất tiến độ.
+3. Khi sẵn sàng, chọn quiz hoặc flashcard nhập đáp án. Một challenge có hiệu
+   lực 10 phút; mở lại không đổi câu đang còn hiệu lực.
+4. Đáp án đúng mới thu hoạch. Sai thì giữ nguyên sản phẩm, hiển thị giải thích,
+   khóa thử lại 30 giây và phát câu mới. Flashcard chấm sau chuẩn hóa Unicode,
+   hoa/thường và khoảng trắng; không phải tự đánh dấu “đã nhớ”.
+5. Đúng nhận 5 điểm, tối đa 100 điểm mỗi ngày UTC (đặt lại 07:00 Việt Nam).
+   Đạt trần vẫn học và thu hoạch được nhưng không thêm điểm. Sau thu hoạch,
+   ô nghỉ 40 giây, rồi cần chăm lại để bắt đầu lượt tiếp theo.
+
+Ngân hàng 24 câu nền tảng (tin học/dữ liệu và kiến thức nông trại), được quản
+lý ở server, không gọi AI theo lượt chơi. Câu thuộc loài khác không được chọn.
+Hiện **chưa lấy câu từ khóa học LMS hoặc bộ flashcard cá nhân**; không ghi
+điểm vào LMS và không tuyên bố đây là tiến độ hoàn thành khóa học. Mở rộng
+ngân hàng bằng thay đổi versioned JSON và review nội dung; câu đang mở giữ
+snapshot để không đổi đáp án khi deploy.
+
+## Ranh giới và API
+
+- Farm sở hữu database riêng, gồm `farm_states`, `farm_answers`, `farm_outbox`.
+- Auth sở hữu `users.total_score` (Java `User.totalScore`) và inbox
+  `farm_score_receipts`. Không tạo một trường `score` mới cạnh trường hiện tại.
+- Browser chỉ gọi Next.js BFF `/api/farm`; BFF lấy access token từ session,
+  kiểm tra Origin khi POST, giới hạn body 4 KiB và chỉ proxy các route cho phép.
+- Farm xác thực chữ ký HMAC JWT, expiration, `user_id > 0`, access-token roles;
+  refresh token không có roles bị từ chối. Không nhận user ID hay điểm từ client.
+
+| Farm route | Method | Body |
+|---|---|---|
+| `/api/v1/farm` | GET | — |
+| `/api/v1/farm/plots/{1..6}/care` | POST | `{}` |
+| `/api/v1/farm/plots/{1..6}/challenge` | POST | `{"kind":"quiz"}` hoặc `flashcard` |
+| `/api/v1/farm/plots/{1..6}/answer` | POST | `{"challenge_id":"uuid","answer":"0"}`; quiz dùng index dạng chuỗi, flashcard dùng text |
+
+GET và care/challenge trả `{state,catalog,server_time,pending_events,daily_limit,reward}`.
+Answer trả `{correct,explanation,awarded,event_id?}`. Không trả đáp án hay giải
+thích của challenge đang mở. Request trùng challenge trả lại kết quả đã lưu.
+Các mã lỗi: 400 payload, 401 phiên, 404 route/ô, 409 trạng thái/hết hạn,
+503 lỗi phụ thuộc. `/health` là liveness; `/ready` kiểm tra database.
+
+## Điểm bất đồng bộ
+
+```mermaid
+sequenceDiagram
+    participant UI as Frontend BFF
+    participant Farm as Farm service
+    participant DB as Farm PostgreSQL
+    participant K as Kafka
+    participant Auth as Java Auth
+    participant ADB as Auth PostgreSQL
+    UI->>Farm: Trả lời challenge
+    Farm->>DB: Lock farm; chấm; lưu thu hoạch + receipt + outbox
+    DB-->>Farm: Commit
+    Farm-->>UI: Kết quả và điểm được thưởng
+    Farm->>K: Outbox worker gửi sự kiện đã ký
+    K->>Auth: farm.harvest.reward.v1
+    Auth->>ADB: Inbox unique + cộng users.total_score trong một transaction
+    ADB-->>Auth: Commit
+    Auth-->>K: Commit offset
+```
+
+Chi tiết contract ở [Data Platform](../DATA_PLATFORM.md#knowledge-farm-rewards).
+Khóa farm theo user làm cho nhiều tab/replica không thể thu hoạch trùng.
+Outbox worker dùng `FOR UPDATE SKIP LOCKED`, broker acknowledgement trước
+khi đánh dấu published. Kafka hỏng không làm mất lượt thu hoạch. Java nhận
+trùng sẽ không cộng lại; DB lỗi làm rollback cả inbox và điểm, rồi retry.
+Cộng điểm task cũng đổi sang SQL increment, và User dùng dynamic update để
+một cập nhật hồ sơ đồng thời không ghi đè số điểm cũ.
+
+`earned` là điểm được farm trao, không phải tổng điểm tài khoản.
+`pending_events` là số sự kiện chưa được broker xác nhận, **không** phải ACK
+cộng điểm từ Java. UI không tuyên bố “đã đồng bộ” khi mới publish.
+BFF `/api/farm/score` đọc tổng chính thức từ Auth `/api/users/{session.user.id}`,
+chỉ trả `total_score`. UI cập nhật mỗi 15 giây; lỗi đọc tổng điểm không chặn
+chơi game. Độ trễ phụ thuộc broker/consumer và chu kỳ tải lại.
+
+## Chạy local
+
+Chuẩn bị `.env` ngoài Git: JWT giống Auth, `FARM_EVENT_SECRET` ngẫu nhiên ít
+nhất 32 byte, `FARM_POSTGRES_PASSWORD` riêng, `FARM_REWARDS_ENABLED=true`.
+Không tái sử dụng mật khẩu production. Các biến mẫu có trong `.env.example`.
+
+```bash
+docker compose --profile farm up -d --build postgres-farm farm-topic farm-service backend frontend
+```
+
+Profile `farm` tránh bắt các môi trường chưa cấu hình phải chạy game. Auth
+mặc định không bật consumer. Local Hibernate `ddl-auto=update` tạo inbox từ
+entity; môi trường schema quản lý thủ công phải áp dụng migration trước.
+Compose serverless dùng `FARM_DATABASE_URL` trỏ database riêng qua TLS, không
+trỏ database LMS/Auth. Password trong URL cần URL-encode. Compose local dùng
+PG* variables nên password không phải ghép vào URL.
+
+## Rollout K3s
+
+1. Provision database/role riêng cho farm. Tạo Secret `bdc-farm-secrets` với
+   `FARM_DATABASE_URL` (TLS), `FARM_EVENT_SECRET` (>=32 byte), và
+   `FARM_REWARDS_ENABLED=true` qua công cụ quản lý secret được phép. Không in
+   giá trị ra logs. Farm dùng JWT hiện có từ `bdc-secrets`.
+2. Áp dụng migration Auth
+   `auth-and-management-service/migrations/V20261017__farm_score_receipts.sql`
+   vào database Auth. Không chỉnh migration cũ.
+3. Tạo topic bằng `k3s/base/farm-topic-job.yaml`, deploy Auth consumer trước,
+   rồi farm-service và frontend. Production selector có image `bdc-farm` và
+   deploy script kiểm tra Secret, chờ topic Job hoàn thành. Frontend vẫn dùng
+   quy trình build/deploy riêng của submodule; parent workflow không build nó.
+4. Kiểm tra `/ready`, group `auth-farm-rewards-v1`, làm một lượt học bằng tài
+   khoản thử. Đối chiếu một outbox, một inbox, và đúng +5 trong tổng điểm.
+   Replay cùng event phải giữ nguyên điểm.
+
+Base Kustomize có farm Deployment và topic Job: phải provision Secret trước
+khi áp dụng cả base. Không coi workflow xanh không chọn service là đã deploy.
+Chưa deploy production chỉ vì thay đổi source local.
+
+## Vận hành và khôi phục
+
+- Theo dõi count/tuổi bản ghi `farm_outbox` chưa published, Kafka consumer lag,
+  log `reward publication deferred`, lỗi consumer và probe database.
+- Topic giữ 30 ngày theo manifest. Giữ bản ghi outbox published và inbox để
+  audit/replay; chưa có job tự xóa. Lập kế hoạch retention/backup trước khi
+  lưu lượng tăng; không xóa inbox nếu còn khả năng replay sự kiện tương ứng.
+- Consumer retry vô hạn, kể cả sự kiện sai chữ ký/schema hoặc user thiếu.
+  Partition sẽ dừng tại sự kiện lỗi, không âm thầm bỏ điểm. Điều tra và sửa
+  cấu hình/user/producer; chỉ quyết định bỏ sự kiện dưới quy trình vận hành
+  có audit. Dữ liệu inbox và score rollback cùng nhau khi user chưa tồn tại.
+- Nếu mất Kafka sau khi outbox đã published: khôi phục broker hoặc replay
+  **cùng event ID và payload đã ký** từ outbox; không tạo event ID mới.
+- Xoay event secret phải phối hợp: dừng cấp reward, drain backlog, thay hai
+  phía cùng lúc rồi tiếp tục. Một secret mới không xác minh được event cũ.
+- Rollback code: tắt producer/consumer, giữ nguyên database, outbox, inbox,
+  topic và điểm đã cộng. Không hoàn tác điểm bằng cách xóa receipt.
+- Event chỉ có user ID, harvest ID, delta, thời gian, chữ ký; không có email,
+  nội dung câu trả lời hoặc JWT. Topic không dùng cho Lakehouse mặc định.
+
+## Kiểm thử
+
+```bash
+cd farm-service && go test -race ./...
+# Từ repo root: PostgreSQL tạm, Go integration, toàn bộ mvn test bằng Java 21
+bash scripts/test-knowledge-farm.sh
+# Trong frontend:
+npm run lint
+npx tsc --noEmit
+node tests/knowledge-farm/bff.test.cjs
+npm run build
+```
+
+Test integration bao gồm nhiều request cùng challenge, cross-user, lỗi broker,
+replay outbox, contract chữ ký Go/Java, Java inbox trùng và rollback khi thiếu
+user. Một test dùng broker Kafka thật và listener factory production để gửi
+trùng 5 lần, xác nhận chỉ cộng +5. Script Docker chỉ dùng database tạm; không dùng credential ứng dụng.
+Nguồn .env thật không được mount vào các container test.
+
+### Verification recorded on 2026-10-17
+
+- Go: 8 tests passed with PostgreSQL integration and race detection; `go vet`
+  passed. HTTP auth/validation and cross-user challenge rejection covered.
+- Java 21: `mvn test` passed 7 tests, including a real Kafka broker, concurrent
+  duplicate delivery, canonical score increment and transactional rollback.
+- Frontend: 5 BFF tests passed; TypeScript and production build passed. Full
+  lint had 0 errors (pre-existing warnings remain elsewhere in the frontend).
+- Browser smoke on the production build: quiz and recall harvest, desktop and
+  mobile learner navigation, species learning cards, light/dark presentation,
+  scroll reachability and no horizontal overflow/page errors. UI smoke uses
+  synthetic session/API fixtures, not a production account.
+- Both Compose variants, Kustomize rendering, shell syntax and diff whitespace
+  checks passed. No production rollout or live-account test was performed.
+
+The optional browser script is `frontend/tests/knowledge-farm/smoke.cjs`.
+It requires a local production Next server on `FARM_SMOKE_URL`, a dedicated
+`NEXTAUTH_SECRET` matching `FARM_SMOKE_SECRET`, and Playwright Chromium.
+Screenshots are written only to `/tmp/knowledge-farm-*.png`. Never point it
+at production or provide a production session secret.

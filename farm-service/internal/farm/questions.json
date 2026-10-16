@@ -1,0 +1,248 @@
+[
+  {
+    "id": "sql-01",
+    "kind": "quiz",
+    "prompt": "Lệnh SQL nào dùng để đọc dữ liệu?",
+    "options": [
+      "SELECT",
+      "DELETE",
+      "UPDATE",
+      "DROP"
+    ],
+    "answer": "0",
+    "explanation": "SELECT truy vấn dữ liệu; DELETE xóa hàng, UPDATE sửa hàng và DROP xóa đối tượng."
+  },
+  {
+    "id": "sql-02",
+    "kind": "quiz",
+    "prompt": "Mệnh đề nào lọc các hàng trước khi GROUP BY?",
+    "options": [
+      "ORDER BY",
+      "WHERE",
+      "HAVING",
+      "LIMIT"
+    ],
+    "answer": "1",
+    "explanation": "WHERE lọc hàng trước khi nhóm; HAVING lọc kết quả sau khi nhóm."
+  },
+  {
+    "id": "sql-03",
+    "kind": "quiz",
+    "prompt": "Khóa chính của bảng dùng để làm gì?",
+    "options": [
+      "Sắp xếp giao diện",
+      "Mã hóa mật khẩu",
+      "Định danh duy nhất mỗi hàng",
+      "Nén dữ liệu"
+    ],
+    "answer": "2",
+    "explanation": "PRIMARY KEY định danh duy nhất một hàng và không nhận NULL."
+  },
+  {
+    "id": "async-01",
+    "kind": "quiz",
+    "prompt": "Khi nhận lại cùng một sự kiện cộng điểm, consumer nên làm gì?",
+    "options": [
+      "Cộng điểm lần nữa",
+      "Xóa tài khoản",
+      "Bỏ mọi sự kiện tiếp theo",
+      "Nhận diện event ID đã xử lý và không cộng lại"
+    ],
+    "answer": "3",
+    "explanation": "Consumer idempotent đảm bảo gửi lại cùng sự kiện không làm tăng điểm lần nữa."
+  },
+  {
+    "id": "http-01",
+    "kind": "quiz",
+    "prompt": "HTTP status nào thường biểu thị chưa xác thực?",
+    "options": [
+      "200",
+      "401",
+      "404",
+      "500"
+    ],
+    "answer": "1",
+    "explanation": "401 báo yêu cầu thiếu thông tin xác thực hợp lệ."
+  },
+  {
+    "id": "data-01",
+    "kind": "quiz",
+    "prompt": "Tập kiểm thử trong học máy chủ yếu dùng để làm gì?",
+    "options": [
+      "Đánh giá mô hình trên dữ liệu chưa dùng huấn luyện",
+      "Thay thế mọi dữ liệu",
+      "Huấn luyện lại sau mỗi dự đoán",
+      "Chứa đáp án cho mọi dữ liệu tương lai"
+    ],
+    "answer": "0",
+    "explanation": "Tách dữ liệu kiểm thử giúp đánh giá khả năng tổng quát hóa."
+  },
+  {
+    "id": "sql-f01",
+    "kind": "flashcard",
+    "prompt": "Điền từ khóa SQL dùng để loại bỏ các hàng trùng trong kết quả SELECT.",
+    "answer": "DISTINCT",
+    "explanation": "SELECT DISTINCT trả về các hàng kết quả phân biệt."
+  },
+  {
+    "id": "sql-f02",
+    "kind": "flashcard",
+    "prompt": "Điền tên hàm SQL đếm số hàng: ___(*)",
+    "answer": "COUNT",
+    "explanation": "COUNT(*) đếm mọi hàng trong nhóm, kể cả hàng chứa giá trị NULL."
+  },
+  {
+    "id": "http-f01",
+    "kind": "flashcard",
+    "prompt": "Mã HTTP cho phản hồi thành công thông thường là bao nhiêu?",
+    "answer": "200",
+    "explanation": "HTTP 200 OK cho biết yêu cầu đã được xử lý thành công."
+  },
+  {
+    "id": "data-f01",
+    "kind": "flashcard",
+    "prompt": "Số nhị phân 101 có giá trị thập phân là bao nhiêu?",
+    "answer": "5",
+    "explanation": "101₂ = 1×4 + 0×2 + 1×1 = 5."
+  },
+  {
+    "id": "sql-f03",
+    "kind": "flashcard",
+    "prompt": "Điền từ khóa SQL kiểm tra giá trị thiếu: IS ___",
+    "answer": "NULL",
+    "explanation": "Dùng IS NULL để kiểm tra giá trị thiếu, không dùng = NULL."
+  },
+  {
+    "id": "http-f02",
+    "kind": "flashcard",
+    "prompt": "Điền phương thức HTTP thông dụng dùng để đọc tài nguyên, không yêu cầu thay đổi trạng thái.",
+    "answer": "GET",
+    "explanation": "GET có ngữ nghĩa đọc tài nguyên và phải là phương thức an toàn."
+  },
+  {
+    "id": "rice_crop-quiz-01",
+    "kind": "quiz",
+    "species": "rice_crop",
+    "prompt": "Sau khi thu hoạch lúa, việc nào giúp hạt được bảo quản tốt hơn?",
+    "options": [
+      "Làm khô hạt",
+      "Ngâm hạt lâu trong nước",
+      "Giữ hạt luôn ướt"
+    ],
+    "answer": "0",
+    "explanation": "Lúa sau thu hoạch cần được làm khô phù hợp trước khi bảo quản."
+  },
+  {
+    "id": "water_spinach-quiz-01",
+    "kind": "quiz",
+    "species": "water_spinach",
+    "prompt": "Ngoài hạt, rau muống có thể được trồng bằng gì?",
+    "options": [
+      "Vỏ trứng",
+      "Hom thân khỏe",
+      "Sỏi"
+    ],
+    "answer": "1",
+    "explanation": "Hom thân là một cách nhân giống rau muống."
+  },
+  {
+    "id": "flower-quiz-01",
+    "kind": "quiz",
+    "species": "flower",
+    "prompt": "Hoa vạn thọ thường nở tốt ở đâu?",
+    "options": [
+      "Nơi tối hoàn toàn",
+      "Trong ao sâu",
+      "Nơi nhiều nắng, đất thoát nước"
+    ],
+    "answer": "2",
+    "explanation": "Vạn thọ ưa nắng và đất thoát nước."
+  },
+  {
+    "id": "chicken-quiz-01",
+    "kind": "quiz",
+    "species": "chicken",
+    "prompt": "Gà mái có cần gà trống để đẻ trứng không?",
+    "options": [
+      "Luôn cần",
+      "Không; nhưng cần gà trống để trứng có thể phát triển thành con",
+      "Chỉ cần khi uống nước"
+    ],
+    "answer": "1",
+    "explanation": "Gà mái vẫn đẻ trứng không có phôi khi không có gà trống."
+  },
+  {
+    "id": "fish-quiz-01",
+    "kind": "quiz",
+    "species": "fish",
+    "prompt": "Cá nước ngọt hô hấp nhờ yếu tố nào trong nước?",
+    "options": [
+      "Oxy hòa tan",
+      "Đường",
+      "Đất"
+    ],
+    "answer": "0",
+    "explanation": "Thiếu oxy hòa tan có thể khiến cá bị stress và giảm ăn."
+  },
+  {
+    "id": "bee-quiz-01",
+    "kind": "quiz",
+    "species": "bee",
+    "prompt": "Khi khai thác mật ong, điều gì cần được bảo đảm?",
+    "options": [
+      "Lấy toàn bộ mật của đàn",
+      "Không cần theo dõi đàn",
+      "Để lại đủ thức ăn dự trữ cho đàn"
+    ],
+    "answer": "2",
+    "explanation": "Đàn ong cần nguồn thức ăn để tồn tại và phát triển."
+  },
+  {
+    "id": "rice_crop-flash-01",
+    "kind": "flashcard",
+    "species": "rice_crop",
+    "prompt": "Sản phẩm dạng hạt còn vỏ trấu thu từ cây lúa gọi là gì?",
+    "answer": "thóc",
+    "explanation": "Hạt lúa còn vỏ trấu được gọi là thóc."
+  },
+  {
+    "id": "water_spinach-flash-01",
+    "kind": "flashcard",
+    "species": "water_spinach",
+    "prompt": "Điền từ còn thiếu: Rau muống có thể nhân giống bằng hạt hoặc ___ thân.",
+    "answer": "hom",
+    "explanation": "Hom là đoạn thân được dùng để nhân giống."
+  },
+  {
+    "id": "flower-flash-01",
+    "kind": "flashcard",
+    "species": "flower",
+    "prompt": "Điền từ còn thiếu: Vạn thọ ưa nhiều ___.",
+    "answer": "nắng",
+    "explanation": "Nắng giúp vạn thọ phát triển và ra hoa."
+  },
+  {
+    "id": "chicken-flash-01",
+    "kind": "flashcard",
+    "species": "chicken",
+    "prompt": "Gà mái trong game tạo ra sản phẩm gì?",
+    "answer": "trứng",
+    "explanation": "Gà mái đẻ trứng; trong thực tế chu kỳ khác với bộ đếm của game."
+  },
+  {
+    "id": "fish-flash-01",
+    "kind": "flashcard",
+    "species": "fish",
+    "prompt": "Điền từ còn thiếu: Cá cần ___ hòa tan để hô hấp.",
+    "answer": "oxy",
+    "explanation": "Theo dõi oxy hòa tan là một phần quan trọng của chăm sóc ao."
+  },
+  {
+    "id": "bee-flash-01",
+    "kind": "flashcard",
+    "species": "bee",
+    "prompt": "Điền từ còn thiếu: Ong kiếm ăn có thể giúp hoa thụ ___.",
+    "answer": "phấn",
+    "explanation": "Ong chuyển phấn giữa các hoa khi kiếm ăn."
+  }
+]

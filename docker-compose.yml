@@ -161,6 +161,70 @@ services:
       - "service.type=message-broker"
       - "service.name=kafka"
 
+  # Opt-in game service; owns a separate database. Browser uses the Next.js BFF.
+  farm-service:
+    profiles: [farm]
+    build:
+      context: ./farm-service
+    image: ${DOCKER_USERNAME}/bdc-farm:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: "8087"
+      JWT_SECRET: ${JWT_SECRET}
+      FARM_EVENT_SECRET: ${FARM_EVENT_SECRET:-}
+      KAFKA_BROKERS: kafka:9092
+      PGHOST: postgres-farm
+      PGPORT: "5432"
+      PGDATABASE: farm_db
+      PGUSER: farm_user
+      PGPASSWORD: ${FARM_POSTGRES_PASSWORD:-}
+      PGSSLMODE: disable
+    depends_on:
+      farm-topic:
+        condition: service_completed_successfully
+      postgres-farm:
+        condition: service_healthy
+    networks: [app-network]
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://localhost:8087/ready]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    security_opt: [no-new-privileges:true]
+
+  farm-topic:
+    profiles: [farm]
+    image: bitnamilegacy/kafka:3.7.0
+    entrypoint: [bash, -ec]
+    command:
+      - kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic farm.harvest.reward.v1 --partitions 3 --replication-factor 1 --config retention.ms=2592000000
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks: [app-network]
+
+  postgres-farm:
+    profiles: [farm]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: farm_db
+      POSTGRES_USER: farm_user
+      POSTGRES_PASSWORD: ${FARM_POSTGRES_PASSWORD:-}
+    volumes:
+      - postgres_farm_data:/var/lib/postgresql/data
+    networks: [app-network]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U farm_user -d farm_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Frontend: Next.js Application
   frontend:
     build:
@@ -183,6 +247,7 @@ services:
       BACKEND_URL: http://backend:8080
       LMS_API_URL: http://lms-backend:8081
       AI_SERVICE_URL: http://ai-service:8000
+      FARM_SERVICE_URL: http://farm-service:8087
       RECOMMENDER_SERVICE_URL: http://recommender-service:8086
       GOOGLE_SCRIPT_URL: ${GOOGLE_SCRIPT_URL}
       YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID}
@@ -284,6 +349,8 @@ services:
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
+      FARM_REWARDS_ENABLED: ${FARM_REWARDS_ENABLED:-false}
+      FARM_EVENT_SECRET: ${FARM_EVENT_SECRET:-}
       KAFKA_BROKERS: kafka:9092
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
@@ -1207,6 +1274,8 @@ services:
 
 # Volumes
 volumes:
+  postgres_farm_data:
+    driver: local
   postgres_data:
     driver: local
     labels:

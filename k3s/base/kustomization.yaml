@@ -19,3 +19,5 @@ resources:
 - kafka-statefulset.yaml
 - redis-deployment.yaml
 - dutylog-service-deployment.yaml
+- farm-service-deployment.yaml
+- farm-topic-job.yaml

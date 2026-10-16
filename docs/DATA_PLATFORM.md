@@ -274,3 +274,31 @@ API and frontend. The production script now selects the authoring worker with
 other AI workloads. Rollback can retain V019 and its private drafts; it must
 never reinterpret drafts as published labs. This describes code/configuration,
 not evidence of a production rollout.
+
+## Knowledge Farm rewards
+
+Owner: Farm producer / Auth consumer. Topic: `farm.harvest.reward.v1`, key:
+base-10 Auth user ID, 3 partitions, 30-day retention in supplied topic setup.
+Purpose: credit learning-game harvest rewards to the canonical
+`users.total_score`; no automatic Lakehouse ingestion or LMS progress update.
+
+Payload v1: `version:1`, UUID `event_id`, UUID `harvest_id` (same as event ID),
+positive integer `user_id`, `delta:5`, RFC3339 `occurred_at`, hex `signature`.
+HMAC-SHA256 input is the UTF-8 string
+`event_id|user_id|harvest_id|delta|occurred_at|1`, signed using FARM_EVENT_SECRET.
+Unknown additive fields are ignored; a changed semantic contract needs a new
+version/topic. The cross-language fixture is in
+`auth-and-management-service/src/test/resources/farm-reward-v1.json`.
+
+Farm commits state + answer result + outbox atomically. Auth consumer group
+`auth-farm-rewards-v1` validates payload/signature and inserts
+`farm_score_receipts` plus an atomic score increment in one transaction;
+unique event and harvest IDs prevent double credit across replay and replicas.
+Broker errors retain the outbox. Consumer errors roll back and retry without
+committing offsets; malformed events stop the partition for operator repair.
+Only IDs, score delta and timestamp are transmitted, never quiz responses,
+email, JWT or a complete user profile. Retain inbox for the replay lifetime.
+
+Roll out Auth schema and consumer before Farm producer and frontend. Rollback
+must preserve ledger and outbox; do not delete receipts to reverse a release.
+Full [feature, rollout, replay and key-rotation guide](features/KNOWLEDGE_FARM.md).

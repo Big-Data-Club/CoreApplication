@@ -33,6 +33,7 @@ data:
   LMS_SERVICE_URL: "http://lms-service:8081"
   CHAT_API_URL: "http://chat-service:8083"
   AUTH_SERVICE_URL: "http://auth-service:8080"
+  FARM_SERVICE_URL: "http://farm-service:8087"
   DUTYLOG_SERVICE_URL: "http://dutylog-service:8086"
   
   # Message Broker & Cache endpoints

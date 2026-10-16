@@ -170,3 +170,13 @@ candidate counts and elapsed milliseconds for production latency observation.
 
 Chat delivery, admission limits, browser settings, and capacity checks are documented
 in [chat operations](../../chat-service/CHAT_OPERATIONS.md).
+
+## Nông trại kiến thức / Knowledge Farm
+
+`farm-service/` owns the game and learning-question pack in a separate database.
+Frontend `/knowledge-farm` uses the authenticated `/api/farm` BFF. Harvests
+require server-graded quiz/recall flashcards. Auth consumes versioned Kafka
+rewards into existing `User.totalScore`, with a transactional inbox.
+No direct cross-service SQL and no real-farm integration are involved.
+See [implementation and API guide](../features/KNOWLEDGE_FARM.md) and run
+`bash scripts/test-knowledge-farm.sh` for isolated PostgreSQL and Java checks.
