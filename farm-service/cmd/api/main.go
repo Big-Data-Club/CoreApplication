@@ -33,17 +33,20 @@ func main() {
 		slog.Error("JWT_SECRET and FARM_EVENT_SECRET must each be at least 32 bytes")
 		os.Exit(1)
 	}
+
 	databaseURL := os.Getenv("FARM_DATABASE_URL")
 	if databaseURL == "" {
 		for _, key := range []string{"PGHOST", "PGDATABASE", "PGUSER", "PGPASSWORD"} {
 			required(key)
 		}
 	}
+
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		slog.Error("invalid farm database configuration")
 		os.Exit(1)
 	}
+
 	config.ConnConfig.ConnectTimeout = 5 * time.Second
 	config.MaxConns = 10
 	config.MinConns = 1
@@ -52,17 +55,20 @@ func main() {
 		slog.Error("database pool failed")
 		os.Exit(1)
 	}
+
 	defer pool.Close()
 	store := &farm.Store{Pool: pool, Secret: eventSecret}
 	migrationCtx, cancelMigration := context.WithTimeout(ctx, 30*time.Second)
 	err = store.Migrate(migrationCtx)
 	cancelMigration()
+
 	if err != nil {
 		slog.Error("farm schema initialization failed", "error", err)
 		os.Exit(1)
 	}
 	writer := &kafka.Writer{Addr: kafka.TCP(strings.Split(required("KAFKA_BROKERS"), ",")...), Topic: farm.Topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, WriteTimeout: 5 * time.Second, AllowAutoTopicCreation: false}
 	defer writer.Close()
+	
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
@@ -90,10 +96,12 @@ func main() {
 			}
 		}
 	}()
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8087"
 	}
+
 	server := &http.Server{Addr: ":" + port, Handler: farm.Handler(store, secret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 12 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -101,11 +109,13 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(c)
 	}()
+
 	slog.Info("knowledge farm listening", "port", port)
 	if err = server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("HTTP server stopped", "error", err)
 		stop()
 	}
+
 	stop()
 	<-workerDone
 }
