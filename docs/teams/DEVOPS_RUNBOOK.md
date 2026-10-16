@@ -868,10 +868,12 @@ requires its own secrets before startup. No database is shared with LMS/Auth.
 See [canonical deployment/recovery instructions](../features/KNOWLEDGE_FARM.md#rollout-k3s),
 including backlog monitoring, replay retention and coordinated event-key rotation.
 
-### Knowledge Farm database bootstrap
+### Knowledge Farm connection configuration
 
-Farm production rollout provisions `gamefarm` on the current Auth Neon host,
-creates its application role, and runs Auth/Farm migrations before enabling
-rewards. Select `auth-service,farm-service` together. Credentials/signing keys
-are retained across retries. See [Knowledge Farm rollout and server commands](../features/KNOWLEDGE_FARM.md#rollout-k3s)
-for prerequisites, CI reruns, failure diagnosis and end-to-end verification.
+`gamefarm` and its SQL migrations are provisioned before deployment. Farm
+rollout synchronizes its Kubernetes connection Secret from the current shared
+Neon credentials, or the optional GitHub `production` secret `FARM_DATABASE_URL`.
+It does not create databases/roles or run a migration Job. Select
+`auth-service,farm-service` together; configuration revisions reload both pods
+when connection settings change, including retries of the same image tag.
+See [Knowledge Farm GitHub rollout instructions](../features/KNOWLEDGE_FARM.md#rollout-k3s).

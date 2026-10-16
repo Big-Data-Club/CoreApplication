@@ -137,7 +137,7 @@ clear_terminating_pods() {
   fi
 }
 
-# Bootstrap before any application rollout. Normal farm changes select Auth too
+# Sync configuration before any application rollout. Normal farm changes select Auth too
 # so its env-based consumer flag is picked up by the new pod.
 if [[ " ${deployments[*]} " == *" farm-service "* ]]; then
   if [[ " ${deployments[*]} " != *" auth-service "* ]]; then
@@ -170,7 +170,7 @@ if [[ ",${SERVICES:-}," == *",lab-service,"* ]]; then
   kubectl apply -f k3s/base/lab-sandbox-policy.yaml
 fi
 if [[ " ${deployments[*]} " == *" farm-service "* ]]; then
-  python3 scripts/bootstrap-knowledge-farm.py
+  farm_config_revision="$(python3 scripts/sync-farm-config.py)"
   kubectl apply -f k3s/base/farm-topic-job.yaml --namespace "$DEPLOY_NAMESPACE"
   kubectl wait --for=condition=complete job/farm-reward-topic-v1 --namespace "$DEPLOY_NAMESPACE" --timeout=180s
 fi
@@ -209,8 +209,12 @@ for deployment in "${deployments[@]}"; do
         -o "jsonpath={.spec.template.spec.containers[?(@.name=='${containers[$deployment]}')].image}"
     )"
   fi
+  if [[ -n "${farm_config_revision:-}" && ( "$deployment" == "auth-service" || "$deployment" == "farm-service" ) ]]; then
+    kubectl patch "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" --type merge \
+      -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"bdc.io/farm-config-revision\":\"${farm_config_revision}\"}}}}}"
+  fi
   if [[ "${previous_images[$deployment]}" == "$image" ]]; then
-    echo "${deployment} already uses ${image}; no change needed."
+    echo "${deployment} already uses ${image}; verifying configuration rollout."
     continue
   fi
   echo "Updating ${deployment} to ${image}"

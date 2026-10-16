@@ -113,92 +113,64 @@ PG* variables nên password không phải ghép vào URL.
 
 ## Rollout K3s
 
-Production deploy tự gọi `scripts/bootstrap-knowledge-farm.py` trước rollout khi
-chọn Farm. Không cần SSH chỉnh `.env` hay thêm mật khẩu Farm vào GitHub:
+Database **`gamefarm`** và migration SQL đã được quản trị viên tạo/chạy trước.
+Rollout chỉ đồng bộ cấu hình kết nối vào Kubernetes, không tạo DB/role hay
+chạy migration Job. Không cần SSH chỉnh `.env` hoặc tạo Secret trên server.
 
-1. Đọc endpoint Auth đang dùng từ `bdc-config` và credentials trong
-   `bdc-secrets`. Với Neon, Job dùng endpoint trực tiếp bỏ hậu tố `-pooler`;
-   ứng dụng vẫn dùng host hiện có. Database mới tên **`gamefarm`**, cùng Neon
-   project/branch/compute với Auth, không phải một project Neon khác.
-2. Tạo role SQL riêng `gamefarm_app` và database nếu chưa có. Mật khẩu ngẫu
-   nhiên và secret ký event được lưu trong `bdc-farm-secrets`, giữ nguyên khi
-   retry. App Farm chỉ nhận credentials của role riêng, không nhận tài khoản
-   quản trị Auth. Bootstrap là tác vụ quản trị triển khai, không phải API runtime.
-3. Job PostgreSQL chạy migration inbox trong database Auth; sau đó đăng nhập
-   bằng role Farm và chạy `farm-service/migrations/V*.sql` trong `gamefarm`.
-   Mỗi database có ledger `farm_deploy_migrations`, checksum, transaction và
-   advisory lock. Migration đã áp dụng không chạy lại; checksum khác thì dừng.
-   Thêm file V002, V003... cho thay đổi tiếp theo, không sửa V001.
-4. Chỉ sau khi hai schema sẵn sàng mới đặt `FARM_REWARDS_ENABLED=true`, tạo
-   topic Kafka, rồi rollout Auth và Farm. Selector tự build cả hai khi mã Farm
-   hoặc bootstrap thay đổi. Frontend vẫn build/deploy qua workflow submodule.
+`scripts/sync-farm-config.py` tự tạo/cập nhật `bdc-farm-secrets` khi deploy Farm:
 
-Điều kiện ban đầu: cluster đã có `bdc-config`, `bdc-secrets`, Kafka; tài khoản
-DB trong `bdc-secrets` có quyền quản lý role/database và migrate schema Auth.
-Role mặc định Neon (`neondb_owner`, thành viên `neon_superuser`) có quyền
-CREATEDB/CREATEROLE; xem [Neon roles](https://neon.com/docs/manage/roles).
-Nếu tài khoản hiện tại đã bị giới hạn, quản trị viên phải provision quyền/tài
-khoản qua kho secret được duyệt trước; CI không tự nâng quyền. Database đã có
-owner khác hoặc URL Farm trỏ database/host khác sẽ bị từ chối, không tự di
-chuyển dữ liệu. Không xóa `bdc-farm-secrets` để retry vì có event đang dùng
-secret cũ. Nếu bootstrap lỗi, log chỉ báo giai đoạn, không in SQL/password.
+- Mặc định lấy host từ `bdc-config`, user/password hiện có trong `bdc-secrets`,
+  tạo connection URL với database `gamefarm` và TLS theo cấu hình hiện tại.
+  Cách này dành cho gamefarm dùng chung tài khoản Neon với các service khác;
+  tài khoản đó cần có quyền truy cập schema gamefarm đã tạo.
+- Nếu dùng tài khoản riêng, đặt GitHub Actions Secret **`FARM_DATABASE_URL`**
+  trong repo parent hoặc environment **`production`**. Giá trị là PostgreSQL
+  connection string của database gamefarm, password đã URL-encode. Pipeline
+  tự đồng bộ Secret này xuống cluster. Không đưa giá trị vào Git hoặc log.
+- URL đã cấu hình riêng được giữ khi GitHub Secret không được cung cấp. URL
+  ở chế độ dùng chung được cập nhật theo host/credentials runtime mỗi lần deploy.
+- Secret ký reward được sinh lần đầu, giữ nguyên ở các lần sau; Auth và Farm
+  cùng nhận secret này. `FARM_REWARDS_ENABLED=true` bật consumer vì migration
+  inbox Auth đã được thực hiện trước. Không xóa secret để chạy lại.
+- Deployment được gắn revision của cấu hình để reload biến môi trường khi
+  Secret thay đổi, kể cả deploy lại cùng image tag.
 
-### Chạy CI/CD
+### Thao tác trên GitHub, không cần SSH
 
-Push **frontend trước**, sau đó push parent `main` với submodule pointer mới.
-Parent workflow tự build/test/bootstrap/rollout khi diff chọn Farm. Không coi
-workflow xanh không chọn service là đã deploy. Chạy lại image đã build bằng
-GitHub CLI từ repo parent (thay tag bằng SHA/tag đã tồn tại cho cả hai image):
+Nếu dùng cùng tài khoản Neon hiện tại: **không cần thêm biến hay secret**.
+Nếu dùng tài khoản riêng: vào repository parent → Settings → Secrets and
+variables → Actions (hoặc Environments → production) → thêm Secret
+`FARM_DATABASE_URL` với connection string database `gamefarm`.
+
+Push frontend trước nếu có thay đổi submodule, rồi push parent `main`.
+Pipeline tự build Auth/Farm, sync cấu hình, tạo topic và rollout cả hai khi
+diff chọn Farm. Để dùng lại image đã publish, vào Actions → **Build and deploy
+production** → Run workflow, chọn branch `main`, nhập:
+
+- `image_tag`: tag đã publish cho cả `bdc-backend` và `bdc-farm`.
+- `services`: `auth-service,farm-service`.
+
+Có thể thao tác tương đương từ máy cá nhân bằng GitHub CLI:
 
 ```bash
 gh workflow run production.yml --ref main \
   -f image_tag=YOUR_PUBLISHED_TAG \
   -f services=auth-service,farm-service
 gh run list --workflow production.yml --limit 3
-# Dùng ID vừa hiển thị:
 gh run watch RUN_ID --exit-status
 ```
 
-### Chạy end-to-end trên server khi cần
+Đổi GitHub Secret không tự kích hoạt deployment: cần Run workflow như trên.
+Frontend deploy theo pipeline submodule, dùng server env
+`FARM_SERVICE_URL=http://farm-service:8087` khi cùng namespace (đã có trong
+shared ConfigMap). Kiểm tra giao diện `/knowledge-farm`, thu hoạch đúng một
+câu và chờ điểm Auth tăng 5. CI chờ readiness Farm; schema inbox Auth phải
+đúng migration để consumer xử lý điểm thành công.
 
-Dùng checkout đúng release và kubeconfig có quyền quản trị namespace. Không
-cần copy mật khẩu từ Neon ra terminal. Hai image `bdc-backend` và `bdc-farm`
-phải đã được CI publish cùng tag; lệnh này không build image trên server.
-
-```bash
-cd /path/to/CoreApplication
-git pull --ff-only origin main
-export KUBECONFIG=/path/to/authorized/kubeconfig
-export DEPLOY_NAMESPACE=default
-export REGISTRY_NAMESPACE=YOUR_DOCKERHUB_NAMESPACE
-export IMAGE_TAG=YOUR_PUBLISHED_TAG
-export SERVICES=auth-service,farm-service
-bash scripts/deploy-production.sh
-kubectl -n "$DEPLOY_NAMESPACE" rollout status deployment/auth-service --timeout=12m
-kubectl -n "$DEPLOY_NAMESPACE" rollout status deployment/farm-service --timeout=12m
-kubectl -n "$DEPLOY_NAMESPACE" wait --for=condition=complete job/farm-reward-topic-v1 --timeout=180s
-kubectl -n "$DEPLOY_NAMESPACE" port-forward service/farm-service 8087:8087
-```
-
-Ở terminal thứ hai, `curl --fail http://127.0.0.1:8087/ready`. Deploy frontend
-qua pipeline riêng với server env `FARM_SERVICE_URL=http://farm-service:8087`
-(khi frontend trong cùng namespace). Đăng nhập bằng tài khoản thử, mở
-`/knowledge-farm`, chăm sóc → chờ trưởng thành → trả lời đúng → thu hoạch.
-Kiểm tra tổng điểm tăng đúng 5 sau khi consumer xử lý; kiểm tra log Auth/Farm
-và consumer lag nếu điểm chưa về. Không dùng browser smoke mock để chứng minh
-kết nối production.
-
-Deploy script dùng DB operation lock hiện có và dừng trước rollout nếu
-bootstrap lỗi. Job lỗi được giữ tối đa một giờ, tên Job có trong CI log;
-`kubectl logs -n default job/FARM_BOOTSTRAP_JOB_NAME` cho biết giai đoạn lỗi.
-ConfigMap SQL của Job lỗi không chứa secret; xóa bằng
-`kubectl delete configmap -n default FARM_BOOTSTRAP_JOB_NAME` sau điều tra.
-Database/migrations đã commit không bị rollback khi image rollout thất bại.
-Base Kustomize không tự chạy script: dùng deploy script/pipeline cho lần đầu.
-
-Kiểm tra bootstrap độc lập bằng `bash scripts/test-farm-bootstrap.sh`: 7 unit
-checks và PostgreSQL tạm kiểm tra provision, retry, role không phải superuser,
-và từ chối checksum sai. Test không kết nối Neon production.
+Kiểm tra sync bằng
+`python3 -m unittest discover -s scripts/tests -p 'test_sync_farm_config.py'`.
+Test bao gồm encode mật khẩu, giữ secret ký event, cập nhật credentials dùng
+chung, URL riêng, chặn URL sai DB và không tạo Job/SQL khi sync cấu hình.
 
 ## Vận hành và khôi phục
 
