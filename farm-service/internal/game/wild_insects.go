@@ -12,10 +12,11 @@ import (
 // Wild insects are separate from inventory: they have stable IDs and world
 // coordinates. Catching turns a single living insect into exactly one feed item.
 type wildInsect struct {
-	ID      string `json:"id"`
-	Species string `json:"species"`
-	X       int    `json:"x"`
-	Y       int    `json:"y"`
+	ID        string    `json:"id"`
+	Species   string    `json:"species"`
+	X         int       `json:"x"`
+	Y         int       `json:"y"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 const (
@@ -71,14 +72,14 @@ func (s *Server) syncWildInsects(r *http.Request, tx pgx.Tx, g *gameTx) error {
 	if _, e := tx.Exec(ctx, `DELETE FROM farm_wild_insects WHERE farm_id=$1 AND expires_at <= $2`, g.Farm.ID, g.Now); e != nil {
 		return e
 	}
-	rows, e := tx.Query(ctx, `SELECT id::text,species,x,y FROM farm_wild_insects WHERE farm_id=$1 ORDER BY spawned_at,id`, g.Farm.ID)
+	rows, e := tx.Query(ctx, `SELECT id::text,species,x,y,expires_at FROM farm_wild_insects WHERE farm_id=$1 ORDER BY spawned_at,id`, g.Farm.ID)
 	if e != nil {
 		return e
 	}
 	g.Insects = []wildInsect{}
 	for rows.Next() {
 		var bug wildInsect
-		if e = rows.Scan(&bug.ID, &bug.Species, &bug.X, &bug.Y); e != nil {
+		if e = rows.Scan(&bug.ID, &bug.Species, &bug.X, &bug.Y, &bug.ExpiresAt); e != nil {
 			break
 		}
 		g.Insects = append(g.Insects, bug)
@@ -114,8 +115,8 @@ func (s *Server) syncWildInsects(r *http.Request, tx pgx.Tx, g *gameTx) error {
 		}
 		pos := places[rand.Intn(len(places))]
 		species := wildSpecies[rand.Intn(len(wildSpecies))]
-		bug := wildInsect{ID: newID(), Species: species, X: pos[0], Y: pos[1]}
-		if _, e = tx.Exec(ctx, `INSERT INTO farm_wild_insects(id,farm_id,species,x,y,spawned_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, bug.ID, g.Farm.ID, bug.Species, bug.X, bug.Y, g.Now, g.Now.Add(insectLifetime)); e != nil {
+		bug := wildInsect{ID: newID(), Species: species, X: pos[0], Y: pos[1], ExpiresAt: g.Now.Add(insectLifetime)}
+		if _, e = tx.Exec(ctx, `INSERT INTO farm_wild_insects(id,farm_id,species,x,y,spawned_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, bug.ID, g.Farm.ID, bug.Species, bug.X, bug.Y, g.Now, bug.ExpiresAt); e != nil {
 			return e
 		}
 		g.Insects = append(g.Insects, bug)
@@ -123,6 +124,19 @@ func (s *Server) syncWildInsects(r *http.Request, tx pgx.Tx, g *gameTx) error {
 	g.Life.Insects = len(g.Insects)
 	_, e = tx.Exec(ctx, `UPDATE farm_economy SET insects=$2,insect_last_spawn=$3,insect_seeded=$4 WHERE farm_id=$1`, g.Farm.ID, g.Life.Insects, g.Life.InsectSpawn, g.Life.InsectSeeded)
 	return e
+}
+
+// The client schedules one refresh at the next spawn, rather than polling.
+// A zero value means the map is full and no spawn can change the view yet.
+func nextInsectIn(g *gameTx) int {
+	if len(g.Insects) >= maxWildInsects {
+		return 0
+	}
+	remaining := spawnInterval - g.Now.Sub(g.Life.InsectSpawn)
+	if remaining <= 0 {
+		return 1
+	}
+	return int((remaining + time.Second - 1) / time.Second)
 }
 
 // Insects flee if their grass tile is turned into a new structure or crop.

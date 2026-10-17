@@ -71,12 +71,19 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 	var world struct {
 		Farm     worldFarm    `json:"farm"`
 		Entities []gameEntity `json:"entities"`
+		Life     struct {
+			NextInsectIn int `json:"nextInsectIn"`
+		} `json:"life"`
+		WildInsects []wildInsect `json:"wildInsects"`
 	}
 	if e = json.Unmarshal(state.Body.Bytes(), &world); e != nil {
 		t.Fatal(e)
 	}
 	if len(world.Entities) != 3 || world.Farm.Coins != 900 {
 		t.Fatal("starter world missing", state.Body.String())
+	}
+	if world.Life.NextInsectIn < 1 || world.Life.NextInsectIn > 75 || len(world.WildInsects) != 2 || world.WildInsects[0].ExpiresAt.IsZero() {
+		t.Fatal("world milestone metadata missing", state.Body.String())
 	}
 	var crop string
 	for _, o := range world.Entities {

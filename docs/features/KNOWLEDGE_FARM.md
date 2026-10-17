@@ -225,9 +225,13 @@ chung, URL riêng, chặn URL sai DB và không tạo Job/SQL khi sync cấu hì
 Frontend giữ Phaser scene trong một khung hình; HUD/cửa hàng là React component
 riêng. Đồng hồ câu hỏi chỉ render dialog, bắt côn trùng được cập nhật lạc quan
 rồi đối chiếu lại với server, và scene chỉ dựng lại vật thể khi thuộc tính hiển
-thị thay đổi. Game state tự đồng bộ mỗi 30 giây, thông tin điểm/LMS mỗi 60 giây;
-tab ẩn ngừng polling và tab hiện lại sẽ tải ngay. Các thao tác ghi luôn tải lại
-trạng thái sau phản hồi, nên không cần chờ lần polling kế tiếp.
+thị thay đổi. Không còn polling theo chu kỳ: tải game và điểm khi mở,
+khi thao tác, khi quay lại tab hoặc bấm làm mới. Một timeout duy nhất được đặt
+cho mốc có thể đổi trạng thái gần nhất (cây/vật nuôi trưởng thành, hết nước/oxy,
+xây xong, côn trùng sinh hoặc biến mất); farm không có mốc tiếp theo không gọi
+API nền. Phaser tự nội suy thanh tiến độ/giai đoạn cây từ snapshot trong trình
+duyệt, nhưng server vẫn quyết định kết quả thu hoạch. Điểm Java được đọc lại sau thưởng và thêm
+hai lần giới hạn để bắt kịp việc cộng điểm bất đồng bộ qua Kafka.
 
 Backend khóa một farm trong một transaction để tránh bán/thu hoạch trùng; các
 farm khác nhau chạy song song. Outbox LMS được claim bằng `SKIP LOCKED` với
@@ -251,6 +255,7 @@ npm run format:knowledge-farm:check
 npm run lint
 npx tsc --noEmit
 node tests/knowledge-farm/bff.test.cjs
+node --test tests/knowledge-farm/world-schedule.test.mjs
 npm run build
 ```
 
