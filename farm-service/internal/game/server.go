@@ -27,6 +27,7 @@ type User struct{ ID int64 }
 type Server struct {
 	DB     *pgxpool.Pool
 	Store  *farm.Store
+	LMS    *LMSClient
 	mux    *http.ServeMux
 	secret string
 }
@@ -53,7 +54,10 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return tx.Commit(ctx)
 }
 func Handler(store *farm.Store, secret string) http.Handler {
-	s := &Server{DB: store.Pool, Store: store, mux: http.NewServeMux(), secret: secret}
+	return HandlerWithLMS(store, secret, nil)
+}
+func HandlerWithLMS(store *farm.Store, secret string, lms *LMSClient) http.Handler {
+	s := &Server{DB: store.Pool, Store: store, LMS: lms, mux: http.NewServeMux(), secret: secret}
 	s.registerEconomy()
 	s.registerLearning()
 	return s.mux

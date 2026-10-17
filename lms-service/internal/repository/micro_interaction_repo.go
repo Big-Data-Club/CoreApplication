@@ -67,6 +67,20 @@ type MasteryComponentDelta struct {
 //
 // We use Postgres CTEs to compute the new running averages atomically.
 func (r *MicroInteractionRepository) ApplyDelta(ctx context.Context, d MasteryComponentDelta) error {
+	return applyDelta(ctx, r.db, d)
+}
+
+// ApplyDeltaTx lets internal, idempotent producers commit the raw attempt and
+// its mastery update together.
+func (r *MicroInteractionRepository) ApplyDeltaTx(ctx context.Context, tx *sql.Tx, d MasteryComponentDelta) error {
+	return applyDelta(ctx, tx, d)
+}
+
+type masteryExecutor interface {
+	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
+}
+
+func applyDelta(ctx context.Context, executor masteryExecutor, d MasteryComponentDelta) error {
 	const q = `
 		INSERT INTO knowledge_node_mastery
 			(user_id, course_id, node_id,
@@ -115,7 +129,7 @@ func (r *MicroInteractionRepository) ApplyDelta(ctx context.Context, d MasteryCo
 			last_interaction_at = CURRENT_TIMESTAMP,
 			updated_at          = CURRENT_TIMESTAMP
 	`
-	if _, err := r.db.ExecContext(ctx, q,
+	if _, err := executor.ExecContext(ctx, q,
 		d.UserID, d.CourseID, d.NodeID,
 		d.FormalQuizSample, d.MiniQuizSample,
 		d.CompletionSample, d.EngagementSample,
@@ -134,7 +148,7 @@ func (r *MicroInteractionRepository) ApplyDelta(ctx context.Context, d MasteryCo
 				$7 * engagement_score
 		WHERE user_id = $1 AND course_id = $2 AND node_id = $3
 	`
-	if _, err := r.db.ExecContext(ctx, recompute,
+	if _, err := executor.ExecContext(ctx, recompute,
 		d.UserID, d.CourseID, d.NodeID,
 		WeightFormalQuiz, WeightMiniQuiz, WeightCompletion, WeightEngagement,
 	); err != nil {

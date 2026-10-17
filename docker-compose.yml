@@ -172,6 +172,8 @@ services:
       PORT: "8087"
       JWT_SECRET: ${JWT_SECRET}
       FARM_EVENT_SECRET: ${FARM_EVENT_SECRET:-}
+      AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-ai-service-secret-change-me}
+      LMS_SERVICE_URL: http://lms-backend:8081
       KAFKA_BROKERS: kafka:9092
       PGHOST: postgres-farm
       PGPORT: "5432"

@@ -58,6 +58,29 @@ func (s *Server) registerLearning() {
 		if !validUUID(v.EntityID) {
 			return bad(400, "Mã vật phẩm không hợp lệ")
 		}
+		if v.Kind != "quiz" && v.Kind != "flashcard" {
+			return bad(400, "Chọn quiz hoặc flashcard")
+		}
+		var lmsQuestion farm.Question
+		if s.LMS != nil {
+			var raw []byte
+			var previous farm.Plot
+			if e := s.DB.QueryRow(r.Context(), `SELECT state FROM game_learning WHERE user_id=$1 AND entity_id=$2 AND action=$3`, u.ID, v.EntityID, v.Action).Scan(&raw); e == nil {
+				_ = json.Unmarshal(raw, &previous)
+			}
+			if previous.Challenge != nil && time.Now().Before(previous.Challenge.ExpiresAt) && previous.Challenge.Question.Kind == v.Kind {
+				lmsQuestion = previous.Challenge.Question
+			} else {
+				var e error
+				lmsQuestion, e = s.LMS.Question(r.Context(), u.ID, v.Kind, previous.LastQuestion)
+				if e != nil {
+					if errors.Is(e, ErrNoLMSQuestion) {
+						return bad(409, "Chưa có quiz hoặc flashcard phù hợp trong khóa học LMS đã tham gia.")
+					}
+					return bad(503, "Chưa lấy được câu hỏi từ LMS. Hãy thử lại sau.")
+				}
+			}
+		}
 		var challenge *farm.Challenge
 		err := s.withGame(r, u, func(tx pgx.Tx, g *gameTx) error {
 			if e := activeWorker(g); e != nil {
@@ -76,7 +99,11 @@ func (s *Server) registerLearning() {
 			ready := g.Now
 			p.ReadyAt = &ready
 			state := farm.State{Plots: []farm.Plot{p}}
-			challenge, e = state.Start(1, v.Kind, g.Now)
+			if s.LMS != nil {
+				challenge, e = state.StartWithQuestion(1, v.Kind, g.Now, lmsQuestion)
+			} else {
+				challenge, e = state.Start(1, v.Kind, g.Now)
+			}
 			if e != nil {
 				return e
 			}
@@ -134,6 +161,7 @@ func (s *Server) gradeHarvest(r *http.Request, tx pgx.Tx, g *gameTx, u User, ent
 	grading := totals
 	grading.Plots = []farm.Plot{p}
 	grading.Day(g.Now)
+	question := p.Challenge
 	result, event, err := grading.Answer(u.ID, 1, id, answer, g.Now, s.Store.Secret)
 	if err != nil {
 		return result, false, err
@@ -155,6 +183,13 @@ func (s *Server) gradeHarvest(r *http.Request, tx pgx.Tx, g *gameTx, u User, ent
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO game_harvest_receipts(challenge_id,user_id,entity_id,action) VALUES($1,$2,$3,$4)`, id, u.ID, entity, action); err != nil {
 		return result, false, err
+	}
+	if question != nil && question.Question.CourseID > 0 {
+		attempt := map[string]any{"challenge_id": id, "user_id": u.ID, "course_id": question.Question.CourseID, "node_id": question.Question.NodeID, "source_id": question.Question.ID, "kind": question.Question.Kind, "correct": result.Correct}
+		raw, _ = json.Marshal(attempt)
+		if _, err = tx.Exec(r.Context(), `INSERT INTO game_learning_outbox(challenge_id,payload) VALUES($1,$2)`, id, raw); err != nil {
+			return result, false, err
+		}
 	}
 	if event != nil {
 		raw, _ = json.Marshal(event)

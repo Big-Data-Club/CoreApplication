@@ -72,6 +72,7 @@ func main() {
 	}
 	writer := &kafka.Writer{Addr: kafka.TCP(strings.Split(required("KAFKA_BROKERS"), ",")...), Topic: farm.Topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, WriteTimeout: 5 * time.Second, AllowAutoTopicCreation: false}
 	defer writer.Close()
+	lmsClient := game.NewLMSClient(required("LMS_SERVICE_URL"), required("AI_SERVICE_SECRET"))
 
 	workerDone := make(chan struct{})
 	go func() {
@@ -100,13 +101,38 @@ func main() {
 			}
 		}
 	}()
+	learningDone := make(chan struct{})
+	go func() {
+		defer close(learningDone)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				for i := 0; i < 20; i++ {
+					c, cancel := context.WithTimeout(ctx, 6*time.Second)
+					sent, e := game.DispatchLearning(c, pool, lmsClient)
+					cancel()
+					if e != nil {
+						slog.Warn("LMS learning attempt deferred", "error", e)
+						break
+					}
+					if !sent {
+						break
+					}
+				}
+			}
+		}
+	}()
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8087"
 	}
 
-	gameHandler := game.Handler(store, secret)
+	gameHandler := game.HandlerWithLMS(store, secret, lmsClient)
 	legacyHandler := farm.Handler(store, secret)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/farm/game/") {
@@ -131,4 +157,5 @@ func main() {
 
 	stop()
 	<-workerDone
+	<-learningDone
 }

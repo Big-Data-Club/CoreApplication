@@ -171,4 +171,69 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 	if res := call(501, http.MethodPost, "place", `{"kind":"rice_crop","x":1,"y":1}`); res.Code != 400 {
 		t.Fatal("house placement accepted")
 	}
+	var chicken string
+	for _, o := range world.Entities {
+		if o.Kind == "chicken" {
+			chicken = o.ID
+		}
+	}
+	if chicken == "" {
+		t.Fatal("missing chicken")
+	}
+	if _, e = pool.Exec(ctx, `UPDATE entity_runtime SET yield_ready=1 WHERE entity_id=$1`, chicken); e != nil {
+		t.Fatal(e)
+	}
+	var delivered int
+	lms := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-Secret") != "farm-to-lms-test-secret" {
+			w.WriteHeader(401)
+			return
+		}
+		if r.URL.Path == "/api/v1/internal/farm/question" {
+			_ = json.NewEncoder(w).Encode(farm.Question{ID: "lms:quiz:7", Kind: "quiz", Prompt: "Lúa cho gì?", Options: []string{"Thóc", "Trứng"}, Answer: "0", CourseID: 9})
+			return
+		}
+		if r.URL.Path == "/api/v1/internal/farm/attempt" {
+			var attempt struct {
+				ChallengeID string `json:"challenge_id"`
+				UserID      int64  `json:"user_id"`
+				CourseID    int64  `json:"course_id"`
+				Correct     bool   `json:"correct"`
+			}
+			if json.NewDecoder(r.Body).Decode(&attempt) != nil || attempt.ChallengeID == "" || attempt.UserID != 501 || attempt.CourseID != 9 || attempt.Correct {
+				t.Error("invalid learning attempt", attempt)
+				w.WriteHeader(400)
+				return
+			}
+			delivered++
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer lms.Close()
+	client := NewLMSClient(lms.URL, "farm-to-lms-test-secret")
+	handler = HandlerWithLMS(store, secret, client)
+	r = call(501, "POST", "challenge", fmt.Sprintf(`{"entityId":%q,"action":"HARVEST","kind":"quiz"}`, chicken))
+	if r.Code != 200 || strings.Contains(r.Body.String(), `"answer"`) {
+		t.Fatal("LMS challenge", r.Code, r.Body.String())
+	}
+	var lmsChallenge farm.Challenge
+	if e = json.Unmarshal(r.Body.Bytes(), &lmsChallenge); e != nil {
+		t.Fatal(e)
+	}
+	r = call(501, "POST", "action", fmt.Sprintf(`{"entityId":%q,"action":"HARVEST","challenge_id":%q,"answer":"1"}`, chicken, lmsChallenge.ID))
+	if r.Code != 200 || !strings.Contains(r.Body.String(), `"correct_answer":"Thóc"`) {
+		t.Fatal("wrong LMS answer feedback", r.Code, r.Body.String())
+	}
+	var pending int
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM game_learning_outbox WHERE delivered_at IS NULL`).Scan(&pending); e != nil || pending != 1 {
+		t.Fatal("outbox missing", pending, e)
+	}
+	if sent, e := DispatchLearning(ctx, pool, client); e != nil || !sent || delivered != 1 {
+		t.Fatal("LMS delivery", sent, delivered, e)
+	}
+	if sent, e := DispatchLearning(ctx, pool, client); e != nil || sent || delivered != 1 {
+		t.Fatal("duplicate LMS delivery", sent, delivered, e)
+	}
 }

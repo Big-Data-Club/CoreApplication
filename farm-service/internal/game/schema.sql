@@ -80,3 +80,15 @@ CREATE TABLE IF NOT EXISTS game_learning (
 CREATE TABLE IF NOT EXISTS game_harvest_receipts (
  challenge_id UUID PRIMARY KEY REFERENCES farm_answers(challenge_id),
  user_id BIGINT NOT NULL, entity_id UUID NOT NULL, action TEXT NOT NULL);
+
+-- LMS attempts are delivered after the game transaction commits. Keeping the
+-- full payload here lets a worker retry without the learner's expiring JWT.
+CREATE TABLE IF NOT EXISTS game_learning_outbox (
+ challenge_id UUID PRIMARY KEY REFERENCES farm_answers(challenge_id),
+ payload JSONB NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ delivered_at TIMESTAMPTZ,
+ next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ attempts INT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS game_learning_outbox_pending_idx ON game_learning_outbox(next_attempt_at,created_at) WHERE delivered_at IS NULL;

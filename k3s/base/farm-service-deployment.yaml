@@ -40,6 +40,16 @@ spec:
             secretKeyRef:
               name: bdc-farm-secrets
               key: FARM_EVENT_SECRET
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_SERVICE_SECRET
+        - name: LMS_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: bdc-config
+              key: LMS_SERVICE_URL
         resources:
           requests:
             cpu: 100m

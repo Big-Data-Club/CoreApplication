@@ -68,6 +68,12 @@ func main() {
 		logger.Fatal("Failed to connect to database", err)
 	}
 	defer db.Close()
+	migrationCtx, migrationCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	err = database.EnsureFarmLearningSchema(migrationCtx, db)
+	migrationCancel()
+	if err != nil {
+		logger.Fatal("Failed to initialize farm learning schema", err)
+	}
 
 	// Read-path indexes are non-critical and idempotent. Build them in the
 	// background so a rollout remains available even on a large existing DB.
@@ -262,6 +268,7 @@ func main() {
 	microLessonHandler := handler.NewMicroLessonHandler(microLessonRepo, courseRepo, aiClient, redisClient)
 	microQuizHandler := handler.NewMicroQuizHandler(microQuizRepo, courseRepo, quizRepo, aiClient, redisClient)
 	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
+	farmLearningHandler := handler.NewFarmLearningHandler(service.NewFarmLearningService(db, flashcardService, microInteractionRepo), cfg.AIConf.Secret)
 	sectionOverviewHandler := handler.NewSectionOverviewHandler(sectionOverviewRepo, courseRepo, quizRepo, aiClient, redisClient)
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 	permHandler := handler.NewPermissionHandler(permService)
@@ -316,6 +323,10 @@ func main() {
 	v1 := router.Group("/api/v1")
 	v1.Use(middleware.NoCache())
 	{
+		farmLearning := v1.Group("/internal/farm")
+		farmLearning.Use(farmLearningHandler.Authenticate)
+		farmLearning.GET("/question", farmLearningHandler.Question)
+		farmLearning.POST("/attempt", farmLearningHandler.Attempt)
 		// SYNC ROUTES
 		sync := v1.Group("/sync")
 		sync.Use(syncHandler.SyncSecret())

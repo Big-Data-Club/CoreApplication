@@ -6,34 +6,33 @@ Owner: Farm / Auth / Frontend maintainers. Implementation: `farm-service/`,
 
 ## Phạm vi hiện tại
 
-Game học tập tại `/knowledge-farm`, có mục trên sidebar. Sáu ô khởi đầu gồm
-lúa, rau muống, hoa vạn thọ, gà mái, cá nước ngọt và ong mật. Sprite và ý tưởng
+Game học tập tại `/knowledge-farm`, có mục trên sidebar. Bản đồ khởi đầu có
+lúa, hoa và gà; cửa hàng cho trồng/nuôi thêm các loài khác. Sprite và ý tưởng
 chọn ô/chăm sóc/nghỉ sau thu hoạch được chuyển từ source XanhMarket VuiVe do
 người dùng cung cấp. Không có broker, đơn hàng, giao dịch, camera, IoT hoặc
-kết nối nông trại thật. UI dùng React grid và sprite, không tải Phaser.
+kết nối nông trại thật. UI dùng bản đồ Phaser và sprite pixel art.
 
 Mỗi loại có thông tin môi trường, quy trình chăm sóc thực tế, điều thú vị và
 liên kết nguồn trong `farm-service/internal/farm/catalog.json`. Đây là kiến
-thức nhập môn; đồng hồ game, một nút chăm sóc và tái sinh 40 giây không mô
+thức nhập môn; đồng hồ game, thao tác chăm sóc và tái sinh 40 giây không mô
 phỏng đầy đủ quy trình sinh học thực tế.
 
-1. Chọn ô, đọc thẻ kiến thức và chăm sóc miễn phí.
+1. Chọn cây hoặc vật nuôi trên bản đồ, đọc thẻ kiến thức và chăm sóc.
 2. Server lưu thời điểm có thể thu hoạch; tải lại trang không làm mất tiến độ.
 3. Khi sẵn sàng, chọn quiz hoặc flashcard nhập đáp án. Một challenge có hiệu
    lực 10 phút; mở lại không đổi câu đang còn hiệu lực.
-4. Đáp án đúng mới thu hoạch. Sai thì giữ nguyên sản phẩm, hiển thị giải thích,
+4. Đáp án đúng mới thu hoạch. Sai thì giữ nguyên sản phẩm, hiển thị đáp án đúng và giải thích,
    khóa thử lại 30 giây và phát câu mới. Flashcard chấm sau chuẩn hóa Unicode,
    hoa/thường và khoảng trắng; không phải tự đánh dấu “đã nhớ”.
 5. Đúng nhận 5 điểm, tối đa 100 điểm mỗi ngày UTC (đặt lại 07:00 Việt Nam).
    Đạt trần vẫn học và thu hoạch được nhưng không thêm điểm. Sau thu hoạch,
    ô nghỉ 40 giây, rồi cần chăm lại để bắt đầu lượt tiếp theo.
 
-Ngân hàng 24 câu nền tảng (tin học/dữ liệu và kiến thức nông trại), được quản
-lý ở server, không gọi AI theo lượt chơi. Câu thuộc loài khác không được chọn.
-Hiện **chưa lấy câu từ khóa học LMS hoặc bộ flashcard cá nhân**; không ghi
-điểm vào LMS và không tuyên bố đây là tiến độ hoàn thành khóa học. Mở rộng
-ngân hàng bằng thay đổi versioned JSON và review nội dung; câu đang mở giữ
-snapshot để không đổi đáp án khi deploy.
+Game lấy quiz một đáp án từ question bank đã duyệt của khóa học học viên đã
+được chấp nhận, hoặc flashcard đang hoạt động của chính học viên qua LMS. Nếu
+không có nội dung phù hợp, game báo thiếu câu hỏi; không lấy câu của khóa học
+khác hoặc tự tạo đáp án. Farm giữ snapshot của câu đã mở để đáp án không đổi
+giữa lượt. Bộ câu hỏi nội bộ cũ chỉ còn dùng cho API sáu ô legacy và test.
 
 ## Ranh giới và API
 
@@ -53,7 +52,7 @@ snapshot để không đổi đáp án khi deploy.
 | `/api/v1/farm/plots/{1..6}/answer` | POST | `{"challenge_id":"uuid","answer":"0"}`; quiz dùng index dạng chuỗi, flashcard dùng text |
 
 GET và care/challenge trả `{state,catalog,server_time,pending_events,daily_limit,reward}`.
-Answer trả `{correct,explanation,awarded,event_id?}`. Không trả đáp án hay giải
+Answer trả `{correct,correct_answer,explanation,awarded,event_id?}`. Không trả đáp án hay giải
 thích của challenge đang mở. Request trùng challenge trả lại kết quả đã lưu.
 Các mã lỗi: 400 payload, 401 phiên, 404 route/ô, 409 trạng thái/hết hạn,
 503 lỗi phụ thuộc. `/health` là liveness; `/ready` kiểm tra database.
@@ -93,6 +92,30 @@ cộng điểm từ Java. UI không tuyên bố “đã đồng bộ” khi mớ
 BFF `/api/farm/score` đọc tổng chính thức từ Auth `/api/users/{session.user.id}`,
 chỉ trả `total_score`. UI cập nhật mỗi 15 giây; lỗi đọc tổng điểm không chặn
 chơi game. Độ trễ phụ thuộc broker/consumer và chu kỳ tải lại.
+
+## Câu hỏi LMS và thống kê
+
+Farm gọi `GET /api/v1/internal/farm/question` của LMS bằng `X-API-Secret`
+(`AI_SERVICE_SECRET` sẵn có), chỉ từ mạng dịch vụ. LMS tự kiểm tra enrollment
+`ACCEPTED`, khóa học `PUBLISHED`, và với flashcard chỉ lấy thẻ của học viên.
+Endpoint nội bộ trả đáp án cho Farm để chấm trên server; browser chỉ thấy bản
+challenge đã lược đáp án. Không mở route nội bộ qua Next.js BFF.
+
+Mỗi câu đã trả lời, đúng hoặc sai, được ghi vào `game_learning_outbox` trong
+cùng transaction với `farm_answers`. Worker Farm gửi
+`POST /api/v1/internal/farm/attempt` với `challenge_id` ổn định. LMS ghi
+`farm_learning_attempts`, `micro_lesson_interactions` và cập nhật
+`knowledge_node_mastery` trong một transaction; `challenge_id` là khóa chống
+đếm trùng. Quiz góp mẫu `mini_quiz_score`; flashcard góp mẫu engagement và
+điểm đúng/sai trong interaction log. Câu không có `node_id` vẫn được ghi vào
+log theo khóa học nhưng không góp heatmap theo node. Đây là thống kê luyện
+tập, không tự đánh dấu bài học/quiz chính thức đã hoàn thành.
+
+LMS V019 được áp dụng bằng migration cộng thêm khi LMS khởi động, có advisory
+lock cho nhiều replica. Farm V003 được áp dụng bởi schema cộng thêm lúc Farm
+khởi động. Rollout LMS trước Farm để endpoint và bảng đã sẵn sàng; nếu LMS
+tạm lỗi, outbox Farm giữ lượt trả lời và gửi lại. Không thêm GitHub Secret:
+Farm dùng `AI_SERVICE_SECRET` hiện có và `LMS_SERVICE_URL` trong ConfigMap.
 
 ## Chạy local
 

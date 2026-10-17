@@ -277,6 +277,20 @@ not evidence of a production rollout.
 
 ## Knowledge Farm rewards
 
+Farm learning attempts are a separate asynchronous HTTP outbox contract.
+Farm owns `game_learning_outbox`; LMS owns `farm_learning_attempts`,
+`micro_lesson_interactions` and `knowledge_node_mastery`. Each completed
+challenge, including incorrect answers, is sent to LMS
+`POST /api/v1/internal/farm/attempt` with `challenge_id` as the stable
+idempotency key, authenticated by the existing `AI_SERVICE_SECRET`. The payload
+contains only the learner ID, course/node IDs, LMS source ID, question kind and
+correctness; it contains no answer text. LMS commits raw interaction and
+mastery update together. A missing node remains in the course interaction log
+but cannot update a node heatmap. Farm retries until LMS acknowledges 204.
+This is for learning analytics; Auth score still uses the reward topic below.
+Deploy LMS V019 and endpoint before Farm V003/outbox producer. Internal
+credentials stay server-side and a learner's JWT is never stored in the outbox.
+
 Owner: Farm producer / Auth consumer. Topic: `farm.harvest.reward.v1`, key:
 base-10 Auth user ID, 3 partitions, 30-day retention in supplied topic setup.
 Purpose: credit learning-game harvest rewards to the canonical

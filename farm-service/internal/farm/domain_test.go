@@ -80,6 +80,9 @@ func TestWrongAnswerExpiryAndDailyCap(t *testing.T) {
 	if err != nil || r.Correct || e != nil || s.Plots[0].ReadyAt == nil || s.Earned != 0 {
 		t.Fatal("wrong answer changed harvest/reward")
 	}
+	if r.CorrectAnswer == "" {
+		t.Fatal("wrong answer did not reveal the correct answer")
+	}
 	if _, err = s.Start(1, "quiz", now); err == nil {
 		t.Fatal("retry cooldown bypass")
 	}
@@ -103,6 +106,24 @@ func TestWrongAnswerExpiryAndDailyCap(t *testing.T) {
 	s.Day(epoch.Add(24 * time.Hour))
 	if s.DailyEarned != 0 {
 		t.Fatal("day did not reset")
+	}
+}
+func TestLMSQuestionSnapshotAndAnswerFeedback(t *testing.T) {
+	s := NewState()
+	ready := epoch
+	s.Plots[0].ReadyAt = &ready
+	q := Question{ID: "lms:quiz:7", Kind: "quiz", Prompt: "Lúa cho gì?", Options: []string{"Thóc", "Trứng"}, Answer: "0", CourseID: 9}
+	c, err := s.StartWithQuestion(1, "quiz", epoch, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := s.PublicState().Plots[0].Challenge
+	if public.Question.Answer != "" {
+		t.Fatal("LMS answer leaked in open challenge")
+	}
+	r, event, err := s.Answer(41, 1, c.ID, "1", epoch, "test-secret")
+	if err != nil || r.Correct || event != nil || r.CorrectAnswer != "Thóc" {
+		t.Fatalf("wrong answer feedback: %+v %v", r, err)
 	}
 }
 func TestAnimalsAlsoRequireChallenge(t *testing.T) {

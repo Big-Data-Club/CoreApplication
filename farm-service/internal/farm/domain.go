@@ -34,6 +34,8 @@ type Question struct {
 	Options     []string `json:"options,omitempty"`
 	Answer      string   `json:"answer,omitempty"`
 	Explanation string   `json:"explanation,omitempty"`
+	CourseID    int64    `json:"course_id,omitempty"`
+	NodeID      *int64   `json:"node_id,omitempty"`
 }
 
 var questions = func() []Question {
@@ -99,10 +101,11 @@ type Event struct {
 	Signature  string `json:"signature"`
 }
 type Result struct {
-	Correct     bool   `json:"correct"`
-	Explanation string `json:"explanation"`
-	Awarded     int    `json:"awarded"`
-	EventID     string `json:"event_id,omitempty"`
+	Correct       bool   `json:"correct"`
+	Explanation   string `json:"explanation"`
+	CorrectAnswer string `json:"correct_answer,omitempty"`
+	Awarded       int    `json:"awarded"`
+	EventID       string `json:"event_id,omitempty"`
 }
 type Error struct {
 	Status  int
@@ -185,6 +188,30 @@ func (s *State) Start(id int, kind string, now time.Time) (*Challenge, error) {
 	p.Challenge = &Challenge{ID: uuid.NewString(), Question: q, ExpiresAt: now.Add(10 * time.Minute)}
 	return p.Challenge, nil
 }
+
+// StartWithQuestion snapshots a service-owned LMS item into a farm challenge.
+// The answer is never returned by PublicState, and an open challenge is reused.
+func (s *State) StartWithQuestion(id int, kind string, now time.Time, q Question) (*Challenge, error) {
+	p, err := s.plot(id)
+	if err != nil {
+		return nil, err
+	}
+	if kind != "quiz" && kind != "flashcard" || q.Kind != kind || q.ID == "" || q.CourseID <= 0 || q.Answer == "" {
+		return nil, &Error{400, "Câu hỏi LMS không hợp lệ."}
+	}
+	if p.ReadyAt == nil || now.Before(*p.ReadyAt) {
+		return nil, bad("Ô này chưa sẵn sàng thu hoạch.")
+	}
+	if now.Before(p.RetryAt) {
+		return nil, bad("Đợi 30 giây rồi thử câu mới nhé.")
+	}
+	if p.Challenge != nil && now.Before(p.Challenge.ExpiresAt) {
+		return p.Challenge, nil
+	}
+	p.LastQuestion = q.ID
+	p.Challenge = &Challenge{ID: uuid.NewString(), Question: q, ExpiresAt: now.Add(10 * time.Minute)}
+	return p.Challenge, nil
+}
 func normalize(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(norm.NFC.String(s)), " "))
 }
@@ -200,7 +227,13 @@ func (s *State) Answer(user int64, id int, challengeID, answer string, now time.
 	if p.ReadyAt == nil || now.Before(*p.ReadyAt) {
 		return Result{}, nil, bad("Ô này chưa sẵn sàng thu hoạch.")
 	}
-	result := Result{Correct: normalize(answer) == normalize(c.Question.Answer), Explanation: c.Question.Explanation}
+	correctAnswer := c.Question.Answer
+	if c.Question.Kind == "quiz" {
+		if index, e := strconv.Atoi(c.Question.Answer); e == nil && index >= 0 && index < len(c.Question.Options) {
+			correctAnswer = c.Question.Options[index]
+		}
+	}
+	result := Result{Correct: normalize(answer) == normalize(c.Question.Answer), Explanation: c.Question.Explanation, CorrectAnswer: correctAnswer}
 	p.Challenge = nil // A challenge is single use, including wrong answers.
 	if !result.Correct {
 		p.RetryAt = now.Add(30 * time.Second)

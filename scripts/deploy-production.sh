@@ -197,6 +197,11 @@ for deployment in "${deployments[@]}"; do
 done
 
 for deployment in "${deployments[@]}"; do
+  if [[ "$deployment" == "farm-service" && " ${deployments[*]} " == *" lms-service "* ]]; then
+    # Farm requests private grading content from LMS; let the new LMS schema
+    # and endpoint become ready before starting the Farm image.
+    kubectl rollout status deployment/lms-service --namespace "$DEPLOY_NAMESPACE" --timeout "$ROLLOUT_TIMEOUT"
+  fi
   [[ -n "${images[$deployment]:-}" ]] || { echo "Unknown deployment: ${deployment}" >&2; exit 2; }
   tag="$IMAGE_TAG"
   if [[ "$deployment" == "frontend" && -n "${FRONTEND_IMAGE_TAG:-}" ]]; then

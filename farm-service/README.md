@@ -7,7 +7,8 @@ and a transactional reward outbox. PostgreSQL required; Kafka publishes
 See [feature/API/operations guide](../docs/features/KNOWLEDGE_FARM.md).
 
 Required config: `JWT_SECRET`, `FARM_EVENT_SECRET` (both >=32 bytes),
-`KAFKA_BROKERS`, and either `FARM_DATABASE_URL` or the PostgreSQL `PGHOST`,
+`KAFKA_BROKERS`, `LMS_SERVICE_URL`, `AI_SERVICE_SECRET` (existing shared service
+credential), and either `FARM_DATABASE_URL` or the PostgreSQL `PGHOST`,
 `PGDATABASE`, `PGUSER`, `PGPASSWORD` variables. Use TLS outside local Compose.
 `PORT` defaults to 8087. Database pool is capped at 10 connections.
 
