@@ -2,6 +2,7 @@ package game
 
 import (
 	"bdc/farm-service/internal/farm"
+	"bdc/farm-service/internal/game/dto"
 	domain "bdc/farm-service/internal/gamedomain"
 	"fmt"
 	"github.com/jackc/pgx/v5"
@@ -44,11 +45,7 @@ func (s *Server) registerEconomy() {
 		return nil
 	})
 	s.route("POST", "/api/game/place", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var v struct {
-			Kind string `json:"kind"`
-			X    int    `json:"x"`
-			Y    int    `json:"y"`
-		}
+		var v dto.PlaceRequest
 		if e := decode(r, &v); e != nil {
 			return e
 		}
@@ -119,9 +116,7 @@ func (s *Server) registerEconomy() {
 	// Safe removal: server controls refunds, and never deletes a habitat with
 	// occupants or an asset reserved for a real-world connection.
 	s.route("POST", "/api/game/remove", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var v struct {
-			EntityID string `json:"entityId"`
-		}
+		var v dto.EntityRequest
 		if e := decode(r, &v); e != nil {
 			return e
 		}
@@ -183,11 +178,7 @@ func (s *Server) registerEconomy() {
 		return nil
 	})
 	s.route("POST", "/api/game/move", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var v struct {
-			EntityID string `json:"entityId"`
-			X        int    `json:"x"`
-			Y        int    `json:"y"`
-		}
+		var v dto.MoveRequest
 		if e := decode(r, &v); e != nil {
 			return e
 		}
@@ -250,10 +241,7 @@ func (s *Server) registerEconomy() {
 		return nil
 	})
 	s.route("POST", "/api/game/shop", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var v struct {
-			Kind     string `json:"kind"`
-			Quantity int    `json:"quantity"`
-		}
+		var v dto.ItemQuantityRequest
 		if e := decode(r, &v); e != nil {
 			return e
 		}
@@ -281,10 +269,7 @@ func (s *Server) registerEconomy() {
 		return nil
 	})
 	s.route("POST", "/api/game/sell", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var v struct {
-			Kind     string `json:"kind"`
-			Quantity int    `json:"quantity"`
-		}
+		var v dto.ItemQuantityRequest
 		if e := decode(r, &v); e != nil {
 			return e
 		}
@@ -308,10 +293,7 @@ func (s *Server) registerEconomy() {
 		return nil
 	})
 	s.route("POST", "/api/game/craft", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var v struct {
-			Recipe   string `json:"recipe"`
-			Quantity int    `json:"quantity"`
-		}
+		var v dto.CraftRequest
 		if e := decode(r, &v); e != nil {
 			return e
 		}
@@ -382,9 +364,7 @@ func (s *Server) registerEconomy() {
 		return nil
 	})
 	s.route("POST", "/api/game/catch", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var request struct {
-			InsectID string `json:"insectId"`
-		}
+		var request dto.CatchRequest
 		if e := decode(r, &request); e != nil {
 			return e
 		}
@@ -455,13 +435,7 @@ func (s *Server) registerEconomy() {
 		return nil
 	})
 	s.route("POST", "/api/game/action", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var v struct {
-			EntityID    string `json:"entityId"`
-			Action      string `json:"action"`
-			Item        string `json:"item"`
-			ChallengeID string `json:"challenge_id"`
-			Answer      string `json:"answer"`
-		}
+		var v dto.ActionRequest
 		if e := decode(r, &v); e != nil {
 			return e
 		}
@@ -696,9 +670,7 @@ func (s *Server) registerEconomy() {
 		return nil
 	})
 	s.route("POST", "/api/game/rename", []string{"PLAYER"}, func(w http.ResponseWriter, r *http.Request, u User) error {
-		var v struct {
-			Name string `json:"name"`
-		}
+		var v dto.RenameRequest
 		if e := decode(r, &v); e != nil {
 			return e
 		}

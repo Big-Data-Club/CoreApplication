@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"bdc/farm-service/internal/farm"
-	"github.com/jackc/pgx/v5"
+	"bdc/farm-service/internal/game/repository"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -71,31 +71,25 @@ func (c *LMSClient) deliver(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-// DispatchLearning keeps the row locked across delivery. A failed request
-// remains pending; LMS de-duplicates successful retries by challenge UUID.
+// DispatchLearning releases its database connection before calling LMS. A
+// claimed row becomes available again after the lease if a worker dies, and
+// LMS de-duplicates any replay by challenge UUID.
 func DispatchLearning(ctx context.Context, pool *pgxpool.Pool, client *LMSClient) (bool, error) {
-	tx, err := pool.Begin(ctx)
+	outbox := repository.LearningOutbox{Pool: pool}
+	attempt, claimed, err := outbox.Claim(ctx)
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback(ctx)
-	var id string
-	var payload []byte
-	err = tx.QueryRow(ctx, `SELECT challenge_id::text,payload FROM game_learning_outbox
-		WHERE delivered_at IS NULL AND next_attempt_at<=now() ORDER BY next_attempt_at,created_at LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&id, &payload)
-	if err == pgx.ErrNoRows {
+	if !claimed {
 		return false, nil
 	}
-	if err != nil {
-		return false, err
-	}
-	if err = client.deliver(ctx, payload); err != nil {
-		_, _ = tx.Exec(ctx, `UPDATE game_learning_outbox SET attempts=attempts+1,next_attempt_at=now()+LEAST(60,5*(attempts+1))*interval '1 second' WHERE challenge_id=$1`, id)
-		_ = tx.Commit(ctx)
+	if err = client.deliver(ctx, attempt.Payload); err != nil {
+		cleanup, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = outbox.Retry(cleanup, attempt.ChallengeID)
+		cancel()
 		return true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE game_learning_outbox SET delivered_at=now(),attempts=attempts+1 WHERE challenge_id=$1`, id); err != nil {
-		return true, err
-	}
-	return true, tx.Commit(ctx)
+	cleanup, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return true, outbox.Delivered(cleanup, attempt.ChallengeID)
 }

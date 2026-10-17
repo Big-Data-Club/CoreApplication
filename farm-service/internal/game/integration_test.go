@@ -184,6 +184,7 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 		t.Fatal(e)
 	}
 	var delivered int
+	var deliveryPool *pgxpool.Pool
 	lms := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-API-Secret") != "farm-to-lms-test-secret" {
 			w.WriteHeader(401)
@@ -194,6 +195,17 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 			return
 		}
 		if r.URL.Path == "/api/v1/internal/farm/attempt" {
+			// Delivery must not hold the only PostgreSQL connection while waiting for LMS.
+			if deliveryPool != nil {
+				checkCtx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+				defer cancel()
+				var count int
+				if err := deliveryPool.QueryRow(checkCtx, `SELECT count(*) FROM game_learning_outbox`).Scan(&count); err != nil {
+					t.Errorf("outbox delivery held a database connection: %v", err)
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
+			}
 			var attempt struct {
 				ChallengeID string `json:"challenge_id"`
 				UserID      int64  `json:"user_id"`
@@ -230,10 +242,21 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 	if e = pool.QueryRow(ctx, `SELECT count(*) FROM game_learning_outbox WHERE delivered_at IS NULL`).Scan(&pending); e != nil || pending != 1 {
 		t.Fatal("outbox missing", pending, e)
 	}
-	if sent, e := DispatchLearning(ctx, pool, client); e != nil || !sent || delivered != 1 {
+	deliveryCfg, e := pgxpool.ParseConfig(url)
+	if e != nil {
+		t.Fatal(e)
+	}
+	deliveryCfg.ConnConfig.RuntimeParams["search_path"] = schema
+	deliveryCfg.MaxConns = 1
+	deliveryPool, e = pgxpool.NewWithConfig(ctx, deliveryCfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer deliveryPool.Close()
+	if sent, e := DispatchLearning(ctx, deliveryPool, client); e != nil || !sent || delivered != 1 {
 		t.Fatal("LMS delivery", sent, delivered, e)
 	}
-	if sent, e := DispatchLearning(ctx, pool, client); e != nil || sent || delivered != 1 {
+	if sent, e := DispatchLearning(ctx, deliveryPool, client); e != nil || sent || delivered != 1 {
 		t.Fatal("duplicate LMS delivery", sent, delivered, e)
 	}
 }

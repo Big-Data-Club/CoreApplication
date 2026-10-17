@@ -12,6 +12,26 @@ credential), and either `FARM_DATABASE_URL` or the PostgreSQL `PGHOST`,
 `PGDATABASE`, `PGUSER`, `PGPASSWORD` variables. Use TLS outside local Compose.
 `PORT` defaults to 8087. Database pool is capped at 10 connections.
 
+Game code is grouped by responsibility in `internal/game`: `*_handler.go`
+defines HTTP endpoints, `*_repository.go` owns transactional PostgreSQL
+operations, `*_service.go` owns gameplay and learning rules, and `world_rules.go`
+holds shared domain calculations. `dto/` defines request contracts;
+`repository/learning_outbox.go` claims LMS attempt deliveries without holding a
+database connection during the remote HTTP call. Keep all coin, inventory,
+harvest and reward mutations inside one `withGame` transaction. When adding a
+feature, put validation in the service layer and persistence behind repository
+functions so retries cannot apply it twice.
+
+The per-farm row lock serializes changes to one player's farm while independent
+farms can run concurrently. Multiple service replicas may consume the LMS and
+reward outboxes; `SKIP LOCKED` leases and stable challenge/event IDs make replay
+safe. Capacity is bounded by the database pool, transaction duration, and LMS/
+Kafka latency. Monitor pool wait time, transaction latency, outbox backlog and
+API p95 before increasing replicas or the connection cap. Avoid remote calls
+inside game transactions. State reads currently tick the farm in a write
+transaction; a dedicated read projection/cache is the next scaling step if
+state polling becomes the bottleneck.
+
 `internal/farm/schema.sql` is the initial additive schema, applied under a
 transaction advisory lock at startup. Subsequent schema changes must be new
 forward-only migrations; do not repurpose deployed columns.

@@ -220,11 +220,34 @@ chung, URL riêng, chặn URL sai DB và không tạo Job/SQL khi sync cấu hì
 
 ## Kiểm thử
 
+### Tương tác và năng lực phục vụ
+
+Frontend giữ Phaser scene trong một khung hình; HUD/cửa hàng là React component
+riêng. Đồng hồ câu hỏi chỉ render dialog, bắt côn trùng được cập nhật lạc quan
+rồi đối chiếu lại với server, và scene chỉ dựng lại vật thể khi thuộc tính hiển
+thị thay đổi. Game state tự đồng bộ mỗi 30 giây, thông tin điểm/LMS mỗi 60 giây;
+tab ẩn ngừng polling và tab hiện lại sẽ tải ngay. Các thao tác ghi luôn tải lại
+trạng thái sau phản hồi, nên không cần chờ lần polling kế tiếp.
+
+Backend khóa một farm trong một transaction để tránh bán/thu hoạch trùng; các
+farm khác nhau chạy song song. Outbox LMS được claim bằng `SKIP LOCKED` với
+lease 30 giây, sau đó giải phóng kết nối DB trước khi gọi LMS. Reward Kafka
+và LMS dùng ID ổn định để retry an toàn. Không tăng pool vô hạn: tổng số kết
+nối của mọi replica phải nằm dưới giới hạn Neon, và số replica cần dựa trên
+pool wait, API p95, thời gian transaction, backlog outbox và tỷ lệ lỗi.
+
+Chưa có kết quả load test cho mức user đồng thời cụ thể. Chỉ đo tải trên môi
+trường cô lập theo [runbook](../teams/DEVOPS_RUNBOOK.md), với tài khoản thử
+nghiệm và giới hạn kết nối rõ ràng; sau khi có số đo, ưu tiên tách read
+projection/cache cho `/game/state` vì hiện request đọc vẫn chạy tick trong
+transaction ghi.
+
 ```bash
 cd farm-service && go test -race ./...
 # Từ repo root: PostgreSQL tạm, Go integration, toàn bộ mvn test bằng Java 21
 bash scripts/test-knowledge-farm.sh
 # Trong frontend:
+npm run format:knowledge-farm:check
 npm run lint
 npx tsc --noEmit
 node tests/knowledge-farm/bff.test.cjs
