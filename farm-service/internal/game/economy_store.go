@@ -354,6 +354,7 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 		// Preserve the oxygen deadline based on the pre-tick state. Animals and
 		// hydro crops earn the time before a habitat depletes, even offline.
 		oxygenUntil := map[string]time.Time{}
+		var changedRuntime []*gameEntity
 		for _, obj := range g.Entities {
 			if domain.OxygenThresholdSeconds(obj.Kind) > 0 {
 				oxygenUntil[obj.ID] = obj.RT.LastTick.Add(time.Duration(domain.OxygenLeftSeconds(obj.Kind, obj.RT)) * time.Second)
@@ -375,9 +376,7 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 				obj.RT.LastTick = g.Now
 			}
 			if obj.RT != old {
-				if e = updateRuntime(r, tx, obj); e != nil {
-					return e
-				}
+				changedRuntime = append(changedRuntime, obj)
 			}
 		}
 		for i := range g.Entities {
@@ -392,9 +391,7 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 				obj.RT = domain.Advance(obj.Kind, obj.RT, g.Now, false, false, false)
 			}
 			if obj.RT != old {
-				if e = updateRuntime(r, tx, obj); e != nil {
-					return e
-				}
+				changedRuntime = append(changedRuntime, obj)
 			}
 		}
 		for i := range g.Entities {
@@ -415,10 +412,11 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 				obj.RT = domain.Advance(obj.Kind, obj.RT, g.Now, housed, floral, false)
 			}
 			if obj.RT != old {
-				if e = updateRuntime(r, tx, obj); e != nil {
-					return e
-				}
+				changedRuntime = append(changedRuntime, obj)
 			}
+		}
+		if e = updateRuntimes(r, tx, changedRuntime); e != nil {
+			return e
 		}
 		for i := range g.Entities {
 			obj := &g.Entities[i]
@@ -459,8 +457,30 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 		return fn(tx, g)
 	})
 }
+
+const updateRuntimeSQL = `UPDATE entity_runtime SET last_tick=$2,work_seconds=$3,hunger_seconds=$4,water_seconds=$5,health=$6,sick=$7,yield_ready=$8,oxygen=$9,build_until=$10,oxygen_age_seconds=$11,starvation_seconds=$12,work_remainder=$13,regrow_until=$14 WHERE entity_id=$1`
+
+func updateRuntimes(r *http.Request, tx pgx.Tx, entities []*gameEntity) error {
+	if len(entities) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	for _, e := range entities {
+		batch.Queue(updateRuntimeSQL, e.ID, e.RT.LastTick, e.RT.Work, e.RT.Hunger, e.RT.Water, e.RT.Health, e.RT.Sick, e.RT.Ready, e.RT.Oxygen, e.RT.BuildUntil, e.RT.OxygenAge, e.RT.Starvation, e.RT.Remainder, e.RT.RegrowUntil)
+	}
+	results := tx.SendBatch(r.Context(), batch)
+	for range entities {
+		if _, err := results.Exec(); err != nil {
+			_ = results.Close()
+			return err
+		}
+	}
+	return results.Close()
+}
+
+// One-off runtime changes during an action do not need a batch.
 func updateRuntime(r *http.Request, tx pgx.Tx, e *gameEntity) error {
-	_, err := tx.Exec(r.Context(), `UPDATE entity_runtime SET last_tick=$2,work_seconds=$3,hunger_seconds=$4,water_seconds=$5,health=$6,sick=$7,yield_ready=$8,oxygen=$9,build_until=$10,oxygen_age_seconds=$11,starvation_seconds=$12,work_remainder=$13,regrow_until=$14 WHERE entity_id=$1`, e.ID, e.RT.LastTick, e.RT.Work, e.RT.Hunger, e.RT.Water, e.RT.Health, e.RT.Sick, e.RT.Ready, e.RT.Oxygen, e.RT.BuildUntil, e.RT.OxygenAge, e.RT.Starvation, e.RT.Remainder, e.RT.RegrowUntil)
+	_, err := tx.Exec(r.Context(), updateRuntimeSQL, e.ID, e.RT.LastTick, e.RT.Work, e.RT.Hunger, e.RT.Water, e.RT.Health, e.RT.Sick, e.RT.Ready, e.RT.Oxygen, e.RT.BuildUntil, e.RT.OxygenAge, e.RT.Starvation, e.RT.Remainder, e.RT.RegrowUntil)
 	return err
 }
 
