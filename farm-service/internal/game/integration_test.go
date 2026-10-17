@@ -1,0 +1,174 @@
+package game
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"bdc/farm-service/internal/farm"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
+	url := os.Getenv("FARM_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("requires disposable PostgreSQL")
+	}
+	ctx := context.Background()
+	admin, e := pgxpool.New(ctx, url)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer admin.Close()
+	schema := "game_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if _, e = admin.Exec(ctx, "CREATE SCHEMA "+schema); e != nil {
+		t.Fatal(e)
+	}
+	defer admin.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
+	cfg, e := pgxpool.ParseConfig(url)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, e := pgxpool.NewWithConfig(ctx, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer pool.Close()
+	store := &farm.Store{Pool: pool, Secret: "game-test-signing-secret-32-bytes!"}
+	if e = store.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if e = Migrate(ctx, pool); e != nil {
+		t.Fatal(e)
+	}
+	if e = Migrate(ctx, pool); e != nil {
+		t.Fatal("repeat migration", e)
+	}
+	secret := "game-test-jwt-secret-32-bytes-long"
+	handler := Handler(store, secret)
+	call := func(user int64, method, path, body string) *httptest.ResponseRecorder {
+		token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, farm.Claims{UserID: user, Roles: []string{"ROLE_USER"}, RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}}).SignedString([]byte(secret))
+		r := httptest.NewRequest(method, "/api/v1/farm/game/"+path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	state := call(501, "GET", "state", "")
+	if state.Code != 200 {
+		t.Fatal(state.Code, state.Body.String())
+	}
+	var world struct {
+		Farm     worldFarm    `json:"farm"`
+		Entities []gameEntity `json:"entities"`
+	}
+	if e = json.Unmarshal(state.Body.Bytes(), &world); e != nil {
+		t.Fatal(e)
+	}
+	if len(world.Entities) != 3 || world.Farm.Coins != 900 {
+		t.Fatal("starter world missing", state.Body.String())
+	}
+	var crop string
+	for _, o := range world.Entities {
+		if o.Kind == "rice_crop" {
+			crop = o.ID
+		}
+	}
+	if crop == "" {
+		t.Fatal("missing rice")
+	}
+	for _, request := range []struct {
+		path, body string
+		status     int
+	}{
+		{"place", `{"kind":"tank","x":12,"y":4}`, 200},
+		{"place", `{"kind":"chicken","x":12,"y":4}`, 409},
+		{"move", fmt.Sprintf(`{"entityId":%q,"x":7,"y":5}`, crop), 200},
+		{"action", fmt.Sprintf(`{"entityId":%q,"action":"WATER"}`, crop), 200},
+		{"action", fmt.Sprintf(`{"entityId":%q,"action":"HARVEST"}`, crop), 409},
+	} {
+		r := call(501, "POST", request.path, request.body)
+		if r.Code != request.status {
+			t.Fatalf("%s: %d %s", request.path, r.Code, r.Body.String())
+		}
+	}
+	if r := call(502, "POST", "action", fmt.Sprintf(`{"entityId":%q,"action":"WATER"}`, crop)); r.Code != 404 {
+		t.Fatal("cross-user access", r.Code)
+	}
+	_, e = pool.Exec(ctx, `UPDATE entity_runtime SET yield_ready=1,work_seconds=120 WHERE entity_id=$1`, crop)
+	if e != nil {
+		t.Fatal(e)
+	}
+	body := fmt.Sprintf(`{"entityId":%q,"action":"HARVEST","kind":"quiz"}`, crop)
+	r := call(501, "POST", "challenge", body)
+	if r.Code != 200 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	if strings.Contains(r.Body.String(), `"answer"`) || strings.Contains(r.Body.String(), `"explanation"`) {
+		t.Fatal("answer leaked")
+	}
+	var challenge farm.Challenge
+	_ = json.Unmarshal(r.Body.Bytes(), &challenge)
+	var raw []byte
+	if e = pool.QueryRow(ctx, `SELECT state FROM game_learning WHERE user_id=501 AND entity_id=$1`, crop).Scan(&raw); e != nil {
+		t.Fatal(e)
+	}
+	var learned farm.Plot
+	_ = json.Unmarshal(raw, &learned)
+	wrong := call(501, "POST", "action", fmt.Sprintf(`{"entityId":%q,"action":"HARVEST","challenge_id":%q,"answer":"wrong"}`, crop, challenge.ID))
+	if wrong.Code != 200 || !strings.Contains(wrong.Body.String(), `"correct":false`) {
+		t.Fatal("wrong answer", wrong.Code, wrong.Body.String())
+	}
+	if r = call(501, "POST", "challenge", body); r.Code != 409 {
+		t.Fatal("cooldown missing", r.Code)
+	}
+	// Advance only the stored retry time in this isolated test schema.
+	_, e = pool.Exec(ctx, `UPDATE game_learning SET state=jsonb_set(state,'{retry_at}','"2000-01-01T00:00:00Z"') WHERE user_id=501`)
+	if e != nil {
+		t.Fatal(e)
+	}
+	r = call(501, "POST", "challenge", body)
+	if r.Code != 200 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	_ = json.Unmarshal(r.Body.Bytes(), &challenge)
+	_ = pool.QueryRow(ctx, `SELECT state FROM game_learning WHERE user_id=501 AND entity_id=$1`, crop).Scan(&raw)
+	_ = json.Unmarshal(raw, &learned)
+	answer := fmt.Sprintf(`{"entityId":%q,"action":"HARVEST","challenge_id":%q,"answer":%q}`, crop, challenge.ID, learned.Challenge.Question.Answer)
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res := call(501, "POST", "action", answer)
+			if res.Code != 200 || !strings.Contains(res.Body.String(), `"awarded":5`) {
+				t.Errorf("replay %d %s", res.Code, res.Body.String())
+			}
+		}()
+	}
+	wg.Wait()
+	var qty, events int
+	_ = pool.QueryRow(ctx, `SELECT quantity FROM farm_inventory WHERE farm_id=$1 AND kind='paddy'`, world.Farm.ID).Scan(&qty)
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM farm_outbox WHERE user_id=501`).Scan(&events)
+	if qty != 6 || events != 1 {
+		t.Fatalf("duplicate harvest: paddy=%d events=%d", qty, events)
+	}
+	var ready int
+	_ = pool.QueryRow(ctx, `SELECT yield_ready FROM entity_runtime WHERE entity_id=$1`, crop).Scan(&ready)
+	if ready != 0 {
+		t.Fatal("crop not harvested")
+	}
+	if res := call(501, http.MethodPost, "place", `{"kind":"rice_crop","x":1,"y":1}`); res.Code != 400 {
+		t.Fatal("house placement accepted")
+	}
+}

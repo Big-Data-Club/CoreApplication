@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bdc/farm-service/internal/farm"
+	"bdc/farm-service/internal/game"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/segmentio/kafka-go"
 )
@@ -60,6 +61,9 @@ func main() {
 	store := &farm.Store{Pool: pool, Secret: eventSecret}
 	migrationCtx, cancelMigration := context.WithTimeout(ctx, 30*time.Second)
 	err = store.Migrate(migrationCtx)
+	if err == nil {
+		err = game.Migrate(migrationCtx, pool)
+	}
 	cancelMigration()
 
 	if err != nil {
@@ -68,7 +72,7 @@ func main() {
 	}
 	writer := &kafka.Writer{Addr: kafka.TCP(strings.Split(required("KAFKA_BROKERS"), ",")...), Topic: farm.Topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, WriteTimeout: 5 * time.Second, AllowAutoTopicCreation: false}
 	defer writer.Close()
-	
+
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
@@ -102,7 +106,16 @@ func main() {
 		port = "8087"
 	}
 
-	server := &http.Server{Addr: ":" + port, Handler: farm.Handler(store, secret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 12 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	gameHandler := game.Handler(store, secret)
+	legacyHandler := farm.Handler(store, secret)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/farm/game/") {
+			gameHandler.ServeHTTP(w, r)
+		} else {
+			legacyHandler.ServeHTTP(w, r)
+		}
+	})
+	server := &http.Server{Addr: ":" + port, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 12 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)

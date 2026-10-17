@@ -106,5 +106,41 @@
     "fact": "Ong giúp thụ phấn khi đi kiếm ăn. Nuôi ong là chăm sóc cả một đàn, không chỉ một con ong.",
     "source_title": "Penn State Extension · Beekeeping — Honey Bees",
     "source_url": "https://extension.psu.edu/beekeeping-honey-bees"
+  },
+  {
+    "kind": "mustard",
+    "label": "Rau cải",
+    "seconds": 125,
+    "category": "crop",
+    "care": "Tưới rau cải",
+    "product": "Lá cải",
+    "environment": "Ưa thời tiết mát, đất có chất hữu cơ và được tưới đều. Tránh để đất khô kéo dài; chọn giống và mùa gieo phù hợp địa phương.",
+    "steps": [
+      "Chuẩn bị đất và bổ sung phân hữu cơ đã xử lý.",
+      "Gieo hạt hoặc trồng cây con; tỉa bớt nếu mọc quá dày.",
+      "Tưới đều, làm cỏ và theo dõi sâu ăn lá.",
+      "Thu lá non, lá ngoài hoặc cả cây tùy giống và mục đích sử dụng."
+    ],
+    "fact": "Có thể thu lá cải ở nhiều giai đoạn; khoảng cách trồng ảnh hưởng kích thước cây và lá.",
+    "source_title": "University of Maryland Extension · Growing leafy greens",
+    "source_url": "https://extension.umd.edu/resource/growing-leafy-greens-home-garden"
+  },
+  {
+    "kind": "frog",
+    "label": "Ếch",
+    "seconds": 450,
+    "category": "animal",
+    "care": "Chăm sóc ếch",
+    "product": "Ếch trưởng thành",
+    "environment": "Ếch là động vật lưỡng cư. Môi trường nuôi cần kiểm soát chất lượng nước, nhiệt độ và thức ăn theo loài và giai đoạn phát triển.",
+    "steps": [
+      "Tìm hiểu loài nuôi và chuẩn bị hệ thống giữ nước, chỗ nghỉ phù hợp.",
+      "Chọn con giống khỏe và phân nhóm theo kích thước.",
+      "Theo dõi nước, vệ sinh và cung cấp thức ăn phù hợp từng giai đoạn.",
+      "Quan sát tăng trưởng, tách cá thể bất thường và tìm hỗ trợ chuyên môn khi có bệnh."
+    ],
+    "fact": "Thức ăn thay đổi qua biến thái: nòng nọc và ếch sau biến thái có nhu cầu khác nhau. Nguồn FAO mô tả ếch bò Mỹ; không áp dụng nguyên thông số cho mọi loài ếch.",
+    "source_title": "FAO · Cultured aquatic species: American bullfrog",
+    "source_url": "https://www.fao.org/fishery/docs/CDrom/aquaculture/I1129m/file/en/en_americanbullfrog.htm"
   }
 ]
