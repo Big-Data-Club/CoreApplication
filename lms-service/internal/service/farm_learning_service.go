@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"strings"
 
+	"example/hello/internal/dto"
 	"example/hello/internal/repository"
 )
 
@@ -170,19 +171,26 @@ func (s *FarmLearningService) flashcardQuestion(ctx context.Context, userID int6
 	}
 	for _, courseID := range courses {
 		cards, e := s.flashcards.ListDueFlashcards(ctx, userID, courseID)
-		if e == nil && len(cards) == 0 {
-			cards, e = s.flashcards.ListFlashcards(ctx, userID, courseID, nil, nil, nil)
-		}
 		if e != nil {
 			return nil, e
 		}
 		var choices []*FarmQuestion
-		for _, card := range cards {
-			id := fmt.Sprintf("lms:flashcard:%d", card.ID)
-			if card.Status != "ACTIVE" || strings.TrimSpace(card.FrontText) == "" || strings.TrimSpace(card.BackText) == "" || len([]rune(card.BackText)) > 160 {
-				continue
+		appendCards := func(cards []dto.FlashcardResponse, due bool) {
+			for _, card := range cards {
+				id := fmt.Sprintf("lms:flashcard:%d", card.ID)
+				if (card.Status != "ACTIVE" && !(due && card.Status == "")) || strings.TrimSpace(card.FrontText) == "" || strings.TrimSpace(card.BackText) == "" || len([]rune(card.BackText)) > 160 {
+					continue
+				}
+				choices = append(choices, &FarmQuestion{ID: id, Kind: "flashcard", Prompt: card.FrontText, Answer: card.BackText, Explanation: card.BackText, CourseID: courseID, NodeID: card.NodeID})
 			}
-			choices = append(choices, &FarmQuestion{ID: id, Kind: "flashcard", Prompt: card.FrontText, Answer: card.BackText, Explanation: card.BackText, CourseID: courseID, NodeID: card.NodeID})
+		}
+		appendCards(cards, true)
+		if len(choices) == 0 {
+			cards, e = s.flashcards.ListFlashcards(ctx, userID, courseID, nil, nil, nil)
+			if e != nil {
+				return nil, e
+			}
+			appendCards(cards, false)
 		}
 		if len(choices) > 0 {
 			return pickFarmQuestion(choices, exclude), nil
