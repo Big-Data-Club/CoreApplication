@@ -11,13 +11,16 @@ lúa, hoa và gà; cửa hàng cho trồng/nuôi thêm các loài khác. Sprite 
 chọn ô/chăm sóc/nghỉ sau thu hoạch được chuyển từ source XanhMarket VuiVe do
 người dùng cung cấp. Không có broker, đơn hàng, giao dịch, camera, IoT hoặc
 kết nối nông trại thật. UI dùng bản đồ Phaser và sprite pixel art.
+HUD, thao tác chăm sóc, cửa hàng, kho và bán hàng nằm trong một khung game;
+nút `ⓘ` mở sổ tay pixel chứa kiến thức loài, mục tiêu và hướng dẫn điều khiển.
 
 Mỗi loại có thông tin môi trường, quy trình chăm sóc thực tế, điều thú vị và
 liên kết nguồn trong `farm-service/internal/farm/catalog.json`. Đây là kiến
 thức nhập môn; đồng hồ game, thao tác chăm sóc và tái sinh 40 giây không mô
 phỏng đầy đủ quy trình sinh học thực tế.
 
-1. Chọn cây hoặc vật nuôi trên bản đồ, đọc thẻ kiến thức và chăm sóc.
+1. Chọn cây hoặc vật nuôi trên bản đồ, dùng thao tác hiện cạnh bản đồ;
+   nhấn `ⓘ` để đọc kiến thức và quy trình chăm sóc thực tế.
 2. Server lưu thời điểm có thể thu hoạch; tải lại trang không làm mất tiến độ.
 3. Khi sẵn sàng, chọn quiz hoặc flashcard nhập đáp án. Một challenge có hiệu
    lực 10 phút; mở lại không đổi câu đang còn hiệu lực.
