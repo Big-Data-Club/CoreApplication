@@ -23,6 +23,32 @@ def kubectl(*args,obj=None,allow_missing=False):
     return result.stdout
 
 
+def wait_for_rollout(revision, timeout=480):
+    """Wait for this generation, including recovery from a failed deployment.
+
+    kubectl rollout status can immediately fail on the old generation's stale
+    ProgressDeadlineExceeded condition during a Recreate rollout. Replica and
+    generation checks wait for the new template within our own bounded deadline.
+    """
+    deadline=time.monotonic()+timeout
+    while time.monotonic()<deadline:
+        current=json.loads(kubectl('get','deployment','data-warehouse-worker','-o','json'))
+        actual=current['spec']['template']['metadata'].get('annotations',{}).get('bdc.io/source-revision')
+        if actual!=revision:
+            raise RuntimeError('Warehouse Deployment changed to a different source revision')
+        status=current.get('status',{})
+        desired=current['spec'].get('replicas',1)
+        if (status.get('observedGeneration',0)>=current['metadata']['generation']
+                and status.get('updatedReplicas',0)==desired
+                and status.get('replicas',0)==desired
+                and status.get('readyReplicas',0)==desired
+                and status.get('availableReplicas',0)==desired
+                and status.get('unavailableReplicas',0)==0):
+            return
+        time.sleep(3)
+    raise RuntimeError('Warehouse rollout timed out waiting for the requested revision to become ready')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image',required=True)
@@ -80,9 +106,7 @@ def main():
         raise RuntimeError('Warehouse schema Job did not finish; worker was not updated')
     try:
         kubectl('apply','-f','-',obj=deployment)
-        result=subprocess.run(['kubectl','-n','default','rollout','status','deployment/data-warehouse-worker','--timeout=480s'],check=False)
-        if result.returncode:
-            raise RuntimeError('Warehouse rollout failed')
+        wait_for_rollout(args.revision)
         status_code="import json,urllib.request; s=json.load(urllib.request.urlopen('http://127.0.0.1:8080/status',timeout=5)); print(json.dumps(s)); assert s['ready']; assert s['version']=='"+args.revision+"'"
         observed=json.loads(kubectl('exec','deployment/data-warehouse-worker','--','python','-c',status_code))
         # If real source records are waiting, readiness alone is insufficient:

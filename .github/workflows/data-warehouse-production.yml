@@ -51,6 +51,7 @@ jobs:
         run: |
           python -m py_compile scripts/deploy-data-warehouse.py
           python -m unittest discover -s scripts/tests -p test_select_legacy_workloads.py
+          python -m unittest discover -s scripts/tests -p test_warehouse_rollout.py
           python -m json.tool k3s/data-warehouse/resources.json > /dev/null
           python data-warehouse/scripts/warehouse.py render > /dev/null
           git diff --check

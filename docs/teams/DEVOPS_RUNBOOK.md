@@ -92,6 +92,13 @@ readiness and exact source revision. A failed rollout restores the prior worker
 pod specification when available; model/schema rollback is a separate compatible
 migration operation.
 
+Warehouse rollout waits for the requested Deployment generation and its updated,
+ready, available replica within 480 seconds. It tolerates a stale
+`ProgressDeadlineExceeded` condition left by the previous failed generation;
+that condition alone is not evidence that the new template failed. Once ready,
+the release verifies the worker's exact revision and waits for an acknowledged
+batch when real source data is pending.
+
 Workload Identity Federation grants short-lived tokens to separate ingest and
 schema identities. No human Google session or service-account key is installed
 in the pod. Preserve the checkpoint PVC and inspect pending batch/load job state
