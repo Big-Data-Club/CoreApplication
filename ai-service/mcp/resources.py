@@ -55,7 +55,8 @@ async def list_mcp_resources(user_id: int) -> list[dict]:
         "description": "..."
     }
     """
-    resources: list[dict] = []
+    from mcp.authoring_docs import resources as authoring_resources
+    resources: list[dict] = authoring_resources()
 
     manifest_path = _SKILLSET_ROOT / "manifest.json"
     if manifest_path.is_file():
@@ -125,6 +126,10 @@ async def read_mcp_resource(uri: str, user_id: int) -> dict:
     Raises:
         ValueError if the URI scheme or path is unrecognised.
     """
+    from mcp.authoring_docs import read as read_authoring
+    authoring = read_authoring(uri)
+    if authoring is not None:
+        return {"contents": [{"uri": uri, "mimeType": "application/json" if uri.endswith("/schema") else "text/markdown", "text": authoring}]}
     if not uri.startswith("bdc://"):
         raise ValueError(f"Unsupported URI scheme: {uri!r}")
 
@@ -195,13 +200,17 @@ def _parse_char_offset(query: dict[str, list[str]]) -> int:
 
 
 def _parse_char_limit(query: dict[str, list[str]]) -> int:
-    value = query.get("limit_chars", [str(_DEFAULT_DOCUMENT_CHAR_LIMIT)])[0]
+    from mcp.tool_adapter import current_profile
+    compact = current_profile.get() is not None
+    default = 4000 if compact else _DEFAULT_DOCUMENT_CHAR_LIMIT
+    value = query.get("limit_chars", [str(default)])[0]
     try:
         limit = int(value)
     except (TypeError, ValueError):
         raise ValueError("limit_chars must be an integer")
-    if not 1 <= limit <= _MAX_DOCUMENT_CHAR_LIMIT:
-        raise ValueError(f"limit_chars must be between 1 and {_MAX_DOCUMENT_CHAR_LIMIT}")
+    maximum = 12000 if compact else _MAX_DOCUMENT_CHAR_LIMIT
+    if not 1 <= limit <= maximum:
+        raise ValueError(f"limit_chars must be between 1 and {maximum}")
     return limit
 
 

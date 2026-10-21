@@ -14,6 +14,29 @@
 
 ## 1. Purpose and operating principles
 
+Studio/MCP rollout (2026-10-21): apply AI migration V022 before deploying the
+matching HTTP, worker and frontend images. New Studio artifacts require a
+separate private unversioned MinIO bucket (default `<MINIO_BUCKET>-studio-temporary`),
+without a bucket access policy. Worker credentials need create/put/get/delete/list
+and bucket policy/versioning inspection permission. Never apply a whole-bucket
+TTL: `source/` persists, while `temporary/` video/audio/ZIP expire ten minutes
+after ready. Cleanup is an independent 15-second worker loop with retries;
+access expires even if deletion is temporarily unavailable. Track cleanup attempts
+and oldest unpurged expiry in `studio_temporary_media`; do not delete manifests
+before their objects are removed.
+
+YouTube uploads target the shared admin channel. Set the existing OAuth variables,
+enable uploads and reconnect once via `/lms/admin/youtube-manage`: old local token
+files are not imported. The encrypted AI-owned connection replaces frontend
+ephemeral storage and requires the stable `AI_KEY_ENCRYPTION_SECRET`. The AI worker
+calls the secret-authenticated `STUDIO_YOUTUBE_BRIDGE_URL` (K3s default
+`http://frontend:3001/api/internal/studio-youtube`); no public browser proxy may
+expose this bridge or `/ai/studio/youtube/connection`. Keep signed download query
+tokens out of HTTP logs. Drain old workers before rollout/rollback: pre-V022
+workers write nonexpiring public video objects. Legacy video/audio/ZIP objects are
+retired automatically; preserve projects for re-render. See the
+[authoring operations contract](../CONTENT_AUTHORING_PIPELINE.md#private-artifacts-video-retention-and-shared-youtube).
+
 BDC Hub runs a production LMS and AI platform on a single-node K3s cluster.
 PostgreSQL, Qdrant, Neo4j, and object storage are managed external services;
 Kafka and Redis run in the cluster. This runbook defines how to:

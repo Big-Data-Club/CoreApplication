@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin123"
     minio_bucket: str = "lms-files"
+    studio_temporary_bucket: str = ""  # default: <minio_bucket>-studio-temporary; PRIVATE
+    studio_max_active_jobs_per_user: int = 2
+    studio_max_render_jobs_per_hour: int = 6
+    studio_youtube_bridge_url: str = "http://frontend:3001/api/internal/studio-youtube"
     minio_use_ssl: bool = True
 
     # Groq LLM
@@ -211,7 +215,7 @@ class Settings(BaseSettings):
     # Max requests per minute per API key (0 = disabled).
     mcp_rate_limit_rpm: int = 100
     # Empty uses the conservative built-in allowlist; it never means "all".
-    mcp_allowed_tools: str = "assess_question,list_my_courses,list_knowledge_nodes,search_course_materials,create_course_section,mcp_index_files,mcp_create_course_from_files,mcp_apply_course_blueprint,mcp_batch_generate_quiz,mcp_generate_slide_deck,mcp_create_lesson"
+    mcp_allowed_tools: str = ""
     # Large externally-authored curricula remain schema-bounded.  Two MiB is
     # sufficient for a 300-lesson draft while still bounding shared API memory.
     mcp_max_body_bytes: int = 2097152

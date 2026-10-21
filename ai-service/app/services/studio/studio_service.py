@@ -17,7 +17,6 @@ from typing import Any, Optional
 
 from app.core.config import get_settings
 from app.core.database import get_ai_conn
-from app.services.minio_storage import upload_bytes
 from app.services.studio.jobs import checkpoint
 from app.services.studio.quota_retry import authoring_call
 from app.services.studio.doc_renderer import render_plan_to_markdown
@@ -533,17 +532,15 @@ class StudioService:
                 from app.services.studio.jobs import checkpoint
                 from app.core.llm_gateway import get_gateway
                 from app.core.llm_gateway.types import SpeechRequest
-                from app.services.minio_storage import download_bytes
 
                 project_settings = project.get("settings") or {}
                 generation = str(project.get("current_job_id") or "draft")
-                prefix = f"studio/{project_id}/{generation}/{_hash_payload([plan.model_dump(), project_settings])[:16]}"
+                from app.services.studio import temporary_media
+                is_video = project["kind"] == "video"
 
                 async def store(name, data, media_type, artifact_type):
-                    url = await upload_bytes(f"{prefix}/{name}", data, media_type)
-                    if not url:
-                        raise ValueError(f"Artifact upload failed: {name}")
-                    item = {"type": artifact_type, "url": url}
+                    item = {**await temporary_media.store(project, generation, name, data, media_type,
+                        persistent=not (is_video and artifact_type in {"mp4", "bundle"})), "type": artifact_type}
                     if artifact_type == "markdown":
                         item["inline"] = data.decode()
                     artifacts.append(item)
@@ -554,7 +551,7 @@ class StudioService:
                         directory = Path(temporary)
                         (directory / "source").mkdir()
                         (directory / "assets").mkdir()
-                        manifest = [{"ref": f"S{i}", "title": str(source.get("title") or ""), "content_id": source.get("content_id")}
+                        manifest = [{"ref": f"S{i}", "title": str(source.get("title") or ""), "content_id": source.get("content_id") or source.get("ref")}
                                     for i, source in enumerate(project.get("context_pack") or [], 1)]
                         (directory / "source" / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
                         for i, source in enumerate(project.get("context_pack") or [], 1):
@@ -582,9 +579,8 @@ class StudioService:
                                 cached = await checkpoint(scene.id)
                                 audio = None
                                 if cached and cached.get("digest") == digest:
-                                    audio = await download_bytes(cached["object_key"])
-                                    if audio and not await upload_bytes(f"{prefix}/{name}", audio, "audio/mpeg"):
-                                        raise ValueError("Narration checkpoint restore failed")
+                                    if cached.get("asset_id"):
+                                        audio = await temporary_media.read_checkpoint(cached["asset_id"], created_by)
                                 if not audio:
                                     response = await get_gateway().speech(SpeechRequest(text=scene.narration, language=plan.language, request_id=project_id))
                                     raw = directory / "narration" / f"{scene.id}.input"
@@ -592,10 +588,9 @@ class StudioService:
                                     output = directory / name
                                     await command("ffmpeg", "-y", "-v", "error", "-i", raw, "-ar", "48000", "-ac", "1", "-c:a", "libmp3lame", output)
                                     audio = output.read_bytes()
-                                    object_key = f"{prefix}/{name}"
-                                    if not await upload_bytes(object_key, audio, "audio/mpeg"):
-                                        raise ValueError("Narration checkpoint upload failed")
-                                    await checkpoint(scene.id, {"digest": digest, "object_key": object_key})
+                                # A fresh manifest gives this generation its own cleanup deadline.
+                                saved_audio = await temporary_media.store(project, generation, name, audio, "audio/mpeg")
+                                await checkpoint(scene.id, {"digest": digest, "asset_id": saved_audio["asset_id"]})
                                 path = directory / name
                                 path.write_bytes(audio)
                                 scene.duration = await audio_duration(path)
@@ -611,6 +606,11 @@ class StudioService:
                                 if path.is_file() and path.name != "visual.mp4" and path.suffix not in {".wav", ".input"}:
                                     bundle.write(path, path.relative_to(directory))
                         await store("bundle.zip", archive.getvalue(), "application/zip", "bundle")
+                        if is_video:
+                            expires_at = await temporary_media.activate(project_id, generation)
+                            for artifact in artifacts:
+                                if artifact["type"] in {"mp4", "bundle"}:
+                                    artifact["expires_at"] = expires_at
 
                 if project["kind"] in ("document", "report"):
                     md = render_plan_to_markdown(plan)
@@ -658,13 +658,9 @@ class StudioService:
         async with _RENDER_SEMAPHORE:
             with TemporaryDirectory(prefix="studio-preview-") as directory:
                 data, _ = await render_pdf(board, html, Path(directory))
-        url = await upload_bytes(
-            f"studio/{project_id}/preview-s{index}-{_hash_payload(plan.sections[index].model_dump())[:10]}.pdf",
-            data, "application/pdf",
-        )
-        if not url:
-            raise ValueError("Preview upload failed")
-        return {"url": url}
+        from app.services.studio.temporary_media import store
+        return await store(project, f"preview-{uuid.uuid4()}", f"preview-s{index}.pdf", data,
+                           "application/pdf", persistent=True)
 
 
 

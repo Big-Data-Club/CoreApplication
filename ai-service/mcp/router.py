@@ -64,6 +64,37 @@ settings = get_settings()
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 
+@router.get("/media/{asset_id}")
+async def temporary_download(asset_id: str, token: str = "", until: int | None = None, range: str | None = Header(None)):
+    """Short-lived capability URL, minted only by an authenticated MCP tool."""
+    from app.services.studio.temporary_media import media_response
+    return await media_response(asset_id, token=token, until=until, range_header=range, attachment=True)
+
+
+@router.get("/flashcards/speech/{job_id}")
+async def flashcard_audio(job_id: str, user_id: int = Depends(get_mcp_user_id)):
+    from uuid import UUID
+    from app.core.database import get_ai_conn
+    from mcp.course_access import user_can_read_course
+    from app.services.minio_storage import download_bytes
+    try:
+        uid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(404, "Speech not found")
+    async with get_ai_conn() as conn:
+        row = await conn.fetchrow("""SELECT s.status,s.object_key,d.course_id FROM speech_jobs s
+            JOIN personal_flashcards c ON c.id=s.card_id JOIN personal_flashcard_decks d ON d.id=c.deck_id
+            WHERE s.id=$1 AND s.owner_id=$2 AND c.student_id=$2 AND d.student_id=$2""", uid, user_id)
+    if not row or not await user_can_read_course(user_id, row["course_id"]):
+        raise HTTPException(404, "Speech not found")
+    if row["status"] != "ready":
+        raise HTTPException(409, "Speech not ready")
+    data = await download_bytes(row["object_key"])
+    if not data:
+        raise HTTPException(503, "Speech unavailable")
+    return Response(data, media_type="audio/mpeg", headers={"Cache-Control": "private, no-store"})
+
+
 # --------------------------------------------------------------------------
 # Prometheus metrics (optional, gracefully skipped if not available)
 # --------------------------------------------------------------------------
@@ -310,10 +341,24 @@ async def revoke_user_mcp_key(
 # Main JSON-RPC endpoint
 # --------------------------------------------------------------------------
 
+async def tool_profile(request: Request):
+    from mcp.tool_adapter import current_profile, TOOL_PROFILES
+    profile = request.url.path.rstrip("/").rsplit("/", 1)[-1]
+    token = current_profile.set(profile if profile in TOOL_PROFILES else None)
+    try:
+        yield
+    finally:
+        current_profile.reset(token)
+
+
+@router.post("/studio")
+@router.post("/flashcards")
+@router.post("/authoring")
 @router.post("")
 async def mcp_jsonrpc(
     request: Request,
     user_id: int = Depends(get_mcp_user_id),
+    _profile=Depends(tool_profile),
 ):
     """
     MCP Streamable HTTP Transport - main JSON-RPC 2.0 endpoint.

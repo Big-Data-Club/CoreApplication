@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from contextvars import ContextVar
 from typing import Any
 
 from app.agents.tools.base_tool import ToolResult
@@ -60,8 +61,10 @@ SAFE_DEFAULT_TOOLS = {
     "mcp_generate_slide_deck",
     "mcp_generate_report",
     "mcp_create_lesson",
+    "mcp_studio_read", "mcp_studio_write", "mcp_flashcards_read", "mcp_flashcards_write",
 }
 WRITE_TOOLS = {
+    "mcp_studio_write", "mcp_flashcards_write",
     "create_course_section",
     "mcp_index_files",
     "mcp_create_course_from_files",
@@ -98,10 +101,17 @@ def _build_allowed_set() -> set[str]:
 
 
 _ALLOWED_TOOLS: set[str] = _build_allowed_set()
+TOOL_PROFILES = {
+    "studio": {"list_accessible_courses", "list_my_courses", "mcp_studio_read", "mcp_studio_write"},
+    "flashcards": {"list_accessible_courses", "mcp_flashcards_read", "mcp_flashcards_write"},
+    "authoring": {"list_accessible_courses", "list_my_courses", "mcp_studio_read", "mcp_studio_write", "mcp_flashcards_read", "mcp_flashcards_write"},
+}
+current_profile: ContextVar[str | None] = ContextVar("mcp_tool_profile", default=None)
 
 
 def _is_allowed(tool_name: str) -> bool:
-    return tool_name in _ALLOWED_TOOLS
+    profile = current_profile.get()
+    return tool_name in _ALLOWED_TOOLS and (profile is None or tool_name in TOOL_PROFILES[profile])
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +160,8 @@ def get_mcp_tool_list() -> list[dict]:
                             "idempotentHint": True, "openWorldHint": True},
         })
 
+    from mcp.authoring import descriptors
+    mcp_tools.extend(tool for tool in descriptors() if _is_allowed(tool["name"]))
     return mcp_tools
 
 
@@ -183,7 +195,7 @@ def _tool_result_to_mcp(result: ToolResult) -> dict:
             parts.append(result.data)
         else:
             try:
-                parts.append(json.dumps(result.data, ensure_ascii=False, indent=2))
+                parts.append(json.dumps(result.data, ensure_ascii=False, indent=2, default=str))
             except TypeError:
                 parts.append(str(result.data))
 
@@ -244,6 +256,18 @@ async def call_mcp_tool(
             data={"error": "reserved_argument"},
             message="Arguments beginning with '_' are reserved by the server.",
         ))
+
+    from mcp.authoring import MODELS, call as call_authoring
+    if tool_name in MODELS:
+        try:
+            result = await asyncio.wait_for(call_authoring(tool_name, arguments, user_id), timeout=settings.mcp_tool_timeout_seconds)
+        except asyncio.TimeoutError:
+            result = ToolResult(status="error", data={"error": "tool_timeout"}, message="Request timed out. Retry with the SAME request_id or inspect project/upload status.")
+        except Exception:
+            logger.exception("MCP authoring failed tool=%s", tool_name)
+            result = ToolResult(status="error", data={"error": "authoring_unavailable"}, message="Authoring service unavailable; inspect status before retrying.")
+        await _audit(user_id, tool_name, result.status != "error", {"course_id": arguments.get("course_id"), "action": arguments.get("action")})
+        return _tool_result_to_mcp(result)
 
     if tool_name == "assess_question":
         result = await AssessQuestionTool().execute(**arguments)

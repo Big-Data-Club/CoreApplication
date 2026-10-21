@@ -258,6 +258,7 @@ async def test_enrolled_student_can_use_course_read_tool():
 @pytest.mark.asyncio
 async def test_enrolled_student_cannot_use_course_owner_tool():
     with (
+        patch("mcp.auth.get_current_scopes", return_value=frozenset({"read", "write"})),
         patch("mcp.tool_adapter._is_allowed", return_value=True),
         patch("mcp.tool_adapter.get_tool_by_name", return_value=MagicMock()),
         patch("mcp.tool_adapter._user_owns_course", new=AsyncMock(return_value=False)),

@@ -323,8 +323,10 @@ Full [feature, rollout, replay and key-rotation guide](features/KNOWLEDGE_FARM.m
 by AI. The authenticated frontend BFF submits owner-scoped requests; AI HTTP creates
 leased jobs and the existing AI worker polls them. Studio stores source snapshots,
 plans, provenance and artifact references. Speech reads only the learner's owned
-flashcard and course, then caches its narration. Audio/video/PDF objects live in
-MinIO under `studio/`; status/audio API responses enforce owner scope. No LMS or Auth
+flashcard and course, then caches its narration. V022 Studio artifacts use a
+private unversioned MinIO bucket with owner/course download checks. Video MP4,
+narration and ZIP expire 600 seconds after ready; source HTML/storyboard/PDF
+persist. Flashcard speech caches retain the separate `studio/speech/` policy. No LMS or Auth
 database is accessed by this implementation and no Kafka payload/topic changes.
 
 Leases and input-hashed checkpoints support duplicate submission, worker recovery
@@ -332,4 +334,12 @@ and safe retries. A stale worker cannot overwrite a newer job. Storage/provider/
 failures leave a visible failed project; no partial MP4 is marked ready. Consumer
 rollout is migrations and AI worker before AI HTTP/frontend. Old images should drain
 jobs before rollback; retain forward tables. See [content authoring pipeline](CONTENT_AUTHORING_PIPELINE.md)
-for operational limits and the explicit MinIO cache-cleanup limitation.
+for retention, cleanup retries, encrypted shared YouTube credentials and rollback limits.
+
+Own-model MCP authoring adds no text-model generation or new Kafka contract.
+`mcp_authoring_requests` atomically deduplicates personal card/project creation.
+Media manifests outlive project deletion so cleanup can recover. Independent
+worker loops delete expired media and resume shared-channel YouTube uploads;
+the frontend bridge owns Google OAuth communication. Completed course videos
+retain only processed YouTube links and authoring provenance. Publication uses
+the authenticated LMS content API and reconciles project metadata on retries.

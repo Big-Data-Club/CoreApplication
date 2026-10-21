@@ -420,6 +420,10 @@ async def main():
     studio_worker = asyncio.create_task(serve_studio_jobs())
     from app.services.speech_service import serve_speech
     speech_worker = asyncio.create_task(serve_speech())
+    from app.services.studio.temporary_media import serve_cleanup
+    cleanup_worker = asyncio.create_task(serve_cleanup())
+    from app.services.studio.youtube_publishing import serve_uploads
+    youtube_worker = asyncio.create_task(serve_uploads())
     logger.info("Kafka Worker ready",
                 extra={"group_id": "ai-worker-group", "brokers": brokers})
 
@@ -456,7 +460,9 @@ async def main():
     finally:
         studio_worker.cancel()
         speech_worker.cancel()
-        await asyncio.gather(studio_worker, speech_worker, return_exceptions=True)
+        cleanup_worker.cancel()
+        youtube_worker.cancel()
+        await asyncio.gather(studio_worker, speech_worker, cleanup_worker, youtube_worker, return_exceptions=True)
         await consumer.stop()
         await close_kafka_producer()
         await close_ai_pool()

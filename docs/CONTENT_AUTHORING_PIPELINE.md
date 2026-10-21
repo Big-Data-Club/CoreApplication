@@ -140,9 +140,88 @@ policy is required before treating these caches as disposable personal data.
 
 ## MCP compatibility
 
-Existing MCP tools retain their separate Markdown/Mermaid authoring contract.
-This Studio change does not migrate MCP slide export to PDF. Model-authored local
-content continues to use the caller's model and does not charge the BDC gateway.
+Legacy Markdown/Mermaid formatters remain compatible. New own-model MCP tools
+use the SAME Studio renderer and export PDF/HTML, Markdown and native video.
+Focused endpoints `/mcp/studio`, `/mcp/flashcards`, `/mcp/authoring` expose 4, 3
+and 6 tools respectively, with 4,000-character default evidence pages (12,000
+maximum). Author a compact outline, then one scene per call; card batches hold
+1–20 items. Writes require write-scoped credentials and user confirmation.
+No text LLM is called. Narration uses the managed paid TTS gateway.
+Studio allows two active jobs per user and six new renders per rolling hour by
+default (`STUDIO_MAX_ACTIVE_JOBS_PER_USER`, `STUDIO_MAX_RENDER_JOBS_PER_HOUR`).
+Retrying an already-active project returns its current job without consuming a
+new slot or starting voice generation again.
+
+## Private artifacts, video retention and shared YouTube
+
+V022 adds AI-owned media manifests, idempotency receipts, encrypted shared-channel
+connection storage and resumable upload jobs. All new Studio artifacts live in
+the private **unversioned** bucket `STUDIO_TEMPORARY_BUCKET` (default
+`<MINIO_BUCKET>-studio-temporary`). Reusing the public LMS bucket, an anonymous
+policy or enabled/suspended versioning is rejected. Keep IAM access private;
+do not set whole-bucket expiration because source artifacts persist.
+
+`source/` contains persistent HTML/storyboard/PDF/Markdown/QA. `temporary/`
+contains MP4, per-scene narration and video ZIP, including its MP4/audio. A
+manifest is committed before PUT. Staging bytes have a three-hour abandoned-job
+deadline; completed video media share **ready_at + 600 seconds**. Source expiry
+becomes NULL after successful upload. Each manifest captures its actual bucket
+so a configuration change cannot orphan older objects.
+
+Session downloads check owner/course access, support ranges, stream bounded
+chunks and set no-store. MCP mints capability links valid at most ten minutes,
+never beyond video expiry. Source links can be minted again; expired video links
+cannot be renewed. Redact signed query tokens from access logs. Cleanup runs
+independently every 15 seconds and retries failed deletes after one minute.
+Access expires immediately; physical deletion is eventual when worker/storage
+are reachable. Local render scratch is removed on normal completion/cancellation;
+keep `/tmp` pod-ephemeral for hard-killed processes.
+
+Rollout registers old `.mp4`/`.mp3`/`.zip` video checkpoints under public
+`studio/<project>/` prefixes for immediate retirement. Old public video links
+will stop working; narratives and HTML/JSON remain for re-rendering. Flashcard
+speech-library caches have their own retention policy, separate from video TTL.
+
+Uploads target the **shared admin-managed YouTube channel**, never a personal
+channel. The frontend's worker-only `/api/internal/studio-youtube` bridge checks
+the shared service secret and live OAuth channel. Channel data is encrypted with
+`AI_KEY_ENCRYPTION_SECRET` in the AI database, replacing ephemeral frontend
+`data/youtube-tokens.json`. Admin reconnects once after rollout; old filesystem
+credentials are not silently imported. Admin connection routes require a real
+ADMIN session and OAuth state. Tokens never reach MCP or the browser Studio proxy.
+
+The user confirms channel ID/name, title, description, privacy, made-for-kids
+and synthetic-media settings. A leased job saves an encrypted Google resumable
+session and recovers the SAME upload after interruption. Eight-MiB chunks avoid
+loading the MP4 into HTTP memory. Maximum five new uploads/user/rolling day;
+Google channel/project quotas apply independently. Uploads never extend media
+retention. If too late, download before expiry or render again.
+
+Only a processed video with **actual** unlisted/public visibility can become a
+course VIDEO draft. Persist its YouTube link and Studio provenance, never an
+expiring MP4 URL. Owner/co-teacher permission and section/course membership are
+rechecked. Lost-response retries reconcile `studio_project_id` metadata before
+creating another draft. PDFs enter the standard LMS document prefix only when
+explicitly attached. Students can keep private projects/cards in accepted enrolled
+courses without course publication rights. Personal-channel users download the
+MP4 and upload it themselves.
+
+Google documents the handshake and `youtube.upload` scope in
+[resumable uploads](https://developers.google.com/youtube/data/guides/using_resumable_upload_protocol)
+and [videos.insert](https://developers.google.com/youtube/data/reference/rest/v3/videos/insert).
+Checked 2026-10-21: the current insert reference describes a separate video-upload
+quota bucket (100 calls/day by default). Check the project's console and returned
+privacy/upload status rather than historical quota or unverified-project assumptions.
+Unlisted links can be forwarded outside the course.
+
+Rollout: migrate through V022; deploy AI HTTP/worker and frontend together; set
+private bucket IAM, shared service/encryption keys, the bridge URL
+(`http://frontend:3001/api/internal/studio-youtube` on K3s) and existing YouTube
+OAuth variables; enable uploads and reconnect as admin. Do not resume a pre-V022
+worker during rollback: it would persist public MP4 again. No real paid upload
+or deployment is performed by tests. Agent skills are discoverable through
+`bdc://skills/catalog`. Detailed payloads are in `bdc://studio/guide` and
+`bdc://flashcards/guide`.
 
 Validation: run `python -m pytest --asyncio-mode=auto`. Real renderer regression
 tests are opt-in: `STUDIO_RENDER_SMOKE=1 python -m pytest tests/test_studio_render_integration.py`.

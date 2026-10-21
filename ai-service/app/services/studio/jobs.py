@@ -15,13 +15,23 @@ active_lease: ContextVar[tuple | None] = ContextVar("studio_lease", default=None
 
 
 async def enqueue(project_id: str, owner_id: int, operation: str, request: dict | None = None) -> dict:
+    from app.core.config import get_settings
+    settings = get_settings()
     async with get_ai_conn() as conn, conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock($1)", owner_id)
         project = await conn.fetchrow("SELECT * FROM studio_projects WHERE id=$1::uuid AND created_by=$2 FOR UPDATE", project_id, owner_id)
         if not project:
             raise ValueError("project not found")
         current = await conn.fetchrow("SELECT id FROM studio_jobs WHERE project_id=$1::uuid AND status IN ('queued','running')", project_id)
         if current:
             return {"already_running": True, "job_id": str(current["id"])}
+        active = await conn.fetchval("SELECT count(*) FROM studio_jobs WHERE owner_id=$1 AND status IN ('queued','running')", owner_id)
+        if active >= settings.studio_max_active_jobs_per_user:
+            raise ValueError("Đang có nhiều job Studio. Chờ job hiện tại hoàn tất rồi thử lại.")
+        if operation == "render":
+            recent = await conn.fetchval("SELECT count(*) FROM studio_jobs WHERE owner_id=$1 AND operation='render' AND created_at>now()-interval '1 hour'", owner_id)
+            if recent >= settings.studio_max_render_jobs_per_hour:
+                raise ValueError("Đã đạt giới hạn render Studio trong một giờ. Hãy thử lại sau.")
         if operation == "render" and not project["plan"]:
             raise ValueError("plan required before generating")
         job_id = uuid4()
@@ -83,6 +93,10 @@ async def run_next() -> bool:
     try:
         if row["attempts"] > 3:
             raise ValueError("Studio worker retry limit reached; retry from Studio")
+        from mcp.course_access import user_can_read_course
+        project = await studio_service.get_project(str(row["project_id"]), row["owner_id"])
+        if not project or not await user_can_read_course(row["owner_id"], project["course_id"]):
+            raise ValueError("Course access was revoked before this job could start")
         async with asyncio.timeout(7200):
             if row["operation"] == "plan":
                 request = json.loads(row["request"]) if isinstance(row["request"], str) else row["request"]

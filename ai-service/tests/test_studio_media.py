@@ -109,7 +109,7 @@ def test_slides_generate_pdf_html_and_never_pptx(tmp_path):
         async def pdf(board, html, directory):
             return b"%PDF fixture", {"passed": True}
         with patch("app.services.studio.browser_renderer.render_pdf", side_effect=pdf), patch(
-            "app.services.studio.studio_service.upload_bytes", new=AsyncMock(side_effect=lambda key, *_: "/files/"+key)
+            "app.services.studio.temporary_media.store", new=AsyncMock(return_value={"asset_id": "private-fixture", "url": "/api/ai/studio/media/private-fixture"})
         ):
             await service._generate_and_store("fixture-project", 1)
         final = service._update.call_args.kwargs
@@ -144,7 +144,8 @@ def test_duplicate_enqueue_returns_existing_job_without_starting_another():
             pool.return_value.__aenter__.return_value = conn
             result = await enqueue(str(uuid4()), 7, "render")
         assert result == {"already_running": True, "job_id": str(job_id)}
-        conn.execute.assert_not_awaited()
+        conn.execute.assert_awaited_once()
+        assert "pg_advisory_xact_lock" in conn.execute.call_args.args[0]
     asyncio.run(run())
 
 
@@ -155,7 +156,7 @@ def test_section_edit_api_returns_the_project_wrapper_expected_by_frontend():
     from app.core.config import get_settings
     app = FastAPI(); app.include_router(studio.router)
     async def run():
-        with patch.object(get_settings(), "ai_service_secret", "fixture-secret"), patch.object(
+        with patch.object(studio, "_project", new=AsyncMock()), patch.object(get_settings(), "ai_service_secret", "fixture-secret"), patch.object(
             studio.studio_service, "update_section", new=AsyncMock(return_value={"id":"project", "status":"planned"})
         ):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
