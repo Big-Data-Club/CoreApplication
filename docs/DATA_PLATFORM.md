@@ -18,7 +18,8 @@ means no streaming/DML and limited Sandbox retention. It includes
 The continuous worker and release workflow are implemented in
 [`worker/`](../data-warehouse/worker/) and
 [the warehouse workflow](../.github/workflows/data-warehouse-production.yml);
-use the rollout record and pod status to verify the deployed revision. Historical
+use the [verified production receipt](warehouse-production-status.md) and pod
+status to verify the deployed revision. Historical
 CDC/SCD remains planned. The initial bounded source capture uses
 the existing `lms.analytics.interactions` contract without changing producers,
 joining a consumer group, or committing offsets. The existing DuckDB/profile

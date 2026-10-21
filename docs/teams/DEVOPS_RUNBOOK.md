@@ -105,6 +105,9 @@ in the pod. Preserve the checkpoint PVC and inspect pending batch/load job state
 before resetting any offsets. Sandbox expiry and the selected billing-disabled
 mode remain in effect. Operational details are in the
 [warehouse deployment guide](../../data-warehouse/docs/07-continuous-deployment.md).
+The latest [verified production receipt](../warehouse-production-status.md)
+records the deployed revision, acknowledged real batch, Kafka frontier, and
+source-to-mart reconciliation. Reinspect live status after a new release.
 
 The legacy CD path now selects only actual changed application sources (or an
 explicit manual target). Warehouse-only and documentation-only commits do not
