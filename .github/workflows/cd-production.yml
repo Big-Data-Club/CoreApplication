@@ -18,12 +18,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  select-workloads:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.select.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+      - id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          MANUAL_TARGET: ${{ inputs.target_service || 'all' }}
+        run: python3 scripts/select-legacy-workloads.py
+
   deploy:
     name: 🚀 Rollout Kubernetes Deployments
     runs-on: [self-hosted, linux]
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    needs: select-workloads
+    if: needs.select-workloads.outputs.services != ''
     env:
       KUBECONFIG: ${{ vars.PRODUCTION_KUBECONFIG || '/home/bdc_web/.kube/config' }}
+      SELECTED_SERVICES: ${{ needs.select-workloads.outputs.services }}
 
     steps:
       - name: Check out operations scripts
@@ -59,7 +77,7 @@ jobs:
             KUBECTL="sudo kubectl"
           fi
           
-          TARGET="${{ github.event.inputs.target_service || 'all' }}"
+          IFS=',' read -r -a selected_deployments <<< "$SELECTED_SERVICES"
           
           restart_deployment() {
             local DEP=$1
@@ -69,16 +87,9 @@ jobs:
             ${KUBECTL} rollout status deployment/${DEP} --timeout=180s || echo "⚠️ Timeout waiting for ${DEP}"
           }
 
-          if [ "${TARGET}" != "all" ]; then
-            restart_deployment "${TARGET}"
-          else
-            echo "🔄 Rolling out all active Kubernetes deployments..."
-            for dep in auth-service frontend lms-service ai-service ai-worker course-blueprint-worker recommender-service chat-service lab-service personalize-service dutylog-service; do
-              if ${KUBECTL} get deployment ${dep} &> /dev/null; then
-                restart_deployment "${dep}"
-              fi
-            done
-          fi
+          for dep in "${selected_deployments[@]}"; do
+            restart_deployment "$dep"
+          done
 
       - name: Health Check & Pod Status
         run: |

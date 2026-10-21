@@ -8,6 +8,30 @@ by current producers/consumers, and the rules for extending them. Source files
 named in this guide are authoritative when details differ. A topic accepted by
 a consumer is not automatically proof that a producer is implemented here.
 
+The separate [Data Warehouse](../data-warehouse/README.md) now implements the
+initial BigQuery foundation, bounded real LMS Kafka capture, batch loading, and
+logical staging/fact/mart/quality views. The project owner's
+[billing-disabled decision](adr/2026-10-21-bigquery-billing-disabled-foundation.md)
+means no streaming/DML and limited Sandbox retention. It includes
+[active setup](../data-warehouse/docs/05-bigquery-setup.md) and an
+[optimization playbook](../data-warehouse/docs/06-data-engineering-optimization.md).
+The continuous worker and release workflow are implemented in
+[`worker/`](../data-warehouse/worker/) and
+[the warehouse workflow](../.github/workflows/data-warehouse-production.yml);
+use the rollout record and pod status to verify the deployed revision. Historical
+CDC/SCD remains planned. The initial bounded source capture uses
+the existing `lms.analytics.interactions` contract without changing producers,
+joining a consumer group, or committing offsets. The existing DuckDB/profile
+pipeline below remains its own service-owned boundary.
+
+The continuous worker uses its own `bdc-warehouse-lms-v1` offset group, a private
+SQLite journal on a bounded PVC, stable batch-load job identities, and commits
+Kafka offsets only after BigQuery acknowledgement. Short-lived projected K3s
+tokens authenticate through Workload Identity Federation; the ingest identity
+writes raw only, while a separate migration identity updates warehouse models.
+See [continuous deployment](../data-warehouse/docs/07-continuous-deployment.md)
+for replay, malformed records, expiry, quota, and rollout/rollback behavior.
+
 ## Architecture
 
 Authoring scope is resolved by LMS from chapter/lesson IDs and passed to AI over

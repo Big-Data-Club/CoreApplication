@@ -1,0 +1,251 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "data-warehouse"
+      },
+      "automountServiceAccountToken": false,
+      "imagePullSecrets": [
+        {
+          "name": "dockerhub-registry"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "data-warehouse-deployer"
+      },
+      "automountServiceAccountToken": false,
+      "imagePullSecrets": [
+        {
+          "name": "dockerhub-registry"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "data-warehouse-state"
+      },
+      "spec": {
+        "storageClassName": "local-path",
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "256Mi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "data-warehouse-worker",
+        "labels": {
+          "app": "data-warehouse-worker"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "data-warehouse-worker"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "data-warehouse-worker"
+            }
+          },
+          "spec": {
+            "serviceAccountName": "data-warehouse",
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 300,
+            "securityContext": {
+              "fsGroup": 1001,
+              "fsGroupChangePolicy": "OnRootMismatch",
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "containers": [
+              {
+                "name": "worker",
+                "image": "bdc-data-warehouse:release-required",
+                "imagePullPolicy": "IfNotPresent",
+                "ports": [
+                  {
+                    "name": "health",
+                    "containerPort": 8080
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "KAFKA_BROKERS",
+                    "value": "kafka-service:9092"
+                  },
+                  {
+                    "name": "GOOGLE_CLOUD_PROJECT",
+                    "value": "bdc-web-487000"
+                  },
+                  {
+                    "name": "BIGQUERY_LOCATION",
+                    "value": "asia-southeast1"
+                  },
+                  {
+                    "name": "BIGQUERY_TABLE",
+                    "value": "bdc-web-487000.bdc_raw_prod.lms_micro_interactions"
+                  },
+                  {
+                    "name": "GOOGLE_APPLICATION_CREDENTIALS",
+                    "value": "/etc/gcp/credentials.json"
+                  },
+                  {
+                    "name": "STATE_DIR",
+                    "value": "/var/lib/warehouse/state"
+                  },
+                  {
+                    "name": "FLUSH_INTERVAL_SECONDS",
+                    "value": "300"
+                  },
+                  {
+                    "name": "BATCH_MAX_RECORDS",
+                    "value": "1000"
+                  },
+                  {
+                    "name": "BATCH_MAX_BYTES",
+                    "value": "1048576"
+                  },
+                  {
+                    "name": "SPOOL_MAX_BYTES",
+                    "value": "33554432"
+                  },
+                  {
+                    "name": "MAX_DAILY_LOAD_ATTEMPTS",
+                    "value": "1000"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "384Mi"
+                  }
+                },
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1001,
+                  "runAsGroup": 1001,
+                  "readOnlyRootFilesystem": true,
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "state",
+                    "mountPath": "/var/lib/warehouse"
+                  },
+                  {
+                    "name": "identity",
+                    "mountPath": "/var/run/gcp-identity",
+                    "readOnly": true
+                  },
+                  {
+                    "name": "gcp-configuration",
+                    "mountPath": "/etc/gcp",
+                    "readOnly": true
+                  },
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": "health"
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 24
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": "health"
+                  },
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 3
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health/ready",
+                    "port": "health"
+                  },
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 3
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "state",
+                "persistentVolumeClaim": {
+                  "claimName": "data-warehouse-state"
+                }
+              },
+              {
+                "name": "identity",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "https://iam.googleapis.com/projects/1039876363296/locations/global/workloadIdentityPools/bdc-k3s/providers/warehouse",
+                        "expirationSeconds": 3600,
+                        "path": "token"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "gcp-configuration",
+                "configMap": {
+                  "name": "data-warehouse-identity"
+                }
+              },
+              {
+                "name": "tmp",
+                "emptyDir": {
+                  "sizeLimit": "16Mi"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

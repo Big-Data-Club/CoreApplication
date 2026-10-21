@@ -11,6 +11,7 @@ boundary.
 | Developers / Performance | Scalability and file-delivery note | [SCALABILITY_AND_FILE_DELIVERY_OPTIMIZATIONS.md](optimization/SCALABILITY_AND_FILE_DELIVERY_OPTIMIZATIONS.md) | user/course pagination, PDF delivery, rollout and measurement |
 | Developers | Kubernetes developer guide | [KUBERNETES_DEVELOPER_GUIDE.md](teams/KUBERNETES_DEVELOPER_GUIDE.md) | infrastructure/application layer map, K3s inspection, sandbox quick start |
 | Data/ML | Data platform guide | [DATA_PLATFORM.md](DATA_PLATFORM.md) | Kafka contracts, Lakehouse, quality and access rules |
+| Data/Platform | Warehouse architecture and setup | [Data Warehouse](../data-warehouse/README.md) | deployed billing-disabled BigQuery foundation, real LMS batch ingestion, logical models, and remaining rollout |
 | Data/ML + AI + Product | Recommender and conversational recommender | [recommender/README.md](recommender/README.md) | product use, ranking policy, conversational flow, feedback loop and roadmap |
 | Data/ML | Offline analytics workspace | `da-analytics/` submodule | notebooks, reproducible model experiments, Gold inputs |
 | AI | Agent/AI implementation | `ai-service/app/agents/`, `ai-service/app/worker/` | runtime agent and asynchronous job behaviour |
@@ -24,7 +25,7 @@ boundary.
 | DevOps | Deployment and operations | [DEVOPS_RUNBOOK.md](teams/DEVOPS_RUNBOOK.md) | K3s access, CI/CD, troubleshooting, incident process |
 | DevOps | Kubernetes source | `k3s/` | manifests, observability, Helm values |
 | All contributors | Contribution policy | [../CONTRIBUTING.md](../CONTRIBUTING.md) | PR, tests, data/event documentation and review rules |
-| Coding agents | Repository skills | `.agent/skills/` | implementation-aware working constraints |
+| Coding agents | Repository skills | `.agents/skills/` | implementation-aware guidance, including the `bdc-data-engineering` warehouse skill |
 | Architecture | Decision records | `adr/` | durable rationale and consequences |
 
 ## Asset selection rules

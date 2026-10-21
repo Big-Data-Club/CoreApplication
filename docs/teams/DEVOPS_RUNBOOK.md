@@ -80,6 +80,29 @@ Kafka and Redis run in the cluster. This runbook defines how to:
 
 ## 2. Production topology
 
+### Data warehouse release path
+
+The warehouse has a dedicated workflow,
+[`data-warehouse-production.yml`](../../.github/workflows/data-warehouse-production.yml).
+It tests the pinned warehouse submodule, builds a commit-tagged image on a hosted
+runner, and deploys its immutable digest on the existing production runner.
+[`deploy-data-warehouse.py`](../../scripts/deploy-data-warehouse.py) applies only
+warehouse resources, waits for a separate schema Job, then verifies worker
+readiness and exact source revision. A failed rollout restores the prior worker
+pod specification when available; model/schema rollback is a separate compatible
+migration operation.
+
+Workload Identity Federation grants short-lived tokens to separate ingest and
+schema identities. No human Google session or service-account key is installed
+in the pod. Preserve the checkpoint PVC and inspect pending batch/load job state
+before resetting any offsets. Sandbox expiry and the selected billing-disabled
+mode remain in effect. Operational details are in the
+[warehouse deployment guide](../../data-warehouse/docs/07-continuous-deployment.md).
+
+The legacy CD path now selects only actual changed application sources (or an
+explicit manual target). Warehouse-only and documentation-only commits do not
+restart the other application deployments.
+
 ```text
 Developer push
      |
