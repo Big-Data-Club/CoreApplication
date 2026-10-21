@@ -85,6 +85,20 @@ def main():
             raise RuntimeError('Warehouse rollout failed')
         status_code="import json,urllib.request; s=json.load(urllib.request.urlopen('http://127.0.0.1:8080/status',timeout=5)); print(json.dumps(s)); assert s['ready']; assert s['version']=='"+args.revision+"'"
         observed=json.loads(kubectl('exec','deployment/data-warehouse-worker','--','python','-c',status_code))
+        # If real source records are waiting, readiness alone is insufficient:
+        # require a successful upload before this release is called deployed.
+        if observed.get('source_lag') or observed.get('pending_records'):
+            baseline=observed.get('successful_batches',0)
+            deadline=time.monotonic()+480
+            while time.monotonic()<deadline:
+                if observed.get('successful_batches',0)>baseline or (
+                    observed.get('source_lag')==0 and observed.get('pending_records')==0
+                ):
+                    break
+                time.sleep(5)
+                observed=json.loads(kubectl('exec','deployment/data-warehouse-worker','--','python','-c',status_code))
+            else:
+                raise RuntimeError('Worker is ready but the waiting real batch was not acknowledged before the release deadline')
         print(json.dumps({'deployed':True,'image':args.image,'revision':args.revision,'worker_status':observed},indent=2))
     except Exception:
         if previous:

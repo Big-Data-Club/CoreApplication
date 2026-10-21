@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
-      image: ${{ steps.release.outputs.image }}
+      digest: ${{ steps.image.outputs.digest }}
     env:
       REGISTRY_NAMESPACE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
     steps:
@@ -85,11 +85,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=data-warehouse
           provenance: mode=max
           sbom: true
-      - name: Export immutable release digest
-        id: release
-        env:
-          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: echo "image=${REGISTRY_NAMESPACE}/bdc-data-warehouse@${IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: build
@@ -101,7 +96,7 @@ jobs:
       cancel-in-progress: false
     env:
       KUBECONFIG: ${{ vars.PRODUCTION_KUBECONFIG || '/home/bdc_web/.kube/config' }}
-      RELEASE_IMAGE: ${{ needs.build.outputs.image }}
+      RELEASE_IMAGE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}/bdc-data-warehouse@${{ needs.build.outputs.digest }}
       RELEASE_REVISION: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
