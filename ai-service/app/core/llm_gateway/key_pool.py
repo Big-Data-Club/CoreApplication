@@ -162,7 +162,9 @@ class KeyPool:
             backoff = _COOLDOWN_BASE_SECONDS * (2 ** min(fails, 5))
             if retry_after_seconds and retry_after_seconds > backoff:
                 backoff = retry_after_seconds
-            backoff = min(backoff, _COOLDOWN_MAX_SECONDS)
+            # A daily quota can legitimately require hours. Respect upstream
+            # Retry-After rather than retrying an exhausted key every 5 minutes.
+            backoff = max(min(backoff, _COOLDOWN_MAX_SECONDS), retry_after_seconds or 0)
  
             cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=backoff)
             await conn.execute(

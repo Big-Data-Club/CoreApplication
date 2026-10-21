@@ -17,6 +17,36 @@ import re
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
+from app.services.studio.visuals import VisualType
+
+
+class VisualNode(BaseModel):
+    id: str = Field(max_length=40, pattern=r"^[a-zA-Z0-9_-]+$")
+    label: str = Field(min_length=1, max_length=60)
+    role: Literal["input", "output", "intermediate", "warning"] = "input"
+
+
+class VisualEdge(BaseModel):
+    source: str = Field(max_length=40)
+    target: str = Field(max_length=40)
+    label: str = Field(default="", max_length=40)
+
+
+class VisualSpec(BaseModel):
+    """Semantic data only. Pixel coordinates and arbitrary HTML are forbidden."""
+    nodes: list[VisualNode] = Field(default_factory=list, max_length=9)
+    edges: list[VisualEdge] = Field(default_factory=list, max_length=12)
+    equation: str = Field(default="", max_length=100)
+    code: str = Field(default="", max_length=600)
+    # Matrix examples are symbolic unless concrete values are grounded.
+    matrix_a: list[list[str]] = Field(default_factory=list, max_length=4)
+    matrix_b: list[list[str]] = Field(default_factory=list, max_length=4)
+
+
+class Narrative(BaseModel):
+    learner_goal: str = Field(default="", max_length=500)
+    misconception: str = Field(default="", max_length=500)
+    concept_dependencies: list[str] = Field(default_factory=list, max_length=30)
 
 
 def _ensure_dict(value: object) -> dict:
@@ -47,12 +77,17 @@ class PlanSection(BaseModel):
     slide_bullets: list[str] = Field(default_factory=list)
     narration: str = ""           # spoken script (video P1; also enriches docs)
     visual_suggestion: str = ""
-    visual_type: Literal["auto", "flow", "cycle", "comparison", "hierarchy", "timeline"] = "auto"
+    visual_type: VisualType = "auto"
     visual_labels: list[str] = Field(default_factory=list)
     illustration_prompt: str = ""
     alt_text: str = ""
     source_refs: list[str] = Field(default_factory=list)
     duration_est_sec: int = 0
+    learning_goal: str = Field(default="", max_length=300)
+    key_message: str = Field(default="", max_length=180)
+    animation_steps: list[str] = Field(default_factory=list, max_length=8)
+    visual_spec: VisualSpec = Field(default_factory=VisualSpec)
+    grounding: Literal["source", "extension"] = "source"
 
     def cleaned(self) -> "PlanSection":
         strip = lambda s: re.sub(r"\s+", " ", s or "").strip()  # noqa: E731
@@ -81,11 +116,25 @@ class StudioPlan(BaseModel):
     learning_objectives: list[str] = Field(default_factory=list)
     sections: list[PlanSection] = Field(default_factory=list)
     summary: str = ""
+    narrative: Narrative = Field(default_factory=Narrative)
 
     @property
     def safe_title(self) -> str:
         t = re.sub(r"\s+", " ", self.title or "").strip()[:180]
         return t or "Bài giảng chưa đặt tên"
+
+
+class DetailedSection(PlanSection):
+    index: int = Field(ge=0, le=29)
+    title: str = Field(min_length=1, max_length=110)
+    narration: str = Field(min_length=1, max_length=1600)
+    learning_goal: str = Field(min_length=1, max_length=300)
+    slide_bullets: list[str] = Field(default_factory=list, max_length=3)
+    animation_steps: list[str] = Field(min_length=1, max_length=8)
+
+
+class SceneExpansion(BaseModel):
+    sections: list[DetailedSection] = Field(min_length=1, max_length=1)
 
 
 def coerce_plan(raw: object, *, kind: str, fallback_title: str,
@@ -158,6 +207,7 @@ def coerce_plan(raw: object, *, kind: str, fallback_title: str,
             learning_objectives=[str(x) for x in ensure_list(data.get("learning_objectives"))][:6],
             sections=[PlanSection(**s).cleaned() for s in fixed_sections],
             summary=str(data.get("summary") or "")[:1500],
+            narrative=data.get("narrative") or {},
         )
     except ValidationError as exc:
         return None, [f"validation failed: {exc}"]

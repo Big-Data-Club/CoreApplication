@@ -266,6 +266,9 @@ async def upsert_binding(body: BindingIn, request: Request):
     is_system_one = model.config.get("api_protocol") == "system_one"
     if (body.task_code == TASK_JEV_DECISION) != is_system_one:
         raise HTTPException(400, "System One models must be bound only to jev_decision")
+    from app.core.llm_gateway.adapters.speech import SPEECH_ADAPTERS
+    if (body.task_code == "text_to_speech") != (model.adapter_type in SPEECH_ADAPTERS):
+        raise HTTPException(400, "Speech models must be bound only to text_to_speech")
     b = await get_registry().upsert_binding(**body.model_dump())
     return _binding_dto(b)
 @router.patch("/bindings/{binding_id}")
@@ -299,6 +302,22 @@ async def usage_stats(
 async def test_call(body: TestCallIn, request: Request):
     _verify(request)
     task = body.task or "chat"
+    if task == "text_to_speech":
+        import base64
+        import time
+        from app.core.llm_gateway.types import SpeechRequest
+        if body.model_hint:
+            raise HTTPException(400, "Use speech task bindings to select a voice model")
+        try:
+            start = time.monotonic()
+            speech = await get_gateway().speech(SpeechRequest(text=body.prompt))
+        except Exception:
+            raise HTTPException(502, "Speech test failed; check provider key and model.config.voice_id")
+        return {"content": "Neural speech generated", "model": speech.model.model_name,
+                "provider": speech.model.provider_code, "fallback_used": False, "attempt_no": 1,
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "latency_ms": int((time.monotonic()-start)*1000),
+                "audio_data_url": "data:audio/mpeg;base64," + base64.b64encode(speech.audio).decode()}
     if task == TASK_JEV_DECISION:
         if body.model_hint:
             raise HTTPException(400, "Model hint is not supported for the System One task; use task bindings")

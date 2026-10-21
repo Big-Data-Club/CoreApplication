@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
         # ffmpeg: extracts audio and bounded keyframes from uploaded videos
         ffmpeg \
+        fonts-dejavu-core fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 1001 appuser \
@@ -47,6 +48,10 @@ WORKDIR /app
 
 # Copy virtualenv from builder stage
 COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN /opt/venv/bin/python -m playwright install --with-deps chromium \
+ && chmod -R a+rX /opt/playwright
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

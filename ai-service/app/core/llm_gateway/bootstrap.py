@@ -44,6 +44,33 @@ from app.core.llm_gateway.types import (
 )
  
 logger = logging.getLogger(__name__)
+
+
+async def _bootstrap_speech(registry: ModelRegistry) -> None:
+    """Seed configuration only: no paid calls, no keys, preserve admin edits."""
+    from app.core.llm_gateway.types import TASK_TEXT_TO_SPEECH
+    specs = (
+        ("runway", "Runway Speech", "https://api.dev.runwayml.com", {"voice_id": "Niki", "speed": 0.97}),
+        ("elevenlabs", "ElevenLabs Speech", "https://api.elevenlabs.io", {"voice_id": "", "speed": 0.97}),
+    )
+    models = []
+    for code, name, base, config in specs:
+        provider = await registry.get_provider_by_code(code)
+        if provider is None:
+            provider = await registry.upsert_provider(code=code, display_name=name, adapter_type=code, base_url=base)
+        existing = await registry.list_models(provider_id=provider.id)
+        model = next((m for m in existing if m.model_name == "eleven_v3"), None)
+        if model is None:
+            model = await registry.upsert_model(
+                provider_id=provider.id, model_name="eleven_v3", display_name=f"{name} · Eleven v3",
+                family="speech", supports_json=False, supports_tools=False, supports_streaming=False,
+                context_window=2400, default_max_tokens=1, config=config,
+            )
+        models.append(model)
+    if not await registry.list_bindings(TASK_TEXT_TO_SPEECH):
+        for index, model in enumerate(models):
+            await registry.upsert_binding(task_code=TASK_TEXT_TO_SPEECH, model_id=model.id,
+                                          priority=10 + index * 10, notes="seeded-speech")
  
  
 # Model catalog based on GroqCloud production models (April 2026).
@@ -333,6 +360,7 @@ async def bootstrap_llm_registry() -> None:
     )
 
     await _bootstrap_system_one(registry)
+    await _bootstrap_speech(registry)
  
     # 2. Models - upsert with current env-var names so the task map still works
     chat_env = settings.chat_model

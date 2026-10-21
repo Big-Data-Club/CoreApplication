@@ -116,9 +116,9 @@ async def generate_plan(project_id: str, body: PlanActionRequest,
                         x_ai_secret: Optional[str] = Header(None)):
     _verify(x_ai_secret)
     try:
-        return await studio_service.generate_plan(
-            project_id, await _uid(body.user_id), body.target_sections
-        )
+        from app.services.studio.jobs import enqueue
+        result = await enqueue(project_id, await _uid(body.user_id), "plan", {"target_sections": body.target_sections})
+        return {**result, "project": await studio_service.get_project(project_id, body.user_id), "warnings": []}
     except ValueError as e:
         raise HTTPException(422, str(e))
 
@@ -140,9 +140,10 @@ async def update_section(project_id: str, body: UpdateSectionRequest,
                          x_ai_secret: Optional[str] = Header(None)):
     _verify(x_ai_secret)
     try:
-        return await studio_service.update_section(
+        project = await studio_service.update_section(
             project_id, await _uid(body.user_id), body.index, body.patch
         )
+        return {"project": project}
     except ValueError as e:
         raise HTTPException(400, str(e))
 

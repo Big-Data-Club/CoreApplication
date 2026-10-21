@@ -27,7 +27,8 @@ def get_adapter_class(adapter_type: str) -> type[LLMAdapter]:
  
  
 def supported_adapter_types() -> list[str]:
-    return sorted(_ADAPTER_REGISTRY.keys())
+    from app.core.llm_gateway.adapters.speech import SPEECH_ADAPTERS
+    return sorted(set(_ADAPTER_REGISTRY) | SPEECH_ADAPTERS)
  
  
 __all__ = [

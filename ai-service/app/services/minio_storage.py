@@ -89,3 +89,22 @@ async def get_presigned_url(object_key: str, expires_in_sec: int = 3600) -> Opti
             return None
 
     return await loop.run_in_executor(None, _sync_presign)
+
+
+async def download_bytes(object_key: str) -> bytes | None:
+    """Read an internally persisted object key, never an arbitrary URL."""
+    if not object_key.startswith("studio/") or ".." in object_key:
+        raise ValueError("Invalid Studio checkpoint key")
+    def read():
+        response = None
+        try:
+            response = _client().get_object(settings.minio_bucket, object_key)
+            data = response.read(32 * 1024 * 1024 + 1)
+            return data if len(data) <= 32 * 1024 * 1024 else None
+        except Exception:
+            return None
+        finally:
+            if response:
+                response.close()
+                response.release_conn()
+    return await asyncio.to_thread(read)

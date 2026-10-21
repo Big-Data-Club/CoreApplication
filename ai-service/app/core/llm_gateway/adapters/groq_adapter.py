@@ -94,6 +94,12 @@ class GroqAdapter(LLMAdapter):
             if k in extra:
                 kwargs[k] = extra[k]
 
+        if model.model_name.startswith("openai/gpt-oss-"):
+            # The pinned SDK supports extra_body for newer API fields.
+            effort = model.config.get("reasoning_effort", "low")
+            if effort in {"low", "medium", "high"}:
+                kwargs["extra_body"] = {"reasoning_effort": effort}
+
         try:
             response = await client.chat.completions.create(**kwargs)
         except RateLimitError as exc:
@@ -206,6 +212,12 @@ class GroqAdapter(LLMAdapter):
         for k in _PASSTHROUGH_KEYS:
             if k in extra and k != "stream":
                 kwargs[k] = extra[k]
+
+        if model.model_name.startswith("openai/gpt-oss-"):
+            # The pinned SDK supports extra_body for newer API fields.
+            effort = model.config.get("reasoning_effort", "low")
+            if effort in {"low", "medium", "high"}:
+                kwargs["extra_body"] = {"reasoning_effort": effort}
 
         try:
             stream = await client.chat.completions.create(**kwargs)

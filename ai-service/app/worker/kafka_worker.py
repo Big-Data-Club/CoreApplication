@@ -416,6 +416,10 @@ async def main():
     )
 
     await consumer.start()
+    from app.services.studio.jobs import serve as serve_studio_jobs
+    studio_worker = asyncio.create_task(serve_studio_jobs())
+    from app.services.speech_service import serve_speech
+    speech_worker = asyncio.create_task(serve_speech())
     logger.info("Kafka Worker ready",
                 extra={"group_id": "ai-worker-group", "brokers": brokers})
 
@@ -450,6 +454,9 @@ async def main():
     except asyncio.CancelledError:
         logger.info("Worker cancelled", extra={"event": "shutdown"})
     finally:
+        studio_worker.cancel()
+        speech_worker.cancel()
+        await asyncio.gather(studio_worker, speech_worker, return_exceptions=True)
         await consumer.stop()
         await close_kafka_producer()
         await close_ai_pool()

@@ -2,8 +2,17 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
-VISUAL_TYPES = {"auto", "flow", "cycle", "comparison", "hierarchy", "timeline"}
+VisualType = Literal[
+    "auto", "flow", "cycle", "comparison", "hierarchy", "timeline",
+    "matrix_dot_product", "matrix_tiling", "reduction_tree", "broadcast_tree",
+    "resource_timeline", "queue", "network_topology", "process_grid",
+    "memory_hierarchy", "data_path", "algorithm_tree", "pipeline",
+    "code_execution", "architecture", "collective_communication",
+]
+from typing import get_args
+VISUAL_TYPES = set(get_args(VisualType))
 
 
 def clean_visual_labels(values: object, fallback: list[str] | None = None) -> list[str]:
@@ -48,3 +57,18 @@ def mermaid_for_visual(visual_type: str, labels: list[str]) -> str:
         return "timeline\n" + "\n".join(f"  {i + 1} : {label}" for i, label in enumerate(safe))
     edges = [nodes[0]] + [f"N{i} --> N{i + 1}" for i in range(len(nodes) - 1)]
     return "flowchart LR\n  " + "\n  ".join(edges)
+
+
+def mermaid_for_spec(spec) -> str:
+    """Preserve explicit topology instead of inventing a linear flow for notes."""
+    def safe(value):
+        return re.sub(r"\s+", " ", re.sub(r'["\[\]{}()<>`|]', "", str(value))).strip()
+    mapping = {node.id: f"N{i}" for i,node in enumerate(spec.nodes)}
+    lines = ["flowchart TD"]
+    lines.extend(f'  {mapping[node.id]}["{safe(node.label)}"]' for node in spec.nodes)
+    for edge in spec.edges:
+        if edge.source not in mapping or edge.target not in mapping:
+            continue
+        label = f'|"{safe(edge.label)}"|' if edge.label else ""
+        lines.append(f"  {mapping[edge.source]} -->{label} {mapping[edge.target]}")
+    return "\n".join(lines) if spec.nodes else ""

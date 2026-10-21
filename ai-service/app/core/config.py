@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    studio_chromium_executable: str | None = None
     app_env: str = "development"
     app_port: int = 8000
     log_level: str = "INFO"

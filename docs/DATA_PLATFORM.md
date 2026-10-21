@@ -316,3 +316,20 @@ email, JWT or a complete user profile. Retain inbox for the replay lifetime.
 Roll out Auth schema and consumer before Farm producer and frontend. Rollback
 must preserve ledger and outbox; do not delete receipts to reverse a release.
 Full [feature, rollout, replay and key-rotation guide](features/KNOWLEDGE_FARM.md).
+
+## Studio media and speech jobs
+
+`studio_projects`, `studio_jobs` (V020) and `speech_jobs` (V021) are owned exclusively
+by AI. The authenticated frontend BFF submits owner-scoped requests; AI HTTP creates
+leased jobs and the existing AI worker polls them. Studio stores source snapshots,
+plans, provenance and artifact references. Speech reads only the learner's owned
+flashcard and course, then caches its narration. Audio/video/PDF objects live in
+MinIO under `studio/`; status/audio API responses enforce owner scope. No LMS or Auth
+database is accessed by this implementation and no Kafka payload/topic changes.
+
+Leases and input-hashed checkpoints support duplicate submission, worker recovery
+and safe retries. A stale worker cannot overwrite a newer job. Storage/provider/QA
+failures leave a visible failed project; no partial MP4 is marked ready. Consumer
+rollout is migrations and AI worker before AI HTTP/frontend. Old images should drain
+jobs before rollback; retain forward tables. See [content authoring pipeline](CONTENT_AUTHORING_PIPELINE.md)
+for operational limits and the explicit MinIO cache-cleanup limitation.

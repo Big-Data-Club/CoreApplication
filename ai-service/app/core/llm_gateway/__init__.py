@@ -30,6 +30,9 @@ from app.core.llm_gateway.types import (
     TASK_FORMAT_LAB, TASK_CREATE_LAB, TASK_CREATE_LAB_TESTCASE, TASK_EDIT_TESTCASE, TASK_CREATE_LAB_GENERATOR,
     ApiKey,
     ChatRequest,
+    SpeechRequest,
+    SpeechResponse,
+    TASK_TEXT_TO_SPEECH,
     ChatResponse,
     Model,
     Provider,
@@ -62,7 +65,7 @@ __all__ = [
     "ModelRegistry", "get_registry",
     "KeyPool", "get_key_pool",
     # types
-    "ChatRequest", "ChatResponse", "Usage",
+    "ChatRequest", "ChatResponse", "Usage", "SpeechRequest", "SpeechResponse", "TASK_TEXT_TO_SPEECH",
     "Provider", "Model", "ApiKey", "TaskBinding",
     # task codes
     "ALL_TASK_CODES",

@@ -264,3 +264,42 @@ context keys, and `lead_fallback`; message metadata retains orchestration
 selection. Enable on staging and assess actual quality/latency/cost first.
 See [ADR 7](adr/ADR-7-bounded-lead-agent-collaboration.md) for exact limits and
 memory/permission boundaries.
+
+## Neural speech
+
+Startup registers `runway` and `elevenlabs` adapters, one `eleven_v3` model per
+provider and a `text_to_speech` fallback chain (Runway first). This is a catalog/cache
+warm-up only: no API key is seeded and no paid synthesis runs. Existing speech
+provider/model/binding edits survive startup. Speech models can bind only to
+`text_to_speech`, and text models cannot bind to that task.
+
+In Admin → LLM Configuration:
+
+1. Add an active key to Runway or ElevenLabs using the existing encrypted key pool.
+2. Runway model config defaults to `{"voice_id":"Niki","speed":0.97}`.
+   ElevenLabs config starts with an empty `voice_id`; replace it with the actual
+   voice ID from your account. Do not enter `Niki` as an ElevenLabs voice ID.
+3. Choose priority/pinning for `text_to_speech`. Both Studio narration and neural
+   flashcard reading use this chain. Flashcards default to Vietnamese, speed 0.97,
+   and allow speed 0.7–1.2; each card's language is sent to the provider.
+4. Test `text_to_speech` in the admin test panel to hear actual synthesis. This test
+   is a paid provider request, unlike catalog warm-up. Runway tests may take several
+   minutes while the provider task is polled. Configure the HTTP/BFF timeout
+   accordingly; learner speech uses durable polling instead.
+
+Runway uses `/v1/text_to_speech` plus task polling with the Niki preset; ElevenLabs
+uses `/v1/text-to-speech/{voice_id}`. Provider keys are never sent to audio asset
+hosts. Audio is MP3; speech usage logs record calls/latency/errors and zero token
+counts rather than misreporting character billing as text-model tokens. Character
+billing is still visible at the provider; token-based daily limits do not represent
+speech character credits. Existing key health rotation handles 429/auth failures;
+explicit Retry-After is respected even for daily exhaustion.
+
+References: [Runway model catalog](https://docs.dev.runwayml.com/guides/models/),
+[Runway speech schema](https://github.com/runwayml/sdk-python/blob/main/src/runwayml/types/text_to_speech_create_params.py),
+[ElevenLabs API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert).
+
+Studio/flashcard speech requires V020/V021, the updated AI worker, Chromium and
+FFmpeg. See [content authoring pipeline](CONTENT_AUTHORING_PIPELINE.md) for runtime,
+cache privacy, synchronization, limits and rollout. No real provider call has been
+validated without an operator-supplied key.

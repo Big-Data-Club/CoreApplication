@@ -28,6 +28,7 @@ openpyxl==3.1.5
 mammoth==1.11.0
 
 httpx==0.28.1
+playwright==1.56.0
 minio==7.2.12
 
 neo4j==5.27.0

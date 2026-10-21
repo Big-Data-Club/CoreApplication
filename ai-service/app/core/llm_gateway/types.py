@@ -32,6 +32,7 @@ TASK_COURSE_BLUEPRINT   = "course_blueprint"
 # generation with a strict structured-output contract - same rationale as
 # course_blueprint, separate task so admins can bind a stronger model.
 TASK_CONTENT_STUDIO     = "content_studio"
+TASK_TEXT_TO_SPEECH     = "text_to_speech"
 TASK_JEV_DECISION       = "jev_decision"       # structured System One assessment
 
 TASK_FORMAT_LAB = "format_lab"
@@ -47,7 +48,7 @@ ALL_TASK_CODES: tuple[str, ...] = (
     TASK_AGENT_REACT, TASK_AGENT_FLASH, TASK_AGENT_ROUTER, TASK_CLARIFICATION,
     TASK_GRAPH_LINK, TASK_MEMORY_COMPRESS, TASK_LANGUAGE_DETECT,
     TASK_NODE_EXTRACT, TASK_VLM_DESCRIBE, TASK_SECTION_OVERVIEW_GEN,
-    TASK_COURSE_BLUEPRINT, TASK_CONTENT_STUDIO, TASK_JEV_DECISION,
+    TASK_COURSE_BLUEPRINT, TASK_CONTENT_STUDIO, TASK_TEXT_TO_SPEECH, TASK_JEV_DECISION,
 )
  
  
@@ -145,6 +146,22 @@ class Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+
+
+@dataclass(slots=True)
+class SpeechRequest:
+    text: str
+    language: str = "vi"
+    speed: Optional[float] = None
+    request_id: Optional[str] = None
+
+
+@dataclass(slots=True)
+class SpeechResponse:
+    audio: bytes
+    model: Model
+    api_key_id: int
+    media_type: str = "audio/mpeg"
  
  
 @dataclass(slots=True)

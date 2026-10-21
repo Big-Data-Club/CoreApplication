@@ -58,6 +58,62 @@ class LLMGateway:
         self.registry = registry or get_registry()
         self.key_pool = get_key_pool()
 
+    async def speech(self, req):
+        """Use the managed speech bindings with the existing key health pool."""
+        import asyncio
+        from app.core.llm_gateway.adapters.speech import SPEECH_ADAPTERS, synthesize
+        from app.core.llm_gateway.types import SpeechResponse, TASK_TEXT_TO_SPEECH
+
+        if not req.text.strip() or len(req.text) > 2400 or (req.speed is not None and not 0.7 <= req.speed <= 1.2):
+            raise ValueError("Speech requires 1–2400 characters and speed 0.7–1.2")
+        chain = await self.registry.get_binding_chain(TASK_TEXT_TO_SPEECH)
+        last_error = None
+        for index, binding in enumerate(chain):
+            model = binding.model
+            if model.adapter_type not in SPEECH_ADAPTERS:
+                continue
+            excluded = set()
+            for attempt in range(MAX_KEYS_PER_MODEL):
+                try:
+                    lease = await self.key_pool.lease(model.provider_id, exclude_ids=excluded)
+                except NoKeyAvailableError as exc:
+                    last_error = exc
+                    break
+                excluded.add(lease.id)
+                started = time.monotonic()
+                error = None
+                try:
+                    audio = await synthesize(model, lease.plaintext, req)
+                except RateLimitedError as exc:
+                    await self.key_pool.record_rate_limit(lease.id, retry_after_seconds=exc.retry_after)
+                    error = exc
+                except AuthError as exc:
+                    await self.key_pool.record_auth_failure(lease.id, "Speech credentials rejected")
+                    error = exc
+                except (ProviderError, TimeoutError, asyncio.TimeoutError) as exc:
+                    error = exc if isinstance(exc, ProviderError) else ProviderError("Speech task timed out", retryable=True)
+                except Exception:
+                    error = ProviderError("Speech transport failed", retryable=True)
+                # Speech is billed in characters. Do not present characters as tokens.
+                await self._log(
+                    req=ChatRequest(task=TASK_TEXT_TO_SPEECH, messages=[], request_id=req.request_id),
+                    model=model, lease=lease, usage=Usage(),
+                    latency_ms=int((time.monotonic() - started) * 1000), success=error is None,
+                    fallback_used=index > 0, attempt_no=attempt + 1,
+                    error_code=type(error).__name__ if error else None,
+                    error_message=str(error) if error else None,
+                )
+                if error:
+                    last_error = error
+                    if isinstance(error, ProviderError) and not error.retryable and not isinstance(error, AuthError):
+                        break
+                    continue
+                await self.key_pool.record_success(lease.id, tokens_used=0)
+                return SpeechResponse(audio=audio, model=model, api_key_id=lease.id)
+        if last_error:
+            raise last_error
+        raise NoModelAvailableError("Configure text_to_speech provider, voice and API key in Gateway")
+
     async def decide_jev(self, state: str) -> dict[str, Any] | None:
         """Run the bound System One task through the gateway's model/key chain."""
         from app.core.llm_gateway.system_one import decide_system_one
