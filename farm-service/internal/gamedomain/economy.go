@@ -31,10 +31,10 @@ var Goods = map[string]Good{
 	"fence":         {"Hàng rào gỗ", "DECOR", 14, 0, "", 0, "", "", "Các đoạn rào liền kề tự ghép thành hàng rào; khép kín để giữ gà."},
 	"flowerpot":     {"Chậu hoa", "DECOR", 55, 0, "", 0, "", "", "Một góc trang trí cho khu vườn."},
 	"bench":         {"Ghế gỗ", "DECOR", 75, 0, "", 0, "", "", "Ghế nghỉ chân bên vườn."},
-	"tank":          {"Thùng nuôi", "STRUCTURE", 85, 45, "", 0, "", "", "Thùng nước 4×2 ô, nuôi tối đa 8 cá/ếch; oxy đủ khoảng 30 phút từ mức đầy."},
-	"pond":          {"Ao sinh thái", "STRUCTURE", 260, 180, "", 0, "", "", "Ao 4×2 ô, tối đa 8 cá/ếch; oxy đủ khoảng 45 phút từ mức đầy."},
+	"tank":          {"Thùng nuôi", "STRUCTURE", 85, 45, "", 0, "", "", "Thùng nước 4×2 ô, nuôi tối đa 8 cá/ếch; oxy đủ khoảng 12 giờ từ mức đầy."},
+	"pond":          {"Ao sinh thái", "STRUCTURE", 260, 180, "", 0, "", "", "Ao 4×2 ô, tối đa 8 cá/ếch; oxy đủ khoảng 12 giờ từ mức đầy."},
 	"hive":          {"Tổ ong", "STRUCTURE", 100, 60, "", 0, "", "", "Nhà cho ong. Cần có hoa ở gần."},
-	"aquaponics":    {"Giàn aquaponics 5×3", "STRUCTURE", 270, 120, "", 0, "", "", "Giàn trồng 5×3, tự cấp nước; oxy đủ khoảng 20 phút từ mức đầy."},
+	"aquaponics":    {"Giàn aquaponics 5×3", "STRUCTURE", 270, 120, "", 0, "", "", "Giàn trồng 5×3, tự cấp nước; oxy đủ khoảng 12 giờ từ mức đầy."},
 }
 
 // Anything that may be sold is an inventory good, not a placement prefab.
@@ -43,7 +43,7 @@ var ShopSupplies = map[string]int{"frog_feed": 28, "fish_feed": 25, "medicine": 
 var Labels = map[string]string{"paddy": "Thóc", "rice": "Gạo", "egg": "Trứng gà", "frog_product": "Ếch thương phẩm", "fish_product": "Cá thương phẩm", "chicken_product": "Gà thương phẩm", "honey": "Mật ong", "water_spinach": "Rau muống", "mustard": "Rau cải", "flower": "Hoa", "insect": "Côn trùng", "frog_feed": "Cám ếch", "fish_feed": "Cám cá", "medicine": "Thuốc thú y", "oxygen": "Bình oxy", "meal": "Cơm chín", "aid_rice": "Gạo cứu trợ"}
 
 // Oxygen is a server-side timer: with a full tank/pond/rack, production remains
-// enabled until oxygen reaches 15%. The three durations below are *exact*.
+// enabled until oxygen reaches 15%. Each habitat lasts exactly 12 hours.
 // OxygenAge is elapsed seconds since the last oxygen refill (not seconds spent
 // at the current integer percent). This allows fractional seconds-per-percent
 // without losing time when the game is polled frequently or after a refresh.
@@ -53,12 +53,8 @@ const oxygenSpendablePoints = 100 - OxygenMinimum
 // OxygenThresholdSeconds is the time for 100% to drop to the 15% cutoff.
 func OxygenThresholdSeconds(kind string) int {
 	switch kind {
-	case "pond":
-		return 45 * 60
-	case "tank":
-		return 30 * 60
-	case "aquaponics":
-		return 20 * 60
+	case "pond", "tank", "aquaponics":
+		return CareCycleSeconds
 	}
 	return 0
 }
@@ -108,6 +104,13 @@ func DrainOxygen(kind string, rt Runtime, now time.Time) Runtime {
 	return rt
 }
 
+// An oxygen bottle starts a complete care cycle even for an empty habitat.
+func RefillOxygen(rt Runtime) Runtime {
+	rt.Oxygen = 100
+	rt.OxygenAge = 0
+	return rt
+}
+
 // 100% refund for placement mistakes within 30 seconds, later only a partial
 // salvage of structures/decor. Removing crops/livestock later does not repay
 // their cost (their production may already have yielded resources).
@@ -128,9 +131,10 @@ func RemovalRefund(kind string, elapsedSeconds int) int {
 // After harvest a crop keeps its field/identity; it must rest before being watered again.
 const CropRegrowCooldownSeconds = 40
 
-const FarmerHungerCap = 1800 // 30 minutes of real time
-const AnimalHungerCap = 480  // 8 minutes
-const CropWaterCap = 180     // enough for one harvest
+const CareCycleSeconds = 12 * 60 * 60
+const FarmerHungerCap = CareCycleSeconds
+const AnimalHungerCap = CareCycleSeconds
+const CropWaterCap = CareCycleSeconds
 const MaxReady = 2
 
 func Clamp(v, lo, hi int) int {
@@ -172,10 +176,10 @@ type Runtime struct {
 	RegrowUntil                                                                  *time.Time
 }
 
-// HarvestCrop resets only a crop's production cycle, not its planted entity.
-// LastTick is reset so time before the next watering can never be credited.
+// HarvestCrop resets production but retains the remaining soil moisture.
+// LastTick is reset so time before the next growth cycle cannot be credited.
 func HarvestCrop(rt Runtime, now time.Time) Runtime {
-	rt.Work, rt.Remainder, rt.Ready, rt.Water = 0, 0, 0, 0
+	rt.Work, rt.Remainder, rt.Ready = 0, 0, 0
 	rt.LastTick = now
 	until := now.Add(CropRegrowCooldownSeconds * time.Second)
 	rt.RegrowUntil = &until
@@ -189,8 +193,8 @@ func CropRegrowLeft(rt Runtime, now time.Time) int {
 	return int(math.Ceil(rt.RegrowUntil.Sub(now).Seconds()))
 }
 
-// A harvested crop cannot be watered during recovery. Once recovered, it
-// remains dormant until watered, including when placed near aquaponics.
+// A harvested crop cannot be watered during recovery. Afterward it resumes
+// automatically while moisture remains; dry soil waits for another watering.
 func CanWaterCrop(rt Runtime, now time.Time) bool {
 	return CropRegrowLeft(rt, now) == 0
 }
@@ -199,10 +203,8 @@ func CanWaterCrop(rt Runtime, now time.Time) bool {
 // borrow elapsed cooldown/waiting time, even if the farm has not been polled.
 func WaterCrop(rt Runtime, now time.Time) Runtime {
 	rt.Water = CropWaterCap
-	if rt.RegrowUntil != nil {
-		rt.RegrowUntil = nil
-		rt.LastTick = now
-	}
+	rt.RegrowUntil = nil
+	rt.LastTick = now
 	return rt
 }
 
@@ -227,17 +229,20 @@ func Advance(kind string, rt Runtime, now time.Time, housed, floral, aquaponic b
 		delta = 86400 * 30
 	} // protect from bogus system clock jumps
 	if g.Category == "CROP" {
-		// A harvested bed retains the plant but does not grow automatically.
-		// In particular, aquaponics cannot bypass the required rewatering.
+		// A harvested bed rests briefly, then resumes while water remains.
 		if rt.RegrowUntil != nil {
-			if !aquaponic || now.Before(*rt.RegrowUntil) {
+			if now.Before(*rt.RegrowUntil) {
+				rt.Water = Clamp(rt.Water-delta, 0, CropWaterCap)
 				return rt
 			}
-			// Automated recirculation wakes the next crop cycle after rest.
-			// Never credit the 40-second recovery interval as growing time.
+			// Never credit the recovery interval as growing time or free moisture.
 			start := *rt.RegrowUntil
 			if previousTick.After(start) {
 				start = previousTick
+			}
+			rt.Water = Clamp(rt.Water-int(start.Sub(previousTick).Seconds()), 0, CropWaterCap)
+			if !aquaponic && rt.Water == 0 {
+				return rt
 			}
 			rt.RegrowUntil = nil
 			rt.LastTick = start
@@ -288,13 +293,13 @@ func Advance(kind string, rt Runtime, now time.Time, housed, floral, aquaponic b
 	} else {
 		rt.Starvation = 0
 	}
-	badMinutes := func(seconds int) int {
-		if seconds <= 3600 {
+	badHours := func(seconds int) int {
+		if seconds <= CareCycleSeconds {
 			return 0
 		}
-		return (seconds - 3600) / 600
+		return (seconds - CareCycleSeconds) / 3600
 	}
-	steps := badMinutes(rt.Starvation) - badMinutes(previous)
+	steps := badHours(rt.Starvation) - badHours(previous)
 	if steps > 0 {
 		rt.Health = Clamp(rt.Health-steps*3, 20, 100)
 	}

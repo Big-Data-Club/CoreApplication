@@ -29,7 +29,21 @@ phỏng đầy đủ quy trình sinh học thực tế.
    hoa/thường và khoảng trắng; không phải tự đánh dấu “đã nhớ”.
 5. Đúng nhận 5 điểm, tối đa 100 điểm mỗi ngày UTC (đặt lại 07:00 Việt Nam).
    Đạt trần vẫn học và thu hoạch được nhưng không thêm điểm. Sau thu hoạch,
-   ô nghỉ 40 giây, rồi cần chăm lại để bắt đầu lượt tiếp theo.
+   ô nghỉ 40 giây; cây còn ẩm tự lớn tiếp, cây khô cần tưới lại.
+
+Nhịp chăm sóc của bản đồ game: nông dân và vật nuôi no trong 12 giờ từ mức đầy;
+đất đủ ẩm 12 giờ sau khi tưới; ao, thùng và giàn aquaponics có 12 giờ oxy từ
+mức đầy đến ngưỡng tạm dừng 15%. Bình oxy nạp đầy để bắt đầu chu kỳ mới.
+Thu hoạch không xóa lượng nước còn lại.
+Vật nuôi chỉ bắt đầu giảm sức khỏe sau thêm 12 giờ bị đói, mỗi giờ giảm 3 điểm.
+Thời gian lớn, thu hoạch và 40 giây nghỉ giữa hai vụ không đổi. Lần đầu mở
+farm sau rollout, service tự làm đầy thanh chăm sóc của farm cũ đúng một lần
+theo `care_rules_version`, dưới khóa farm; không cần cập nhật DB thủ công.
+`GET /api/v1/farm/game/state` trả thêm `careTimers` (số giây cho
+`farmerHunger`, `animalHunger`, `cropWater`) để frontend ước lượng tiến độ và
+đặt mốc làm mới đúng với server. Trường này là bổ sung tương thích ngược;
+triển khai frontend trước farm-service để frontend còn dùng bộ đếm cũ khi
+gặp replica cũ trong lúc rollout.
 
 Game lấy quiz một đáp án từ question bank đã duyệt của khóa học học viên đã
 được chấp nhận, hoặc flashcard đang hoạt động của chính học viên qua LMS. Nếu

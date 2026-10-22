@@ -35,7 +35,7 @@ func TestProductionCreditsOnlyOxygenAvailable(t *testing.T) {
 	t0 := time.Date(2026, 10, 14, 7, 0, 0, 0, time.UTC)
 	animal := domain.Runtime{LastTick: t0, Hunger: domain.AnimalHungerCap, Health: 100}
 	actual := advanceUntilOxygenEnds("fish", animal, t0.Add(10*time.Minute), t0.Add(5*time.Minute), false)
-	if actual.Work != 300 || actual.Hunger != 0 {
+	if actual.Work != 300 || actual.Hunger != domain.AnimalHungerCap-600 {
 		t.Fatalf("fish credited time past oxygen expiry: %+v", actual)
 	}
 	crop := domain.Runtime{LastTick: t0, Water: 0}

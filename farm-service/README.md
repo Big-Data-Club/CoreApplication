@@ -32,9 +32,11 @@ inside game transactions. State reads currently tick the farm in a write
 transaction; a dedicated read projection/cache is the next scaling step if
 state polling becomes the bottleneck.
 
-`internal/farm/schema.sql` is the initial additive schema, applied under a
-transaction advisory lock at startup. Subsequent schema changes must be new
-forward-only migrations; do not repurpose deployed columns.
+`internal/farm/schema.sql` and `internal/game/schema.sql` are additive schemas
+applied under a transaction advisory lock at startup. Forward-only SQL changes
+are recorded in `migrations/`. Care timer V004 adds a per-farm version; existing
+farms receive one 12-hour care refill lazily on their first request after
+rollout, so startup does not rewrite all farms or require a manual DB command.
 
 ```bash
 go test -race ./...

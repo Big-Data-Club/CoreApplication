@@ -17,10 +17,11 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 			return e
 		}
 		g := &gameTx{Farm: f, Inventory: map[string]int{}}
+		var careRulesVersion int
 		if e = tx.QueryRow(r.Context(), "SELECT clock_timestamp()").Scan(&g.Now); e != nil {
 			return e
 		}
-		tag, e := tx.Exec(r.Context(), `INSERT INTO farm_economy(farm_id) VALUES($1) ON CONFLICT DO NOTHING`, f.ID)
+		tag, e := tx.Exec(r.Context(), `INSERT INTO farm_economy(farm_id,care_rules_version) VALUES($1,2) ON CONFLICT DO NOTHING`, f.ID)
 		if e != nil {
 			return e
 		}
@@ -49,7 +50,7 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 				}
 			}
 		}
-		e = tx.QueryRow(r.Context(), `SELECT last_tick,hunger_seconds,insects,insect_last_spawn,last_catch,tutorial_step,insect_seeded FROM farm_economy WHERE farm_id=$1 FOR UPDATE`, f.ID).Scan(&g.Life.LastTick, &g.Life.Hunger, &g.Life.Insects, &g.Life.InsectSpawn, &g.Life.LastCatch, &g.Life.Tutorial, &g.Life.InsectSeeded)
+		e = tx.QueryRow(r.Context(), `SELECT last_tick,hunger_seconds,insects,insect_last_spawn,last_catch,tutorial_step,insect_seeded,care_rules_version FROM farm_economy WHERE farm_id=$1 FOR UPDATE`, f.ID).Scan(&g.Life.LastTick, &g.Life.Hunger, &g.Life.Insects, &g.Life.InsectSpawn, &g.Life.LastCatch, &g.Life.Tutorial, &g.Life.InsectSeeded, &careRulesVersion)
 		if e != nil {
 			return e
 		}
@@ -72,7 +73,7 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 		if e != nil {
 			return e
 		}
-		_, e = tx.Exec(r.Context(), `INSERT INTO entity_runtime(entity_id,last_tick,hunger_seconds) SELECT id,$2,CASE WHEN category='ANIMAL' THEN 480 ELSE 0 END FROM world_entities WHERE farm_id=$1 ON CONFLICT DO NOTHING`, f.ID, g.Now)
+		_, e = tx.Exec(r.Context(), `INSERT INTO entity_runtime(entity_id,last_tick,hunger_seconds) SELECT id,$2,CASE WHEN category='ANIMAL' THEN $3 ELSE 0 END FROM world_entities WHERE farm_id=$1 ON CONFLICT DO NOTHING`, f.ID, g.Now, domain.AnimalHungerCap)
 		if e != nil {
 			return e
 		}
@@ -97,10 +98,16 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 		if e != nil {
 			return e
 		}
+		var changedRuntime []*gameEntity
+		if careRulesVersion < 2 {
+			// Upgrade one farm under its existing row lock, avoiding a bulk startup
+			// rewrite and giving players a fresh care cycle after the rule change.
+			changedRuntime = upgradeCareTimers(g)
+		}
 		delta := secs(g.Life.LastTick, g.Now)
 		g.Life.Hunger = domain.Clamp(g.Life.Hunger-delta, 0, domain.FarmerHungerCap)
 		g.Life.LastTick = g.Now
-		if _, e = tx.Exec(r.Context(), `UPDATE farm_economy SET last_tick=$2,hunger_seconds=$3 WHERE farm_id=$1`, f.ID, g.Now, g.Life.Hunger); e != nil {
+		if _, e = tx.Exec(r.Context(), `UPDATE farm_economy SET last_tick=$2,hunger_seconds=$3,care_rules_version=2 WHERE farm_id=$1`, f.ID, g.Now, g.Life.Hunger); e != nil {
 			return e
 		}
 
@@ -113,7 +120,6 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 		// Preserve the oxygen deadline based on the pre-tick state. Animals and
 		// hydro crops earn the time before a habitat depletes, even offline.
 		oxygenUntil := map[string]time.Time{}
-		var changedRuntime []*gameEntity
 		for _, obj := range g.Entities {
 			if domain.OxygenThresholdSeconds(obj.Kind) > 0 {
 				oxygenUntil[obj.ID] = obj.RT.LastTick.Add(time.Duration(domain.OxygenLeftSeconds(obj.Kind, obj.RT)) * time.Second)
@@ -196,7 +202,7 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 					obj.AquaOxygen = aqua.RT.Oxygen
 				}
 				obj.RegrowLeft = domain.CropRegrowLeft(obj.RT, g.Now)
-				obj.NeedsRewater = obj.RT.RegrowUntil != nil && !obj.OnAquaponics
+				obj.NeedsRewater = obj.RT.Water == 0 && obj.RT.RegrowUntil != nil && !obj.OnAquaponics
 			}
 			if obj.Category == "ANIMAL" {
 				if obj.Kind == "fish" || obj.Kind == "frog" {

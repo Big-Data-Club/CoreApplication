@@ -73,7 +73,13 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 		Entities []gameEntity `json:"entities"`
 		Life     struct {
 			NextInsectIn int `json:"nextInsectIn"`
+			HungerPct    int `json:"hungerPct"`
 		} `json:"life"`
+		CareTimers struct {
+			FarmerHunger int `json:"farmerHunger"`
+			AnimalHunger int `json:"animalHunger"`
+			CropWater    int `json:"cropWater"`
+		} `json:"careTimers"`
 		WildInsects []wildInsect `json:"wildInsects"`
 	}
 	if e = json.Unmarshal(state.Body.Bytes(), &world); e != nil {
@@ -81,6 +87,13 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 	}
 	if len(world.Entities) != 3 || world.Farm.Coins != 900 {
 		t.Fatal("starter world missing", state.Body.String())
+	}
+	var careRulesVersion int
+	if e = pool.QueryRow(ctx, `SELECT care_rules_version FROM farm_economy WHERE farm_id=$1`, world.Farm.ID).Scan(&careRulesVersion); e != nil {
+		t.Fatal(e)
+	}
+	if careRulesVersion != 2 || world.Life.HungerPct != 100 || world.CareTimers.FarmerHunger != 43200 || world.CareTimers.AnimalHunger != 43200 || world.CareTimers.CropWater != 43200 {
+		t.Fatal("new farm did not start with the 12-hour care rules", state.Body.String())
 	}
 	if world.Life.NextInsectIn < 1 || world.Life.NextInsectIn > 75 || len(world.WildInsects) != 2 || world.WildInsects[0].ExpiresAt.IsZero() {
 		t.Fatal("world milestone metadata missing", state.Body.String())

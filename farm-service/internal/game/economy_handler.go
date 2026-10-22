@@ -35,7 +35,7 @@ func (s *Server) registerEconomy() {
 			if e != nil {
 				return e
 			}
-			state = map[string]any{"farm": g.Farm, "life": map[string]any{"hungerPct": g.Life.Hunger * 100 / domain.FarmerHungerCap, "insects": g.Life.Insects, "nextInsectIn": nextInsectIn(g), "catchCooldown": domain.Clamp(int(catchWait.Seconds())-secs(g.Life.LastCatch, g.Now), 0, int(catchWait.Seconds()))}, "entities": g.Entities, "wildInsects": g.Insects, "inventory": g.Inventory, "catalog": domain.Goods, "labels": domain.Labels, "sellPrices": domain.SellPrices, "shopSupplies": domain.ShopSupplies, "history": history, "grid": map[string]int{"width": domain.Width, "height": domain.Height}, "serverTime": g.Now}
+			state = map[string]any{"farm": g.Farm, "life": map[string]any{"hungerPct": g.Life.Hunger * 100 / domain.FarmerHungerCap, "insects": g.Life.Insects, "nextInsectIn": nextInsectIn(g), "catchCooldown": domain.Clamp(int(catchWait.Seconds())-secs(g.Life.LastCatch, g.Now), 0, int(catchWait.Seconds()))}, "careTimers": map[string]int{"farmerHunger": domain.FarmerHungerCap, "animalHunger": domain.AnimalHungerCap, "cropWater": domain.CropWaterCap}, "entities": g.Entities, "wildInsects": g.Insects, "inventory": g.Inventory, "catalog": domain.Goods, "labels": domain.Labels, "sellPrices": domain.SellPrices, "shopSupplies": domain.ShopSupplies, "history": history, "grid": map[string]int{"width": domain.Width, "height": domain.Height}, "serverTime": g.Now}
 			return nil
 		})
 		if e != nil {
@@ -581,8 +581,7 @@ func (s *Server) registerEconomy() {
 				if e := s.gameInv(r, tx, g, "oxygen", -1); e != nil {
 					return e
 				}
-				o.RT.Oxygen = domain.Clamp(o.RT.Oxygen+65, 0, 100)
-				o.RT.OxygenAge = 0
+				o.RT = domain.RefillOxygen(o.RT)
 				message = "Đã bổ sung oxy cho nguồn nước"
 			case "HARVEST":
 				if o.Category != "CROP" && o.Category != "ANIMAL" {

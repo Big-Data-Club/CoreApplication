@@ -92,3 +92,9 @@ CREATE TABLE IF NOT EXISTS game_learning_outbox (
  attempts INT NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS game_learning_outbox_pending_idx ON game_learning_outbox(next_attempt_at,created_at) WHERE delivered_at IS NULL;
+
+-- V004: lazy per-farm upgrade of care timers. Old replicas still insert version
+-- 1 during rollout; new code explicitly inserts version 2 for new farms.
+ALTER TABLE farm_economy ADD COLUMN IF NOT EXISTS care_rules_version INT NOT NULL DEFAULT 1;
+ALTER TABLE farm_economy ALTER COLUMN hunger_seconds SET DEFAULT 43200;
+ALTER TABLE entity_runtime ALTER COLUMN hunger_seconds SET DEFAULT 43200;

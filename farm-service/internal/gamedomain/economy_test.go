@@ -121,6 +121,30 @@ func TestFeedingDoesNotSkipProduction(t *testing.T) {
 		t.Fatalf("resume should require 100 more healthy fed seconds %+v", again)
 	}
 }
+
+func TestCareTimersAllowTwelveHoursBeforeInterruption(t *testing.T) {
+	if FarmerHungerCap != 12*60*60 || AnimalHungerCap != FarmerHungerCap || CropWaterCap != FarmerHungerCap {
+		t.Fatal("care timers must use the same 12-hour cycle")
+	}
+	start := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
+	animal := Runtime{LastTick: start, Hunger: AnimalHungerCap, Health: 100}
+	before := Advance("chicken", animal, start.Add(12*time.Hour-time.Second), true, true, false)
+	if before.Hunger != 1 || before.Sick {
+		t.Fatalf("animal stopped too early: %+v", before)
+	}
+	atLimit := Advance("chicken", before, start.Add(12*time.Hour), true, true, false)
+	if atLimit.Hunger != 0 || atLimit.Health != 100 {
+		t.Fatalf("animal hunger deadline incorrect: %+v", atLimit)
+	}
+	grace := Advance("chicken", atLimit, start.Add(24*time.Hour), true, true, false)
+	if grace.Health != 100 || grace.Sick {
+		t.Fatalf("starvation grace ended too early: %+v", grace)
+	}
+	later := Advance("chicken", grace, start.Add(25*time.Hour), true, true, false)
+	if later.Health != 97 || later.Sick {
+		t.Fatalf("health should decline gradually after grace: %+v", later)
+	}
+}
 func TestPondFootprintAndBoundaries(t *testing.T) {
 	if !Overlap(18, 12, "pond", 19, 13, "fish") {
 		t.Fatal("pond must cover its water footprint")
@@ -148,13 +172,12 @@ func TestWaterHabitatsFourByTwo(t *testing.T) {
 	}
 }
 
-// Crop regrowth is server-timed and persistent: repeated polling cannot grow
-// a dry harvested plant. Hydroponic decks are tested separately; soil beds must be rewatered.
-func TestHarvestedCropPreservesCycleAndRequiresRewatering(t *testing.T) {
+// A crop keeps its remaining moisture after harvest, but cannot grow once dry.
+func TestHarvestedCropRetainsMoistureUntilDry(t *testing.T) {
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-	initial := Runtime{LastTick: now.Add(-125 * time.Second), Water: 55, Work: 125, Remainder: 7, Ready: 1}
+	initial := Runtime{LastTick: now.Add(-125 * time.Second), Water: 20, Work: 125, Remainder: 7, Ready: 1}
 	harvested := HarvestCrop(initial, now)
-	if harvested.Ready != 0 || harvested.Work != 0 || harvested.Water != 0 || harvested.Remainder != 0 || harvested.RegrowUntil == nil {
+	if harvested.Ready != 0 || harvested.Work != 0 || harvested.Water != 20 || harvested.Remainder != 0 || harvested.RegrowUntil == nil {
 		t.Fatalf("harvest reset is incomplete: %+v", harvested)
 	}
 	if CropRegrowLeft(harvested, now) != 40 || CanWaterCrop(harvested, now.Add(39*time.Second)) {
@@ -165,7 +188,7 @@ func TestHarvestedCropPreservesCycleAndRequiresRewatering(t *testing.T) {
 	if paused.Work != 0 || paused.Ready != 0 || paused.RegrowUntil == nil {
 		t.Fatalf("crop advanced in rest: %+v", paused)
 	}
-	// Then go away for several minutes: it must wait for a new watering.
+	// A small remaining water supply runs out while the player is away.
 	paused = Advance("mustard", paused, now.Add(5*time.Minute), false, false, false)
 	if paused.Work != 0 || paused.Water != 0 || !CanWaterCrop(paused, now.Add(5*time.Minute)) {
 		t.Fatalf("crop grew without rewatering: %+v", paused)
@@ -183,25 +206,24 @@ func TestHarvestedCropPreservesCycleAndRequiresRewatering(t *testing.T) {
 
 func TestCropCooldownRemainsAccurateWithoutPolling(t *testing.T) {
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-	rt := HarvestCrop(Runtime{LastTick: now, Ready: 1, Work: 120, Water: 90}, now)
+	rt := HarvestCrop(Runtime{LastTick: now, Ready: 1, Work: 120, Water: CropWaterCap}, now)
 	rt = Advance("rice_crop", rt, now.Add(39*time.Second), false, false, false)
 	if CropRegrowLeft(rt, now.Add(39*time.Second)) != 1 || CanWaterCrop(rt, now.Add(39*time.Second)) {
 		t.Fatalf("premature watering: %+v", rt)
 	}
 	rt = Advance("rice_crop", rt, now.Add(40*time.Second), false, false, false)
-	if CropRegrowLeft(rt, now.Add(40*time.Second)) != 0 || !CanWaterCrop(rt, now.Add(40*time.Second)) {
+	if CropRegrowLeft(rt, now.Add(40*time.Second)) != 0 || rt.RegrowUntil != nil || rt.Water != CropWaterCap-40 {
 		t.Fatalf("not released after 40 seconds: %+v", rt)
 	}
-	rt = WaterCrop(rt, now.Add(40*time.Second))
 	rt = Advance("rice_crop", rt, now.Add(2*time.Minute+40*time.Second), false, false, false)
 	if rt.Ready != 1 {
-		t.Fatalf("new season not mature: %+v", rt)
+		t.Fatalf("moist crop did not start the next season automatically: %+v", rt)
 	}
 }
 
-func TestCropHarvestKeepsBedAndRequiresWaterAfterFortySeconds(t *testing.T) {
+func TestDryHarvestedCropWaitsForWaterAfterFortySeconds(t *testing.T) {
 	start := time.Date(2026, 10, 14, 3, 0, 0, 0, time.UTC)
-	ready := Runtime{LastTick: start, Work: Goods["rice_crop"].Seconds, Water: 90, Ready: 1}
+	ready := Runtime{LastTick: start, Work: Goods["rice_crop"].Seconds, Water: 0, Ready: 1}
 	after := HarvestCrop(ready, start)
 	if after.Ready != 0 || after.Work != 0 || after.Water != 0 || after.RegrowUntil == nil {
 		t.Fatalf("harvest did not reset plant runtime: %+v", after)
@@ -217,10 +239,8 @@ func TestCropHarvestKeepsBedAndRequiresWaterAfterFortySeconds(t *testing.T) {
 	if dormant.Work != 0 || dormant.Ready != 0 {
 		t.Fatalf("dry crop grew without rewatering: %+v", dormant)
 	}
-	// WATER handler clears the cooldown, sets fresh water and resets LastTick.
-	dormant.RegrowUntil = nil
-	dormant.Water = CropWaterCap
-	dormant.LastTick = start.Add(10 * time.Minute)
+	// Watering starts a new cycle without crediting the dry interval.
+	dormant = WaterCrop(dormant, start.Add(10*time.Minute))
 	next := Advance("rice_crop", dormant, start.Add(11*time.Minute), false, false, false)
 	if next.Work != 60 || next.Ready != 0 {
 		t.Fatalf("rewatered crop should restart its growth cycle: %+v", next)
@@ -246,7 +266,7 @@ func TestOxygenDecayAndRefillTiming(t *testing.T) {
 		kind     string
 		duration int
 	}{
-		{"pond", 45 * 60}, {"tank", 30 * 60}, {"aquaponics", 20 * 60},
+		{"pond", CareCycleSeconds}, {"tank", CareCycleSeconds}, {"aquaponics", CareCycleSeconds},
 	} {
 		if got := OxygenThresholdSeconds(tc.kind); got != tc.duration {
 			t.Fatalf("%s duration got %d expected %d", tc.kind, got, tc.duration)
@@ -257,7 +277,7 @@ func TestOxygenDecayAndRefillTiming(t *testing.T) {
 		}
 		// Multiple short polls and one long offline interval must agree.
 		polled := base
-		for tick := 1; tick <= tc.duration; tick++ {
+		for tick := 60; tick <= tc.duration; tick += 60 {
 			polled = DrainOxygen(tc.kind, polled, now.Add(time.Duration(tick)*time.Second))
 		}
 		offline := DrainOxygen(tc.kind, base, now.Add(time.Duration(tc.duration)*time.Second))
@@ -277,10 +297,9 @@ func TestOxygenDecayAndRefillTiming(t *testing.T) {
 			t.Fatal("same timestamp must never consume oxygen")
 		}
 		// Refill never credits previous downtime: only the remaining points count.
-		midway.Oxygen = Clamp(midway.Oxygen+65, 0, 100)
-		midway.OxygenAge = 0
+		midway = RefillOxygen(midway)
 		remaining := OxygenLeftSeconds(tc.kind, midway)
-		if remaining <= 0 || remaining > tc.duration {
+		if remaining != tc.duration {
 			t.Fatalf("%s bad refill duration %d", tc.kind, remaining)
 		}
 		after := DrainOxygen(tc.kind, midway, midway.LastTick.Add(time.Duration(remaining)*time.Second))
