@@ -63,11 +63,13 @@ class LLMGateway:
         import asyncio
         from app.core.llm_gateway.adapters.speech import SPEECH_ADAPTERS, synthesize
         from app.core.llm_gateway.types import SpeechResponse, TASK_TEXT_TO_SPEECH
+        from app.core.llm_gateway.speech_errors import SpeechProviderError
 
         if not req.text.strip() or len(req.text) > 2400 or (req.speed is not None and not 0.7 <= req.speed <= 1.2):
             raise ValueError("Speech requires 1–2400 characters and speed 0.7–1.2")
         chain = await self.registry.get_binding_chain(TASK_TEXT_TO_SPEECH)
         last_error = None
+        attempted_error = None
         for index, binding in enumerate(chain):
             model = binding.model
             if model.adapter_type not in SPEECH_ADAPTERS:
@@ -77,7 +79,9 @@ class LLMGateway:
                 try:
                     lease = await self.key_pool.lease(model.provider_id, exclude_ids=excluded)
                 except NoKeyAvailableError as exc:
-                    last_error = exc
+                    if attempted_error is None:
+                        last_error = exc
+                    logger.warning("Speech binding skipped: provider=%s model=%s reason=no_active_key", model.provider_code, model.model_name)
                     break
                 excluded.add(lease.id)
                 started = time.monotonic()
@@ -91,9 +95,9 @@ class LLMGateway:
                     await self.key_pool.record_auth_failure(lease.id, "Speech credentials rejected")
                     error = exc
                 except (ProviderError, TimeoutError, asyncio.TimeoutError) as exc:
-                    error = exc if isinstance(exc, ProviderError) else ProviderError("Speech task timed out", retryable=True)
+                    error = exc if isinstance(exc, ProviderError) else SpeechProviderError("timeout", provider=model.adapter_type, retryable=True)
                 except Exception:
-                    error = ProviderError("Speech transport failed", retryable=True)
+                    error = SpeechProviderError("transport_failed", provider=model.adapter_type, retryable=True)
                 # Speech is billed in characters. Do not present characters as tokens.
                 await self._log(
                     req=ChatRequest(task=TASK_TEXT_TO_SPEECH, messages=[], request_id=req.request_id),
@@ -105,6 +109,10 @@ class LLMGateway:
                 )
                 if error:
                     last_error = error
+                    attempted_error = error
+                    logger.warning("Speech attempt failed: provider=%s model=%s request_id=%s error=%s status=%s",
+                                   model.provider_code, model.model_name, req.request_id,
+                                   getattr(error,"code",type(error).__name__), getattr(error,"status_code",None))
                     if isinstance(error, ProviderError) and not error.retryable and not isinstance(error, AuthError):
                         break
                     continue

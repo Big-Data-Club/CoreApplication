@@ -635,8 +635,10 @@ class StudioService:
                 logger.error("studio generate failed %s: %s", project_id, exc,
                              exc_info=True)
                 try:
+                    from app.core.llm_gateway.errors import LLMGatewayError
+                    from app.core.llm_gateway.speech_errors import speech_failure_message
                     await self._update(project_id, created_by, status="failed",
-                                       error_detail=str(exc)[:800])
+                                       error_detail=(speech_failure_message(exc) if isinstance(exc,LLMGatewayError) else str(exc))[:800])
                 except Exception:  # noqa: BLE001
                     pass
 

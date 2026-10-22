@@ -303,3 +303,34 @@ Studio/flashcard speech requires V020/V021, the updated AI worker, Chromium and
 FFmpeg. See [content authoring pipeline](CONTENT_AUTHORING_PIPELINE.md) for runtime,
 cache privacy, synchronization, limits and rollout. No real provider call has been
 validated without an operator-supplied key.
+
+### Diagnosing speech failures
+
+Read `ai-worker` logs, not only `ai-service` HTTP logs. Match the returned speech
+job UUID to `Speech generation failed job=...`; it records `stage` and exception
+type. Gateway attempts also record provider, model, request/job ID, HTTP status
+and a safe error category. Request bodies, narration and provider free-form error
+bodies are never included in these new diagnostics.
+
+* No active key: check the **Runway** provider's active/cooldown/invalid key state
+  and its `text_to_speech` binding. A key under Groq/freemodel-api is unrelated.
+* HTTP 401/403: credentials or API permissions were rejected. HTTP 402 or an
+  explicit credit error points to provider billing. HTTP 429 keeps normal key
+  rotation/cooldown; these cases are not treated as interchangeable.
+* HTTP 400/422: inspect the selected model, base URL and voice config. The admin
+  `text_to_speech` test panel now returns the specific safe failure message.
+* `stage=audio_processing`: inspect FFmpeg/codec failure. `stage=storage`: inspect
+  MinIO connectivity and write permission. Neither is fixed by replacing an API key.
+* `KeyCryptoError`: AI HTTP and worker need the same `AI_KEY_ENCRYPTION_SECRET`.
+
+A provider's real synthesis error is retained when the next fallback has no key.
+A 403 from the generated audio download does not invalidate the Runway API key.
+The user's flashcard error now includes the failed stage and job ID; retry a
+failed card after configuration/deployment changes to produce a new diagnostic.
+
+Studio HTML/PDF layout errors happen before provider synthesis. In particular,
+`No safe space for connector label` is a renderer placement failure, unrelated
+to text-model key warnings. The renderer now searches free canvas bands, reserves
+equation space and wraps labels without reducing font size. True overcrowding
+still fails QA and requires a simpler scene. The Work/Span regression suite
+uses synthetic diagrams; it does not establish that a production audio key works.

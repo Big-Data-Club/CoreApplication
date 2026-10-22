@@ -12,9 +12,22 @@ from app.services.studio.html_renderer import render_html
 from app.services.studio.plan_schema import PlanSection, VisualSpec
 from app.services.studio.storyboard import compile_storyboard
 from app.services.studio.visuals import VISUAL_TYPES
-from tests.test_studio_media import lesson
+from tests.test_studio_media import lesson, work_span_lesson
 
 pytestmark = pytest.mark.skipif(os.environ.get("STUDIO_RENDER_SMOKE") != "1", reason="Set STUDIO_RENDER_SMOKE=1 with Chromium/FFmpeg installed")
+
+
+@pytest.mark.parametrize("aspect",["16:9","9:16"])
+def test_real_work_span_connector_and_equation_qa(aspect,tmp_path):
+    async def run():
+        plan = work_span_lesson()
+        for kind,count in [("architecture",5),("algorithm_tree",5),("resource_timeline",3),("flow",5)]:
+            plan.sections.extend(work_span_lesson(kind,count).sections)
+        board = compile_storyboard(plan,{"aspect_ratio":aspect})
+        pdf,qa = await render_pdf(board,render_html(board),tmp_path)
+        assert pdf.startswith(b"%PDF") and qa["passed"]
+        assert len(qa["samples"]) == 20
+    asyncio.run(run())
 
 
 def all_visuals():

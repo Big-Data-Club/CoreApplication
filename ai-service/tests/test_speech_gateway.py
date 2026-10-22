@@ -41,7 +41,7 @@ def test_runway_polls_audio_task_without_leaking_key_to_asset_host():
 
 
 def test_elevenlabs_requires_real_voice_id_not_runway_preset():
-    with pytest.raises(ProviderError, match="voice_id"):
+    with pytest.raises(ProviderError, match="voice_required"):
         asyncio.run(synthesize(replace(model(), adapter_type="elevenlabs", config={}), "fixture", SpeechRequest(text="x")))
 
 
@@ -57,6 +57,79 @@ def test_gateway_rotates_keys_on_rate_limit_and_uses_measured_provider_output():
         assert result.api_key_id == 11 and result.audio == b"audio"
         gateway.key_pool.record_rate_limit.assert_awaited_once_with(10, retry_after_seconds=3600)
         gateway.key_pool.record_success.assert_awaited_once_with(11, tokens_used=0)
+    asyncio.run(run())
+
+
+def test_runway_failure_is_not_masked_by_missing_fallback_key():
+    from app.core.llm_gateway.errors import NoKeyAvailableError
+    from app.core.llm_gateway.speech_errors import SpeechProviderError
+    async def run():
+        first = TaskBinding(1,"text_to_speech",model(),10,None,None,False,False,True)
+        second = replace(first,id=2,model=replace(model(),provider_id=2,adapter_type="elevenlabs"))
+        gateway = LLMGateway(registry=SimpleNamespace(get_binding_chain=AsyncMock(return_value=[first,second])))
+        gateway.key_pool = SimpleNamespace(lease=AsyncMock(side_effect=[SimpleNamespace(id=10,plaintext="fixture"),NoKeyAvailableError("no fallback key")]))
+        gateway._log = AsyncMock()
+        error = SpeechProviderError("request_rejected",provider="runway",status_code=422)
+        with patch("app.core.llm_gateway.adapters.speech.synthesize",new=AsyncMock(side_effect=error)):
+            with pytest.raises(SpeechProviderError) as raised:
+                await gateway.speech(SpeechRequest(text="Xin chào"))
+        assert raised.value is error
+        assert gateway.key_pool.lease.await_count == 2
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("status,code",[(400,"request_rejected"),(402,"credits_required"),(404,"not_found"),(422,"request_rejected")])
+def test_speech_provider_failure_reports_status_without_echoing_body(status,code):
+    from app.core.llm_gateway.adapters.speech import check_response
+    from app.core.llm_gateway.speech_errors import SpeechProviderError,speech_failure_message
+    response = httpx.Response(status,json={"error":"secret-key-and-private-narration"})
+    with pytest.raises(SpeechProviderError) as raised: check_response(response,"runway")
+    assert raised.value.status_code == status and raised.value.code == code
+    assert "secret-key" not in str(raised.value)+speech_failure_message(raised.value)
+
+
+def test_download_forbidden_does_not_invalidate_a_working_runway_key():
+    from app.core.llm_gateway.adapters.speech import check_response
+    from app.core.llm_gateway.errors import AuthError
+    from app.core.llm_gateway.speech_errors import SpeechProviderError
+    with pytest.raises(SpeechProviderError) as raised:
+        check_response(httpx.Response(403),"runway",credentials=False)
+    assert not isinstance(raised.value,AuthError)
+    assert raised.value.code == "asset_download"
+
+
+def test_http_429_keeps_key_rotation_even_with_a_quota_code():
+    from app.core.llm_gateway.adapters.speech import check_response
+    with pytest.raises(RateLimitedError) as raised:
+        check_response(httpx.Response(429,json={"code":"quota_exceeded"},headers={"Retry-After":"90"}),"runway")
+    assert raised.value.retry_after == 90
+
+
+def test_speech_ui_distinguishes_configuration_from_media_failures():
+    from app.core.llm_gateway.speech_errors import SpeechProviderError,speech_failure_message
+    assert "credit" in speech_failure_message(SpeechProviderError("credits_required",provider="runway"))
+    assert "FFmpeg" in speech_failure_message(FileNotFoundError("secret path"),stage="audio_processing")
+    assert "MinIO" in speech_failure_message(ValueError("secret endpoint"),stage="storage")
+
+
+def test_failed_card_persists_specific_diagnostic_and_correlates_gateway_job():
+    from uuid import uuid4
+    from app.services import speech_service
+    from app.core.llm_gateway.speech_errors import SpeechProviderError
+    async def run():
+        job_id = uuid4()
+        conn = AsyncMock()
+        conn.fetchrow.return_value = {"id":job_id,"owner_id":1,"attempts":1,"request":{"text":"Xin chào","language":"vi","speed":0.97}}
+        gateway = SimpleNamespace(speech=AsyncMock(side_effect=SpeechProviderError("credits_required",provider="runway",status_code=402)))
+        with patch.object(speech_service,"get_ai_conn") as pool, patch.object(speech_service,"get_gateway",return_value=gateway):
+            pool.return_value.__aenter__.return_value = conn
+            assert await speech_service.run_next_speech()
+        request = gateway.speech.call_args.args[0]
+        assert request.request_id == str(job_id)
+        query,*parameters = conn.execute.call_args.args
+        assert "error=$3" in query
+        assert "credit" in parameters[-1] and str(job_id) in parameters[-1]
+        assert "Xin chào" not in parameters[-1]
     asyncio.run(run())
 
 

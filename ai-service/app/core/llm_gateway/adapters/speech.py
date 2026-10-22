@@ -8,28 +8,43 @@ import httpx
 
 from app.core.llm_gateway.errors import AuthError, ProviderError, RateLimitedError
 from app.core.llm_gateway.types import Model, SpeechRequest
+from app.core.llm_gateway.speech_errors import SpeechProviderError
 
 SPEECH_ADAPTERS = {"runway", "elevenlabs"}
 MAX_AUDIO_BYTES = 32 * 1024 * 1024
 
 
-def check_response(response: httpx.Response) -> None:
+def check_response(response: httpx.Response, provider: str = "speech", *, credentials: bool = True) -> None:
     status = response.status_code
+    if status < 400:
+        return
+    if not credentials:
+        raise SpeechProviderError("asset_download", provider=provider, status_code=status, retryable=status >= 500)
+    # Classify only known codes. Provider error messages can echo input or
+    # credentials, so their free-form bodies must never reach logs/UI.
+    try:
+        payload = response.json()
+        detail = payload.get("detail") if isinstance(payload, dict) else None
+        code = detail.get("status") if isinstance(detail,dict) else payload.get("code") if isinstance(payload,dict) else None
+    except (ValueError, TypeError):
+        code = None
+    if status == 402 or (status != 429 and code in ("insufficient_quota", "quota_exceeded", "insufficient_credits", "payment_required")):
+        raise SpeechProviderError("credits_required", provider=provider, status_code=status)
     if status in (401, 403):
-        raise AuthError("Speech provider rejected credentials", status_code=status)
+        raise AuthError(f"{provider}: speech provider rejected credentials (HTTP {status})", status_code=status)
     if status == 429:
         try:
             retry = float(response.headers.get("retry-after", "60"))
         except ValueError:
             retry = 60.0
         raise RateLimitedError("Speech provider quota reached", retry_after=retry)
-    if status >= 400:
-        raise ProviderError("Speech provider request failed", status_code=status, retryable=status >= 500)
+    code = "request_rejected" if status in (400, 422) else "not_found" if status == 404 else "provider_failed"
+    raise SpeechProviderError(code, provider=provider, status_code=status, retryable=status >= 500)
 
 
 async def _audio(client: httpx.AsyncClient, url: str, **kwargs) -> bytes:
     async with client.stream("GET", url, **kwargs) as response:
-        check_response(response)
+        check_response(response, "runway", credentials=False)
         data = bytearray()
         async for chunk in response.aiter_bytes():
             data.extend(chunk)
@@ -46,14 +61,14 @@ async def synthesize(model: Model, api_key: str, req: SpeechRequest) -> bytes:
     try:
         speed = req.speed if req.speed is not None else float(config.get("speed", 0.97))
     except (TypeError, ValueError):
-        raise ProviderError("Invalid model.config.speed")
+        raise SpeechProviderError("invalid_speed", provider=model.adapter_type)
     if not 0.7 <= speed <= 1.2:
-        raise ProviderError("Speech speed must be 0.7–1.2")
+        raise SpeechProviderError("invalid_speed", provider=model.adapter_type)
     language = req.language.split("-")[0].lower()
     async with httpx.AsyncClient(timeout=120, follow_redirects=False) as client:
         if model.adapter_type == "elevenlabs":
             if not voice:
-                raise ProviderError("Configure ElevenLabs model.config.voice_id before synthesis")
+                raise SpeechProviderError("voice_required", provider="elevenlabs")
             base = (model.base_url or "https://api.elevenlabs.io").rstrip("/")
             response = await client.post(
                 f"{base}/v1/text-to-speech/{quote(str(voice), safe='')}",
@@ -62,13 +77,13 @@ async def synthesize(model: Model, api_key: str, req: SpeechRequest) -> bytes:
                 json={"text": req.text, "model_id": model.model_name,
                       "language_code": language, "voice_settings": {"speed": speed}},
             )
-            check_response(response)
+            check_response(response, "elevenlabs")
             data = response.content
             if not data or len(data) > MAX_AUDIO_BYTES:
                 raise ProviderError("Invalid speech output size")
             return data
         if model.adapter_type != "runway":
-            raise ProviderError("Model does not support text_to_speech")
+            raise SpeechProviderError("unsupported_adapter", provider=model.adapter_type)
         base = (model.base_url or "https://api.dev.runwayml.com").rstrip("/")
         headers = {"Authorization": f"Bearer {api_key}", "X-Runway-Version": "2024-11-06"}
         response = await client.post(f"{base}/v1/text_to_speech", headers=headers, json={
@@ -76,7 +91,7 @@ async def synthesize(model: Model, api_key: str, req: SpeechRequest) -> bytes:
             "voice": {"type": "runway-preset", "presetId": voice or "Niki"},
             "languageCode": language, "speed": speed,
         })
-        check_response(response)
+        check_response(response, "runway")
         task_id = response.json().get("id")
         if not task_id:
             raise ProviderError("Runway returned no speech task id")
@@ -84,7 +99,7 @@ async def synthesize(model: Model, api_key: str, req: SpeechRequest) -> bytes:
         async with asyncio.timeout(240):
             while True:
                 response = await client.get(f"{base}/v1/tasks/{quote(str(task_id), safe='')}", headers=headers)
-                check_response(response)
+                check_response(response, "runway")
                 task = response.json()
                 if task.get("status") == "SUCCEEDED":
                     outputs = task.get("output") or []
@@ -97,5 +112,5 @@ async def synthesize(model: Model, api_key: str, req: SpeechRequest) -> bytes:
                         raise ProviderError("Runway returned an invalid output URL")
                     return await _audio(client, url)
                 if task.get("status") in {"FAILED", "CANCELED", "CANCELLED"}:
-                    raise ProviderError("Runway speech task failed")
+                    raise SpeechProviderError("task_failed", provider="runway")
                 await asyncio.sleep(2)

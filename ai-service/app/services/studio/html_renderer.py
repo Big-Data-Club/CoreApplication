@@ -23,7 +23,7 @@ def esc(value) -> str:
 
 def label(x, y, w, h, text, *, css="node-label") -> str:
     return (f'<foreignObject x="{round(x)}" y="{round(y)}" width="{round(w)}" height="{round(h)}">'
-            f'<div xmlns="http://www.w3.org/1999/xhtml" data-safe="{css}" class="{css}">{esc(text)}</div></foreignObject>')
+            f'<div xmlns="http://www.w3.org/1999/xhtml" data-safe="{css}" class="{css}"><span>{esc(text)}</span></div></foreignObject>')
 
 
 def box(x, y, w, h, text, role="input", step=0) -> str:
@@ -42,8 +42,17 @@ def connector(x1, y1, x2, y2, text="", step=0, label_rect=None, marker_id="arrow
     if label_rect:
         lx, ly = label_rect[:2]
     badge = label(lx, ly, 190, 56, text, css="edge-label") if text else ""
+    leader = ""
+    if text and label_rect:
+        mx, my = (x1+x2)/2, (y1+y2)/2
+        # A label may use another free band on the canvas. Preserve its
+        # association with this edge instead of leaving detached text.
+        ax, ay = max(lx, min(mx, lx+190)), max(ly, min(my, ly+56))
+        if (ax-mx)**2+(ay-my)**2 > 30**2:
+            leader = (f'<path data-label-leader="true" d="M {round(ax)} {round(ay)} L {round(mx)} {round(my)}" '
+                      'fill="none" stroke="#65788C" stroke-width="1.5" stroke-dasharray="4 5"/>')
     return (f'<g data-reveal="{step}"><path d="M {round(x1)} {round(y1)} L {round(x2)} {round(y2)}" '
-            f'fill="none" stroke="#65788C" stroke-width="3" marker-end="url(#{marker_id})"/>{badge}'
+            f'fill="none" stroke="#65788C" stroke-width="3" marker-end="url(#{marker_id})"/>{leader}{badge}'
             f'<circle data-packet="{step}" data-x1="{round(x1)}" data-y1="{round(y1)}" data-x2="{round(x2)}" data-y2="{round(y2)}" r="8" fill="#4F8CFF"/></g>')
 
 
@@ -52,12 +61,26 @@ def allocate_label(x1, y1, x2, y2, width, height, obstacles):
     mx, my = (x1+x2)/2, (y1+y2)/2
     candidates = [(mx-95,my-125),(mx-95,my+69),(mx+12,my-28),(mx-202,my-28),(mx-95,my-28)]
     candidates += [(mx+dx,my+dy) for dy in (-210,-150,-90,45,105,165) for dx in (-300,-95,110)]
+    def available(x, y):
+        return (5 <= x <= width-195 and 5 <= y <= height-61
+                and not any(x < bx+bw+6 and x+190 > bx-6 and y < by+bh+6 and y+56 > by-6 for bx,by,bw,bh in obstacles))
     for x,y in candidates:
         rect = (round(x),round(y),190,56)
-        if x < 5 or y < 5 or x+190 > width-5 or y+56 > height-5:
-            continue
-        if any(x < bx+bw+6 and x+190 > bx-6 and y < by+bh+6 and y+56 > by-6 for bx,by,bw,bh in obstacles):
-            continue
+        if available(rect[0], rect[1]):
+            obstacles.append(rect)
+            return rect
+    # The local offsets above are only a fast path. They are not proof that a
+    # diagram is full. Search free bands around obstacle boundaries and across
+    # the canvas, retaining the same readable label size and collision padding.
+    xs = {5, width-195, *range(5, width-194, 20)}
+    ys = {5, height-61, *range(5, height-60, 20)}
+    for bx, by, bw, bh in obstacles:
+        xs.update((math.floor(bx-196), math.ceil(bx+bw+6)))
+        ys.update((math.floor(by-62), math.ceil(by+bh+6)))
+    slots = [(x,y) for y in sorted(ys) for x in sorted(xs) if available(x,y)]
+    if slots:
+        x,y = min(slots, key=lambda p: ((p[0]+95-mx)**2+(p[1]+28-my)**2, p[1], p[0]))
+        rect = (x,y,190,56)
         obstacles.append(rect)
         return rect
     raise ValueError("No safe space for connector label; shorten labels or split the diagram")
@@ -108,15 +131,22 @@ def diagram(scene: Scene, portrait: bool) -> str:
         grid = kind in {"network_topology", "process_grid", "architecture", "collective_communication"}
         bw, bh = (230, 112) if portrait else (270, 112)
         if tree:
+            # Four portrait leaves require narrow nodes. Give their wrapped
+            # labels three readable lines rather than shrinking the font.
+            if portrait:
+                bh = 144
+                row_counts = [min(2**level,n-(2**level-1)) for level in range(int(math.log2(n))+1)] if n else [1]
+                bw = min(230, math.floor(width/max(row_counts))-30)
+            levels = int(math.log2(n)) if n else 0
+            usable_height = height-100 if scene.visual_spec.equation else height-5
+            level_gap = min(245, (usable_height-45-bh)/max(1,levels))
             for i, node in enumerate(nodes):
                 level = int(math.log2(i + 1))
                 offset = i - (2**level - 1)
-                coords[node.id] = ((offset + 0.5) * width / 2**level - bw/2, 45 + level * 245)
+                row_count = min(2**level,n-(2**level-1)) if portrait else 2**level
+                coords[node.id] = ((offset + 0.5) * width / row_count - bw/2, 45 + level * level_gap)
             if n > 7:
                 raise ValueError("Tree scene supports at most 7 nodes; split the explanation")
-            if portrait:
-                bw = 170
-                coords = {key: (max(5, min(width-bw-5, x+30)), y) for key, (x,y) in coords.items()}
         elif kind == "memory_hierarchy":
             for i, node in enumerate(nodes):
                 coords[node.id] = (50, 30 + i * 160)
@@ -150,6 +180,13 @@ def diagram(scene: Scene, portrait: bool) -> str:
                 coords[node.id] = (30 + col * width / cols, 130 + row * 240)
         parts = []
         obstacles = [(x,y,bw,bh) for x,y in coords.values()]
+        if any(x < 0 or y < 0 or x+bw > width or y+bh > height for x,y in coords.values()):
+            raise ValueError("Diagram too dense for this aspect ratio; split nodes across scenes")
+        if scene.visual_spec.equation:
+            equation_rect = (10,height-85,width-20,80)
+            if any(y+bh > equation_rect[1] and x < width-10 and x+bw > 10 for x,y in coords.values()):
+                raise ValueError("Diagram nodes occupy the equation band; split nodes across scenes")
+            obstacles.append(equation_rect)
         # Render connectors before nodes; endpoints terminate at the boundary.
         for i, edge in enumerate(scene.visual_spec.edges):
             sx, sy = coords[edge.source]; tx, ty = coords[edge.target]
@@ -213,6 +250,7 @@ def render_html(storyboard: Storyboard, theme: str = "google", *, video: bool = 
     .caption{{font-size:{round((34 if portrait else 29)*scale)}px;line-height:1.4;max-width:100%;height:100%;overflow:hidden;overflow-wrap:anywhere}}
     .metadata{{font-size:{round(19*scale)}px;line-height:1.4;max-height:{round(35*scale)}px;overflow:hidden;color:#65788C}}
     .node-label,.edge-label,.cell-label,.equation,.matrix-name{{height:100%;width:100%;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.25;overflow:hidden;overflow-wrap:anywhere;font-size:29px;padding:4px;color:{ink}}}
+    .node-label>span,.edge-label>span,.cell-label>span,.equation>span,.matrix-name>span{{display:block;min-width:0;max-width:100%;overflow-wrap:anywhere}}
     .edge-label{{background:var(--panel);font-size:{26 if portrait else 21}px;border-radius:6px}}.cell-label{{font-size:{24 if portrait else 20}px}}.active{{color:#102236}}.equation{{font-size:{42 if portrait else 40}px}}.matrix-name{{font-size:36px;font-weight:bold}}
     .code-line{{height:100%;width:100%;margin:0;font:26px/1.8 'DejaVu Sans Mono',monospace;overflow:hidden;white-space:pre}}
     @page{{size:{v.width}px {v.height}px;margin:0}}

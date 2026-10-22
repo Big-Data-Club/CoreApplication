@@ -70,6 +70,7 @@ async def run_next_speech() -> bool:
                 work.cancel()
                 return
     beat = asyncio.create_task(heartbeat())
+    stage = "synthesis"
     try:
         async with asyncio.timeout(600):
             if row["attempts"] > 3:
@@ -84,13 +85,15 @@ async def run_next_speech() -> bool:
             with TemporaryDirectory(prefix="flashcard-speech-") as temporary:
                 directory = Path(temporary); inputs = []
                 for index, part in enumerate(parts):
-                    response = await get_gateway().speech(SpeechRequest(text=part, **data))
+                    response = await get_gateway().speech(SpeechRequest(text=part, request_id=str(row["id"]), **data))
                     path = directory / f"part{index}.mp3"; path.write_bytes(response.audio)
                     inputs.extend(["-i", str(path)])
                 chain = ''.join(f'[{i}:a]' for i in range(len(parts)))
+                stage = "audio_processing"
                 await command("ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", f"{chain}concat=n={len(parts)}:v=0:a=1[a]",
                               "-map", "[a]", "-c:a", "libmp3lame", directory / "speech.mp3")
                 key = f"studio/speech/{row['owner_id']}/{row['id']}.mp3"
+                stage = "storage"
                 if not await upload_bytes(key, (directory / "speech.mp3").read_bytes(), "audio/mpeg"):
                     raise ValueError("Speech storage failed")
             async with get_ai_conn() as conn:
@@ -101,11 +104,13 @@ async def run_next_speech() -> bool:
             work.uncancel()
             return True
         raise
-    except Exception:
-        logger.exception("Speech generation failed job=%s", row["id"])
+    except Exception as exc:
+        from app.core.llm_gateway.speech_errors import speech_failure_message
+        detail = f"{speech_failure_message(exc, stage=stage)} (job {row['id']})"
+        logger.exception("Speech generation failed job=%s stage=%s error_type=%s", row["id"], stage, type(exc).__name__)
         async with get_ai_conn() as conn:
-            await conn.execute("""UPDATE speech_jobs SET status='failed',error='Giọng neural chưa sẵn sàng. Kiểm tra key và voice trong Gateway.',
-                lease_until=NULL,updated_at=now() WHERE id=$1 AND lease_token=$2 AND lease_until>now()""", row["id"], token)
+            await conn.execute("""UPDATE speech_jobs SET status='failed',error=$3,
+                lease_until=NULL,updated_at=now() WHERE id=$1 AND lease_token=$2 AND lease_until>now()""", row["id"], token, detail)
     finally:
         beat.cancel(); await asyncio.gather(beat, return_exceptions=True)
     return True

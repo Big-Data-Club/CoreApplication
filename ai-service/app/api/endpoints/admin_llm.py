@@ -311,8 +311,9 @@ async def test_call(body: TestCallIn, request: Request):
         try:
             start = time.monotonic()
             speech = await get_gateway().speech(SpeechRequest(text=body.prompt))
-        except Exception:
-            raise HTTPException(502, "Speech test failed; check provider key and model.config.voice_id")
+        except Exception as exc:
+            from app.core.llm_gateway.speech_errors import speech_failure_message
+            raise HTTPException(502, speech_failure_message(exc))
         return {"content": "Neural speech generated", "model": speech.model.model_name,
                 "provider": speech.model.provider_code, "fallback_used": False, "attempt_no": 1,
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},

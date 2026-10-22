@@ -26,6 +26,46 @@ def lesson():
     )])
 
 
+def work_span_lesson(kind="comparison",count=4):
+    from itertools import combinations
+    plan = lesson()
+    names = ["Work T₁","Span T∞","p processors","Lower bound","Schedule"][:count]
+    plan.sections[0] = PlanSection(title="Work, Span và giới hạn dưới của lịch trình",learning_goal="Hiểu giới hạn song song",
+        source_refs=["S1"],narration="Công và đường găng cùng giới hạn thời gian chạy.",animation_steps=["work","span","bound"],
+        visual_type=kind,visual_spec=VisualSpec(nodes=[{"id":f"n{i}","label":name} for i,name in enumerate(names)],
+        edges=[{"source":f"n{i}","target":f"n{j}","label":"giới hạn"} for i,j in list(combinations(range(count),2))[:8]],
+        equation="Tₚ ≥ max(T₁/p, T∞)"))
+    return plan
+
+
+def test_connector_labels_search_the_canvas_before_declaring_it_full():
+    from app.services.studio.html_renderer import allocate_label
+    obstacles = [(250,0,930,650)]
+    x,y,w,h = allocate_label(1100,200,1100,500,1180,650,obstacles)
+    assert x+w <= 244 and 5 <= y <= 589
+    assert (w,h) == (190,56)
+
+
+@pytest.mark.parametrize("aspect",["16:9","9:16"])
+@pytest.mark.parametrize("kind,count",[("comparison",4),("architecture",5),("algorithm_tree",5),("resource_timeline",3),("flow",5)])
+def test_work_span_diagram_reflows_labels_and_reserves_its_equation(aspect,kind,count):
+    from xml.etree import ElementTree as ET
+    from app.services.studio.html_renderer import diagram
+    board = compile_storyboard(work_span_lesson(kind,count),{"aspect_ratio":aspect},video=True)
+    svg = ET.fromstring(diagram(board.scenes[0],aspect=="9:16"))
+    height = 900 if aspect=="9:16" else 650
+    edge_labels = [el for el in svg.iter() if el.tag.endswith("foreignObject") and any(child.attrib.get("data-safe")=="edge-label" for child in el.iter())]
+    assert len(edge_labels) == len(board.scenes[0].visual_spec.edges)
+    for el in edge_labels:
+        assert float(el.attrib["y"])+float(el.attrib["height"]) <= height-85
+
+
+def test_label_allocation_still_rejects_a_genuinely_full_canvas():
+    from app.services.studio.html_renderer import allocate_label
+    with pytest.raises(ValueError,match="No safe space"):
+        allocate_label(10,10,20,20,800,900,[(0,0,800,900)])
+
+
 def test_storyboard_duration_is_unknown_until_audio_measured():
     plan = lesson(); plan.sections[0].duration_est_sec = 999
     board = compile_storyboard(plan, {}, video=True)
