@@ -1,66 +1,116 @@
 # Verified warehouse production release
 
-Observed: 2026-10-21, approximately 17:59 UTC. This is a deployment receipt;
+Observed: 2026-10-22, approximately 16:30 UTC. This is a deployment receipt;
 recheck live metadata before relying on it after configuration or retention changes.
+Only operational metadata and aggregate counts were inspected; no source rows or
+credentials are included here.
 
 ## Release and runtime
 
-- CoreApplication revision: `30e7d7a499fd560668c7773fcecb21cfc5d48e57`.
-- Warehouse source pin: `8048312`.
-- [Production CI/CD run](https://github.com/Big-Data-Club/CoreApplication/actions/runs/39647466315):
-  verification, image build, and deployment all succeeded.
+- CoreApplication runtime revision: `e62003baaa2f6cf5c2212ee246adbbd0c3ea3c6e`.
+- Warehouse source pin: `0e5f36d`.
+- [Warehouse CI/CD run](https://github.com/Big-Data-Club/CoreApplication/actions/runs/39809991710):
+  verification, immutable image build, schema migration and deployment succeeded.
 - Immutable image digest:
-  `sha256:9b1a35d3ea9cd8706739064322ebcb717fe5abb47624f9645c642f38324be682`.
-- Deployment `default/data-warehouse-worker`: one ready replica on the expected
-  revision. The new pod had zero restarts in the observed rollout.
-- Both raw-model and view migrations succeeded under the dataset-scoped deployment
-  identity. Dataset bootstrap is separate from runtime migrations.
-- The ingest identity uses short-lived Workload Identity Federation credentials.
-  No service account private key or human Google login was installed in the pod.
+  `sha256:e661d121da45d2b7191ee00665e10f1ca907af8d5ef28e7068fd96c03e3b4e18`.
+- [AI owner-export deployment](https://github.com/Big-Data-Club/CoreApplication/actions/runs/39808779956)
+  succeeded before enabling snapshot collection.
+- Deployment `default/data-warehouse-worker`: one ready replica, expected revision,
+  zero observed restarts, no pending records and no reported error.
+- Short-lived Workload Identity Federation credentials are used by separate ingest
+  and schema-deployment identities. No service account private key or human Google
+  login is installed in a workload.
+
+The cold-start pacing correction permits the first upload immediately; subsequent
+uploads retain the minimum 60-second spacing. The regression test supplies a
+monotonic clock of five seconds, reproducing a freshly booted runner without
+increasing the test timeout. All 32 warehouse tests passed locally and in CI.
 
 This receipt supersedes the continuous-ingestion status in the older
 [initial-load snapshot](../data-warehouse/docs/deployment-status.md).
 
-## Actual source-to-warehouse evidence
+## Actual collection and reconciliation
 
-The worker acknowledged a batch of 205 real records from
-`lms.analytics.interactions`, partition 0. No artificial events were published.
+No artificial events were published. The platform worker consumes the LMS and
+recommendation topics with the separate group `bdc-warehouse-platform-v1`.
 
-- Load job:
-  `bdc_worker_2dc18dd61faa4ed50abcf2f0e2b7f69ffe0a8ffa769bdd6e99057f80beb17c2e`.
-- Last acknowledgement: `2026-10-21T17:58:12.993273Z`.
-- Kafka group `bdc-warehouse-lms-v1`: committed offset 4023, broker end offset
-  4023, lag 0. Inspection did not read source records or commit offsets.
-- Worker status: ready, one successful batch, 205 acknowledged rows, zero pending
-  records, no reported error.
-- Reconciliation job: `bdc_dw_dee3247fb16c4b829225acb0c4310beb`.
+| Source | Retained distinct core events | Observed collection |
+|---|---:|---|
+| LMS interaction | 213 | Continuous Kafka ingestion; one partition |
+| Recommendation event | 0 | Topic available with three partitions; no retained events observed |
+| AI provider attempt | 63 | Authenticated source-owned snapshot; one row per recorded attempt |
 
-| Reconciliation | Observed result |
-|---|---:|
-| Raw deliveries for the captured source coordinates | 410 |
-| Distinct acknowledged source coordinates | 205 |
-| Payload hash mismatches | 0 |
-| Distinct fact events | 205 |
-| Identity conflicts | 0 |
-| Sum of daily mart interactions | 205 |
+The acknowledged platform Kafka load contained 213 real LMS events:
+`bdc_worker_35563222d7ce55cb38cf9e1355e42e56531e5ce2af129c1608c45dffb0c732f2`.
+Last acknowledgement was `2026-10-22T16:07:16.748122Z`. LMS committed/end offsets
+were both 4031; all three recommendation partitions had end offset zero and no
+committed offset. Total source lag was zero. Inspection did not consume source
+records or change checkpoints.
 
-Raw deliveries include the original one-shot load and the continuous group's
-legitimate replay of retained source events. Stable event identity and payload
-hash deduplication keep fact/mart counts at 205. This demonstrates a successful
-real batch and reconciled replay; a live pod/node restart recovery exercise was
-not performed. Crash-window recovery is covered by isolated tests.
+The combined retained LMS evidence contains 631 deliveries across legacy and new
+raw tables, resolving to 213 distinct facts. Legitimate replay does not multiply
+core events. Identity-conflict checks returned zero.
 
-## Operating boundaries
+AI snapshot Jobs demonstrated collection and deduplication against the real owner:
 
-Batch flush interval is 300 seconds, bounded by 1,000 records/1 MiB. The worker
-continues consuming new real events and commits Kafka offsets only after an
-acknowledged BigQuery load. The project remains in the selected billing-disabled
-mode. Raw-table expiry observed at `2026-12-20T15:10:44.388Z` still applies;
-this deployment does not establish permanent history or recover events outside
-Kafka retention.
+| Job | Source snapshot rows | New rows acknowledged | Unchanged rows skipped |
+|---|---:|---:|---:|
+| `warehouse-ai-verify-dddacb` | 45 | 45 | 0 |
+| `warehouse-ai-verify-047ad9` | 63 | 18 | 45 |
+
+Both Jobs completed successfully. The second snapshot preserved the 45 confirmed
+identities and collected 18 actual new attempts. Six of the 63 attempts have
+unknown usage; their token usage stays null rather than becoming a false zero.
+Actor/course attribution and historical cost remain unavailable in this source.
+This is metadata collection, not a prompt/response or training-content export.
+
+Final aggregate analysis passed all 26 integrity checks: fact/dimension key
+uniqueness, identity conflicts, foreign-key coverage, future timestamps, unknown
+usage semantics and legacy fact compatibility. Evidence query jobs:
+
+- Source coverage: `bdc_dw_dcc9eb1d07614015a66af1f2b4971c99`.
+- Integrity: `bdc_dw_fca65923642547669719ccbe37d90a20`.
+- Fact counts: `bdc_dw_28fdef79f18b4e5e8179b7443dba923d`.
+
+These observations demonstrate real collection and repeat-snapshot deduplication.
+A live node/PVC-loss recovery exercise was not performed; journal crash-window
+recovery is covered by isolated tests.
+
+## Implemented model and operating boundaries
+
+The foundation provides raw evidence, deduplicated staging, three business facts
+and six shared dimensions as logical BigQuery views. User/course dimensions are
+inferred members; authoritative descriptions and SCD2 history are not claimed.
+The existing learning mart remains compatible. New marts, dashboards, recommender
+and conversational recommender serving, DSS workflows and model training remain
+deferred.
+
+Canonical English documentation:
+
+- [Foundation and source contracts](../data-warehouse/docs/08-foundation-design.md).
+- [Implemented dimensional model](../data-warehouse/docs/09-dimensional-model-implementation.md).
+- [Target modelling catalog](../data-warehouse/docs/03-data-warehouse-modelling.md).
+- [Executable source register](../data-warehouse/contracts/sources.json).
+
+Kafka batches are bounded by 1,000 records/1 MiB with a 300-second flush interval.
+Offsets advance only after a durably acknowledged BigQuery load. The AI CronJob
+runs at `17 */6 * * *` UTC with overlapping execution forbidden, a seven-day owner
+window, and limits of 10,000 rows/16 MiB. Interrupted capture must recover within
+that available source window; the schedule is not proof of complete history.
+
+Billing remains disabled. Metadata verification confirmed all five datasets and
+19 expected table/view resources in `asia-southeast1`; the existing mart dry run
+succeeded. The new raw table expires at `2026-12-21T15:23:16.831Z`. The legacy raw
+table expires earlier, at `2026-12-20T15:10:44.388Z`, and is still a dependency of
+the combined learning views. The earlier date therefore limits the current
+learning model even if the new raw table remains available. This deployment does
+not establish permanent history or automated archival.
+
+Login, full agent/tool provenance, Lab, Chat, derived profiles and service metrics
+are not yet onboarded. Missing evidence must not appear as zero business activity.
+Current LMS/recommendation publishers also have documented reliability gaps;
+warehouse acknowledgements do not repair events never published by a source.
 
 See the [deployment guide](../data-warehouse/docs/07-continuous-deployment.md)
-for checkpoint, quota, privacy, and expiry behavior, and the
-[DevOps runbook](teams/DEVOPS_RUNBOOK.md) for release recovery. The release includes
-16 warehouse tests and six parent deployment/selection tests. Runtime inspection
-and reconciliation emitted operational metadata/counts only, never source rows.
+for checkpoint, quota, privacy and expiry behavior, and the
+[DevOps runbook](teams/DEVOPS_RUNBOOK.md) for release recovery.
