@@ -1,0 +1,212 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  namespace: monitoring
+  name: bdc-alloy-logs
+spec:
+  selector:
+    matchLabels:
+      app: bdc-alloy-logs
+  template:
+    metadata:
+      labels:
+        app: bdc-alloy-logs
+    spec:
+      serviceAccountName: bdc-alloy-logs
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.21.1
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/var/lib/alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --disable-reporting
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: http
+              containerPort: 12345
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          securityContext:
+            # Node log files are root-owned; only these mounts are readable.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: pod-logs
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: positions
+              mountPath: /var/lib/alloy
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: bdc-alloy-logs-config
+        - name: pod-logs
+          hostPath:
+            path: /var/log/pods
+            type: Directory
+        - name: positions
+          hostPath:
+            path: /var/lib/bdc-alloy
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: monitoring
+  name: bdc-alloy-events
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bdc-alloy-events
+  template:
+    metadata:
+      labels:
+        app: bdc-alloy-events
+    spec:
+      serviceAccountName: bdc-alloy-events
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 473
+        runAsGroup: 473
+        fsGroup: 473
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.21.1
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/var/lib/alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --disable-reporting
+          ports:
+            - name: http
+              containerPort: 12345
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/alloy
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: bdc-alloy-events-config
+        - name: data
+          emptyDir:
+            sizeLimit: 32Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: monitoring
+  name: bdc-alloy
+  labels:
+    app: bdc-alloy
+spec:
+  selector:
+    app: bdc-alloy-logs
+  ports:
+    - name: http
+      port: 12345
+      targetPort: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  namespace: monitoring
+  name: bdc-logging
+  labels:
+    release: kps
+spec:
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [bdc-loki, bdc-alloy, bdc-alloy-events]
+  endpoints:
+    - port: http
+      interval: 30s
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bdc-alloy-events
+  namespace: monitoring
+  labels:
+    app: bdc-alloy-events
+spec:
+  selector:
+    app: bdc-alloy-events
+  ports:
+    - name: http
+      port: 12345
+      targetPort: http

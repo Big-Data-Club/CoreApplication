@@ -740,6 +740,22 @@ Apply ServiceMonitors only after the corresponding service image exposes the
 configured metrics endpoint. A target that does not expose `/metrics` creates
 an `UP=0` alert/noise, not useful observability.
 
+### 8.1.1 Central service logs and error charts
+
+The versioned [logging stack](../../k3s/logging/README.md) adds Alloy file
+collectors, a singleton Kubernetes Events reader and Loki with 72h retention.
+It provisions **BDC Logs** and **BDC Service Logs & Errors** on the existing
+Grafana at `/monitor/d/bdc-service-logs/`. Service/pod/level/search filters and
+error-rate plots include worker logs, while persisted Events show scheduling
+and eviction failures that application logs cannot explain.
+
+Run `python3 scripts/enable-service-logs.py` to review the plan, then use
+`--apply` from an authorised kubectl/Helm workstation. The installer keeps the
+installed `kps` chart version and existing datasources. These files are not
+automatically deployed by the application-image workflow. Loki stays internal;
+the 5Gi local-path PVC does not enforce a node disk quota. See the linked guide
+for storage limits, validation, access restrictions and rollback preserving logs.
+
 ### 8.2 Performance test safety model
 
 All scripts live in `performance-tests/` and must use:

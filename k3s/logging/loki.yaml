@@ -1,0 +1,139 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: monitoring
+  name: bdc-loki
+  labels:
+    app: bdc-loki
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: monitoring
+  name: bdc-loki
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bdc-loki
+  template:
+    metadata:
+      labels:
+        app: bdc-loki
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: loki
+          image: grafana/loki:3.7.9
+          args: ["-config.file=/etc/loki/loki.yaml", "-target=all"]
+          ports:
+            - name: http
+              containerPort: 3100
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+              readOnly: true
+            - name: data
+              mountPath: /loki
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: bdc-loki-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: bdc-loki
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: monitoring
+  name: bdc-loki
+  labels:
+    app: bdc-loki
+spec:
+  selector:
+    app: bdc-loki
+  ports:
+    - name: http
+      port: 3100
+      targetPort: http
+---
+# Loki has no public endpoint or tenant authentication; permit only monitoring
+# clients. K3s must have its network-policy controller enabled.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  namespace: monitoring
+  name: bdc-loki
+spec:
+  podSelector:
+    matchLabels:
+      app: bdc-loki
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+        - podSelector:
+            matchLabels:
+              app: bdc-alloy-logs
+        - podSelector:
+            matchLabels:
+              app: bdc-alloy-events
+      ports:
+        - protocol: TCP
+          port: 3100

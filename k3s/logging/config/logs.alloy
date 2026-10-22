@@ -1,0 +1,116 @@
+logging {
+  level = "warn"
+}
+
+discovery.kubernetes "pods" {
+  role = "pod"
+  namespaces {
+    names = ["default"]
+  }
+  selectors {
+    role = "pod"
+    field = "spec.nodeName=" + sys.env("NODE_NAME")
+  }
+}
+
+discovery.relabel "containers" {
+  targets = discovery.kubernetes.pods.targets
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label = "namespace"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label = "pod"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label = "container"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_node_name"]
+    target_label = "node"
+  }
+  // Fallback -> app -> app.kubernetes.io/name; never use the log's service field.
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label = "service_name"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app"]
+    regex = "(.+)"
+    target_label = "service_name"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+    regex = "(.+)"
+    target_label = "service_name"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+    separator = "/"
+    target_label = "__path__"
+    replacement = "/var/log/pods/*$1/*.log"
+  }
+  rule {
+    target_label = "job"
+    replacement = "bdc/containers"
+  }
+}
+
+local.file_match "containers" {
+  path_targets = discovery.relabel.containers.output
+  sync_period = "5s"
+}
+
+loki.source.file "containers" {
+  targets = local.file_match.containers.targets
+  forward_to = [loki.process.containers.receiver]
+  // Existing files are read on first install; positions survive agent restarts.
+  tail_from_end = false
+}
+
+loki.process "containers" {
+  forward_to = [loki.write.local.receiver]
+  stage.cri {
+    max_partial_lines = 100
+    max_partial_line_size = 262144
+    max_partial_line_size_truncate = true
+  }
+  stage.decolorize {}
+  // Python tracebacks and Java stack traces stay attached to their first line.
+  // JSON exc_info is already escaped inside a single line; preserve that JSON.
+  stage.multiline {
+    firstline = "^(\\{|[0-9]{4}[-/]|\\[[^]]+\\]|(?i:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL|PANIC)[: ])"
+    max_wait_time = "2s"
+    max_lines = 200
+  }
+  stage.json {
+    expressions = { json_level = "level", json_levelname = "levelname", json_severity = "severity" }
+  }
+  // Only parse the record prefix, never an 'error' word inside an INFO message.
+  stage.regex {
+    expression = "^(?:[0-9T:.,+Z/ -]+\\s+)?(?:\\[[^]]+\\]\\s+)?\\[?(?P<text_level>(?i:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL|PANIC))(?:\\]|:|\\s)"
+  }
+  stage.template {
+    source = "normalized_level"
+    template = "{{ if .json_level }}{{ ToLower .json_level }}{{ else if .json_levelname }}{{ ToLower .json_levelname }}{{ else if .json_severity }}{{ ToLower .json_severity }}{{ else if .text_level }}{{ ToLower .text_level }}{{ else }}unknown{{ end }}"
+  }
+  stage.template {
+    source = "normalized_level"
+    template = "{{ if eq .Value \"warning\" }}warn{{ else if or (eq .Value \"fatal\") (eq .Value \"critical\") (eq .Value \"panic\") }}error{{ else if or (eq .Value \"info\") (eq .Value \"debug\") (eq .Value \"trace\") (eq .Value \"warn\") (eq .Value \"error\") }}{{ .Value }}{{ else }}unknown{{ end }}"
+  }
+  stage.labels {
+    values = { level = "normalized_level" }
+  }
+  // Job IDs / request IDs / user IDs remain searchable text, never index labels.
+  stage.label_drop {
+    values = ["filename"]
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://bdc-loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+  }
+}

@@ -1,0 +1,31 @@
+logging {
+  level = "warn"
+}
+
+// Singleton reader: a DaemonSet would repeat every event on every node.
+loki.source.kubernetes_events "cluster" {
+  namespaces = ["default", "monitoring"]
+  job_name = "bdc/kubernetes-events"
+  log_format = "json"
+  forward_to = [loki.process.events.receiver]
+}
+
+loki.process "events" {
+  forward_to = [loki.write.local.receiver]
+  stage.json {
+    expressions = { event_type = "type" }
+  }
+  stage.template {
+    source = "level"
+    template = "{{ if eq .event_type \"Warning\" }}warn{{ else }}info{{ end }}"
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://bdc-loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+  }
+}

@@ -1,0 +1,42 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bdc-logging
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  groups:
+    - name: bdc.logging
+      rules:
+        - alert: BDCLoggingTargetDown
+          expr: up{namespace="monitoring",service=~"bdc-loki|bdc-alloy|bdc-alloy-events"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "BDC logging target {{ $labels.service }} is unreachable"
+            description: "Check BDC Service Logs & Errors; log delivery may be interrupted."
+        - alert: BDCLogCollectorUnavailable
+          expr: kube_daemonset_status_number_unavailable{namespace="monitoring",daemonset="bdc-alloy-logs"} > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "BDC log collection is missing from a node"
+        - alert: BDCLogRecordsDropped
+          expr: sum(increase(loki_write_dropped_entries_total{namespace="monitoring"}[5m])) > 0 or sum(increase(loki_discarded_samples_total{namespace="monitoring"}[5m])) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "BDC log records are being dropped"
+            description: "Check collector retries, Loki limits, old timestamps and storage capacity."
+        - alert: BDCLoggingDiskLow
+          expr: node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"} < 0.15
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node filesystem has less than 15% available"
+            description: "Loki local-path storage shares the node disk. A 5Gi PVC request does not impose a disk quota; 72h retention deletes asynchronously."

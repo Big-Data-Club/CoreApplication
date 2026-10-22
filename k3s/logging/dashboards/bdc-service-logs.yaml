@@ -1,0 +1,559 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bdc-service-logs-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  bdc-service-logs.json: |
+    {
+      "uid": "bdc-service-logs",
+      "title": "BDC Service Logs & Errors",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "tags": [
+        "bdc",
+        "logs",
+        "errors",
+        "kubernetes"
+      ],
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "DS_PROMETHEUS",
+            "label": "Metrics source",
+            "type": "datasource",
+            "query": "prometheus",
+            "refresh": 1
+          },
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": {
+              "type": "loki",
+              "uid": "bdc-loki"
+            },
+            "query": "label_values({job=~\"bdc/containers|bdc/kubernetes-events\"}, namespace)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "text": "default",
+              "value": "default"
+            }
+          },
+          {
+            "name": "service",
+            "label": "Service",
+            "type": "query",
+            "datasource": {
+              "type": "loki",
+              "uid": "bdc-loki"
+            },
+            "query": "label_values({job=\"bdc/containers\",namespace=~\"$namespace\"}, service_name)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          },
+          {
+            "name": "pod",
+            "label": "Pod",
+            "type": "query",
+            "datasource": {
+              "type": "loki",
+              "uid": "bdc-loki"
+            },
+            "query": "label_values({job=\"bdc/containers\",namespace=~\"$namespace\",service_name=~\"$service\"}, pod)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          },
+          {
+            "name": "level",
+            "label": "Level",
+            "type": "custom",
+            "query": "trace,debug,info,warn,error,unknown",
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          },
+          {
+            "name": "search",
+            "label": "Search (regex / job ID)",
+            "type": "textbox",
+            "query": "",
+            "current": {
+              "text": "",
+              "value": ""
+            }
+          }
+        ]
+      },
+      "annotations": {
+        "list": []
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Error records",
+          "datasource": {
+            "type": "loki",
+            "uid": "bdc-loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(count_over_time({job=\"bdc/containers\",namespace=~\"$namespace\",service_name=~\"$service\",pod=~\"$pod\",level=\"error\"}[$__range]))"
+            }
+          ],
+          "description": "Counts log records marked ERROR/FATAL/CRITICAL/PANIC. Unknown severity is not treated as an error."
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Warning records",
+          "datasource": {
+            "type": "loki",
+            "uid": "bdc-loki"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(count_over_time({job=\"bdc/containers\",namespace=~\"$namespace\",service_name=~\"$service\",pod=~\"$pod\",level=\"warn\"}[$__range]))"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Container restarts",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\",pod=~\"$pod\"}[$__range]))"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Pending pods now",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 18,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(kube_pod_status_phase{namespace=~\"$namespace\",pod=~\"$pod\",phase=\"Pending\"} == 1)"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Errors per minute by service",
+          "datasource": {
+            "type": "loki",
+            "uid": "bdc-loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 4,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (service_name) (rate({job=\"bdc/containers\",namespace=~\"$namespace\",service_name=~\"$service\",pod=~\"$pod\",level=\"error\"}[5m])) * 60",
+              "legendFormat": "{{service_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0
+            }
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Log volume by severity / minute",
+          "datasource": {
+            "type": "loki",
+            "uid": "bdc-loki"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 4,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (level) (rate({job=\"bdc/containers\",namespace=~\"$namespace\",service_name=~\"$service\",pod=~\"$pod\"}[5m])) * 60",
+              "legendFormat": "{{level}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0
+            }
+          }
+        },
+        {
+          "id": 7,
+          "type": "bargauge",
+          "title": "Errors by service in selected period",
+          "datasource": {
+            "type": "loki",
+            "uid": "bdc-loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 12,
+            "w": 8,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (service_name) (count_over_time({job=\"bdc/containers\",namespace=~\"$namespace\",service_name=~\"$service\",pod=~\"$pod\",level=\"error\"}[$__range]))",
+              "queryType": "instant",
+              "legendFormat": "{{service_name}}"
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Container restarts per 5 minutes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 12,
+            "w": 8,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\",pod=~\"$pod\"}[5m]))",
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "Failed / Pending pods now",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 12,
+            "w": 8,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "kube_pod_status_phase{namespace=~\"$namespace\",pod=~\"$pod\",phase=~\"Failed|Pending\"} == 1",
+              "format": "table",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "logs",
+          "title": "Error records and tracebacks",
+          "datasource": {
+            "type": "loki",
+            "uid": "bdc-loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 19,
+            "w": 24,
+            "h": 10
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{job=\"bdc/containers\",namespace=~\"$namespace\",service_name=~\"$service\",pod=~\"$pod\",level=\"error\"} |~ `(?i)${search:raw}`",
+              "queryType": "range"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": true,
+            "enableLogDetails": true,
+            "sortOrder": "Descending",
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "id": 11,
+          "type": "logs",
+          "title": "Service logs — search text, job ID or request ID",
+          "datasource": {
+            "type": "loki",
+            "uid": "bdc-loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 29,
+            "w": 24,
+            "h": 13
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{job=\"bdc/containers\",namespace=~\"$namespace\",service_name=~\"$service\",pod=~\"$pod\",level=~\"$level\"} |~ `(?i)${search:raw}`",
+              "queryType": "range"
+            }
+          ],
+          "description": "Search is a case-insensitive RE2 expression. Select a service/pod above; expand a record for JSON exc_info. Job/request IDs stay in text, not index labels.",
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": true,
+            "enableLogDetails": true,
+            "sortOrder": "Descending",
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "id": 12,
+          "type": "logs",
+          "title": "Kubernetes warnings — scheduling, eviction, image and probe failures",
+          "datasource": {
+            "type": "loki",
+            "uid": "bdc-loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 42,
+            "w": 24,
+            "h": 10
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{job=\"bdc/kubernetes-events\",namespace=~\"$namespace\",level=\"warn\"} |~ `(?i)${search:raw}`",
+              "queryType": "range"
+            }
+          ],
+          "description": "Events include both application and monitoring namespaces; select All namespaces to investigate the logging stack. This panel is independent of service/pod filters. A repeated event update is not a unique incident.",
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": true,
+            "enableLogDetails": true,
+            "sortOrder": "Descending",
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "id": 13,
+          "type": "table",
+          "title": "Container waiting reasons",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 52,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "kube_pod_container_status_waiting_reason{namespace=~\"$namespace\",pod=~\"$pod\"} == 1",
+              "format": "table",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "table",
+          "title": "Last termination was OOMKilled (current pods)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 52,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "kube_pod_container_status_last_terminated_reason{namespace=~\"$namespace\",pod=~\"$pod\",reason=\"OOMKilled\"} == 1",
+              "format": "table",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Log collector / Loki scrape health",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 59,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "up{namespace=\"monitoring\",service=~\"bdc-loki|bdc-alloy|bdc-alloy-events\"}",
+              "legendFormat": "{{service}} {{pod}}"
+            }
+          ],
+          "description": "1 means metrics scrape succeeded. Also inspect dropped log records and ingestion volume; a healthy process alone does not prove logs are arriving."
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Node filesystem available",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 59,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "100 * node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay|squashfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay|squashfs\"}",
+              "legendFormat": "{{instance}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Log records dropped by agent or Loki / second",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 66,
+            "w": 24,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (job, reason) (rate(loki_process_dropped_lines_total{namespace=\"monitoring\"}[5m])) or sum by (job, reason) (rate(loki_discarded_samples_total{namespace=\"monitoring\"}[5m])) or sum by (job) (rate(loki_write_dropped_entries_total{namespace=\"monitoring\"}[5m]))",
+              "legendFormat": "{{job}} {{reason}}"
+            }
+          ]
+        }
+      ],
+      "links": [
+        {
+          "title": "Explore logs",
+          "url": "/monitor/explore",
+          "type": "link",
+          "targetBlank": true
+        }
+      ]
+    }

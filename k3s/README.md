@@ -17,6 +17,7 @@ For the production database migration and node recovery sequence completed on
 | `base/kustomization.yaml` | Kustomize entry point for the base workload set |
 | `observability/` | Application ServiceMonitors and Grafana dashboard assets |
 | `kube-prometheus-stack/` | Helm values required by the monitoring stack |
+| `logging/` | Alloy node logs and Kubernetes Events → Loki → existing Grafana; [installation and dashboard](logging/README.md) |
 | `monitoring/` | Legacy/auxiliary monitoring material; review against the active Helm deployment before applying |
 
 ## Safe validation

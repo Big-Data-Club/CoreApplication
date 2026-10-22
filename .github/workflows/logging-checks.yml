@@ -1,0 +1,70 @@
+name: Validate service logging
+
+on:
+  pull_request:
+    paths:
+      - 'k3s/logging/**'
+      - 'k3s/kube-prometheus-stack/values.yaml'
+      - 'scripts/enable-service-logs.py'
+      - 'scripts/tests/test_service_logging.py'
+      - '.github/workflows/logging-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'k3s/logging/**'
+      - 'k3s/kube-prometheus-stack/values.yaml'
+      - 'scripts/enable-service-logs.py'
+      - 'scripts/tests/test_service_logging.py'
+      - '.github/workflows/logging-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  logging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.35.0'
+      - run: python -m pip install PyYAML==6.0.3
+      - name: Validate manifests and provisioning contracts
+        run: |
+          kubectl kustomize k3s/logging > /tmp/bdc-logging.yaml
+          python -m unittest discover -s scripts/tests -p test_service_logging.py -v
+          git diff --check
+      - name: Validate collector and storage configurations
+        run: |
+          docker pull grafana/loki:3.7.9
+          docker pull grafana/alloy:v1.21.1
+          docker run --rm -v "$PWD/k3s/logging/config:/config:ro" grafana/loki:3.7.9 -config.file=/config/loki.yaml -verify-config=true
+          docker run --rm -v "$PWD/k3s/logging/config:/config:ro" grafana/alloy:v1.21.1 validate /config/logs.alloy
+          docker run --rm -v "$PWD/k3s/logging/config:/config:ro" grafana/alloy:v1.21.1 validate /config/events.alloy
+      - name: Validate alert and dashboard metric expressions
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import yaml
+          root = Path('k3s/logging')
+          spec = yaml.safe_load((root / 'alerts.yaml').read_text())['spec']
+          board = json.loads(yaml.safe_load((root / 'dashboards/bdc-service-logs.yaml').read_text())['data']['bdc-service-logs.json'])
+          rules = []
+          for panel in board['panels']:
+              if panel['datasource']['type'] != 'prometheus':
+                  continue
+              expr = panel['targets'][0]['expr'].replace('$__range', '1h').replace('$namespace', '.*').replace('$pod', '.*')
+              rules.append({'record': 'bdc_dashboard_validation:p' + str(panel['id']), 'expr': expr})
+          spec['groups'].append({'name': 'dashboard-syntax-validation', 'rules': rules})
+          Path('/tmp/bdc-log-rules.json').write_text(json.dumps(spec))
+          PY
+          docker run --rm --entrypoint /bin/promtool -v /tmp/bdc-log-rules.json:/rules.json:ro prom/prometheus:v2.52.0 check rules /rules.json
+      - name: Verify real log ingestion and dashboard LogQL
+        env:
+          BDC_LOGGING_SMOKE: '1'
+        run: python -m unittest discover -s scripts/tests -p test_service_logging.py -v

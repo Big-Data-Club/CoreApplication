@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rbac.yaml
+  - loki.yaml
+  - alloy.yaml
+  - dashboards/bdc-service-logs.yaml
+  - alerts.yaml
+configMapGenerator:
+  - namespace: monitoring
+    name: bdc-loki-config
+    files:
+      - loki.yaml=config/loki.yaml
+  - namespace: monitoring
+    name: bdc-alloy-logs-config
+    files:
+      - config.alloy=config/logs.alloy
+  - namespace: monitoring
+    name: bdc-alloy-events-config
+    files:
+      - config.alloy=config/events.alloy
