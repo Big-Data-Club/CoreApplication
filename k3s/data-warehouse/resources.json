@@ -108,7 +108,7 @@
                   },
                   {
                     "name": "BIGQUERY_TABLE",
-                    "value": "bdc-web-487000.bdc_raw_prod.lms_micro_interactions"
+                    "value": "bdc-web-487000.bdc_raw_prod.platform_events"
                   },
                   {
                     "name": "GOOGLE_APPLICATION_CREDENTIALS",
@@ -116,7 +116,7 @@
                   },
                   {
                     "name": "STATE_DIR",
-                    "value": "/var/lib/warehouse/state"
+                    "value": "/var/lib/warehouse/platform"
                   },
                   {
                     "name": "FLUSH_INTERVAL_SECONDS",
@@ -137,6 +137,14 @@
                   {
                     "name": "MAX_DAILY_LOAD_ATTEMPTS",
                     "value": "1000"
+                  },
+                  {
+                    "name": "WAREHOUSE_STREAM",
+                    "value": "platform"
+                  },
+                  {
+                    "name": "LEGACY_STATE_DIR",
+                    "value": "/var/lib/warehouse/state"
                   }
                 ],
                 "resources": {
@@ -243,6 +251,193 @@
                 }
               }
             ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "data-warehouse-snapshot-state"
+      },
+      "spec": {
+        "storageClassName": "local-path",
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "256Mi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "batch/v1",
+      "kind": "CronJob",
+      "metadata": {
+        "name": "data-warehouse-ai-snapshot"
+      },
+      "spec": {
+        "schedule": "17 */6 * * *",
+        "timeZone": "Etc/UTC",
+        "concurrencyPolicy": "Forbid",
+        "successfulJobsHistoryLimit": 2,
+        "failedJobsHistoryLimit": 3,
+        "startingDeadlineSeconds": 600,
+        "jobTemplate": {
+          "spec": {
+            "backoffLimit": 1,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 86400,
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "data-warehouse-ai-snapshot"
+                }
+              },
+              "spec": {
+                "serviceAccountName": "data-warehouse",
+                "automountServiceAccountToken": false,
+                "terminationGracePeriodSeconds": 60,
+                "securityContext": {
+                  "fsGroup": 1001,
+                  "fsGroupChangePolicy": "OnRootMismatch",
+                  "seccompProfile": {
+                    "type": "RuntimeDefault"
+                  }
+                },
+                "containers": [
+                  {
+                    "name": "worker",
+                    "image": "bdc-data-warehouse:release-required",
+                    "imagePullPolicy": "IfNotPresent",
+                    "env": [
+                      {
+                        "name": "GOOGLE_CLOUD_PROJECT",
+                        "value": "bdc-web-487000"
+                      },
+                      {
+                        "name": "BIGQUERY_LOCATION",
+                        "value": "asia-southeast1"
+                      },
+                      {
+                        "name": "BIGQUERY_TABLE",
+                        "value": "bdc-web-487000.bdc_raw_prod.platform_events"
+                      },
+                      {
+                        "name": "GOOGLE_APPLICATION_CREDENTIALS",
+                        "value": "/etc/gcp/credentials.json"
+                      },
+                      {
+                        "name": "STATE_DIR",
+                        "value": "/var/lib/warehouse/snapshot"
+                      },
+                      {
+                        "name": "AI_SERVICE_URL",
+                        "value": "http://ai-service:8000"
+                      },
+                      {
+                        "name": "OWNER_SNAPSHOT_DAYS",
+                        "value": "7"
+                      },
+                      {
+                        "name": "AI_SERVICE_SECRET",
+                        "valueFrom": {
+                          "secretKeyRef": {
+                            "name": "bdc-secrets",
+                            "key": "AI_SERVICE_SECRET"
+                          }
+                        }
+                      }
+                    ],
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "cpu": "500m",
+                        "memory": "384Mi"
+                      }
+                    },
+                    "securityContext": {
+                      "runAsNonRoot": true,
+                      "runAsUser": 1001,
+                      "runAsGroup": 1001,
+                      "readOnlyRootFilesystem": true,
+                      "allowPrivilegeEscalation": false,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "state",
+                        "mountPath": "/var/lib/warehouse"
+                      },
+                      {
+                        "name": "identity",
+                        "mountPath": "/var/run/gcp-identity",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "gcp-configuration",
+                        "mountPath": "/etc/gcp",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ],
+                    "command": [
+                      "python",
+                      "-m",
+                      "worker.snapshot"
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "state",
+                    "persistentVolumeClaim": {
+                      "claimName": "data-warehouse-snapshot-state"
+                    }
+                  },
+                  {
+                    "name": "identity",
+                    "projected": {
+                      "sources": [
+                        {
+                          "serviceAccountToken": {
+                            "audience": "https://iam.googleapis.com/projects/1039876363296/locations/global/workloadIdentityPools/bdc-k3s/providers/warehouse",
+                            "expirationSeconds": 3600,
+                            "path": "token"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "gcp-configuration",
+                    "configMap": {
+                      "name": "data-warehouse-identity"
+                    }
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {
+                      "sizeLimit": "16Mi"
+                    }
+                  }
+                ],
+                "restartPolicy": "Never"
+              }
+            }
           }
         }
       }

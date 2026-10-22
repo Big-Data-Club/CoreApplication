@@ -34,6 +34,7 @@ from app.api.endpoints.course_material_routing import router as course_material_
 from app.api.endpoints.competency_suggestions import router as competency_suggestions_router
 from app.api.endpoints.revisions import router as revisions_router
 from app.api.endpoints.lab_authoring import router as lab_authoring_router
+from app.api.endpoints.warehouse_export import router as warehouse_export_router
 from app.core.llm_gateway.bootstrap import bootstrap_llm_registry
 from app.api.agent_router         import router as agent_router
 
@@ -184,6 +185,7 @@ app.include_router(micro_quizzes_router, prefix="/ai")
 app.include_router(section_overview_router, prefix="/ai")
 app.include_router(revisions_router, prefix="/ai")
 app.include_router(lab_authoring_router, prefix="/ai")
+app.include_router(warehouse_export_router, prefix="/ai")
 app.include_router(concept_check_router, prefix="/ai")
 app.include_router(admin_router,      prefix="/ai")
 app.include_router(admin_llm_router,  prefix="/ai")

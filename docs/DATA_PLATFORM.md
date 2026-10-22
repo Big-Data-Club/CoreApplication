@@ -33,6 +33,17 @@ writes raw only, while a separate migration identity updates warehouse models.
 See [continuous deployment](../data-warehouse/docs/07-continuous-deployment.md)
 for replay, malformed records, expiry, quota, and rollout/rollback behavior.
 
+The warehouse foundation now has a versioned
+[source register](../data-warehouse/contracts/sources.json), an allowlisted raw
+platform envelope, and conformed learning/recommendation/LLM-attempt stars.
+[Implemented dimensional modelling](../data-warehouse/docs/09-dimensional-model-implementation.md)
+defines each grain, key, inferred member and unknown measure. Source-owned AI
+metadata snapshots use a read-only consistent export and a durable confirmed-ID
+cache; the warehouse never connects to AI's PostgreSQL database. Auth login, Lab,
+Chat and richer AI/agent attribution remain explicitly gated source integrations.
+New data marts, dashboards, DSS, recommender/conversational-recommender changes
+and model-training applications are deferred until this foundation is verified.
+
 ## Architecture
 
 Authoring scope is resolved by LMS from chapter/lesson IDs and passed to AI over

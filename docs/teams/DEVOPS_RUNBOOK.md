@@ -109,6 +109,18 @@ The latest [verified production receipt](../warehouse-production-status.md)
 records the deployed revision, acknowledged real batch, Kafka frontier, and
 source-to-mart reconciliation. Reinspect live status after a new release.
 
+The foundation manifest selects the platform envelope stream and a new consumer
+group. It preserves legacy raw data and refuses cutover if the legacy durable
+journal still has a pending batch. Deploy the source-owned AI export endpoint
+before exercising `data-warehouse-ai-snapshot`. Its six-hour UTC CronJob has
+`Forbid` concurrency, bounded exports, a separate private state PVC and the same
+raw-only ingest identity. Overlapping snapshots skip confirmed unchanged IDs.
+Check scheduled Job success separately from the Kafka worker's readiness; a
+missing export, failed snapshot or empty raw table is not proof of zero AI use.
+Run `data-warehouse/scripts/analyze_foundation.py` with authorized operator CLI
+authentication for aggregate source coverage, key uniqueness and relationship
+checks. The source register records producer gaps independently of row counts.
+
 The legacy CD path now selects only actual changed application sources (or an
 explicit manual target). Warehouse-only and documentation-only commits do not
 restart the other application deployments.

@@ -63,7 +63,7 @@ def main():
     previous=kubectl('get','deployment','data-warehouse-worker','-o','json',allow_missing=True)
     previous=json.loads(previous) if previous else None
     for obj in resources:
-        if obj['kind']!='Deployment':
+        if obj['kind'] not in ('Deployment','CronJob'):
             kubectl('apply','-f','-',obj=obj)
     for name in ('data-warehouse','data-warehouse-deployer'):
         credential=json.loads((ROOT/f'data-warehouse/config/{name}-identity.json').read_text())
@@ -123,6 +123,14 @@ def main():
                 observed=json.loads(kubectl('exec','deployment/data-warehouse-worker','--','python','-c',status_code))
             else:
                 raise RuntimeError('Worker is ready but the waiting real batch was not acknowledged before the release deadline')
+        for obj in resources:
+            if obj['kind']=='CronJob':
+                template=obj['spec']['jobTemplate']['spec']['template']
+                template['metadata']['annotations']={'bdc.io/source-revision':args.revision}
+                scheduled=template['spec']['containers'][0]
+                scheduled['image']=args.image
+                scheduled['env'].append({'name':'BDC_VERSION','value':args.revision})
+                kubectl('apply','-f','-',obj=obj)
         print(json.dumps({'deployed':True,'image':args.image,'revision':args.revision,'worker_status':observed},indent=2))
     except Exception:
         if previous:
