@@ -7,6 +7,7 @@ import math
 import re
 
 from app.services.studio.storyboard import Scene, Storyboard
+from app.services.studio.code_layout import code_pages
 
 THEMES = {
     "google": ("#F6F8F7", "#14365D", "#4F8CFF", "#FFFFFF"),
@@ -110,16 +111,29 @@ def _matrix(scene: Scene, portrait: bool) -> str:
     return "".join(result)
 
 
-def diagram(scene: Scene, portrait: bool) -> str:
+def diagram(scene: Scene, portrait: bool, *, code_page: int | None = None) -> str:
     width, height = (800, 900) if portrait else (1180, 650)
     kind = scene.visual_type
     if kind.startswith("matrix_"):
         content = _matrix(scene, portrait)
     elif kind == "code_execution":
-        lines = scene.visual_spec.code.splitlines()
-        if len(lines) > 12 or any(len(line) > (46 if portrait else 74) for line in lines):
-            raise ValueError("Code snippet too dense: use at most 12 short lines")
-        content = ''.join(f'<foreignObject x="20" y="{30+i*51}" width="{width-40}" height="51"><pre data-safe="code" class="code-line" xmlns="http://www.w3.org/1999/xhtml">{esc(line or " ")}</pre></foreignObject>' for i, line in enumerate(lines))
+        pages = code_pages(scene.visual_spec.code, portrait)
+        selected = list(enumerate(pages)) if code_page is None else [(code_page, pages[code_page])]
+        parts = []
+        for local_page, (page_index, rows) in enumerate(selected):
+            heading = f"Code · {page_index+1}/{len(pages)}"
+            if rows:
+                heading += f" · L{rows[0].source_line}–{rows[-1].source_line}"
+            lines = []
+            for i, row in enumerate(rows):
+                number = "↳" if row.continuation else str(row.source_line)
+                lines.append(f'<foreignObject x="20" y="{70+i*44}" width="{width-40}" height="44">'
+                             '<div xmlns="http://www.w3.org/1999/xhtml" class="code-row">'
+                             f'<span class="code-number" data-safe="code-number">{number}</span>'
+                             f'<pre data-safe="code" class="code-line">{esc(row.text or " ")}</pre></div></foreignObject>')
+            parts.append(f'<g data-code-page="{local_page}" style="display:{"none" if local_page else "inline"}">'
+                         + label(20,10,width-40,40,heading,css="code-heading") + ''.join(lines) + '</g>')
+        content = ''.join(parts)
     else:
         nodes = scene.visual_spec.nodes
         if not nodes:
@@ -219,20 +233,30 @@ def render_html(storyboard: Storyboard, theme: str = "google", *, video: bool = 
     bg, ink, accent, panel = palette
     scale = v.width / (1080 if portrait else 1920)
     markup = []
-    for i, scene in enumerate(storyboard.scenes):
+    # PDF/slide HTML shows every code page as a separate sheet. Video retains
+    # one semantic scene and one narration file, switching code pages in place.
+    views = []
+    for scene in storyboard.scenes:
+        pages = code_pages(scene.visual_spec.code, portrait) if scene.visual_type == "code_execution" else [[]]
+        if not video and len(pages) > 1:
+            views.extend((scene.model_copy(update={"id": f"{scene.id}_code_{i+1:02d}"}), i, 1) for i in range(len(pages)))
+        else:
+            views.append((scene, None, len(pages)))
+    for i, (scene, code_page, page_count) in enumerate(views):
         try:
-            visual = diagram(scene, portrait)
+            visual = diagram(scene, portrait, code_page=code_page)
         except ValueError as exc:
             raise ValueError(f"{scene.id} ({scene.topic}): {exc}") from exc
         points = ''.join(f'<li data-safe="point">{esc(p)}</li>' for p in scene.points)
-        markup.append(f'<section class="scene" data-scene="{i}" data-steps="{len(scene.animation_steps)}">'
-                      f'<header><div class="eyebrow" data-safe="eyebrow">{i+1:02d} / {len(storyboard.scenes):02d} · {esc(scene.grounding)}</div>'
+        markup.append(f'<section class="scene" data-scene="{i}" data-code-pages="{page_count}" data-steps="{len(scene.animation_steps)}">'
+                      f'<header><div class="eyebrow" data-safe="eyebrow">{i+1:02d} / {len(views):02d} · {esc(scene.grounding)}</div>'
                       f'<h1 data-safe="title">{esc(scene.topic)}</h1></header>'
                       f'<main><div class="visual">{visual}</div><aside><ul>{points}</ul></aside></main>'
                       '<footer><div class="caption" data-safe="caption"></div>'
                       f'<div class="metadata" data-safe="metadata">{esc(" · ".join(scene.source_refs))}</div></footer></section>')
     # Escaping < protects script boundaries even if source narration includes HTML.
-    data = json.dumps(storyboard.model_dump(), ensure_ascii=False).replace('<', '\\u003c')
+    display_board = {**storyboard.model_dump(), "scenes": [scene.model_dump() for scene, _, _ in views]}
+    data = json.dumps(display_board, ensure_ascii=False).replace('<', '\\u003c')
     css = f"""
     *{{box-sizing:border-box}}html,body{{margin:0;background:{bg};color:{ink};font-family:'DejaVu Sans',Arial,sans-serif}}
     :root{{--panel:{panel};--accent:{accent}}}
@@ -252,17 +276,23 @@ def render_html(storyboard: Storyboard, theme: str = "google", *, video: bool = 
     .node-label,.edge-label,.cell-label,.equation,.matrix-name{{height:100%;width:100%;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.25;overflow:hidden;overflow-wrap:anywhere;font-size:29px;padding:4px;color:{ink}}}
     .node-label>span,.edge-label>span,.cell-label>span,.equation>span,.matrix-name>span{{display:block;min-width:0;max-width:100%;overflow-wrap:anywhere}}
     .edge-label{{background:var(--panel);font-size:{26 if portrait else 21}px;border-radius:6px}}.cell-label{{font-size:{24 if portrait else 20}px}}.active{{color:#102236}}.equation{{font-size:{42 if portrait else 40}px}}.matrix-name{{font-size:36px;font-weight:bold}}
-    .code-line{{height:100%;width:100%;margin:0;font:26px/1.8 'DejaVu Sans Mono',monospace;overflow:hidden;white-space:pre}}
+    .code-heading{{height:100%;width:100%;font-size:22px;line-height:1.4;overflow:hidden;color:#65788C}}
+    .code-row{{height:100%;width:100%;display:grid;grid-template-columns:52px minmax(0,1fr);overflow:hidden}}
+    .code-number{{font:20px/44px 'DejaVu Sans Mono',monospace;color:#65788C;overflow:hidden;text-align:right;padding-right:12px}}
+    .code-line{{height:100%;width:100%;min-width:0;margin:0;font:26px/44px 'DejaVu Sans Mono',monospace;overflow:hidden;white-space:pre}}
     @page{{size:{v.width}px {v.height}px;margin:0}}
     @media print{{.scene{{break-inside:avoid;print-color-adjust:exact}}}}
     """
     script = """
     const board=__DATA__;
+    window.studioSceneViews=board.scenes.map((scene,index)=>({id:scene.id,codePages:Number(document.querySelector('[data-scene="'+index+'"]').dataset.codePages)}));
     window.seekScene=(index,progress=1)=>{
       for(const scene of document.querySelectorAll('[data-scene]')){
         const active=Number(scene.dataset.scene)===index;
         scene.style.display=active?'grid':'none';
         if(!active)continue;
+        const codePage=Math.min(Number(scene.dataset.codePages)-1,Math.floor(Math.max(0,progress)*Number(scene.dataset.codePages)));
+        scene.querySelectorAll('[data-code-page]').forEach(el=>el.style.display=Number(el.dataset.codePage)===codePage?'inline':'none');
         const count=Number(scene.dataset.steps), stage=Math.min(count-1,Math.floor(Math.max(0,progress)*count));
         scene.querySelectorAll('[data-reveal]').forEach(el=>el.style.opacity=Number(el.dataset.reveal)<=stage?'1':'0');
         scene.querySelectorAll('[data-packet]').forEach(el=>{

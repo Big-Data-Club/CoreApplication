@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 
 import pytest
@@ -13,8 +14,41 @@ from app.services.studio.plan_schema import PlanSection, VisualSpec
 from app.services.studio.storyboard import compile_storyboard
 from app.services.studio.visuals import VISUAL_TYPES
 from tests.test_studio_media import lesson, work_span_lesson
+from tests.test_studio_code_layout import code_lesson
 
 pytestmark = pytest.mark.skipif(os.environ.get("STUDIO_RENDER_SMOKE") != "1", reason="Set STUDIO_RENDER_SMOKE=1 with Chromium/FFmpeg installed")
+
+
+@pytest.mark.parametrize("aspect,resolution", [("16:9", "1080p"), ("16:9", "720p"), ("9:16", "1080p")])
+def test_real_dense_code_pdf_and_video_layout(aspect, resolution, tmp_path):
+    from app.services.studio.browser_renderer import browser_page, screenshot_qa
+    from app.services.studio.code_layout import code_pages
+    async def run():
+        plan = code_lesson()
+        for code in ['pthread_create(' + 'argument, '*30 + 'NULL);', 'x();\n'*61]:
+            plan.sections.extend(code_lesson(code).sections)
+        board = compile_storyboard(plan, {"aspect_ratio": aspect, "resolution": resolution}, video=True)
+        pdf_pages = sum(len(code_pages(s.visual_spec.code, aspect == "9:16")) for s in board.scenes)
+        pdf, report = await render_pdf(board, render_html(board), tmp_path)
+        assert pdf.startswith(b"%PDF") and len(report["samples"]) == pdf_pages * 4
+        assert len({sample["scene"] for sample in report["samples"]}) == pdf_pages
+        pdf_path = tmp_path / "dense-code.pdf"
+        pdf_path.write_bytes(pdf)
+        if shutil.which("pdfinfo"):
+            info = await command("pdfinfo", pdf_path)
+            assert int(re.search(rb"Pages:\s+(\d+)", info).group(1)) == pdf_pages
+        async with browser_page(board, render_html(board, video=True)) as page:
+            qa = await screenshot_qa(page, board, tmp_path / "video-qa")
+            assert qa["passed"]
+            # More than four pages requires QA outside the usual 20/40/60/80%.
+            assert any(sample["scene"] == "scene_03" and sample["progress"] > .8 for sample in qa["samples"])
+            await page.evaluate("window.seekScene(0, .2)")
+            title_before = await page.locator('.scene:visible h1').bounding_box()
+            await page.evaluate("window.seekScene(0, 1)")
+            assert await page.locator('.scene:visible h1').bounding_box() == title_before
+            assert await page.locator('[data-scene="0"] [data-safe="code"]:visible').all_text_contents()
+            assert not await page.evaluate("window.inspectLayout()")
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize("aspect",["16:9","9:16"])

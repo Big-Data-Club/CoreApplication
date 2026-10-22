@@ -32,6 +32,17 @@ Matrix templates use symbolic examples unless grounded matrix values are supplie
 Resource bars are schematic ordering, not measured performance. Generated code
 snippets are not automatically compiled or benchmarked; no execution claim is made.
 
+Code views keep the existing readable monospace size, reserve a line-number
+column and wrap long display lines into pages of at most 12 rows. The original
+`visual_spec.code` in the plan/storyboard is unchanged, including strings and
+indentation. PDF and slide HTML emit every code page as a separate sheet, with
+`scene_NN_code_XX` QA identifiers when needed. Video keeps the original semantic
+scene and its single narration file, selecting successive static code pages from
+normalized local time; it does not duplicate narration or alter audio durations.
+QA checks every sheet and adds samples for any video code pages not covered by
+the usual 20/40/60/80% checkpoints. Prefer short focused teaching examples even
+though longer code no longer aborts rendering solely for exceeding 12 lines.
+
 Themes use Google/Apple/Microsoft/NVIDIA-inspired palettes and typography, without
 company logos. Video defaults to the engineering light palette. `16:9` supports
 1920×1080 or `resolution: "720p"` (1280×720). `9:16` is a native 1080×1920 layout,

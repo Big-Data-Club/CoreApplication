@@ -67,15 +67,20 @@ async def browser_page(board: Storyboard, html: str):
 async def screenshot_qa(page, board: Storyboard, directory: Path) -> dict:
     directory.mkdir(exist_ok=True, parents=True)
     samples = []
-    for index, scene in enumerate(board.scenes):
-        for fraction in (0.2, 0.4, 0.6, 0.8):
+    views = await page.evaluate("window.studioSceneViews")
+    for index, view in enumerate(views):
+        fractions = {0.2, 0.4, 0.6, 0.8}
+        pages = view["codePages"]
+        covered = {min(pages-1, int(fraction*pages)) for fraction in fractions}
+        fractions.update((code_page+0.5)/pages for code_page in range(pages) if code_page not in covered)
+        for fraction in sorted(fractions):
             await page.evaluate("([i,p])=>window.seekScene(i,p)", [index, fraction])
             errors = await page.evaluate("window.inspectLayout()")
-            path = directory / f"{scene.id}_{round(fraction*100)}.png"
+            path = directory / f"{view['id']}_{round(fraction*100)}.png"
             await page.screenshot(path=str(path))
-            samples.append({"scene": scene.id, "progress": fraction, "screenshot": f"qa/{path.name}", "errors": errors})
+            samples.append({"scene": view["id"], "progress": fraction, "screenshot": f"qa/{path.name}", "errors": errors})
             if errors:
-                raise ValueError(f"Layout QA failed in {scene.id}: {'; '.join(errors)[:700]}. Shorten text or split the scene.")
+                raise ValueError(f"Layout QA failed in {view['id']}: {'; '.join(errors)[:700]}. Shorten text or split the scene.")
     return {"passed": True, "samples": samples}
 
 
@@ -84,7 +89,7 @@ async def render_pdf(board: Storyboard, html: str, directory: Path) -> tuple[byt
         report = await screenshot_qa(page, board, directory / "qa")
         await page.evaluate("""()=>{document.querySelectorAll('.scene').forEach(s=>s.style.display='grid');document.querySelectorAll('[data-reveal]').forEach(e=>e.style.opacity='1');document.querySelectorAll('.caption').forEach(e=>e.textContent='')}""")
         # All labels are checked again in their final, fully revealed state.
-        for index in range(len(board.scenes)):
+        for index in range(await page.evaluate("window.studioSceneViews.length")):
             await page.evaluate("i=>window.seekScene(i,1)", index)
             errors = await page.evaluate("window.inspectLayout()")
             if errors:

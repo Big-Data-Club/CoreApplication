@@ -69,7 +69,8 @@ _SECTION_SYSTEM = (
     "Equations must use readable Unicode math, not raw LaTeX commands. No coordinates or HTML. Use one major diagram. animation_steps name ordered semantic actions such as "
     "highlight_row, highlight_column, reduce, broadcast_A, broadcast_B, local_GEMM, reveal_dependency. "
     "At least 4 steps for matrix scenes. Matrix defaults are symbolic 3x3 illustration. "
-    "Use a grounded, minimal code snippet only for code_execution, <=12 lines, <=42 characters/line. "
+    "Use raw grounded code without Markdown fences only for code_execution. Prefer <=12 lines and <=42 characters/line. "
+    "Focus on the mechanism rather than a whole program; the renderer wraps and paginates longer snippets. "
     "No screenshot or source layout replication. No decorative motion. Technical qualifications belong in narration."
 )
 
