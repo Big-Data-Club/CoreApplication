@@ -25,6 +25,19 @@ Do not apply `k3s/monitoring/`, which contains legacy standalone Grafana manifes
 Production CI currently does not deploy `k3s/logging/`; a Git push alone does not
 install this stack.
 
+If interrupted with Ctrl+C during `helm upgrade`, the Kubernetes changes are
+not automatically undone. `Update Complete. Happy Helming!` from `helm repo
+update` only reports a refreshed chart index. Check `helm -n monitoring history
+kps` and `helm -n monitoring status kps`. Once no Helm deployment is still
+running, roll back a failed/pending release to the latest successful revision
+shown in history, for example `helm -n monitoring rollback kps 12 --wait
+--timeout 10m` when revision 12 succeeded and 13 failed. Wait for rollback to
+finish, then rerun the installer. Do not uninstall the release or delete its
+Helm Secrets to unlock it. The installer now lists all release states and prints
+the recovery command instead of a generic traceback; it never rolls back
+automatically. During Helm's readiness wait (up to 10 minutes), inspect
+`kubectl -n monitoring get pods` in another terminal instead of cancelling.
+
 Prerequisites: the `monitoring` namespace and `kps` release, Prometheus Operator
 CRDs, the `local-path` storage class, Linux K3s nodes with `/var/log/pods`, and an
 enabled network-policy controller. Account for about **175m CPU / 368Mi RAM

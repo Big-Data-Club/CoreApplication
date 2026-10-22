@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +27,10 @@ DATASOURCE = {
     "editable": False,
     "jsonData": {"maxLines": 1000, "timeout": 60},
 }
+
+
+class ReleaseStateError(ValueError):
+    """A release must be recovered or allowed to finish before provisioning."""
 
 
 def provisioning_values(existing: dict) -> dict:
@@ -55,12 +60,43 @@ def provisioning_values(existing: dict) -> dict:
 
 
 def chart_version(releases: list) -> str:
-    if len(releases) != 1 or releases[0].get("status") != "deployed":
-        raise ValueError("Expected one deployed Helm release kps in monitoring")
+    if len(releases) != 1:
+        raise ReleaseStateError("Expected one Helm release kps in monitoring. Inspect: helm -n monitoring list --all")
+    status = releases[0].get("status", "unknown")
+    if status != "deployed":
+        raise ReleaseStateError(f"Helm release kps is {status}; provisioning has not started.")
     match = re.fullmatch(r"kube-prometheus-stack-([0-9][0-9A-Za-z.+-]*)", releases[0].get("chart", ""))
     if not match:
         raise ValueError("Release kps must use kube-prometheus-stack")
     return match.group(1)
+
+
+def recovery_help(history: list) -> str:
+    successful = [entry for entry in history if entry.get("status") in ("deployed", "superseded")]
+    help_text = "Inspect: helm -n monitoring history kps\nInspect: helm -n monitoring status kps"
+    if successful:
+        revision = max(int(entry["revision"]) for entry in successful)
+        help_text += ("\nIf the previous Helm operation has ended, recover to the latest successful revision:\n"
+                      f"helm -n monitoring rollback kps {revision} --wait --timeout 10m\n"
+                      "Then rerun this installer. Recovery is not performed automatically.")
+    return help_text
+
+
+def installed_chart_version(context: str) -> str:
+    # Helm 3's default list can hide pending upgrades after an interrupted run.
+    releases = json.loads(run("helm", "list", "--all", "--kube-context", context, "-n", "monitoring",
+                             "--filter", "^kps$", "-o", "json", capture=True).stdout)
+    try:
+        return chart_version(releases)
+    except ReleaseStateError as error:
+        history = []
+        if releases:
+            try:
+                history = json.loads(run("helm", "history", "kps", "--kube-context", context, "-n", "monitoring",
+                                         "-o", "json", capture=True).stdout)
+            except (subprocess.CalledProcessError, ValueError):
+                pass
+        raise ReleaseStateError(f"{error}\n{recovery_help(history)}") from None
 
 
 def run(*args: str, capture: bool = False):
@@ -85,8 +121,7 @@ def main():
             parser.error(f"{executable} is required")
     context = run("kubectl", "config", "current-context", capture=True).stdout.strip()
     print(f"Installing in context {context}, namespace monitoring", flush=True)
-    releases = json.loads(run("helm", "list", "--kube-context", context, "-n", "monitoring", "--filter", "^kps$", "-o", "json", capture=True).stdout)
-    version = chart_version(releases)
+    version = installed_chart_version(context)
     existing = json.loads(run("helm", "get", "values", "kps", "--kube-context", context, "-n", "monitoring", "-o", "json", capture=True).stdout) or {}
     patch = provisioning_values(existing)
     # Validate CRDs, RBAC and admission before changing the Helm release.
@@ -99,6 +134,8 @@ def main():
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", dir=temp) as handle:
             json.dump(patch, handle)
             handle.flush()
+            print("Updating Grafana provisioning in kps; Helm may wait up to 10 minutes for release readiness.\n"
+                  "In another terminal inspect: kubectl -n monitoring get pods", flush=True)
             run("helm", "upgrade", "kps", "prometheus-community/kube-prometheus-stack", "-n", "monitoring",
                 "--kube-context", context,
                 "--version", version, "--reuse-values", "--values", handle.name,
@@ -111,4 +148,15 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nInstallation interrupted. Resources may already have changed; cancellation does not undo an upgrade.\n"
+              "Inspect: helm -n monitoring history kps\n"
+              "Inspect: helm -n monitoring status kps\n"
+              "If failed or pending after the operation has ended, roll back to the last successful revision before retrying.",
+              file=sys.stderr)
+        sys.exit(130)
+    except ReleaseStateError as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(2)

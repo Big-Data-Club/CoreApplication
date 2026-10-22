@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from unittest.mock import patch
 
 import yaml
 
@@ -65,6 +66,30 @@ class ProvisioningTests(unittest.TestCase):
         for releases in ([], [release, release], [{**release, "status": "failed"}], [{**release, "chart": "other-1.0"}]):
             with self.subTest(releases=releases), self.assertRaises(ValueError):
                 installer.chart_version(releases)
+
+    def test_cancelled_upgrade_recovery_chooses_successful_revision_not_failed_latest(self):
+        history = [{"revision": 11, "status": "superseded"}, {"revision": 12, "status": "deployed"},
+                   {"revision": 13, "status": "failed"}]
+        help_text = installer.recovery_help(history)
+        self.assertIn("rollback kps 12 --wait", help_text)
+        self.assertNotIn("rollback kps 13", help_text)
+
+    def test_pending_upgrade_is_visible_and_only_read_operations_are_used(self):
+        release = {"status": "pending-upgrade", "chart": "kube-prometheus-stack-88.5.3"}
+        history = [{"revision": 12, "status": "superseded"}, {"revision": 13, "status": "pending-upgrade"}]
+        with patch.object(installer, "run", side_effect=[
+                subprocess.CompletedProcess([], 0, stdout=json.dumps([release])),
+                subprocess.CompletedProcess([], 0, stdout=json.dumps(history))]) as run:
+            with self.assertRaisesRegex(installer.ReleaseStateError, "rollback kps 12"):
+                installer.installed_chart_version("production-context")
+        self.assertIn("--all", run.call_args_list[0].args)
+        self.assertEqual([call.args[1] for call in run.call_args_list], ["list", "history"])
+        self.assertTrue(all("production-context" in call.args for call in run.call_args_list))
+
+    def test_recovery_without_successful_history_does_not_invent_a_revision(self):
+        help_text = installer.recovery_help([{"revision": 1, "status": "failed"}])
+        self.assertIn("history kps", help_text)
+        self.assertNotIn("rollback kps", help_text)
 
     def test_checked_in_helm_values_match_installer(self):
         values = yaml.safe_load((ROOT / "k3s/kube-prometheus-stack/values.yaml").read_text())
