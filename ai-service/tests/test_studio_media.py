@@ -5,10 +5,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from app.services.studio.browser_renderer import validate_video
 from app.services.studio.html_renderer import render_html
-from app.services.studio.plan_schema import Narrative, PlanSection, StudioPlan, VisualSpec
+from app.services.studio.plan_schema import Narrative, PlanSection, SceneExpansion, StudioPlan, VisualSpec
 from app.services.studio.storyboard import compile_storyboard
 from app.services.studio.studio_service import StudioService
 
@@ -24,6 +25,27 @@ def lesson():
         visual_type="matrix_dot_product", animation_steps=["highlight_row", "highlight_column", "multiply", "reduce"],
         source_refs=["S1"],
     )])
+
+
+def test_generated_scene_bounds_excess_diagram_edges_without_weakening_saved_plan():
+    plan = lesson()
+    nodes = [{"id": f"n{i}", "label": f"Node {i}"} for i in range(5)]
+    edges = [
+        {"source": f"n{i}", "target": f"n{j}"}
+        for i in range(5) for j in range(5) if i != j
+    ][:16]
+    generated = {"sections": [{
+        **plan.sections[0].model_dump(), "index": 0,
+        "visual_spec": {"nodes": nodes, "edges": edges},
+    }]}
+
+    expansion = SceneExpansion.model_validate(generated)
+    assert len(expansion.sections[0].visual_spec.edges) == 12
+    assert len(generated["sections"][0]["visual_spec"]["edges"]) == 16
+    plan.sections[0] = PlanSection(**expansion.sections[0].model_dump())
+    assert len(compile_storyboard(plan, {}, video=True).scenes[0].visual_spec.edges) == 12
+    with pytest.raises(ValidationError, match="at most 12"):
+        VisualSpec(nodes=nodes, edges=edges)
 
 
 def work_span_lesson(kind="comparison",count=4):

@@ -13,11 +13,15 @@ so a small model produces the same *structure* as a large one.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from app.services.studio.visuals import VisualType
+
+logger = logging.getLogger(__name__)
+MAX_VISUAL_EDGES = 12
 
 
 class VisualNode(BaseModel):
@@ -35,7 +39,7 @@ class VisualEdge(BaseModel):
 class VisualSpec(BaseModel):
     """Semantic data only. Pixel coordinates and arbitrary HTML are forbidden."""
     nodes: list[VisualNode] = Field(default_factory=list, max_length=9)
-    edges: list[VisualEdge] = Field(default_factory=list, max_length=12)
+    edges: list[VisualEdge] = Field(default_factory=list, max_length=MAX_VISUAL_EDGES)
     equation: str = Field(default="", max_length=100)
     code: str = Field(default="", max_length=600)
     # Matrix examples are symbolic unless concrete values are grounded.
@@ -135,6 +139,28 @@ class DetailedSection(PlanSection):
 
 class SceneExpansion(BaseModel):
     sections: list[DetailedSection] = Field(min_length=1, max_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def bound_generated_edges(cls, value: object) -> object:
+        """Keep oversized AI diagrams renderable without relaxing the saved plan schema."""
+        if not isinstance(value, dict) or not isinstance(value.get("sections"), list):
+            return value
+        sections = []
+        for section in value["sections"]:
+            if not isinstance(section, dict) or not isinstance(section.get("visual_spec"), dict):
+                sections.append(section)
+                continue
+            spec = section["visual_spec"]
+            edges = spec.get("edges")
+            if isinstance(edges, list) and len(edges) > MAX_VISUAL_EDGES:
+                logger.warning(
+                    "Studio scene diagram returned %d edges; keeping first %d",
+                    len(edges), MAX_VISUAL_EDGES,
+                )
+                section = {**section, "visual_spec": {**spec, "edges": edges[:MAX_VISUAL_EDGES]}}
+            sections.append(section)
+        return {**value, "sections": sections}
 
 
 def coerce_plan(raw: object, *, kind: str, fallback_title: str,

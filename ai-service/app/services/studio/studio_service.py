@@ -20,7 +20,7 @@ from app.core.database import get_ai_conn
 from app.services.studio.jobs import checkpoint
 from app.services.studio.quota_retry import authoring_call
 from app.services.studio.doc_renderer import render_plan_to_markdown
-from app.services.studio.plan_schema import PlanSection, StudioPlan, SceneExpansion, coerce_plan
+from app.services.studio.plan_schema import MAX_VISUAL_EDGES, PlanSection, StudioPlan, SceneExpansion, coerce_plan
 from app.services.studio.html_renderer import render_html
 from app.services.studio.storyboard import compile_storyboard
 from app.services.studio.authoring_context import prepare_authoring_context, select_evidence
@@ -64,7 +64,7 @@ _SECTION_SYSTEM = (
     "Visual types: matrix_dot_product, matrix_tiling, reduction_tree, broadcast_tree, resource_timeline, queue, "
     "network_topology, process_grid, memory_hierarchy, data_path, comparison, algorithm_tree, pipeline, "
     "code_execution, architecture, collective_communication, flow, timeline. "
-    "Supply 2–6 nodes and explicit edges for actual dependencies/data movement; do not invent links. "
+    f"Supply 2–6 nodes and at most {MAX_VISUAL_EDGES} explicit edges for actual dependencies/data movement; do not invent links. "
     "Node label <=40 characters, edge label <=20. Roles: input=blue, output=green, intermediate=amber, warning=red. "
     "Equations must use readable Unicode math, not raw LaTeX commands. No coordinates or HTML. Use one major diagram. animation_steps name ordered semantic actions such as "
     "highlight_row, highlight_column, reduce, broadcast_A, broadcast_B, local_GEMM, reveal_dependency. "
