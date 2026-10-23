@@ -15,8 +15,31 @@ from app.services.studio.storyboard import compile_storyboard
 from app.services.studio.visuals import VISUAL_TYPES
 from tests.test_studio_media import lesson, work_span_lesson
 from tests.test_studio_code_layout import code_lesson
+from tests.test_studio_timeline_layout import timeline_lesson
 
 pytestmark = pytest.mark.skipif(os.environ.get("STUDIO_RENDER_SMOKE") != "1", reason="Set STUDIO_RENDER_SMOKE=1 with Chromium/FFmpeg installed")
+
+
+@pytest.mark.parametrize("aspect,resolution", [("16:9", "1080p"), ("16:9", "720p"), ("9:16", "1080p")])
+def test_real_dense_timeline_layout(aspect,resolution,tmp_path):
+    async def run():
+        plan = timeline_lesson(5)
+        for count in (6,7,8,9):
+            plan.sections.extend(timeline_lesson(count).sections)
+        plan.sections.extend(timeline_lesson(9,edges="dense").sections)
+        plan.sections.extend(timeline_lesson(9,equation=False,edges="dense").sections)
+        board = compile_storyboard(plan,{"aspect_ratio":aspect,"resolution":resolution},video=True)
+        pdf,qa = await render_pdf(board,render_html(board),tmp_path)
+        assert pdf.startswith(b"%PDF") and qa["passed"]
+        assert len(qa["samples"]) == 4*len(board.scenes)
+        from app.services.studio.browser_renderer import browser_page,screenshot_qa
+        async with browser_page(board,render_html(board,video=True)) as page:
+            assert (await screenshot_qa(page,board,tmp_path/"video-qa"))["passed"]
+            await page.evaluate("window.seekScene(4,1)")
+            assert await page.locator('[data-scene="4"] [data-node-boundary]').count() == 9
+            assert await page.locator('[data-scene="4"] [data-progress-bar]').evaluate_all(
+                "bars=>bars.every(bar=>Number(bar.getAttribute('width'))===Math.round(Number(bar.dataset.maxWidth)))")
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize("aspect,resolution", [("16:9", "1080p"), ("16:9", "720p"), ("9:16", "1080p")])

@@ -143,6 +143,7 @@ def diagram(scene: Scene, portrait: bool, *, code_page: int | None = None) -> st
         coords = {}
         tree = kind in {"hierarchy", "reduction_tree", "broadcast_tree", "algorithm_tree"}
         grid = kind in {"network_topology", "process_grid", "architecture", "collective_communication"}
+        timeline = kind in {"timeline", "resource_timeline"}
         bw, bh = (230, 112) if portrait else (270, 112)
         if tree:
             # Four portrait leaves require narrow nodes. Give their wrapped
@@ -180,13 +181,23 @@ def diagram(scene: Scene, portrait: bool, *, code_page: int | None = None) -> st
             for i, node in enumerate(nodes):
                 row, col = divmod(i, cols)
                 coords[node.id] = (35 + col * (width-70) / cols, 130 + row * (230 if portrait else 260))
-        elif kind in {"timeline", "resource_timeline"}:
-            bw = width - 200
-            bh = 85
+        elif timeline:
+            # Keep readable labels and every semantic node. Use one column
+            # when it fits, otherwise a numbered two-column reading order.
+            # The equation and connector labels have their own reserved bands.
+            top, bottom = 20, height-(100 if scene.visual_spec.equation else 20)
+            bh = 144 if portrait else 100
+            cols = 1 if n <= (bottom-top)//bh else 2
+            rows = max(1, math.ceil(n/cols))
+            label_count = sum(bool(edge.label) for edge in scene.visual_spec.edges)
+            label_columns = math.ceil(label_count*62/(bottom-top))
+            content_width = width-20-label_columns*210
+            column_width = (content_width-(cols-1)*20)/cols
+            bw = column_width-80
+            gap = min(28, (bottom-top-rows*bh)/max(1,rows-1))
             for i, node in enumerate(nodes):
-                coords[node.id] = (110, 20 + i * 125)
-            if n > (6 if portrait else 4):
-                raise ValueError("Timeline too dense; split the scene")
+                row, col = divmod(i,cols)
+                coords[node.id] = (70+col*(column_width+20), top+row*(bh+gap))
         else:
             cols = 2 if portrait or not grid else 3
             for i, node in enumerate(nodes):
@@ -194,6 +205,9 @@ def diagram(scene: Scene, portrait: bool, *, code_page: int | None = None) -> st
                 coords[node.id] = (30 + col * width / cols, 130 + row * 240)
         parts = []
         obstacles = [(x,y,bw,bh) for x,y in coords.values()]
+        if timeline:
+            # Ordinals must not become free slots for connector labels.
+            obstacles.extend((x-70,y,55,bh) for x,y in coords.values())
         if any(x < 0 or y < 0 or x+bw > width or y+bh > height for x,y in coords.values()):
             raise ValueError("Diagram too dense for this aspect ratio; split nodes across scenes")
         if scene.visual_spec.equation:
@@ -215,10 +229,10 @@ def diagram(scene: Scene, portrait: bool, *, code_page: int | None = None) -> st
             if y+bh > height:
                 raise ValueError("Diagram too dense for this aspect ratio; split nodes across scenes")
             parts.append(box(round(x),round(y),bw,bh,node.label,node.role,step=min(i,len(scene.animation_steps)-1)))
-            if kind in {"timeline", "resource_timeline"}:
+            if timeline:
                 # Equal-width schematic bars show ordering, never invented benchmark times.
-                parts.append(label(0,y,95,bh,f"{i+1:02d}",css="matrix-name"))
-                parts.append(f'<g data-reveal="{min(i,len(scene.animation_steps)-1)}"><rect x="{round(x)}" y="{round(y+bh-12)}" width="{bw}" height="8" fill="#E7ECEA"/><rect data-progress-bar="{i}" data-max-width="{bw}" x="{round(x)}" y="{round(y+bh-12)}" height="8" width="0" fill="{ROLES[node.role]}"/></g>')
+                parts.append(label(x-70,y,55,bh,f"{i+1:02d}",css="matrix-name"))
+                parts.append(f'<g data-reveal="{min(i,len(scene.animation_steps)-1)}"><rect x="{round(x)}" y="{round(y+bh-12)}" width="{bw}" height="8" fill="#E7ECEA"/><rect data-progress-bar="{min(i,len(scene.animation_steps)-1)}" data-max-width="{bw}" x="{round(x)}" y="{round(y+bh-12)}" height="8" width="0" fill="{ROLES[node.role]}"/></g>')
         if scene.visual_spec.equation:
             parts.append(label(10,height-85,width-20,80,scene.visual_spec.equation,css="equation"))
         content = ''.join(parts)
