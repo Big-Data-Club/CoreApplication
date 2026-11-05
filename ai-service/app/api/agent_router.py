@@ -268,6 +268,7 @@ class NotebookEntryRequest(BaseModel):
     content: str
     course_id: Optional[int] = None
     node_id: Optional[int] = None
+    annotation: Optional[dict] = None
 
 @router.get("/notebook")
 async def list_notebook(
@@ -313,7 +314,7 @@ async def create_notebook_entry(
         async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.post(
                 f"{settings.personalize_service_url}/personalize/notebook",
-                json={"user_id": user_id, "title": title, "content": content, "course_id": body.course_id, "node_id": body.node_id},
+                json={"user_id": user_id, "title": title, "content": content, "course_id": body.course_id, "node_id": body.node_id, "annotation": body.annotation},
                 headers={"X-AI-Secret": settings.ai_service_secret},
             )
         if res.status_code != 200:
@@ -345,7 +346,7 @@ async def update_notebook_entry(
         async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.put(
                 f"{settings.personalize_service_url}/personalize/notebook/{entry_id}",
-                json={"user_id": user_id, "title": title, "content": content},
+                json={"user_id": user_id, "title": title, "content": content, **({"annotation": body.annotation} if "annotation" in body.model_fields_set else {})},
                 headers={"X-AI-Secret": settings.ai_service_secret},
             )
         if res.status_code != 200:

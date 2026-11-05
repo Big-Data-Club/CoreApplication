@@ -379,3 +379,28 @@ worker loops delete expired media and resume shared-channel YouTube uploads;
 the frontend bridge owns Google OAuth communication. Completed course videos
 retain only processed YouTube links and authoring provenance. Publication uses
 the authenticated LMS content API and reconciles project metadata on retries.
+# Learner notebook annotations (2026-11-05)
+
+Notebook entries remain user-owned records in Personalize's DuckDB
+`notebook_entries`; the optional `annotation` TEXT column contains version-1 JSON
+for student text highlights: `content_id`, exact `quote`, nearby `prefix/suffix`,
+UTF-16 `start/end` offsets and one of yellow/green/blue/pink. This is personal
+learning data, not a new analytics event or Kafka topic. The browser produces
+annotations only on explicit save; BFF injects authenticated user identity,
+AI proxies the additive field, and Personalize validates it and applies the
+existing owner-scoped list/update/delete rules. The field is never a grant of
+course/lesson access. Existing LMS authorization still controls lesson reads.
+
+Purpose: restore private learner highlights and open their associated notebook
+comments. Retention/access match existing notebooks: owner-only through the
+authenticated proxy, internal service-secret authentication between services;
+deleting a note removes its live annotation, and explicitly setting annotation
+to null removes only the highlight. Existing backup policies are unchanged.
+No new public endpoint, automatic telemetry or separate export is introduced.
+Legacy PUT callers that omit annotation preserve the stored value.
+
+Personalize applies the additive/idempotent migration under its DuckDB lock at
+startup; see `personalize-service/migrations/V20261105__notebook_annotations.sql`.
+Rollout order: Personalize → AI HTTP → frontend. Old notes require no backfill.
+Do not run tests against a production DuckDB file; tests force a temporary data
+directory and verify legacy rows, isolation, color updates and removal.

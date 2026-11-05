@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.services.lakehouse import lakehouse_service
 from app.api.dashboard_html import DASHBOARD_HTML
+from app.api.notebook_models import NotebookSaveRequest
 
 settings = get_settings()
 router = APIRouter()
@@ -20,14 +21,6 @@ async def serve_dashboard():
 async def serve_personalize_dashboard():
     return HTMLResponse(content=DASHBOARD_HTML, status_code=200)
 
-
-
-class NotebookSaveRequest(BaseModel):
-    user_id: int
-    title: str
-    content: str
-    course_id: Optional[int] = None
-    node_id: Optional[int] = None
 
 
 class OnboardingProfileRequest(BaseModel):
@@ -88,13 +81,16 @@ async def save_notebook(
     x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")
 ):
     verify_secret(x_ai_secret)
+    if body.annotation is not None and body.course_id is None:
+        raise HTTPException(status_code=400, detail="Highlights require a course")
     try:
         entry = lakehouse_service.save_notebook_entry(
             user_id=body.user_id,
             title=body.title,
             content=body.content,
             course_id=body.course_id,
-            node_id=body.node_id
+            node_id=body.node_id,
+            annotation=body.annotation.model_dump() if body.annotation else None,
         )
         return entry
     except Exception as e:
@@ -115,7 +111,11 @@ async def update_notebook(
             user_id=body.user_id,
             title=body.title,
             content=body.content,
+            annotation=body.annotation.model_dump() if body.annotation else None,
+            annotation_provided="annotation" in body.model_fields_set,
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     if updated is None:

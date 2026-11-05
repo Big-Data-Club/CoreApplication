@@ -73,6 +73,8 @@ frontend/.cache/
 frontend/.turbo/
 frontend/.vercel
 frontend/.env*.local
+cce_resources/
+ai-gateway/
 
 # lms-service
 lms-service/bin/
