@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { assert } from "./errors.mjs";
 import { indexPageLinks } from "./links.mjs";
+import { blockSignatures, recordBlockActivity } from "./blockActivity.mjs";
 export const decode = (value) => Buffer.from(value, "base64");
 export const encode = (value) => Buffer.from(value).toString("base64");
 export class Documents {
@@ -107,6 +108,9 @@ export class Documents {
       const doc = new Y.Doc();
       try {
         if (saved.state.length) Y.applyUpdate(doc, saved.state);
+        const beforeBlocks = blockSignatures(
+          doc.getXmlFragment("document-store"),
+        );
         try {
           Y.applyUpdate(doc, bytes);
         } catch {
@@ -124,6 +128,13 @@ export class Documents {
           "Trang vượt giới hạn 4 MB. Hãy chia thành trang con.",
         );
         const xml = doc.getXmlFragment("document-store").toString();
+        await recordBlockActivity(
+          client,
+          id,
+          user,
+          beforeBlocks,
+          blockSignatures(doc.getXmlFragment("document-store")),
+        );
         await indexPageLinks(client, id, xml);
         const fileIds = [
           ...new Set(

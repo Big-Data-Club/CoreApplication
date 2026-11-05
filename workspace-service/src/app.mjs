@@ -10,6 +10,7 @@ import { Documents } from "./documents.mjs";
 import { Databases } from "./databases.mjs";
 import { Sharing } from "./sharing.mjs";
 import { Files } from "./files.mjs";
+import { Fields } from "./fields.mjs";
 
 export function createApplication({
   pool,
@@ -22,7 +23,8 @@ export function createApplication({
     documents = new Documents(store, pages),
     databases = new Databases(store),
     sharing = new Sharing(store),
-    files = new Files(store);
+    files = new Files(store),
+    fields = new Fields(store);
   app.disable("x-powered-by");
   app.set("trust proxy", false);
   app.use((req, res, next) => {
@@ -133,6 +135,58 @@ export function createApplication({
         ),
       ),
   );
+  api.get("/spaces/:spaceId/fields", async (req, res) =>
+    res.json(
+      await fields.list(
+        req.actor,
+        req.params.spaceId,
+        req.query.archived === "true",
+      ),
+    ),
+  );
+  api.post("/spaces/:spaceId/fields", async (req, res) =>
+    res
+      .status(201)
+      .json(
+        await fields.create(
+          req.actor,
+          req.params.spaceId,
+          v.createField.parse(req.body),
+        ),
+      ),
+  );
+  api.get("/fields/:id", async (req, res) =>
+    res.json(await store.field(pool, req.params.id, req.actor)),
+  );
+  api.patch("/fields/:id", async (req, res) =>
+    res.json(
+      await fields.patch(
+        req.actor,
+        req.params.id,
+        v.patchField.parse(req.body),
+      ),
+    ),
+  );
+  api.post("/fields/:id/archive", async (req, res) =>
+    res.json(await fields.archive(req.actor, req.params.id)),
+  );
+  api.post("/fields/:id/restore", async (req, res) =>
+    res.json(await fields.restore(req.actor, req.params.id)),
+  );
+  api.get("/pages/:id/blocks/:blockId/activity", async (req, res) => {
+    await store.page(pool, req.params.id, req.actor);
+    const blockId = z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{1,100}$/)
+      .parse(req.params.blockId);
+    const row = (
+      await pool.query(
+        "SELECT b.updated_at,u.name author FROM block_activity b JOIN workspace_users u ON u.id=b.actor_id WHERE b.page_id=$1 AND b.block_id=$2",
+        [req.params.id, blockId],
+      )
+    ).rows[0];
+    res.json(row || null);
+  });
   api.get("/search", async (req, res) =>
     res.json(
       await store.search(
@@ -496,15 +550,13 @@ export function createApplication({
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
     if (error instanceof ZodError)
-      return res
-        .status(400)
-        .json({
-          error: "Dữ liệu không hợp lệ.",
-          code: "validation_error",
-          issues: error.issues
-            .map((issue) => ({ path: issue.path, message: issue.message }))
-            .slice(0, 8),
-        });
+      return res.status(400).json({
+        error: "Dữ liệu không hợp lệ.",
+        code: "validation_error",
+        issues: error.issues
+          .map((issue) => ({ path: issue.path, message: issue.message }))
+          .slice(0, 8),
+      });
     if (error instanceof HttpError)
       return res
         .status(error.status)
@@ -526,12 +578,10 @@ export function createApplication({
     console.error("Workspace request failed", {
       code: error.code || "internal_error",
     });
-    res
-      .status(500)
-      .json({
-        error: "Chưa thể hoàn thành thao tác. Bạn có thể thử lại.",
-        code: "internal_error",
-      });
+    res.status(500).json({
+      error: "Chưa thể hoàn thành thao tác. Bạn có thể thử lại.",
+      code: "internal_error",
+    });
   });
-  return { app, store, pages, documents, databases, sharing, files };
+  return { app, store, pages, fields, documents, databases, sharing, files };
 }

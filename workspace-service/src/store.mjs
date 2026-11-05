@@ -40,7 +40,7 @@ export class Store {
   async page(client, id, user, min = 1, archived = false) {
     const { rows } = await client.query(
       `SELECT p.*,m.role space_role,GREATEST(COALESCE(${roleSql("m")},0),COALESCE(${roleSql("g")},0),COALESCE(${roleSql("b")},0)) access,
-      EXISTS(WITH RECURSIVE ancestors AS(SELECT id,parent_id,archived_at FROM pages WHERE id=p.id UNION ALL SELECT a.id,a.parent_id,a.archived_at FROM pages a JOIN ancestors t ON a.id=t.parent_id) SELECT 1 FROM ancestors WHERE archived_at IS NOT NULL) hidden
+      EXISTS(WITH RECURSIVE ancestors AS(SELECT id,parent_id,archived_at FROM pages WHERE id=p.id UNION ALL SELECT a.id,a.parent_id,a.archived_at FROM pages a JOIN ancestors t ON a.id=t.parent_id) SELECT 1 FROM ancestors WHERE archived_at IS NOT NULL) OR EXISTS(SELECT 1 FROM workspace_fields f WHERE f.id=p.field_id AND f.archived_at IS NOT NULL) hidden
       FROM pages p LEFT JOIN space_members m ON m.space_id=p.space_id AND m.user_id=$2 LEFT JOIN page_grants g ON g.page_id=p.id AND g.user_id=$2 LEFT JOIN page_grants b ON p.kind='record' AND b.page_id=p.parent_id AND b.user_id=$2 WHERE p.id=$1`,
       [id, user.id],
     );
@@ -57,6 +57,18 @@ export class Store {
     );
     return result;
   }
+  async field(client, id, user, min = 1, archived = false) {
+    const field = (
+      await client.query("SELECT * FROM workspace_fields WHERE id=$1", [id])
+    ).rows[0];
+    assert(
+      field && (archived || !field.archived_at),
+      404,
+      "Lĩnh vực không tồn tại hoặc đã lưu trữ.",
+    );
+    const space = await this.space(client, field.space_id, user, min);
+    return { ...field, access: space.access };
+  }
   async event(client, user, spaceId, pageId, action, detail = {}) {
     await client.query(
       "INSERT INTO workspace_activity(id,space_id,page_id,actor_id,action,detail) VALUES($1,$2,$3,$4,$5,$6)",
@@ -67,9 +79,36 @@ export class Store {
     ]);
   }
   async insertPage(client, user, spaceId, input) {
+    await client.query("SELECT id FROM spaces WHERE id=$1 FOR SHARE", [
+      spaceId,
+    ]);
+    let fieldId = input.field_id ?? null;
+    if (input.parent_id) {
+      const parent = await this.page(client, input.parent_id, user, 3);
+      assert(
+        parent.space_id === spaceId,
+        400,
+        "Trang cha không cùng không gian.",
+      );
+      if (input.field_id !== undefined)
+        assert(
+          input.field_id === parent.field_id,
+          400,
+          "Trang con phải nằm trong cùng lĩnh vực với trang cha.",
+        );
+      fieldId = parent.field_id;
+    }
+    if (fieldId) {
+      const field = await this.field(client, fieldId, user, 3);
+      assert(
+        field.space_id === spaceId,
+        400,
+        "Lĩnh vực không cùng không gian.",
+      );
+    }
     const id = randomUUID();
     const { rows } = await client.query(
-      `INSERT INTO pages(id,space_id,parent_id,title,kind,created_by,updated_by,sources,sort_order) VALUES($1,$2,$3,$4,$5,$6,$6,$7,COALESCE((SELECT max(sort_order)+1 FROM pages WHERE space_id=$2 AND parent_id IS NOT DISTINCT FROM $3),0)) RETURNING *`,
+      `INSERT INTO pages(id,space_id,parent_id,title,kind,created_by,updated_by,sources,field_id,sort_order) VALUES($1,$2,$3,$4,$5,$6,$6,$7,$8,COALESCE((SELECT max(sort_order)+1 FROM pages WHERE space_id=$2 AND parent_id IS NOT DISTINCT FROM $3 AND field_id IS NOT DISTINCT FROM $8),0)) RETURNING *`,
       [
         id,
         spaceId,
@@ -78,6 +117,7 @@ export class Store {
         input.kind || "page",
         user.id,
         JSON.stringify(input.sources || []),
+        fieldId,
       ],
     );
     await client.query("INSERT INTO page_documents(page_id) VALUES($1)", [id]);
@@ -102,9 +142,6 @@ export class Store {
           "INSERT INTO space_members(space_id,user_id,role) VALUES($1,$2,'owner')",
           [id, user.id],
         );
-        await this.insertPage(client, user, id, {
-          title: "Trang đầu tiên của bạn",
-        });
       }
     });
     const spaces = await this.pool.query(
@@ -123,11 +160,16 @@ export class Store {
       "SELECT id,name,email FROM workspace_users WHERE id=$1",
       [user.id],
     );
+    const fields = await this.pool.query(
+      `SELECT f.*,count(p.id)::int page_count,GREATEST(f.updated_at,COALESCE(max(p.updated_at),f.updated_at)) last_activity FROM workspace_fields f JOIN space_members m ON m.space_id=f.space_id AND m.user_id=$1 LEFT JOIN pages p ON p.field_id=f.id AND p.archived_at IS NULL WHERE f.archived_at IS NULL GROUP BY f.id ORDER BY f.created_at`,
+      [user.id],
+    );
     return {
       user: profile.rows[0],
       spaces: spaces.rows,
       shared_pages: shared.rows,
       invitations: invites.rows,
+      fields: fields.rows,
     };
   }
   async createSpace(user, title) {
@@ -146,7 +188,6 @@ export class Store {
         "INSERT INTO space_members(space_id,user_id,role) VALUES($1,$2,'owner')",
         [id, user.id],
       );
-      await this.insertPage(client, user, id, { title: "Tổng quan nhóm" });
       return rows[0];
     });
   }
@@ -176,11 +217,17 @@ export class Store {
       "SELECT role FROM space_members WHERE space_id=$1 AND user_id=$2",
       [page.space_id, user.id],
     );
+    const editor = (
+      await this.pool.query("SELECT name FROM workspace_users WHERE id=$1", [
+        page.updated_by,
+      ])
+    ).rows[0];
     return {
       ...page,
       ...document.rows[0],
       favorite: preferences.rows[0]?.favorite || false,
       space_role: membership.rows[0]?.role || null,
+      last_editor: editor?.name,
     };
   }
   async search(user, query) {

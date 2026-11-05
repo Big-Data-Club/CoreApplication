@@ -7,6 +7,7 @@ authenticated BDC members. Uses the existing light/dark theme and mobile shell.
 
 | Area | Behavior |
 | --- | --- |
+| Fields | Workspace opens a user-created field gallery; arbitrary names, descriptions, 12 icons, 6 colors and tags; edit/archive/restore; no seeded disciplines |
 | Spaces | Private personal space; named team spaces; email-bound in-app invitations |
 | Pages | Parent/child tree; create/rename/move; favorites, recents, permission-filtered search; icon/cover/full width; tabs and side peek |
 | Editor | Slash menu, block drag handle, turn into, colors, duplicate, move up/down, block links, child pages, text/code/checklists/tables, image/PDF upload |
@@ -23,6 +24,36 @@ The guide at `/workspace/guide` is available independently, and opens inside
 Workspace without unmounting the editor when inserting a formula. It describes
 actual interactions, recovery and sharing semantics. Removing a page-link block
 removes the reference; archiving pages is an explicit page-menu operation.
+
+## Field hierarchy and existing content
+
+The hierarchy is **Space → Field → Page → Subpage**. `/workspace` (optionally
+`?space=…`) opens the gallery; `?field=…` opens that field and its first root page;
+`?page=…` opens the authorized page directly. Creating a field explicitly creates
+one root page named after it. New personal/team spaces contain no starter pages
+or predefined fields. Existing pages retain `field_id = null` and appear under
+“Trang chưa xếp lĩnh vực”; users choose a destination explicitly.
+
+“Trang mới” creates a root in the current field. The tree +, header “Trang con”
+and `/page` create children. Child pages inherit the parent's field, including
+database record pages. Moving a branch changes its field atomically, including
+archived descendants. The destination parent must belong to the same space and
+field; cycles and moves of individual database records are rejected. Real
+children appear in their parent's content even if no explicit page-link block
+was inserted. Removing a reference does not delete the target.
+
+Fields use their space membership, not direct page grants. Archive requires
+space management and hides all active pages in a field. Restore restores only
+that archive batch, preserving earlier page trash. Up to 100 active fields per
+space are supported. Forward migrations 004/005 retain existing pages and add
+field hierarchy constraints plus committed block-author/time metadata.
+
+The six-dot menu has search, nested conversion/colors, duplicate/move/delete,
+collaboration tools and block activity. The +/slash menu groups media, notebook,
+headings, text and equations. URL cards accept HTTP(S) only, and persist with the
+shared document. Customize page provides an icon palette, cover previews and
+full width. The standalone handbook has a contents rail and five numbered
+sections, including the searchable formula library.
 
 ## Permission contract
 
@@ -80,9 +111,9 @@ exact origins, the frontend runtime service address and the WebSocket edge route
 
 ## Verification recorded on 2026-11-05
 
-- 30 service cases passed with real isolated PostgreSQL, also inside the Node 22
+- 34 service cases passed with real isolated PostgreSQL, also inside the Node 22
   service image; no skipped integration cases.
-- 15 frontend cases passed, including all 65 formula renders, BFF resource/identity
+- 18 frontend cases passed, including all 65 formula renders, BFF resource/identity
   checks, canonical Task visibility and the production WebSocket rewrite.
 - Workspace ESLint and TypeScript checks passed. The full frontend production
   build passed; existing unrelated lint warnings remain in the wider application.
@@ -96,3 +127,12 @@ exact origins, the frontend runtime service address and the WebSocket edge route
   localhost ports 3000 and 3001. Existing local Workspace data was backed up
   before the update. AI and old-notebook live checks still depend on their
   existing BDC services being available.
+
+The Fields refinement was additionally checked against the built production
+frontend with the real BFF/service on an isolated Docker network. Field creation,
+hierarchy, both block menus, URL cards, persisted covers/icons, archive/restore,
+handbook and light/dark/mobile flows passed without browser JavaScript errors.
+The original collaboration/recovery/database browser suite also passed against
+that image. The native development CSS-as-script regression was reproduced and
+then smoke-checked with no runtime errors after retaining Next's development
+chunk graph. Local SQL migrations 004/005 were applied after a fresh backup.

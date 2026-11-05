@@ -988,3 +988,222 @@ only(
     assert.equal(saved.generation, 1);
   },
 );
+
+async function createField(
+  spaceId,
+  title = "Hệ thống phân tán",
+  actor = "alice",
+) {
+  const result = await request(actor, `/spaces/${spaceId}/fields`, "POST", {
+    title,
+    icon: "code",
+    color: "green",
+    description: "Ghi chép nghiên cứu",
+    tags: ["Systems"],
+  });
+  assert.equal(result.status, 201);
+  return result.data;
+}
+only(
+  "fields are user-created, private and independently scoped, with optimistic metadata updates",
+  async () => {
+    const initial = await home(),
+      spaceId = initial.spaces[0].id;
+    assert.deepEqual(initial.fields, []);
+    assert.deepEqual(
+      (await request("alice", `/spaces/${spaceId}/pages`)).data,
+      [],
+    );
+    const f = await createField(spaceId);
+    assert.equal(f.page_count, 1);
+    const root = (await request("alice", `/pages/${f.page_id}`)).data;
+    assert.equal(root.field_id, f.id);
+    assert.equal(root.title, f.title);
+    assert.equal(root.cover, "green");
+    assert.equal((await request("bob", `/fields/${f.id}`)).status, 404);
+    assert.equal(
+      (
+        await request("alice", `/fields/${f.id}`, "PATCH", {
+          version: f.version,
+          title: "Lĩnh vực đổi tên",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await request("alice", `/fields/${f.id}`, "PATCH", {
+          version: f.version,
+          title: "Ghi đè cũ",
+        })
+      ).status,
+      409,
+    );
+    assert.equal((await home("bob")).fields.length, 0);
+    await invite(root);
+    assert.equal((await request("bob", `/pages/${root.id}`)).status, 200);
+    assert.equal(
+      (await request("bob", `/spaces/${spaceId}/fields`)).status,
+      404,
+    );
+    assert.equal((await home("bob")).fields.length, 0);
+  },
+);
+only(
+  "page branches inherit fields and move atomically, including archived children and database records",
+  async () => {
+    const spaceId = (await home()).spaces[0].id,
+      f = await createField(spaceId),
+      g = await createField(spaceId, "Đồ thị");
+    const createAt = async (input) =>
+      (await request("alice", `/spaces/${spaceId}/pages`, "POST", input)).data;
+    const child = await createAt({ title: "Con", parent_id: f.page_id }),
+      nested = await createAt({ title: "Cháu", parent_id: child.id });
+    assert.equal(child.field_id, f.id);
+    assert.equal(nested.field_id, f.id);
+    assert.equal(
+      (
+        await request("alice", `/spaces/${spaceId}/pages`, "POST", {
+          title: "Sai nhánh",
+          parent_id: child.id,
+          field_id: g.id,
+        })
+      ).status,
+      400,
+    );
+    const collection = await createAt({
+      title: "Kế hoạch",
+      parent_id: child.id,
+      kind: "database",
+    });
+    const record = (
+      await request("alice", `/databases/${collection.id}/records`, "POST", {
+        title: "Việc cần làm",
+        values: {},
+      })
+    ).data;
+    assert.ok(record.id);
+    const archived = await createAt({ title: "Đã cất", parent_id: child.id });
+    await request("alice", `/pages/${archived.id}/archive`, "POST", {});
+    assert.equal(
+      (
+        await request("alice", `/pages/${child.id}`, "PATCH", {
+          version: child.version,
+          field_id: g.id,
+          parent_id: g.page_id,
+        })
+      ).status,
+      200,
+    );
+    const branch = (
+      await pool.query("SELECT field_id FROM pages WHERE id=ANY($1::uuid[])", [
+        [child.id, nested.id, collection.id, record.id, archived.id],
+      ])
+    ).rows;
+    assert.equal(branch.length, 5);
+    assert.ok(branch.every((p) => p.field_id === g.id));
+    const current = (await request("alice", `/pages/${child.id}`)).data;
+    assert.equal(
+      (
+        await request("alice", `/pages/${child.id}`, "PATCH", {
+          version: current.version,
+          parent_id: nested.id,
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await request("alice", `/pages/${child.id}`, "PATCH", {
+          version: current.version,
+          field_id: f.id,
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await request("alice", `/pages/${archived.id}/restore`, "POST", {}))
+        .status,
+      200,
+    );
+  },
+);
+only(
+  "field archive restores its batch only, retains legacy pages and rejects cross-space field assignment",
+  async () => {
+    const spaceId = (await home()).spaces[0].id,
+      f = await createField(spaceId);
+    const old = await create();
+    assert.equal(old.field_id, null);
+    const trashed = (
+      await request("alice", `/spaces/${spaceId}/pages`, "POST", {
+        title: "Đã xóa trước",
+        field_id: f.id,
+      })
+    ).data;
+    await request("alice", `/pages/${trashed.id}/archive`, "POST", {});
+    assert.equal(
+      (await request("alice", `/fields/${f.id}/archive`, "POST", {})).status,
+      200,
+    );
+    assert.equal((await request("alice", `/pages/${f.page_id}`)).status, 404);
+    assert.equal(
+      (await request("alice", `/pages/${trashed.id}/restore`, "POST", {}))
+        .status,
+      404,
+    );
+    assert.equal((await home()).fields.length, 0);
+    assert.equal((await request("alice", `/pages/${old.id}`)).status, 200);
+    assert.equal(
+      (await request("alice", `/fields/${f.id}/restore`, "POST", {})).status,
+      200,
+    );
+    assert.equal((await request("alice", `/pages/${f.page_id}`)).status, 200);
+    assert.equal((await request("alice", `/pages/${trashed.id}`)).status, 404);
+    const other = (await home("bob")).spaces[0].id;
+    assert.equal(
+      (
+        await request("bob", `/spaces/${other}/pages`, "POST", {
+          title: "Foreign",
+          field_id: f.id,
+        })
+      ).status,
+      404,
+    );
+  },
+);
+only(
+  "block activity records the committed author of changed blocks and rechecks page visibility",
+  async () => {
+    const page = await create(),
+      doc = new Y.Doc(),
+      block = new Y.XmlElement("blockContainer"),
+      text = new Y.XmlText();
+    block.setAttribute("id", "test-block");
+    text.insert(0, "Nội dung");
+    block.insert(0, [text]);
+    doc.getXmlFragment("document-store").insert(0, [block]);
+    await services.documents.write(users.alice, page.id, {
+      operation_id: randomUUID(),
+      generation: 1,
+      update: Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64"),
+    });
+    const activity = await request(
+      "alice",
+      `/pages/${page.id}/blocks/test-block/activity`,
+    );
+    assert.equal(activity.status, 200);
+    assert.equal(activity.data.author, "Alice");
+    assert.equal(
+      (await request("bob", `/pages/${page.id}/blocks/test-block/activity`))
+        .status,
+      404,
+    );
+    assert.equal(
+      (await request("alice", `/pages/${page.id}/blocks/unknown/activity`))
+        .data,
+      null,
+    );
+    doc.destroy();
+  },
+);

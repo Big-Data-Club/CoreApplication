@@ -1,6 +1,6 @@
 # BDC Workspace service
 
-Owns spaces, pages, access grants, comments, Yjs document state, database schemas,
+Owns spaces, user-defined fields, pages, access grants, comments, Yjs document state, database schemas,
 records/views, private attachments and page history in its own PostgreSQL database.
 It never reads Auth/LMS/Personalize databases. See
 [the feature contract](../docs/features/WORKSPACE.md) and
@@ -43,6 +43,7 @@ always verifies BDC access JWTs. Browser checks live in `frontend/tests/workspac
 
 ## Operational bounds
 
+- 100 active user-created fields per space; field archive/restore preserves earlier page trash.
 - 4 MiB encoded document state, 10 MiB per PNG/JPEG/WebP/PDF, 100 MiB attachments
   and 40 uploads/hour/user; 30 owned spaces.
 - 600 REST calls/minute/user; 12 concurrent sockets/user, 200 authenticated

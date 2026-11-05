@@ -44,6 +44,17 @@ duplicate tasks or leaderboard points. Notebook conversion fetches entries for
 the current user through the AI API. AI assistance uses the existing tool-free
 flash mode and requires an explicit insert action after preview.
 
+## User-defined fields (2026-11-05 refinement)
+
+Fields are owned containers inside spaces. Keep page parentage and field identity
+in the Workspace database, with same-space field and deferred same-field parent
+constraints. Structural writes share a space lock so moves/archive/create cannot
+split a subtree. Direct page guests never acquire field browsing authority.
+Retain legacy unfiled pages; creation and assignment are explicit user actions.
+Field archive has a batch ID distinct from earlier individual page archives.
+Block author/time is indexed from committed Yjs changes, rather than attributing
+all blocks to the last page editor. No external data ownership boundary changes.
+
 ## Consequences
 
 A new service/database and WebSocket route must be operated and backed up.

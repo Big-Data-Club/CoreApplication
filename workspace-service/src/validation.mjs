@@ -2,6 +2,36 @@ import { z } from "zod";
 export const uuid = z.string().uuid();
 export const role = z.enum(["viewer", "commenter", "editor", "manager"]);
 export const title = z.string().trim().min(1).max(300);
+export const createField = z
+  .object({
+    title: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(280).default(""),
+    icon: z
+      .enum([
+        "book",
+        "folder",
+        "sigma",
+        "atom",
+        "flask",
+        "brain",
+        "code",
+        "sprout",
+        "globe",
+        "pen",
+        "briefcase",
+        "sparkles",
+      ])
+      .default("book"),
+    color: z
+      .enum(["blue", "violet", "green", "amber", "rose", "slate"])
+      .default("violet"),
+    tags: z.array(z.string().trim().min(1).max(32)).max(6).default([]),
+  })
+  .strict();
+export const patchField = createField
+  .partial()
+  .extend({ version: z.number().int().positive() })
+  .strict();
 export const safeUrl = z
   .string()
   .max(2000)
@@ -30,6 +60,7 @@ export const createPage = z
   .object({
     title: title.default("Trang không tiêu đề"),
     parent_id: uuid.nullable().default(null),
+    field_id: uuid.nullable().optional(),
     kind: z.enum(["page", "database"]).default("page"),
     sources: z.array(source).max(30).default([]),
     template: z
@@ -47,6 +78,7 @@ export const patchPage = z
       .optional(),
     full_width: z.boolean().optional(),
     parent_id: uuid.nullable().optional(),
+    field_id: uuid.nullable().optional(),
     sort_order: z.number().finite().min(-1e9).max(1e9).optional(),
     sources: z.array(source).max(30).optional(),
     version: z.number().int().positive(),

@@ -66,7 +66,7 @@ export class Pages {
   async patch(user, id, input) {
     return this.store.tx(async (client) => {
       const initial = await this.store.page(client, id, user, 3);
-      if ("parent_id" in input)
+      if ("parent_id" in input || "field_id" in input)
         await client.query("SELECT id FROM spaces WHERE id=$1 FOR UPDATE", [
           initial.space_id,
         ]);
@@ -78,23 +78,31 @@ export class Pages {
         "Trang vừa thay đổi. Tải lại trước khi lưu.",
         "version_conflict",
       );
-      if ("parent_id" in input) {
+      if ("parent_id" in input || "field_id" in input) {
         await this.store.space(client, page.space_id, user, 4);
-        if (input.parent_id) {
-          const parent = await this.store.page(
-            client,
-            input.parent_id,
-            user,
-            4,
-          );
+        const fieldId = "field_id" in input ? input.field_id : page.field_id;
+        if (fieldId) {
+          const field = await this.store.field(client, fieldId, user, 4);
           assert(
-            parent.space_id === page.space_id && parent.kind === "page",
+            field.space_id === page.space_id,
+            400,
+            "Lĩnh vực không cùng không gian.",
+          );
+        }
+        const parentId =
+          "parent_id" in input ? input.parent_id : page.parent_id;
+        if (parentId) {
+          const parent = await this.store.page(client, parentId, user, 4);
+          assert(
+            parent.space_id === page.space_id &&
+              parent.kind === "page" &&
+              parent.field_id === fieldId,
             400,
             "Trang cha không hợp lệ.",
           );
           const cycle = await client.query(
             "WITH RECURSIVE children AS(SELECT id FROM pages WHERE id=$1 UNION ALL SELECT p.id FROM pages p JOIN children c ON p.parent_id=c.id) SELECT 1 FROM children WHERE id=$2",
-            [id, input.parent_id],
+            [id, parentId],
           );
           assert(
             !cycle.rowCount,
@@ -107,6 +115,11 @@ export class Pages {
           400,
           "Di chuyển mục qua bảng bằng thao tác quản lý bảng.",
         );
+        if ("field_id" in input && input.field_id !== page.field_id)
+          await client.query(
+            "WITH RECURSIVE branch AS(SELECT id FROM pages WHERE id=$1 UNION ALL SELECT p.id FROM pages p JOIN branch b ON p.parent_id=b.id) UPDATE pages SET field_id=$2,version=version+1,updated_by=$3 WHERE id IN(SELECT id FROM branch) AND id<>$1",
+            [id, input.field_id, user.id],
+          );
       }
       const allowed = [
         "title",
@@ -114,6 +127,7 @@ export class Pages {
         "cover",
         "full_width",
         "parent_id",
+        "field_id",
         "sort_order",
         "sources",
       ];
@@ -153,6 +167,7 @@ export class Pages {
       const page = await this.store.page(client, id, user, 4, true);
       await this.store.space(client, page.space_id, user, 4);
       assert(page.archived_batch, 409, "Trang đang hoạt động.");
+      if (page.field_id) await this.store.field(client, page.field_id, user);
       if (page.parent_id) await this.store.page(client, page.parent_id, user);
       await client.query(
         "UPDATE pages SET archived_at=NULL,archived_batch=NULL,updated_by=$2,version=version+1 WHERE archived_batch=$1",
@@ -175,6 +190,7 @@ export class Pages {
           kind: original.kind === "record" ? "page" : original.kind,
           parent_id: original.kind === "record" ? null : original.parent_id,
           sources: original.sources,
+          field_id: original.field_id,
         },
       );
       const saved = await client.query(
