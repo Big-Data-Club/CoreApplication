@@ -14,6 +14,13 @@
 
 ## 1. Purpose and operating principles
 
+Workspace (2026-11-05) is an opt-in new workload, not yet part of the production
+deployment selector. See [the service guide](../../workspace-service/README.md)
+for its dedicated PostgreSQL database, direct LISTEN connection, backup scope,
+WebSocket edge route, allowed origins, frontend runtime address and limits.
+`k3s/workspace` intentionally requires separate configuration before applying;
+a frontend pointer change alone does not provision Workspace infrastructure.
+
 Studio/MCP rollout (2026-10-21): apply AI migration V022 before deploying the
 matching HTTP, worker and frontend images. New Studio artifacts require a
 separate private unversioned MinIO bucket (default `<MINIO_BUCKET>-studio-temporary`),

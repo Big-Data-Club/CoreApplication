@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workspace-service
+  labels: {app: workspace-service}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: workspace-service}
+  template:
+    metadata:
+      labels: {app: workspace-service}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: workspace-service
+          image: bdc/bdc-workspace:replace-with-immutable-tag
+          ports: [{containerPort: 8088, name: http}]
+          env:
+            - name: PORT
+              value: '8088'
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: bdc-workspace-secrets, key: DATABASE_URL}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: {name: bdc-secrets, key: JWT_SECRET}
+            - name: WORKSPACE_ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef: {name: bdc-workspace-config, key: WORKSPACE_ALLOWED_ORIGINS}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: '1', memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workspace-service
+spec:
+  selector: {app: workspace-service}
+  ports: [{name: http, port: 8088, targetPort: http}]

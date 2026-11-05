@@ -1,0 +1,36 @@
+name: Workspace checks
+on:
+  pull_request:
+    paths: ['workspace-service/**', 'docker-compose.workspace.yml', 'k3s/workspace/**', '.github/workflows/workspace.yml']
+  push:
+    paths: ['workspace-service/**', 'docker-compose.workspace.yml', 'k3s/workspace/**', '.github/workflows/workspace.yml']
+permissions:
+  contents: read
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: workspace_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d workspace_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: workspace-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: workspace-service/package-lock.json
+      - run: npm ci
+      - run: npm test
+        env:
+          TEST_DATABASE_URL: postgresql://postgres@localhost:5432/workspace_test
+      - run: git diff --check

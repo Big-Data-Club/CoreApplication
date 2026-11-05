@@ -1,0 +1,51 @@
+# Merge with docker-compose.yml. Secrets come from the existing local environment.
+services:
+  frontend:
+    environment:
+      WORKSPACE_SERVICE_URL: http://workspace-service:8088
+  postgres-workspace:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: workspace
+      POSTGRES_USER: workspace
+      POSTGRES_PASSWORD: ${WORKSPACE_POSTGRES_PASSWORD:?Set a workspace-only database password}
+    volumes:
+      - workspace-postgres-data:/var/lib/postgresql/data
+    networks: [app-network]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U workspace -d workspace]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  workspace-service:
+    build: ./workspace-service
+    image: ${DOCKER_USERNAME:-bdc}/bdc-workspace:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment:
+      PORT: 8088
+      DATABASE_URL: postgresql://workspace:${WORKSPACE_POSTGRES_PASSWORD}@postgres-workspace:5432/workspace
+      JWT_SECRET: ${JWT_SECRET:?Use the same JWT signing secret as Auth}
+      WORKSPACE_ALLOWED_ORIGINS: ${WORKSPACE_ALLOWED_ORIGINS:?Set exact browser origins including scheme and port}
+    depends_on:
+      postgres-workspace:
+        condition: service_healthy
+    networks: [app-network]
+    ports:
+      - 127.0.0.1:8088:8088
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.workspace-ws.entrypoints=web
+      - traefik.http.routers.workspace-ws.rule=Path(`/workspace-ws`)
+      - traefik.http.routers.workspace-ws.priority=100
+      - traefik.http.services.workspace-ws.loadbalancer.server.port=8088
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+volumes:
+  workspace-postgres-data:

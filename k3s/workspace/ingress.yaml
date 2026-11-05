@@ -1,0 +1,16 @@
+# No prefix stripping: WebSocket auth uses a single-use ticket in the first frame.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-workspace-ws
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /workspace-ws
+            pathType: Exact
+            backend:
+              service:
+                name: workspace-service
+                port: {number: 8088}
