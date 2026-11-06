@@ -64,7 +64,7 @@ export class Store {
     assert(
       field && (archived || !field.archived_at),
       404,
-      "Lĩnh vực không tồn tại hoặc đã lưu trữ.",
+      "Lĩnh vực không tồn tại hoặc đang trong thùng rác.",
     );
     const space = await this.space(client, field.space_id, user, min);
     return { ...field, access: space.access };

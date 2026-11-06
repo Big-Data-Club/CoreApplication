@@ -1,7 +1,7 @@
 # BDC Workspace service
 
 Owns spaces, user-defined fields, pages, access grants, comments, Yjs document state, database schemas,
-records/views, private attachments, page history and opt-in named-view analytics in its own PostgreSQL database.
+records/views, private attachments, page history and named page-view analytics in its own PostgreSQL database.
 It never reads Auth/LMS/Personalize databases. See
 [the feature contract](../docs/features/WORKSPACE.md) and
 [the architecture decision](../docs/adr/2026-11-05-collaborative-workspace.md).
@@ -52,7 +52,8 @@ always verifies BDC access JWTs. Browser checks live in `frontend/tests/workspac
   that filtering/sorting applies to loaded records.
 - Automatic pre-edit versions at most once per ten minutes, plus manual versions.
   Archive is reversible and preserves rows/attachments; no automatic destructive
-  retention policy is enabled.
+  retention policy is enabled. Explicit permanent deletion from the Recycle Bin
+  requires a trashed target and space management. Shared attachments survive.
 
 Back up the entire Workspace database, including binary attachments, grants,
 versions and Yjs state. Restore into an isolated instance first. Never roll back

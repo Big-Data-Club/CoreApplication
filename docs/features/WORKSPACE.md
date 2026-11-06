@@ -7,7 +7,7 @@ authenticated BDC members. Uses the existing light/dark theme and mobile shell.
 
 | Area | Behavior |
 | --- | --- |
-| Fields | Workspace opens a user-created field gallery; arbitrary names, descriptions, 12 icons, 6 colors and tags; edit/archive/restore; no seeded disciplines |
+| Fields | Workspace opens a user-created field gallery; arbitrary names, descriptions, 12 icons, 6 colors and tags; edit/trash/restore/permanent delete; no seeded disciplines |
 | Spaces | Private personal space; named team spaces; email-bound in-app invitations |
 | Pages | Parent/child tree; create/rename/move; favorites, recents, permission-filtered search; icon/cover/full width; tabs and side peek |
 | Editor | Slash menu, block drag handle, turn into, colors, duplicate, move up/down, block links, child pages, text/code/checklists/tables, image/PDF upload |
@@ -22,8 +22,8 @@ authenticated BDC members. Uses the existing light/dark theme and mobile shell.
 
 The guide at `/workspace/guide` is available independently, and opens inside
 Workspace without unmounting the editor when inserting a formula. It describes
-actual interactions, recovery and sharing semantics. Removing a page-link block
-removes the reference; archiving pages is an explicit page-menu operation.
+actual interactions, recovery and sharing semantics. The six-dot menu of a child
+page offers Move to Trash; it trashes the target branch and removes its link.
 
 ## Field hierarchy and existing content
 
@@ -32,16 +32,17 @@ The hierarchy is **Space → Field → Page → Subpage**. `/workspace` (optiona
 `?page=…` opens the authorized page directly. Creating a field explicitly creates
 one root page named after it and stays on the gallery; opening the field is a
 separate action. New personal/team spaces contain no starter pages
-or predefined fields. Existing pages retain `field_id = null` and appear under
-“Trang chưa xếp lĩnh vực”; users choose a destination explicitly.
+or predefined fields. Existing pages retain `field_id = null`; the gallery header
+page picker opens them without a legacy footer.
 
-“Trang mới” creates a root in the current field. The tree +, header “Trang con”
+“Trang mới” creates a root in the current field. Header “Trang con”
 and `/page` create children. Child pages inherit the parent's field, including
 database record pages. Moving a branch changes its field atomically, including
 archived descendants. The destination parent must belong to the same space and
 field; cycles and moves of individual database records are rejected. Real
 children appear in their parent's content even if no explicit page-link block
-was inserted. Removing a reference does not delete the target.
+was inserted. Page rows have no trailing +/menu controls; the header and six-dot
+block menu provide the corresponding actions.
 
 Fields use their space membership, not direct page grants. Archive requires
 space management and hides all active pages in a field. Restore restores only
@@ -60,7 +61,7 @@ sections, including the searchable formula library.
 
 Viewer reads; commenter adds discussions; editor changes content and record
 values; manager changes shared structure and page sharing; owner controls team
-membership. Archiving/moving branches requires space management so an explicitly
+membership. Trashing, permanently deleting or moving branches requires space management so an explicitly
 shared page cannot become a route to hidden descendants. A copied URL grants no
 access. Team membership never follows automatically from a user's organization,
 team name, chosen template or BDC admin role. Task permissions follow the original
@@ -112,7 +113,7 @@ exact origins, the frontend runtime service address and the WebSocket edge route
 
 ## Verification updated on 2026-11-06
 
-- 37 service cases passed with real isolated PostgreSQL, also inside the Node 22
+- 39 service cases passed with real isolated PostgreSQL, also inside the Node 22
   service image; no skipped integration cases.
 - 21 frontend cases passed, including all 65 formula renders, BFF resource/identity
   checks, canonical Task visibility and the production WebSocket rewrite.
@@ -142,7 +143,7 @@ The chrome/activity refinement was checked against the rebuilt production image
 on the same isolated test topology. All three browser suites passed without
 JavaScript errors, including tooltip contrast, gallery stay-after-create,
 cross-field tabs, sidebar resize/collapse persistence, real view statistics,
-viewer-name opt-in/out and animated guide navigation. The original shared-edit,
+the original viewer-name controls and animated guide navigation. The original shared-edit,
 offline recovery, role and database flows passed again on this image.
 The main local frontend/service were recreated after another database backup;
 migration 006 applied successfully. Both local entry ports (3000/3001) returned
@@ -174,9 +175,37 @@ lock deduplicates the same account/page for five minutes, including concurrent
 requests. Counts are grouped by UTC date for 7/28/90-day windows. Visits start
 when enabled; no historic figures are invented.
 
-Viewer names default to hidden. `/pages/:id/view-preference` opts in/out; opting
-out removes the name from historical visitor lists while retaining aggregate
-counts. Internal visitor account IDs never appear in analytics responses. Every
-visit, preference and analytics request rechecks page permission. No Kafka topic,
-other service's database or external analytics provider is involved. Backups now
-include these tables. No destructive visit-retention policy is enabled.
+Viewer names are shown by default to authorized page readers, as requested in the
+2026-11-06 refinement. The name-visibility checkbox/API has been removed. Legacy
+preference rows are retained for compatibility with database backups but are no
+longer read or written. Internal viewer account IDs remain absent from responses.
+Every analytics read/write rechecks page access. No third-party analytics is used.
+
+## Recycle Bin refinement (2026-11-06)
+
+The gallery and page sidebar open the same Recycle Bin. It groups fields and
+independent page branches, supports search, restore and permanent deletion with a
+confirmation that names the selected item. Restoring a field preserves earlier
+individual page trash. Archived children are grouped under their archived parent.
+
+DELETE /pages/:id and DELETE /fields/:id require space management and an already
+trashed target. A space transaction lock serializes tree changes. Deletion removes
+all descendants, including earlier trash, document state, history, comments,
+grants, notifications and analytics. Attachments shared with surviving pages are
+retained; only newly orphaned attachments from the selected branch are deleted.
+A foreign-key error rolls back the entire operation. No automatic deletion or
+empty-all action is enabled. Permanent deletion cannot be undone in the UI.
+
+The color submenu is 280 px wide, scrolls within the viewport and keeps labels on
+one line. Block deletion has a trash icon. Redundant sidebar toggle, page caption
+and gallery footer were removed; page search remains available in the gallery
+header. The editor's header toggle and resize edge remain available.
+
+The Recycle Bin refinement passed 39 service cases (native Node and the Node 22
+image), 21 frontend cases, Workspace lint/type checks and the production build.
+Four full browser suites passed on the rebuilt application, including actual
+restore/purge/cancel flows and two-account collaboration. The final guide copy
+and a mobile color-menu clipping correction were then checked on the final
+image with browser-layout.py (390 px viewport, menu inside all four bounds).
+Existing local Workspace data was backed up before refreshing the two local
+application containers. The tests use only isolated fixture accounts/data.

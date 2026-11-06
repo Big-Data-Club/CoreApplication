@@ -1237,7 +1237,10 @@ only(
       summary.daily.reduce((n, day) => n + day.views, 0),
       1,
     );
-    assert.deepEqual(summary.viewers, []);
+    assert.deepEqual(
+      summary.viewers.map((item) => item.name),
+      ["Alice"],
+    );
     await pool.query(
       "UPDATE page_visits SET viewed_at=now()-interval '6 minutes' WHERE page_id=$1",
       [page.id],
@@ -1261,39 +1264,33 @@ only(
   },
 );
 only(
-  "viewer names are opt-in, can be hidden retroactively and analytics always rechecks page rights",
+  "viewer names are always visible to authorized page readers and denied after revocation",
   async () => {
     const page = await create();
     await invite(page, "viewer");
-    await request("alice", `/pages/${page.id}/view`, "POST", {});
-    await request("bob", `/pages/${page.id}/view`, "POST", {});
-    let summary = (await request("alice", `/pages/${page.id}/analytics`)).data;
+    await request("alice", "/pages/" + page.id + "/view", "POST", {});
+    await request("bob", "/pages/" + page.id + "/view", "POST", {});
+    // Obsolete hidden-name choices no longer affect the requested named history.
+    await pool.query(
+      "INSERT INTO page_view_preferences(page_id,user_id,show_name) VALUES($1,$2,false)",
+      [page.id, users.bob.id],
+    );
+    const summary = (await request("bob", "/pages/" + page.id + "/analytics"))
+      .data;
     assert.equal(summary.views, 2);
     assert.equal(summary.unique_viewers, 2);
-    assert.deepEqual(summary.viewers, []);
-    await request("bob", `/pages/${page.id}/view-preference`, "PATCH", {
-      show_name: true,
-    });
-    summary = (await request("alice", `/pages/${page.id}/analytics`)).data;
-    assert.deepEqual(
-      summary.viewers.map((item) => item.name),
-      ["Bob"],
-    );
-    assert.equal(summary.show_name, false);
-    assert.ok(summary.viewers.every((item) => !("user_id" in item)));
-    await request("bob", `/pages/${page.id}/view-preference`, "PATCH", {
-      show_name: false,
-    });
-    assert.deepEqual(
-      (await request("alice", `/pages/${page.id}/analytics`)).data.viewers,
-      [],
-    );
+    assert.deepEqual(summary.viewers.map((x) => x.name).sort(), [
+      "Alice",
+      "Bob",
+    ]);
+    assert.ok(summary.viewers.every((x) => !("user_id" in x)));
+    assert.ok(!("show_name" in summary));
     assert.equal(
-      (await request("eve", `/pages/${page.id}/analytics`)).status,
+      (await request("eve", "/pages/" + page.id + "/analytics")).status,
       404,
     );
     assert.equal(
-      (await request("eve", `/pages/${page.id}/view`, "POST", {})).status,
+      (await request("eve", "/pages/" + page.id + "/view", "POST", {})).status,
       404,
     );
     await pool.query(
@@ -1301,16 +1298,21 @@ only(
       [page.id, users.bob.id],
     );
     assert.equal(
-      (
-        await request("bob", `/pages/${page.id}/view-preference`, "PATCH", {
-          show_name: true,
-        })
-      ).status,
+      (await request("bob", "/pages/" + page.id + "/analytics")).status,
       404,
     );
     assert.equal(
-      (await request("alice", `/pages/${page.id}/analytics`)).data.views,
-      2,
+      (
+        await fetch(base + "/pages/" + page.id + "/view-preference", {
+          method: "PATCH",
+          headers: {
+            Authorization: "Bearer alice",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ show_name: false }),
+        })
+      ).status,
+      404,
     );
   },
 );
@@ -1353,6 +1355,167 @@ only(
       !(await request("alice", "/tab-pages")).data.some(
         (page) => page.id === child.id,
       ),
+    );
+  },
+);
+
+only(
+  "permanent page deletion requires trash and space authority, removes a whole branch and preserves shared attachments",
+  async () => {
+    const root = await create(),
+      child = await create("alice", { parent_id: root.id }),
+      grand = await create("alice", { parent_id: child.id }),
+      other = await create();
+    assert.equal(
+      (await request("alice", "/pages/" + root.id, "DELETE")).status,
+      409,
+    );
+    await invite(root, "manager");
+    const bytes = Buffer.from(
+      "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489",
+      "hex",
+    );
+    const shared = await services.files.upload(
+        users.alice,
+        child.id,
+        bytes,
+        "shared.png",
+      ),
+      exclusive = await services.files.upload(
+        users.alice,
+        grand.id,
+        bytes,
+        "exclusive.png",
+      );
+    await pool.query(
+      "INSERT INTO attachment_bindings(attachment_id,page_id) VALUES($1,$2)",
+      [shared.id, other.id],
+    );
+    await services.pages.createVersion(users.alice, child.id, "Snapshot");
+    await pool.query(
+      "INSERT INTO comments(id,page_id,author_id,body) VALUES($1,$2,$3,'Comment')",
+      [randomUUID(), child.id, users.alice.id],
+    );
+    await request("alice", "/pages/" + child.id + "/view", "POST", {});
+    await services.documents.ticket(users.alice, child.id);
+    await request("alice", "/pages/" + grand.id + "/archive", "POST", {});
+    await request("alice", "/pages/" + root.id + "/archive", "POST", {});
+    assert.equal(
+      (await request("eve", "/pages/" + root.id, "DELETE")).status,
+      404,
+    );
+    assert.equal(
+      (await request("bob", "/pages/" + root.id, "DELETE")).status,
+      404,
+    );
+    assert.equal(
+      (await request("alice", "/pages/" + root.id, "DELETE")).status,
+      200,
+    );
+    for (const page of [root, child, grand])
+      assert.equal(
+        (await request("alice", "/pages/" + page.id + "/restore", "POST", {}))
+          .status,
+        404,
+      );
+    for (const table of [
+      "pages",
+      "page_documents",
+      "page_versions",
+      "comments",
+      "page_visits",
+      "websocket_tickets",
+    ]) {
+      const key = table === "pages" ? "id" : "page_id";
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT count(*)::int n FROM " +
+              table +
+              " WHERE " +
+              key +
+              "=ANY($1::uuid[])",
+            [[root.id, child.id, grand.id]],
+          )
+        ).rows[0].n,
+        0,
+      );
+    }
+    assert.equal((await request("alice", "/pages/" + other.id)).status, 200);
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT count(*)::int n FROM attachments WHERE id=$1",
+          [shared.id],
+        )
+      ).rows[0].n,
+      1,
+    );
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT count(*)::int n FROM attachments WHERE id=$1",
+          [exclusive.id],
+        )
+      ).rows[0].n,
+      0,
+    );
+  },
+);
+only(
+  "permanent field deletion includes previously trashed pages and database records, while active and foreign fields stay protected",
+  async () => {
+    const space = (await home()).spaces[0].id,
+      field = await createField(space),
+      other = await createField(space, "Keep");
+    const earlier = await create("alice", { field_id: field.id });
+    await request("alice", "/pages/" + earlier.id + "/archive", "POST", {});
+    const database = await create("alice", {
+      field_id: field.id,
+      kind: "database",
+    });
+    const record = (
+      await request("alice", "/databases/" + database.id + "/records", "POST", {
+        title: "Record",
+        values: {},
+      })
+    ).data;
+    assert.equal(
+      (await request("alice", "/fields/" + field.id, "DELETE")).status,
+      409,
+    );
+    await request("alice", "/fields/" + field.id + "/archive", "POST", {});
+    assert.equal(
+      (await request("bob", "/fields/" + field.id, "DELETE")).status,
+      404,
+    );
+    assert.equal(
+      (await request("alice", "/fields/" + field.id, "DELETE")).status,
+      200,
+    );
+    assert.equal(
+      (await request("alice", "/fields/" + field.id + "/restore", "POST", {}))
+        .status,
+      404,
+    );
+    for (const id of [field.page_id, earlier.id, database.id, record.id])
+      assert.equal(
+        (await request("alice", "/pages/" + id + "/restore", "POST", {}))
+          .status,
+        404,
+      );
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT count(*)::int n FROM pages WHERE field_id=$1",
+          [field.id],
+        )
+      ).rows[0].n,
+      0,
+    );
+    assert.equal(
+      (await request("alice", "/pages/" + other.page_id)).status,
+      200,
     );
   },
 );

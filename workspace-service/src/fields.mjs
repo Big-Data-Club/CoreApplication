@@ -140,7 +140,7 @@ export class Fields {
       assert(
         count < 100,
         409,
-        "Lưu trữ bớt lĩnh vực trước khi khôi phục (tối đa 100 lĩnh vực hoạt động).",
+        "Chuyển bớt lĩnh vực vào thùng rác trước khi khôi phục (tối đa 100 lĩnh vực hoạt động).",
       );
       await client.query(
         "UPDATE pages SET archived_at=NULL,archived_batch=NULL,version=version+1,updated_by=$2 WHERE archived_batch=$1",

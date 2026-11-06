@@ -12,6 +12,7 @@ import { Sharing } from "./sharing.mjs";
 import { Files } from "./files.mjs";
 import { Fields } from "./fields.mjs";
 import { Analytics } from "./analytics.mjs";
+import { Trash } from "./trash.mjs";
 
 export function createApplication({
   pool,
@@ -26,7 +27,8 @@ export function createApplication({
     sharing = new Sharing(store),
     files = new Files(store),
     fields = new Fields(store),
-    analytics = new Analytics(store);
+    analytics = new Analytics(store),
+    trash = new Trash(store);
   app.disable("x-powered-by");
   app.set("trust proxy", false);
   app.use((req, res, next) => {
@@ -175,6 +177,9 @@ export function createApplication({
   api.post("/fields/:id/restore", async (req, res) =>
     res.json(await fields.restore(req.actor, req.params.id)),
   );
+  api.delete("/fields/:id", async (req, res) =>
+    res.json(await trash.field(req.actor, req.params.id)),
+  );
   api.get("/pages/:id/blocks/:blockId/activity", async (req, res) => {
     await store.page(pool, req.params.id, req.actor);
     const blockId = z
@@ -202,6 +207,9 @@ export function createApplication({
   );
   api.get("/pages/:id", async (req, res) =>
     res.json(await store.getPage(req.actor, req.params.id)),
+  );
+  api.delete("/pages/:id", async (req, res) =>
+    res.json(await trash.page(req.actor, req.params.id)),
   );
   api.patch("/pages/:id", async (req, res) =>
     res.json(
@@ -468,15 +476,6 @@ export function createApplication({
   });
   api.post("/pages/:id/view", async (req, res) =>
     res.json(await analytics.visit(req.actor, req.params.id)),
-  );
-  api.patch("/pages/:id/view-preference", async (req, res) =>
-    res.json(
-      await analytics.preference(
-        req.actor,
-        req.params.id,
-        z.object({ show_name: z.boolean() }).strict().parse(req.body).show_name,
-      ),
-    ),
   );
   api.get("/pages/:id/analytics", async (req, res) =>
     res.json(

@@ -59,8 +59,8 @@ all blocks to the last page editor. No external data ownership boundary changes.
 
 A new service/database and WebSocket route must be operated and backed up.
 LISTEN requires a direct or session pool connection. PostgreSQL growth must be
-monitored; version and archive retention is non-destructive until product policy
-is agreed. Two-browser and ten-writer correctness checks are not capacity/stress
+monitored; automatic retention remains disabled. Explicit permanent deletion
+is described below. Two-browser and ten-writer correctness checks are not capacity/stress
 certification. Production canary, managed database setup, backup verification and
 observability are required before inviting the full audience.
 
@@ -68,9 +68,15 @@ observability are required before inviting the full audience.
 
 Record foreground opens explicitly, separate from metadata reads and previews.
 Visits are owned by Workspace and deduplicated per account/page for five minutes
-under an advisory transaction lock. Display only UTC aggregate counts unless a
-viewer opts to display their name on that page. Opt-out is retroactive for the
-name list. Page permission governs all analytics reads/writes. This provides the
+under an advisory transaction lock. Following the explicit 2026-11-06 product
+change, authorized page readers see visitor names without a visibility toggle.
+The prior opt-in preference table is no longer consulted. Page permission governs
+all analytics reads/writes. This provides the
 requested document activity UI without third-party telemetry or identity data
 copied from another service. Future retention changes need a separate product
 policy and migration.
+
+Permanent deletion is an explicit action on already trashed pages/fields, guarded
+by space management and a space transaction lock. Delete branches atomically,
+including owned dependents; preserve attachments still bound to surviving pages.
+Restore continues to respect original archive batches.
