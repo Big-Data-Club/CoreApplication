@@ -209,3 +209,31 @@ and a mobile color-menu clipping correction were then checked on the final
 image with browser-layout.py (390 px viewport, menu inside all four bounds).
 Existing local Workspace data was backed up before refreshing the two local
 application containers. The tests use only isolated fixture accounts/data.
+
+## Media and document navigation refinement (2026-11-06)
+
+Child-page references and images can move between document blocks. Existing
+child links rendered outside the document become pageLink blocks on their first
+drop. Movement retains block IDs and nested children in a single undoable
+transaction. The header child button is removed; /page and the insert menu still
+create children. The heading outline on the right shows nesting, tracks the
+active section and navigates the page without changing document content.
+
+Images have direct centered captions, resize handles, expand/zoom and a crop
+dialog with movable bounds and eight handles. Saving a crop uploads a new private
+PNG attachment and retains the source for undo/history. Permission and stale-image
+checks run before replacing the block. Existing image properties remain compatible.
+
+Page appearance accepts uploaded PNG/JPEG/WebP covers, alongside color artwork.
+Migration 007 adds nullable cover_image_id; metadata updates validate that the
+image is bound to that page. File reads retain normal page access checks, and
+duplicates retain the reference and binding. Cover uploads obey existing file
+size and upload-rate limits.
+
+Validation passed 40 service cases on native Node and the Node 22 image, 22
+frontend cases, Workspace lint/type checks and the production build. All six
+browser suites passed against the isolated built application, including media
+movement and undo/redo, crop dimensions, saved covers/captions, heading navigation,
+shared editing, revocation, trash flows and light/dark/mobile layouts. Update the
+service/migration before the frontend. Local Workspace data is backed up before
+the local containers are refreshed; no production deployment is part of this change.

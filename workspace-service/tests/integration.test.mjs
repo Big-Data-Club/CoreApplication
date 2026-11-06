@@ -605,6 +605,24 @@ only("image and file reads recheck page rights after revocation", async () => {
     (error) => error.status === 400,
   );
 });
+only("page covers require an image bound to that page and retain private access across duplicates", async () => {
+  const page = await create(), other = await create();
+  const bytes = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489", "hex");
+  const image = await services.files.upload(users.alice, page.id, bytes, "cover.png");
+  assert.equal((await request("alice", `/pages/${other.id}`, "PATCH", { version: other.version, cover_image_id: image.id })).status, 400);
+  const pdf = await services.files.upload(users.alice, page.id, Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"), "cover.pdf");
+  assert.equal((await request("alice", `/pages/${page.id}`, "PATCH", { version: page.version, cover_image_id: pdf.id })).status, 400);
+  const saved = await request("alice", `/pages/${page.id}`, "PATCH", { version: page.version, cover_image_id: image.id });
+  assert.equal(saved.status, 200); assert.equal(saved.data.cover_image_id, image.id);
+  assert.equal((await request("eve", `/pages/${page.id}`)).status, 404);
+  await assert.rejects(services.files.get(users.eve, image.id), error => error.status === 404);
+  const duplicate = await request("alice", `/pages/${page.id}/duplicate`, "POST", {});
+  assert.equal(duplicate.status, 201);
+  assert.equal((await request("alice", `/pages/${duplicate.data.id}`)).data.cover_image_id, image.id);
+  const cleared = await request("alice", `/pages/${page.id}`, "PATCH", { version: saved.data.version, cover_image_id: null, cover: "green" });
+  assert.equal(cleared.status, 200); assert.equal(cleared.data.cover_image_id, null);
+  assert.equal((await request("alice", `/pages/${page.id}`, "PATCH", { version: page.version, cover_image_id: image.id })).status, 409);
+});
 only("foreign origins and unsafe links are rejected", async () => {
   const response = await fetch(base + "/bootstrap", {
     headers: { Authorization: "Bearer alice", Origin: "https://evil.test" },

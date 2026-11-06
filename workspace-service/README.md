@@ -43,6 +43,13 @@ always verifies BDC access JWTs. Browser checks live in `frontend/tests/workspac
 
 ## Operational bounds
 
+Page metadata accepts a nullable `cover_image_id` (migration 007). Only a PNG,
+JPEG or WebP attachment already bound to the target page may be used. Cover reads
+use the existing authenticated file endpoint and recheck current page access.
+Duplicates copy both the cover reference and attachment bindings. Removing a
+cover clears its reference; undo/history and other page bindings retain files.
+Roll out the service and migration before the frontend that submits this field.
+
 - 100 active user-created fields per space; field archive/restore preserves earlier page trash.
 - 4 MiB encoded document state, 10 MiB per PNG/JPEG/WebP/PDF, 100 MiB attachments
   and 40 uploads/hour/user; 30 owned spaces.

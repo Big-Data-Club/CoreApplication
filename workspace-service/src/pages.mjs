@@ -121,10 +121,18 @@ export class Pages {
             [id, input.field_id, user.id],
           );
       }
+      if (input.cover_image_id) {
+        const binding = await client.query(
+          "SELECT 1 FROM attachments a JOIN attachment_bindings b ON b.attachment_id=a.id WHERE a.id=$1 AND b.page_id=$2 AND a.mime IN ('image/png','image/jpeg','image/webp')",
+          [input.cover_image_id, id],
+        );
+        assert(binding.rowCount, 400, "Ảnh bìa phải là ảnh đã tải lên trang này.");
+      }
       const allowed = [
         "title",
         "icon",
         "cover",
+        "cover_image_id",
         "full_width",
         "parent_id",
         "field_id",
@@ -207,13 +215,14 @@ export class Pages {
         ],
       );
       await client.query(
-        "UPDATE pages SET icon=$2,cover=$3,properties=$4,initial_markdown=$5 WHERE id=$1",
+        "UPDATE pages SET icon=$2,cover=$3,properties=$4,initial_markdown=$5,cover_image_id=$6 WHERE id=$1",
         [
           page.id,
           original.icon,
           original.cover,
           original.properties,
           original.initial_markdown,
+          original.cover_image_id,
         ],
       );
       await client.query(

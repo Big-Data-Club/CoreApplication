@@ -73,6 +73,7 @@ export const patchPage = z
   .object({
     title: title.optional(),
     icon: z.string().max(32).optional(),
+    cover_image_id: uuid.nullable().optional(),
     cover: z
       .enum(["", "blue", "violet", "green", "amber", "rose", "slate"])
       .optional(),
