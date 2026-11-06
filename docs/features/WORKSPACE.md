@@ -269,3 +269,18 @@ isolated application, covering real permissions, collaboration, media, trash and
 light/dark/mobile layouts. The two local application containers were refreshed
 after a verified Workspace database backup. Migration 008, HTTP authentication
 and both WebSocket entry points were verified on the local application.
+
+## Library return navigation (2026-11-06)
+
+The editor sidebar Library link carries the current page, space and field as a
+canonical internal return destination. Switching Library views and reloading
+preserve it. The back link opens that editor rather than the fields gallery.
+Direct/gallery entry uses the latest accessible visited page from a read-only
+catalog query, then an existing field/shared page if there are no visits.
+Only internal Workspace editor destinations are accepted; page access remains
+checked normally when opening the editor. No schema or service change is needed.
+
+The navigation fix passed 28 frontend cases, Workspace lint, TypeScript and the
+production build. Browser Library and Workspace chrome suites passed on the
+built isolated app, including exact page/space/field return after changing views
+and reloading, and latest-visited editor return from the gallery.
