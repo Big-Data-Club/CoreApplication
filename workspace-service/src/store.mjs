@@ -149,7 +149,7 @@ export class Store {
       [user.id],
     );
     const shared = await this.pool.query(
-      `SELECT p.id,p.title,p.icon,p.space_id,g.role FROM pages p JOIN page_grants g ON g.page_id=p.id WHERE g.user_id=$1 AND p.archived_at IS NULL AND NOT EXISTS(SELECT 1 FROM space_members m WHERE m.space_id=p.space_id AND m.user_id=$1)`,
+      `SELECT p.id,p.title,p.icon,p.space_id,p.field_id,g.role FROM pages p JOIN page_grants g ON g.page_id=p.id WHERE g.user_id=$1 AND p.archived_at IS NULL AND NOT EXISTS(SELECT 1 FROM space_members m WHERE m.space_id=p.space_id AND m.user_id=$1)`,
       [user.id],
     );
     const invites = await this.pool.query(
@@ -222,18 +222,24 @@ export class Store {
         page.updated_by,
       ])
     ).rows[0];
+    const creator = (
+      await this.pool.query("SELECT name FROM workspace_users WHERE id=$1", [
+        page.created_by,
+      ])
+    ).rows[0];
     return {
       ...page,
       ...document.rows[0],
       favorite: preferences.rows[0]?.favorite || false,
       space_role: membership.rows[0]?.role || null,
       last_editor: editor?.name,
+      creator_name: creator?.name,
     };
   }
   async search(user, query) {
     if (query.trim().length < 2) return [];
     const { rows } = await this.pool.query(
-      `SELECT p.id,p.title,p.icon,p.space_id,left(d.search_text,180) snippet FROM pages p JOIN page_documents d ON d.page_id=p.id WHERE p.archived_at IS NULL AND (p.title ILIKE $2 OR d.search_text ILIKE $2) AND (EXISTS(SELECT 1 FROM space_members m WHERE m.space_id=p.space_id AND m.user_id=$1) OR EXISTS(SELECT 1 FROM page_grants g WHERE g.page_id=p.id AND g.user_id=$1)) ORDER BY p.updated_at DESC LIMIT 60`,
+      `SELECT p.id,p.title,p.icon,p.space_id,p.field_id,left(d.search_text,180) snippet FROM pages p JOIN page_documents d ON d.page_id=p.id WHERE p.archived_at IS NULL AND (p.title ILIKE $2 OR d.search_text ILIKE $2) AND (EXISTS(SELECT 1 FROM space_members m WHERE m.space_id=p.space_id AND m.user_id=$1) OR EXISTS(SELECT 1 FROM page_grants g WHERE g.page_id=p.id AND g.user_id=$1)) ORDER BY p.updated_at DESC LIMIT 60`,
       [user.id, `%${query.replace(/[\\%_]/g, "\\$&")}%`],
     );
     const visible = [];
@@ -242,6 +248,25 @@ export class Store {
         await this.page(this.pool, row.id, user);
         visible.push(row);
       } catch {}
+    }
+    return visible;
+  }
+  async tabPages(user, query, fieldId) {
+    if (fieldId) await this.field(this.pool, fieldId, user);
+    const rows = (
+      await this.pool.query(
+        `SELECT p.id,p.title,p.icon,p.space_id,p.field_id,p.updated_at,f.opened_at,left(d.search_text,240) snippet FROM pages p JOIN page_documents d ON d.page_id=p.id LEFT JOIN page_preferences f ON f.page_id=p.id AND f.user_id=$1 WHERE p.archived_at IS NULL AND p.kind<>'record' AND ($3::uuid IS NULL OR p.field_id=$3) AND (p.title ILIKE $2 OR d.search_text ILIKE $2) AND (EXISTS(SELECT 1 FROM space_members m WHERE m.space_id=p.space_id AND m.user_id=$1) OR EXISTS(SELECT 1 FROM page_grants g WHERE g.page_id=p.id AND g.user_id=$1)) ORDER BY COALESCE(f.opened_at,p.updated_at) DESC LIMIT 60`,
+        [user.id, `%${query}%`, fieldId || null],
+      )
+    ).rows;
+    const visible = [];
+    for (const row of rows) {
+      try {
+        await this.page(this.pool, row.id, user);
+        visible.push(row);
+      } catch (reason) {
+        if (reason.status !== 404 && reason.status !== 403) throw reason;
+      }
     }
     return visible;
   }

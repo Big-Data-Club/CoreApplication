@@ -1,7 +1,7 @@
 # BDC Workspace service
 
 Owns spaces, user-defined fields, pages, access grants, comments, Yjs document state, database schemas,
-records/views, private attachments and page history in its own PostgreSQL database.
+records/views, private attachments, page history and opt-in named-view analytics in its own PostgreSQL database.
 It never reads Auth/LMS/Personalize databases. See
 [the feature contract](../docs/features/WORKSPACE.md) and
 [the architecture decision](../docs/adr/2026-11-05-collaborative-workspace.md).

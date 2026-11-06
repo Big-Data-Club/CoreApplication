@@ -11,6 +11,7 @@ import { Databases } from "./databases.mjs";
 import { Sharing } from "./sharing.mjs";
 import { Files } from "./files.mjs";
 import { Fields } from "./fields.mjs";
+import { Analytics } from "./analytics.mjs";
 
 export function createApplication({
   pool,
@@ -24,7 +25,8 @@ export function createApplication({
     databases = new Databases(store),
     sharing = new Sharing(store),
     files = new Files(store),
-    fields = new Fields(store);
+    fields = new Fields(store),
+    analytics = new Analytics(store);
   app.disable("x-powered-by");
   app.set("trust proxy", false);
   app.use((req, res, next) => {
@@ -439,14 +441,23 @@ export function createApplication({
     });
     res.send(file.content);
   });
+  api.get("/tab-pages", async (req, res) =>
+    res.json(
+      await store.tabPages(
+        req.actor,
+        z.string().trim().max(200).default("").parse(req.query.q),
+        v.uuid.optional().parse(req.query.field),
+      ),
+    ),
+  );
   api.get("/pages/:id/activity", async (req, res) => {
     await store.page(pool, req.params.id, req.actor);
     const events = await pool.query(
-      "SELECT a.id,a.action,a.detail,a.created_at,u.name actor FROM workspace_activity a JOIN workspace_users u ON u.id=a.actor_id WHERE a.page_id=$1 ORDER BY a.created_at DESC LIMIT 100",
+      "SELECT a.id,a.actor_id,a.action,a.detail,a.created_at,u.name actor FROM workspace_activity a JOIN workspace_users u ON u.id=a.actor_id WHERE a.page_id=$1 ORDER BY a.created_at DESC LIMIT 100",
       [req.params.id],
     );
     const edits = await pool.query(
-      "SELECT min(o.operation_id::text) id,'document.edited' action,max(o.created_at) created_at,u.name actor FROM document_operations o JOIN workspace_users u ON u.id=o.author_id WHERE o.page_id=$1 GROUP BY u.name,date_trunc('minute',o.created_at) ORDER BY created_at DESC LIMIT 100",
+      "SELECT min(o.operation_id::text) id,u.id actor_id,'document.edited' action,max(o.created_at) created_at,u.name actor FROM document_operations o JOIN workspace_users u ON u.id=o.author_id WHERE o.page_id=$1 GROUP BY u.id,u.name,date_trunc('minute',o.created_at) ORDER BY created_at DESC LIMIT 100",
       [req.params.id],
     );
     res.json(
@@ -455,6 +466,27 @@ export function createApplication({
         .slice(0, 100),
     );
   });
+  api.post("/pages/:id/view", async (req, res) =>
+    res.json(await analytics.visit(req.actor, req.params.id)),
+  );
+  api.patch("/pages/:id/view-preference", async (req, res) =>
+    res.json(
+      await analytics.preference(
+        req.actor,
+        req.params.id,
+        z.object({ show_name: z.boolean() }).strict().parse(req.body).show_name,
+      ),
+    ),
+  );
+  api.get("/pages/:id/analytics", async (req, res) =>
+    res.json(
+      await analytics.read(
+        req.actor,
+        req.params.id,
+        Number(z.enum(["7", "28", "90"]).default("28").parse(req.query.days)),
+      ),
+    ),
+  );
   api.get("/pages/:id/references", async (req, res) => {
     const page = await store.page(pool, req.params.id, req.actor);
     const candidates = await pool.query(

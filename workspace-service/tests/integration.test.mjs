@@ -1207,3 +1207,152 @@ only(
     doc.destroy();
   },
 );
+
+only(
+  "page analytics count explicit opens only and serialize repeated foreground visits",
+  async () => {
+    const page = await create();
+    assert.equal(
+      (await request("alice", `/pages/${page.id}/analytics`)).data.views,
+      0,
+    );
+    for (let i = 0; i < 3; i++) await request("alice", `/pages/${page.id}`);
+    assert.equal(
+      (await request("alice", `/pages/${page.id}/analytics`)).data.views,
+      0,
+    );
+    const visits = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        request("alice", `/pages/${page.id}/view`, "POST", {}),
+      ),
+    );
+    assert.equal(visits.filter((item) => item.data.counted).length, 1);
+    let summary = (
+      await request("alice", `/pages/${page.id}/analytics?days=28`)
+    ).data;
+    assert.equal(summary.views, 1);
+    assert.equal(summary.unique_viewers, 1);
+    assert.equal(summary.daily.length, 28);
+    assert.equal(
+      summary.daily.reduce((n, day) => n + day.views, 0),
+      1,
+    );
+    assert.deepEqual(summary.viewers, []);
+    await pool.query(
+      "UPDATE page_visits SET viewed_at=now()-interval '6 minutes' WHERE page_id=$1",
+      [page.id],
+    );
+    assert.equal(
+      (await request("alice", `/pages/${page.id}/view`, "POST", {})).data
+        .counted,
+      true,
+    );
+    summary = (await request("alice", `/pages/${page.id}/analytics?days=7`))
+      .data;
+    assert.equal(summary.views, 2);
+    assert.equal(summary.daily.length, 7);
+    assert.equal(
+      (await request("alice", `/pages/${page.id}/analytics?days=1000`)).status,
+      400,
+    );
+    const metadata = (await request("alice", `/pages/${page.id}`)).data;
+    assert.equal(metadata.creator_name, "Alice");
+    assert.equal(metadata.last_editor, "Alice");
+  },
+);
+only(
+  "viewer names are opt-in, can be hidden retroactively and analytics always rechecks page rights",
+  async () => {
+    const page = await create();
+    await invite(page, "viewer");
+    await request("alice", `/pages/${page.id}/view`, "POST", {});
+    await request("bob", `/pages/${page.id}/view`, "POST", {});
+    let summary = (await request("alice", `/pages/${page.id}/analytics`)).data;
+    assert.equal(summary.views, 2);
+    assert.equal(summary.unique_viewers, 2);
+    assert.deepEqual(summary.viewers, []);
+    await request("bob", `/pages/${page.id}/view-preference`, "PATCH", {
+      show_name: true,
+    });
+    summary = (await request("alice", `/pages/${page.id}/analytics`)).data;
+    assert.deepEqual(
+      summary.viewers.map((item) => item.name),
+      ["Bob"],
+    );
+    assert.equal(summary.show_name, false);
+    assert.ok(summary.viewers.every((item) => !("user_id" in item)));
+    await request("bob", `/pages/${page.id}/view-preference`, "PATCH", {
+      show_name: false,
+    });
+    assert.deepEqual(
+      (await request("alice", `/pages/${page.id}/analytics`)).data.viewers,
+      [],
+    );
+    assert.equal(
+      (await request("eve", `/pages/${page.id}/analytics`)).status,
+      404,
+    );
+    assert.equal(
+      (await request("eve", `/pages/${page.id}/view`, "POST", {})).status,
+      404,
+    );
+    await pool.query(
+      "DELETE FROM page_grants WHERE page_id=$1 AND user_id=$2",
+      [page.id, users.bob.id],
+    );
+    assert.equal(
+      (
+        await request("bob", `/pages/${page.id}/view-preference`, "PATCH", {
+          show_name: true,
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await request("alice", `/pages/${page.id}/analytics`)).data.views,
+      2,
+    );
+  },
+);
+only(
+  "tab picker searches accessible pages across fields without revealing private children or recording views",
+  async () => {
+    const initial = await home(),
+      space = initial.spaces[0].id,
+      f = await createField(space, "Lĩnh vực A"),
+      g = await createField(space, "Lĩnh vực B");
+    const child = (
+      await request("alice", `/spaces/${space}/pages`, "POST", {
+        title: "Private child",
+        parent_id: f.page_id,
+      })
+    ).data;
+    const root = (await request("alice", `/pages/${f.page_id}`)).data;
+    await invite(root);
+    const all = (await request("alice", "/tab-pages")).data;
+    assert.ok(all.some((page) => page.id === f.page_id));
+    assert.ok(all.some((page) => page.id === g.page_id));
+    assert.ok(
+      (await request("alice", `/tab-pages?field=${g.id}`)).data.every(
+        (page) => page.field_id === g.id,
+      ),
+    );
+    const shared = (await request("bob", "/tab-pages")).data;
+    assert.ok(shared.some((page) => page.id === root.id));
+    assert.ok(!shared.some((page) => page.id === child.id));
+    assert.equal(
+      (await request("bob", `/tab-pages?field=${f.id}`)).status,
+      404,
+    );
+    assert.equal(
+      (await request("alice", `/pages/${root.id}/analytics`)).data.views,
+      0,
+    );
+    await request("alice", `/fields/${f.id}/archive`, "POST", {});
+    assert.ok(
+      !(await request("alice", "/tab-pages")).data.some(
+        (page) => page.id === child.id,
+      ),
+    );
+  },
+);

@@ -30,7 +30,8 @@ removes the reference; archiving pages is an explicit page-menu operation.
 The hierarchy is **Space → Field → Page → Subpage**. `/workspace` (optionally
 `?space=…`) opens the gallery; `?field=…` opens that field and its first root page;
 `?page=…` opens the authorized page directly. Creating a field explicitly creates
-one root page named after it. New personal/team spaces contain no starter pages
+one root page named after it and stays on the gallery; opening the field is a
+separate action. New personal/team spaces contain no starter pages
 or predefined fields. Existing pages retain `field_id = null` and appear under
 “Trang chưa xếp lĩnh vực”; users choose a destination explicitly.
 
@@ -109,11 +110,11 @@ Production is not deployed by this change. Use the opt-in Compose/K3s manifests
 and the service runbook; configure dedicated database credentials and backups,
 exact origins, the frontend runtime service address and the WebSocket edge route.
 
-## Verification recorded on 2026-11-05
+## Verification updated on 2026-11-06
 
-- 34 service cases passed with real isolated PostgreSQL, also inside the Node 22
+- 37 service cases passed with real isolated PostgreSQL, also inside the Node 22
   service image; no skipped integration cases.
-- 18 frontend cases passed, including all 65 formula renders, BFF resource/identity
+- 21 frontend cases passed, including all 65 formula renders, BFF resource/identity
   checks, canonical Task visibility and the production WebSocket rewrite.
 - Workspace ESLint and TypeScript checks passed. The full frontend production
   build passed; existing unrelated lint warnings remain in the wider application.
@@ -136,3 +137,46 @@ The original collaboration/recovery/database browser suite also passed against
 that image. The native development CSS-as-script regression was reproduced and
 then smoke-checked with no runtime errors after retaining Next's development
 chunk graph. Local SQL migrations 004/005 were applied after a fresh backup.
+
+The chrome/activity refinement was checked against the rebuilt production image
+on the same isolated test topology. All three browser suites passed without
+JavaScript errors, including tooltip contrast, gallery stay-after-create,
+cross-field tabs, sidebar resize/collapse persistence, real view statistics,
+viewer-name opt-in/out and animated guide navigation. The original shared-edit,
+offline recovery, role and database flows passed again on this image.
+The main local frontend/service were recreated after another database backup;
+migration 006 applied successfully. Both local entry ports (3000/3001) returned
+healthy responses and accepted WebSocket upgrades. No production deployment was
+performed.
+
+## Workspace chrome and page activity
+
+Owner: Workspace service and frontend feature. Header success text is hidden once
+updates are acknowledged; pending/error/disconnected states remain visible.
+“Đã sửa…” is derived from stored update timestamps. Hover/focus shows creator and
+last editor; activation opens Updates/Analytics. Existing named versions remain
+in the separate History section. The editor canvas no longer has the image/file,
+URL and LaTeX quick buttons; these actions remain in +/slash and the sidebar guide.
+
+The page tree can be dragged between 220–480 px (also limited by viewport),
+collapsed by clicking its edge or Ctrl/Cmd+Backslash, and reopened from the tab
+bar. Width/collapse preferences are stored per signed-in account. Mobile keeps
+an overlay tree. Tabs retain order when selecting pages; + opens an access-checked
+cross-field picker with source labels, text preview, keyboard selection and new
+page action. Closing the active tab selects a neighbor. Guide links smoothly
+scroll the guide's own container, with a current-section marker and reduced-motion
+support. Field cards have hover/press feedback; opening a field animates the editor.
+
+Migration `006_page_analytics.sql` adds Workspace-owned visits and per-page viewer
+privacy preferences. Only an explicit foreground page open posts `/pages/:id/view`.
+Metadata polling and picker previews do not record a view. A transaction/advisory
+lock deduplicates the same account/page for five minutes, including concurrent
+requests. Counts are grouped by UTC date for 7/28/90-day windows. Visits start
+when enabled; no historic figures are invented.
+
+Viewer names default to hidden. `/pages/:id/view-preference` opts in/out; opting
+out removes the name from historical visitor lists while retaining aggregate
+counts. Internal visitor account IDs never appear in analytics responses. Every
+visit, preference and analytics request rechecks page permission. No Kafka topic,
+other service's database or external analytics provider is involved. Backups now
+include these tables. No destructive visit-retention policy is enabled.

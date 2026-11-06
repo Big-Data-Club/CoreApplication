@@ -63,3 +63,14 @@ monitored; version and archive retention is non-destructive until product policy
 is agreed. Two-browser and ten-writer correctness checks are not capacity/stress
 certification. Production canary, managed database setup, backup verification and
 observability are required before inviting the full audience.
+
+## Page activity and privacy
+
+Record foreground opens explicitly, separate from metadata reads and previews.
+Visits are owned by Workspace and deduplicated per account/page for five minutes
+under an advisory transaction lock. Display only UTC aggregate counts unless a
+viewer opts to display their name on that page. Opt-out is retroactive for the
+name list. Page permission governs all analytics reads/writes. This provides the
+requested document activity UI without third-party telemetry or identity data
+copied from another service. Future retention changes need a separate product
+policy and migration.
