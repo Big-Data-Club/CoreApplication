@@ -2,6 +2,129 @@ import { z } from "zod";
 export const uuid = z.string().uuid();
 export const role = z.enum(["viewer", "commenter", "editor", "manager"]);
 export const title = z.string().trim().min(1).max(300);
+const libraryRule = z
+  .object({
+    field: z.enum([
+      "title",
+      "creator",
+      "created",
+      "editor",
+      "edited",
+      "visited",
+    ]),
+    op: z.enum([
+      "contains",
+      "not_contains",
+      "starts_with",
+      "ends_with",
+      "eq",
+      "not_eq",
+      "on",
+      "before",
+      "after",
+      "on_or_before",
+      "on_or_after",
+      "past_week",
+      "past_month",
+      "empty",
+      "not_empty",
+    ]),
+    value: z.string().max(200).optional(),
+  })
+  .strict()
+  .superRefine((rule, context) => {
+    const date = ["created", "edited", "visited"].includes(rule.field),
+      allowed =
+        rule.field === "title"
+          ? [
+              "contains",
+              "not_contains",
+              "starts_with",
+              "ends_with",
+              "eq",
+              "not_eq",
+            ]
+          : date
+            ? [
+                "on",
+                "before",
+                "after",
+                "on_or_before",
+                "on_or_after",
+                "past_week",
+                "past_month",
+                "empty",
+                "not_empty",
+              ]
+            : ["eq", "not_eq"];
+    if (!allowed.includes(rule.op))
+      context.addIssue({
+        code: "custom",
+        message: "Điều kiện lọc không phù hợp với thuộc tính.",
+      });
+    if (!["past_week", "past_month", "empty", "not_empty"].includes(rule.op)) {
+      if (!rule.value?.trim())
+        context.addIssue({ code: "custom", message: "Nhập giá trị bộ lọc." });
+      if (
+        date &&
+        (!/^\d{4}-\d{2}-\d{2}$/.test(rule.value || "") ||
+          rule.value.startsWith("0000-") ||
+          !Number.isFinite(Date.parse(rule.value)) ||
+          new Date(rule.value).toISOString().slice(0, 10) !== rule.value)
+      )
+        context.addIssue({ code: "custom", message: "Ngày lọc không hợp lệ." });
+    }
+  });
+export const libraryQuery = z
+  .object({
+    tab: z
+      .enum(["all", "recent", "favorites", "shared", "private"])
+      .default("recent"),
+    q: z.string().trim().max(200).default(""),
+    sort: z
+      .enum([
+        "title",
+        "creator",
+        "source",
+        "created",
+        "editor",
+        "edited",
+        "visited",
+      ])
+      .default("visited"),
+    direction: z.enum(["asc", "desc"]).default("desc"),
+    offset: z.coerce.number().int().min(0).max(100000).default(0),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    parent: uuid.optional(),
+    match: z.enum(["all", "any"]).default("all"),
+    timezone: z
+      .string()
+      .max(80)
+      .regex(/^[A-Za-z_]+(?:\/[A-Za-z0-9_+.-]+)*$/)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Múi giờ không hợp lệ.")
+      .default("UTC"),
+    filters: z
+      .string()
+      .max(8000)
+      .default("[]")
+      .transform((value, context) => {
+        try {
+          return JSON.parse(value);
+        } catch {
+          context.addIssue({ code: "custom", message: "Bộ lọc không hợp lệ." });
+          return z.NEVER;
+        }
+      })
+      .pipe(z.array(libraryRule).max(12)),
+  })
+  .strict();
 export const createField = z
   .object({
     title: z.string().trim().min(1).max(120),

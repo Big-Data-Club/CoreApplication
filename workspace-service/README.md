@@ -43,6 +43,23 @@ always verifies BDC access JWTs. Browser checks live in `frontend/tests/workspac
 
 ## Operational bounds
 
+`GET /library` catalogs accessible pages, databases and records across spaces.
+Query parameters: `tab` (recent/favorites/shared/private/all), `q`, `sort`
+(title/creator/source/created/editor/edited/visited), `direction`, `limit`
+(1–100; default 50), `offset` (0–100000), optional `parent`, `match` (all/any),
+IANA `timezone`, and a JSON `filters` array (maximum 12 field/operator/value rules).
+It returns `{items,total,next_offset}`. Read-only results neither update visits
+nor record analytics. `GET /library/options` returns only the names/IDs of
+creators and editors of accessible pages, without emails. Both routes remove
+hidden ancestors/fields before pagination. Parent/field source metadata appears
+only when independently accessible. Shared includes team spaces, shared personal
+spaces and direct grants; private includes the owner's unshared personal pages.
+
+Migration 008 permits a null last-visited timestamp for an unopened favorite and
+adds catalog indexes. Page opens explicitly store their timestamp; favorite writes
+retain existing visits and use NULL for a new preference. Deploy this service and
+migration before the new frontend. Existing preference timestamps are preserved.
+
 Page metadata accepts a nullable `cover_image_id` (migration 007). Only a PNG,
 JPEG or WebP attachment already bound to the target page may be used. Cover reads
 use the existing authenticated file endpoint and recheck current page access.

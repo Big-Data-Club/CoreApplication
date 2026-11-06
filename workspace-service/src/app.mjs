@@ -13,6 +13,7 @@ import { Files } from "./files.mjs";
 import { Fields } from "./fields.mjs";
 import { Analytics } from "./analytics.mjs";
 import { Trash } from "./trash.mjs";
+import { Library } from "./library.mjs";
 
 export function createApplication({
   pool,
@@ -28,7 +29,8 @@ export function createApplication({
     files = new Files(store),
     fields = new Fields(store),
     analytics = new Analytics(store),
-    trash = new Trash(store);
+    trash = new Trash(store),
+    library = new Library(store);
   app.disable("x-powered-by");
   app.set("trust proxy", false);
   app.use((req, res, next) => {
@@ -86,6 +88,8 @@ export function createApplication({
   api.get("/bootstrap", async (req, res) =>
     res.json(await store.bootstrap(req.actor)),
   );
+  api.get("/library", async (req, res) => res.json(await library.list(req.actor, v.libraryQuery.parse(req.query))));
+  api.get("/library/options", async (req, res) => res.json(await library.options(req.actor)));
   api.patch("/me", async (req, res) => {
     const { name } = z
       .object({ name: z.string().trim().min(1).max(100) })

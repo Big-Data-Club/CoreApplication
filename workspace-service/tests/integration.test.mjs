@@ -117,6 +117,200 @@ function change(text) {
 }
 const only = enabled ? test : test.skip;
 
+const library = (actor, input = {}) =>
+  request(actor, `/library?${new URLSearchParams({ tab: "all", ...input })}`);
+only(
+  "library aggregates only accessible active pages and redacts inaccessible sources and people",
+  async () => {
+    const parent = await create("alice", { title: "Secret parent" }),
+      child = await create("alice", {
+        title: "Shared child",
+        parent_id: parent.id,
+      });
+    await invite(child);
+    const unrelated = await create("eve", { title: "Unrelated secret" });
+    const shared = await library("bob");
+    assert.equal(shared.status, 200);
+    assert.equal(shared.data.total, 1);
+    const row = shared.data.items[0];
+    assert.equal(row.id, child.id);
+    assert.equal(row.parent_id, null);
+    assert.equal(row.space_id, null);
+    assert.equal(row.field_id, null);
+    assert.deepEqual(row.source, { kind: "shared", title: "Được chia sẻ" });
+    assert.equal(row.has_children, false);
+    assert.ok(!JSON.stringify(shared.data).includes(parent.id));
+    assert.ok(!JSON.stringify(shared.data).includes(unrelated.id));
+    const options = await request("bob", "/library/options");
+    assert.deepEqual(options.data.creators, [
+      { id: users.alice.id, name: "Alice" },
+    ]);
+    assert.ok(!JSON.stringify(options.data).includes("eve@"));
+    assert.equal((await library("bob", { parent: parent.id })).status, 404);
+    await request("alice", `/pages/${parent.id}/archive`, "POST", {});
+    assert.equal((await library("bob")).data.total, 0);
+    assert.deepEqual((await request("bob", "/library/options")).data, {
+      creators: [],
+      editors: [],
+    });
+    assert.equal((await request(null, "/library")).status, 401);
+  },
+);
+only(
+  "library tabs, source links and visits remain truthful without marking previews or favorites visited",
+  async () => {
+    const page = await create(),
+      personal = (await home()).spaces[0];
+    await request("alice", `/pages/${page.id}/favorite`, "PUT", {
+      favorite: true,
+    });
+    assert.equal(
+      (await library("alice", { tab: "favorites" })).data.items[0].opened_at,
+      null,
+    );
+    assert.equal((await library("alice", { tab: "recent" })).data.total, 0);
+    assert.equal((await library("alice", { tab: "private" })).data.total, 1);
+    assert.equal((await library("alice", { tab: "shared" })).data.total, 0);
+    await request("alice", `/pages/${page.id}`);
+    assert.equal(
+      (await library("alice", { tab: "recent" })).data.items[0].id,
+      page.id,
+    );
+    const before = (
+      await pool.query(
+        "SELECT opened_at FROM page_preferences WHERE page_id=$1",
+        [page.id],
+      )
+    ).rows[0].opened_at;
+    await library("alice");
+    await request("alice", "/library/options");
+    assert.deepEqual(
+      (
+        await pool.query(
+          "SELECT opened_at FROM page_preferences WHERE page_id=$1",
+          [page.id],
+        )
+      ).rows[0].opened_at,
+      before,
+    );
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT count(*)::int n FROM page_visits WHERE page_id=$1",
+          [page.id],
+        )
+      ).rows[0].n,
+      0,
+    );
+    const child = await create("alice", { title: "Child", parent_id: page.id });
+    const branch = await library("alice", { parent: page.id });
+    assert.equal(branch.data.total, 1);
+    assert.equal(branch.data.items[0].source.id, page.id);
+    await invite(page);
+    assert.equal((await library("alice", { tab: "shared" })).data.total, 1);
+    assert.equal((await library("alice", { tab: "private" })).data.total, 1);
+    await request("alice", "/grants", "PATCH", {
+      page_id: page.id,
+      member_id: users.bob.id,
+      role: null,
+    });
+    assert.equal((await library("bob", { tab: "shared" })).data.total, 0);
+    const field = (
+      await request("alice", `/spaces/${personal.id}/fields`, "POST", {
+        title: "A field",
+      })
+    ).data;
+    const root = await create("alice", { field_id: field.id });
+    assert.equal(
+      (await library("alice", { q: root.title })).data.items.find(
+        (item) => item.id === root.id,
+      ).source.title,
+      "A field",
+    );
+    await request("alice", `/fields/${field.id}/archive`, "POST", {});
+    assert.ok(
+      !(await library("alice")).data.items.some((item) => item.id === root.id),
+    );
+    assert.ok(
+      (await library("alice")).data.items.some((item) => item.id === child.id),
+    );
+  },
+);
+only(
+  "library filters run before stable bounded pagination, with literal text and local-calendar dates",
+  async () => {
+    const space = (await home()).spaces[0],
+      ids = Array.from({ length: 73 }, () => randomUUID());
+    await pool.query(
+      "INSERT INTO pages(id,space_id,title,created_by,updated_by,created_at,updated_at) SELECT id,$2,'Note '||lpad(n::text,3,'0'),'901','901','2026-11-05T18:00:00Z','2026-11-05T18:00:00Z' FROM unnest($1::uuid[]) WITH ORDINALITY AS v(id,n)",
+      [ids, space.id],
+    );
+    let all = [];
+    for (let offset = 0; offset < 73; offset += 20) {
+      const response = await library("alice", {
+        sort: "title",
+        direction: "asc",
+        offset: String(offset),
+        limit: "20",
+      });
+      assert.equal(response.status, 200);
+      assert.equal(response.data.total, 73);
+      all.push(...response.data.items.map((item) => item.id));
+    }
+    assert.equal(new Set(all).size, 73);
+    assert.deepEqual(all, ids);
+    const empty = await library("alice", { offset: "99" });
+    assert.equal(empty.data.total, 73);
+    assert.deepEqual(empty.data.items, []);
+    const filters = JSON.stringify([
+      { field: "created", op: "on", value: "2026-11-06" },
+      { field: "creator", op: "eq", value: "901" },
+    ]);
+    assert.equal(
+      (await library("alice", { filters, timezone: "Asia/Bangkok" })).data
+        .total,
+      73,
+    );
+    assert.equal(
+      (await library("alice", { filters, timezone: "UTC" })).data.total,
+      0,
+    );
+    assert.equal(
+      (await library("alice", { filters, timezone: "UTC", match: "any" })).data
+        .total,
+      73,
+    );
+    assert.equal((await library("alice", { q: "%" })).data.total, 0);
+    for (const input of [
+      { sort: "DROP TABLE pages" },
+      { limit: "101" },
+      { offset: "-1" },
+      { timezone: "invalid/zone" },
+      { filters: "{" },
+      {
+        filters: JSON.stringify([
+          { field: "creator", op: "contains", value: "901" },
+        ]),
+      },
+      {
+        filters: JSON.stringify([
+          { field: "created", op: "on", value: "2026-02-30" },
+        ]),
+      },
+      {
+        filters: JSON.stringify([
+          { field: "created", op: "on", value: "0000-01-01" },
+        ]),
+      },
+    ])
+      assert.equal(
+        (await library("alice", input)).status,
+        400,
+        JSON.stringify(input),
+      );
+  },
+);
+
 only(
   "authentication and private personal workspace creation are isolated and idempotent",
   async () => {
@@ -605,24 +799,86 @@ only("image and file reads recheck page rights after revocation", async () => {
     (error) => error.status === 400,
   );
 });
-only("page covers require an image bound to that page and retain private access across duplicates", async () => {
-  const page = await create(), other = await create();
-  const bytes = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489", "hex");
-  const image = await services.files.upload(users.alice, page.id, bytes, "cover.png");
-  assert.equal((await request("alice", `/pages/${other.id}`, "PATCH", { version: other.version, cover_image_id: image.id })).status, 400);
-  const pdf = await services.files.upload(users.alice, page.id, Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"), "cover.pdf");
-  assert.equal((await request("alice", `/pages/${page.id}`, "PATCH", { version: page.version, cover_image_id: pdf.id })).status, 400);
-  const saved = await request("alice", `/pages/${page.id}`, "PATCH", { version: page.version, cover_image_id: image.id });
-  assert.equal(saved.status, 200); assert.equal(saved.data.cover_image_id, image.id);
-  assert.equal((await request("eve", `/pages/${page.id}`)).status, 404);
-  await assert.rejects(services.files.get(users.eve, image.id), error => error.status === 404);
-  const duplicate = await request("alice", `/pages/${page.id}/duplicate`, "POST", {});
-  assert.equal(duplicate.status, 201);
-  assert.equal((await request("alice", `/pages/${duplicate.data.id}`)).data.cover_image_id, image.id);
-  const cleared = await request("alice", `/pages/${page.id}`, "PATCH", { version: saved.data.version, cover_image_id: null, cover: "green" });
-  assert.equal(cleared.status, 200); assert.equal(cleared.data.cover_image_id, null);
-  assert.equal((await request("alice", `/pages/${page.id}`, "PATCH", { version: page.version, cover_image_id: image.id })).status, 409);
-});
+only(
+  "page covers require an image bound to that page and retain private access across duplicates",
+  async () => {
+    const page = await create(),
+      other = await create();
+    const bytes = Buffer.from(
+      "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489",
+      "hex",
+    );
+    const image = await services.files.upload(
+      users.alice,
+      page.id,
+      bytes,
+      "cover.png",
+    );
+    assert.equal(
+      (
+        await request("alice", `/pages/${other.id}`, "PATCH", {
+          version: other.version,
+          cover_image_id: image.id,
+        })
+      ).status,
+      400,
+    );
+    const pdf = await services.files.upload(
+      users.alice,
+      page.id,
+      Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
+      "cover.pdf",
+    );
+    assert.equal(
+      (
+        await request("alice", `/pages/${page.id}`, "PATCH", {
+          version: page.version,
+          cover_image_id: pdf.id,
+        })
+      ).status,
+      400,
+    );
+    const saved = await request("alice", `/pages/${page.id}`, "PATCH", {
+      version: page.version,
+      cover_image_id: image.id,
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.data.cover_image_id, image.id);
+    assert.equal((await request("eve", `/pages/${page.id}`)).status, 404);
+    await assert.rejects(
+      services.files.get(users.eve, image.id),
+      (error) => error.status === 404,
+    );
+    const duplicate = await request(
+      "alice",
+      `/pages/${page.id}/duplicate`,
+      "POST",
+      {},
+    );
+    assert.equal(duplicate.status, 201);
+    assert.equal(
+      (await request("alice", `/pages/${duplicate.data.id}`)).data
+        .cover_image_id,
+      image.id,
+    );
+    const cleared = await request("alice", `/pages/${page.id}`, "PATCH", {
+      version: saved.data.version,
+      cover_image_id: null,
+      cover: "green",
+    });
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.data.cover_image_id, null);
+    assert.equal(
+      (
+        await request("alice", `/pages/${page.id}`, "PATCH", {
+          version: page.version,
+          cover_image_id: image.id,
+        })
+      ).status,
+      409,
+    );
+  },
+);
 only("foreign origins and unsafe links are rejected", async () => {
   const response = await fetch(base + "/bootstrap", {
     headers: { Authorization: "Bearer alice", Origin: "https://evil.test" },

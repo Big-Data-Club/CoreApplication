@@ -257,7 +257,7 @@ export class Pages {
   async favorite(user, id, value) {
     await this.store.page(this.store.pool, id, user);
     await this.store.pool.query(
-      "INSERT INTO page_preferences(page_id,user_id,favorite) VALUES($1,$2,$3) ON CONFLICT(page_id,user_id) DO UPDATE SET favorite=EXCLUDED.favorite",
+      "INSERT INTO page_preferences(page_id,user_id,favorite,opened_at) VALUES($1,$2,$3,NULL) ON CONFLICT(page_id,user_id) DO UPDATE SET favorite=EXCLUDED.favorite",
       [id, user.id, value],
     );
     return { favorite: value };

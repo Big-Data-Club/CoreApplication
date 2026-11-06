@@ -206,7 +206,7 @@ export class Store {
       [id],
     );
     await this.pool.query(
-      `INSERT INTO page_preferences(page_id,user_id) VALUES($1,$2) ON CONFLICT(page_id,user_id) DO UPDATE SET opened_at=now()`,
+      `INSERT INTO page_preferences(page_id,user_id,opened_at) VALUES($1,$2,now()) ON CONFLICT(page_id,user_id) DO UPDATE SET opened_at=now()`,
       [id, user.id],
     );
     const preferences = await this.pool.query(

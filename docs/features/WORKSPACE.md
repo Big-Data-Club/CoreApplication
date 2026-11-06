@@ -237,3 +237,35 @@ movement and undo/redo, crop dimensions, saved covers/captions, heading navigati
 shared editing, revocation, trash flows and light/dark/mobile layouts. Update the
 service/migration before the frontend. Local Workspace data is backed up before
 the local containers are refreshed; no production deployment is part of this change.
+
+## Library (2026-11-06)
+
+The authenticated `/workspace/library` entry collects existing accessible pages,
+databases and records across fields/spaces. Gallery and page-sidebar links open
+it without changing the existing editor or fields landing page. Recent,
+favorites, shared, private and all-page views have title search, server-side
+sorting/pagination and AND/OR filters for title, creator, creation date, last
+editor, edit date and last visit. Calendar date filters use the browser's IANA
+timezone. Sources open only accessible parent pages, fields or spaces.
+
+Property settings show/hide and reorder seven columns. The page name is always
+visible and first. Preferences are versioned by user and view; incomplete filter
+drafts are excluded from API requests. Child branches load on demand and
+deduplicate rows already present in the flat catalog. New pages choose an
+authorized space/field; favorites use existing per-user preferences.
+
+Library reads do not register page visits or analytics. Archive/field ancestry,
+direct page grants, space membership and database record grants are resolved
+before sorting, filtering and counting. A direct invitation to a child discloses
+neither its private parent nor field. Filter people options expose only names and
+IDs already associated with accessible pages. Migration 008 permits NULL visits
+for unopened favorites; existing visit timestamps and the old open-page default
+remain intact. Roll out the service/migration before the frontend.
+
+Validation passed 43 service cases on the Node 22 image, 26
+frontend cases, Workspace lint/type checks and the production build. The Library
+browser suite and all six existing Workspace browser suites passed on the built,
+isolated application, covering real permissions, collaboration, media, trash and
+light/dark/mobile layouts. The two local application containers were refreshed
+after a verified Workspace database backup. Migration 008, HTTP authentication
+and both WebSocket entry points were verified on the local application.
