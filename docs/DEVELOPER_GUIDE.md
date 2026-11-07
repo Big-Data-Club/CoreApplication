@@ -11,9 +11,14 @@ references remain stable; option IDs must belong to that question. Deploy the LM
 API before the frontend to enable answer editing. No migration is required.
 
 Teachers can import Moodle XML through the quiz/question bank import preview.
-XML is parsed locally without AI or file uploads (2 MiB, 500 questions maximum).
+XML is parsed locally without AI (2 MiB, 500 questions maximum). Embedded PNG,
+JPEG, GIF and WebP images referenced through `@@PLUGINFILE@@` are previewed
+locally, then uploaded sequentially through the existing authenticated LMS file
+API only on confirmation. Identical bytes reuse an upload within the import.
+Saved question/option Markdown contains file URLs, never base64 payloads.
 Supported types: multichoice, truefalse, shortanswer and essay. Unsupported types,
-attachments and incompatible weighted grading fail explicitly before saving.
+non-image media, missing image attachments and incompatible weighted grading fail
+explicitly before saving.
 Existing authorized batch creation endpoints persist reviewed questions.
 
 Review flags and visibility aggregates live in sessionStorage per attempt;
