@@ -43,8 +43,8 @@ type UpdateBankItemRequest struct {
 	Explanation    *string          `json:"explanation"`
 	// Raw JSON keeps PATCH semantics: omitted is distinct from an intentional
 	// empty array, and repository code sends it as text rather than bytea.
-	AnswerOptions  *json.RawMessage `json:"answer_options"`
-	CorrectAnswers *json.RawMessage `json:"correct_answers"`
+	AnswerOptions  *json.RawMessage `json:"answer_options" swaggertype:"array,object"`
+	CorrectAnswers *json.RawMessage `json:"correct_answers" swaggertype:"array,object"`
 }
 
 // BankListQuery - filter/sort/pagination for GET list.
@@ -112,9 +112,9 @@ type BankItemResponse struct {
 	Points         float64         `json:"points"`
 	BloomLevel     string          `json:"bloom_level,omitempty"`
 	Difficulty     string          `json:"difficulty"`
-	AnswerOptions  json.RawMessage `json:"answer_options"`
-	CorrectAnswers json.RawMessage `json:"correct_answers"`
-	Settings       json.RawMessage `json:"settings"`
+	AnswerOptions  json.RawMessage `json:"answer_options" swaggertype:"array,object"`
+	CorrectAnswers json.RawMessage `json:"correct_answers" swaggertype:"array,object"`
+	Settings       json.RawMessage `json:"settings" swaggertype:"object"`
 	Tags           []string        `json:"tags"`
 	Source         string          `json:"source"`
 	Status         string          `json:"status"`

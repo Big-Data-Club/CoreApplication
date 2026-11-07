@@ -282,7 +282,7 @@ type StartQuizAttemptRequest struct {
 
 // QuizAttemptResponse represents quiz attempt
 type QuizAttemptResponse struct {
-	FocusSummary     json.RawMessage `json:"focus_summary,omitempty"`
+	FocusSummary     json.RawMessage `json:"focus_summary,omitempty" swaggertype:"object"`
 	ID               int64      `json:"id"`
 	QuizID           int64      `json:"quiz_id"`
 	StudentID        int64      `json:"student_id"`
@@ -464,5 +464,5 @@ type QuizFocusReportRow struct {
 	AttemptID    int64           `json:"attempt_id"`
 	StudentID    int64           `json:"student_id"`
 	StudentName  string          `json:"student_name"`
-	FocusSummary json.RawMessage `json:"focus_summary"`
+	FocusSummary json.RawMessage `json:"focus_summary" swaggertype:"object"`
 }
