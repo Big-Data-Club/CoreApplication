@@ -26,6 +26,9 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --compile-bytecode -r requirements.txt
 
+# Fail the image build if the parser used by Request.form() is unavailable.
+RUN python -c "from starlette.formparsers import parse_options_header; assert parse_options_header is not None, 'multipart parser unavailable'"
+
 # ==========================================
 # Stage 2: Final minimal runner image
 # ==========================================

@@ -340,11 +340,11 @@ async def parse_quiz_file(
     """
     _verify_internal(request)
 
-    from fastapi import UploadFile, File, Form
+    from starlette.datastructures import FormData, UploadFile
 
     upload: UploadFile | None = None
+    form: FormData | None = None
     try:
-        # FastAPI injects multipart pieces only when declared; re-declare here.
         form = await request.form()
         upload = form.get("file")
         if upload is None or isinstance(upload, str):
@@ -362,7 +362,7 @@ async def parse_quiz_file(
         if instr_raw:
             instructions = str(instr_raw)[:2000]
 
-        file_bytes = await upload.read()
+        file_bytes = await upload.read(30 * 1024 * 1024 + 1)
         if not file_bytes:
             raise HTTPException(status_code=400, detail="Empty file")
         if len(file_bytes) > 30 * 1024 * 1024:
@@ -446,6 +446,9 @@ async def parse_quiz_file(
     except Exception as e:
         logger.error("parse_quiz_file failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Parse failed: {e}")
+    finally:
+        if form is not None:
+            await form.close()
 
 
 # ── Spaced Repetition (original location kept below) ──────────────────────────
