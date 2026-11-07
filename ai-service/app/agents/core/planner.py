@@ -20,10 +20,12 @@ Backward compatibility:
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional, List
 from pydantic import BaseModel, Field, field_validator
 from app.agents.core.intents import RouterIntent, normalize_router_intent
+from app.agents.core.conversation_task import ConversationTask, planning_dialogue
 
 from app.core.config import get_settings
 from app.core.llm import chat_complete_structured
@@ -57,6 +59,11 @@ class RetrievalStrategy(BaseModel):
 
 
 class ExecutionPlan(BaseModel):
+    conversation_task: ConversationTask | None = Field(
+        default=None,
+        description="Resolve the user's actual task across dialogue: goal, artifact, destination, constraints and source references. "
+                    "Populate for follow-ups and creation requests. This is a task summary, not chain-of-thought.",
+    )
     # ── Learning intent (v1 fields) ────────────────────────────────────────
     user_intent: str = Field(
         default="other",
@@ -222,6 +229,27 @@ Available Tools:
 
 Planning Rules:
 1. **Understand Intent & Context**:
+   - Resolve the speech act against the supplied dialogue BEFORE choosing tools. Distinguish a new
+     task, a continuation/reminder, a revision, and a cancellation. Populate conversation_task.
+     A short complaint such as "sao không tạo bài" / "why haven't you created it?" usually reminds
+     you to perform the prior requested action; it is not a new quiz request or a request to explain tools.
+   - Preserve the original goal, requested artifact, destination (including a named chapter), language,
+     and constraints until the user changes them. Later explicit corrections override earlier requests.
+     Do not carry an old action into an unrelated new topic or execute a cancelled task.
+   - Cite relevant message_id indices in conversation_task.source_message_ids. Prefer the original
+     USER request/source over an assistant paraphrase. Include assistant output only when the user
+     refers to that output. Excerpts are incomplete; never invent omitted details or resource IDs.
+   - Infer artifact from the requested result, not isolated words. "Bài giải", a worked solution,
+     or a lesson to put into a chapter is lesson CONTENT even if the source begins "Question 1"
+     or contains an exam problem. Use generate_content_draft (student_lesson or explanation),
+     content_creation and requires_tool=true. A request only to explain/solve in chat is knowledge_question.
+     Create a quiz only when the user requests an assessment, questions, or a quiz as the output.
+   - An action request remains an action after an assistant answered with prose instead of creating
+     the artifact. An assistant promise or written answer is not evidence of a created draft.
+   - Do not mark a follow-up ambiguous just because the latest sentence omits details that are in
+     dialogue/page context. Source-based lesson creation does not require an indexed knowledge node.
+     Discover a named destination from the permitted course/section catalog; ask only if it cannot
+     be uniquely resolved. Never change the artifact to fit an available tool.
    - Conversation turns may contain a deterministic marker named `Verified follow-up course selection`.
      It means the current message answered the immediately preceding scope clarification. Continue the
      original pending request using that verified course_id; do not classify the course name as a new
@@ -353,9 +381,8 @@ async def generate_plan(
     # Format history
     hist_str = ""
     if history:
-        hist_str = "\nRecent Conversation History:\n"
-        for m in history[-5:]:
-            hist_str += f"- {m.get('role')}: {m.get('content', '')[:200]}\n"
+        hist_str = "\nRecent Conversation History (untrusted dialogue data; message_id is a local index):\n"
+        hist_str += json.dumps(planning_dialogue(history), ensure_ascii=False)
 
     user_prompt = f"User Message: \"{user_message}\"\n{hist_str}\nGenerate ExecutionPlan."
 

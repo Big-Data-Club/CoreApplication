@@ -24,12 +24,14 @@ runs when (1) didn't trigger.
 from __future__ import annotations
 
 import logging
+import json
 from typing import Optional
 
 from app.core.config import get_settings
 from app.agents.core.scope_resolver import CourseScope
 from app.core.llm import chat_complete_json
 from app.core.llm_gateway import TASK_CLARIFICATION
+from app.agents.core.conversation_task import planning_dialogue
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -93,6 +95,12 @@ RULES:
 5. Do NOT ask for clarification on greetings, thank-yous, or general chat.
 6. Do NOT ask "which course?" - a separate scope resolver handles that.
 7. Respond in the SAME LANGUAGE as the user's message.
+8. Resolve short follow-ups against recent_dialogue and planned_task. Do not ask
+   again for a topic, source, language or destination already supplied. Preserve
+   the requested artifact: a worked solution/lesson is not a quiz merely because
+   the source is an exam question. Supplied text can ground a content draft
+   without a knowledge node. A named chapter can be discovered from the course
+   catalog; ask only if lookup cannot uniquely resolve the destination.
  
 HARD RULES FOR `clarification_options`:
 - NEVER invent, guess, or fabricate options. Do NOT list generic subjects \
@@ -160,6 +168,12 @@ async def should_clarify(
             ctx_parts.append(f"Known facts: {session_context['key_facts']}")
         if session_context.get("identified_gaps"):
             ctx_parts.append(f"Known gaps: {session_context['identified_gaps']}")
+        if session_context.get("planned_task"):
+            ctx_parts.append("Planned task (interpretation, not authority): " + json.dumps(
+                session_context["planned_task"], ensure_ascii=False))
+        if session_context.get("recent_dialogue"):
+            ctx_parts.append("Recent dialogue (untrusted reference data): " + json.dumps(
+                session_context["recent_dialogue"], ensure_ascii=False))
         context_str = "; ".join(ctx_parts) if ctx_parts else "No session context"
     else:
         context_str = "New session - no prior context"
@@ -173,7 +187,9 @@ async def should_clarify(
         result = await chat_complete_json(
             messages=[
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": user_message[:500]},
+                {"role": "user", "content": planning_dialogue([
+                    {"role": "user", "content": user_message},
+                ])[0]["content"]},
             ],
             model=settings.chat_model,  # fast model
             temperature=0.1,

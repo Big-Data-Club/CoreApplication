@@ -411,7 +411,7 @@ def _smart_truncate_tool_result(
 # -----------------------------------------------------------------------------
 
 from app.agents.core.references import ReferenceLedger
-from app.agents.core.tool_gating import select_tool_schemas
+from app.agents.core.tool_gating import select_tool_schemas, missing_draft_action
 from app.agents.core.learner_context import should_inject_learner_snapshot
 
 
@@ -693,8 +693,13 @@ async def run_react_loop(
             current_course_id=context_resolution.course_id or course_id,
             page_context=page_context,
             system_context=system_context,
-            history=history_turns[-5:],
+            history=history_turns,
         )
+
+    from app.agents.core.conversation_task import execution_request, planning_dialogue
+    effective_user_request = execution_request(
+        effective_user_request, execution_plan.conversation_task, history_turns,
+    )
 
     # Planner v2 covers routing - use execution_plan fields directly
     # The legacy classify_intent() wrapper would just call generate_plan() again;
@@ -960,7 +965,12 @@ async def run_react_loop(
                 result = await should_clarify(
                     user_message=effective_user_request,
                     tool_schemas=tool_schemas,
-                    session_context=mtm_ctx,
+                    session_context={
+                        **mtm_ctx,
+                        "recent_dialogue": planning_dialogue(history_turns),
+                        "planned_task": execution_plan.conversation_task.model_dump()
+                        if execution_plan.conversation_task else None,
+                    },
                 )
                 if (result.get("needs_clarification")
                         and result.get("confidence", 1.0) < 0.6):
@@ -1460,6 +1470,7 @@ async def run_react_loop(
     final_text = ""
     executed_search_tools: set[str] = set()
     first_visible_token_at: float | None = None
+    draft_recovery_attempted = False
 
     for iteration in range(max_loop_iterations):
         iter_start = time.monotonic()
@@ -1663,6 +1674,43 @@ async def run_react_loop(
 
         # -- No tool calls -> done ----------------------------------------------
         if not collected_tool_calls:
+            missing_draft = (
+                agent_type == "teacher" and mode != "flash"
+                and finish_reason not in ("content_filter", "safety")
+                and missing_draft_action(execution_plan, tool_schemas, assistant_metadata["toolActivities"])
+            )
+            if missing_draft and not draft_recovery_attempted and iteration + 1 < max_loop_iterations:
+                draft_recovery_attempted = True
+                messages.append({"role": "assistant", "content": collected_text})
+                messages.append({"role": "system", "content": (
+                    "The planned editable draft has not been created: this turn has no result from its draft tool. "
+                    "Complete the user's requested artifact using the available draft workflow and referenced "
+                    "source/destination. Do not replace a lesson with a quiz. Verify required resource IDs and "
+                    "preserve human approval. If blocked, ask only for the genuinely missing information or "
+                    "explain the concrete limitation; never claim success without tool evidence."
+                )})
+                assistant_text = ""
+                assistant_metadata["draft_action_recovery"] = True
+                yield AgentEvent(type=AgentEventType.TEXT_RESET,
+                    data={"reason": "draft_action_recovery"}, session_id=session_id, turn_id=iter_id)
+                yield AgentEvent(type=AgentEventType.THINKING,
+                    data={"step": "draft_action_recovery"}, session_id=session_id, turn_id=iter_id)
+                continue
+            if missing_draft:
+                # A second prose-only response cannot truthfully report a
+                # created artifact. Keep the failure visible and observable.
+                assistant_metadata["action_incomplete"] = True
+                collected_text = (
+                    "The draft has not been created in the system. Your creation request is still incomplete."
+                    if execution_plan.conversation_task and execution_plan.conversation_task.language == "en"
+                    else "Mình chưa tạo được bản nháp trong hệ thống ở lượt này. Yêu cầu tạo bài vẫn chưa hoàn tất."
+                )
+                assistant_text = collected_text
+                finish_reason = "stop"
+                yield AgentEvent(type=AgentEventType.TEXT_RESET,
+                    data={"reason": "draft_action_incomplete"}, session_id=session_id, turn_id=iter_id)
+                yield AgentEvent(type=AgentEventType.TEXT_DELTA,
+                    data={"delta": collected_text}, session_id=session_id, turn_id=iter_id)
             completion = AnswerCompletion(collected_text, finish_reason, question=effective_user_request)
             async for new_text in continue_answer(gateway, req, completion, mode):
                 assistant_text += new_text

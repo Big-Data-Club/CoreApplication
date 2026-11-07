@@ -17,6 +17,28 @@ logger = logging.getLogger(__name__)
 # the focused view when the planner asked for retrieval of any kind.
 _RETRIEVAL_CORE = {"search_course_materials", "search_web", "fetch_page"}
 
+# Only editable draft workflows qualify; never force a direct LMS write.
+_DRAFT_ACTIONS = {
+    "generate_content_draft", "generate_quiz_draft", "generate_quiz_from_source",
+    "parse_quiz_questions", "prepare_course_materials", "create_course_from_materials",
+}
+
+
+def missing_draft_action(plan, schemas: list[dict], activities: list[dict]) -> bool:
+    """Detect a prose-only answer to a clear planned draft action.
+
+    One repair turn may request the missing tool; attempted/failed actions must
+    not be retried here, and cancellations must never revive earlier work.
+    """
+    if not plan.requires_tool or plan.is_ambiguous or plan.intent != "content_creation":
+        return False
+    task = plan.conversation_task
+    if task is not None and task.relation == "cancellation":
+        return False
+    available = {s.get("function", {}).get("name") or s.get("name") for s in schemas}
+    expected = set(plan.selected_tools) & _DRAFT_ACTIONS & available
+    return bool(expected) and not any(a.get("tool") in expected for a in activities)
+
 
 def select_tool_schemas(
     all_schemas: list[dict],

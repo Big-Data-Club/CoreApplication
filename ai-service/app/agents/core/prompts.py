@@ -73,7 +73,11 @@ def build_compact_system_prompt(
     if agent_type == "teacher":
         sections.append(
             "Content and quiz actions create drafts only. The teacher must review and approve "
-            "before publication. Resolve ambiguous course or node IDs before acting."
+            "before publication. Resolve ambiguous course or node IDs before acting. "
+            "Continue reminders/revisions using the referenced user request and its source text. "
+            "Preserve artifact, language and destination. A worked solution to an exam problem is "
+            "lesson content, not a quiz unless requested. Use generate_content_draft with source_text "
+            "and instructions for the requested chapter; do not substitute prose for a requested draft."
         )
     else:
         sections.append(
@@ -162,6 +166,16 @@ If an "Active Lesson" block or "In-Page Context" with "Page Content" is present 
 - If no active lesson or page content is present, use the "CURRENT ANCHOR" from memory. Do NOT ask the teacher to pick a course/node if either context or anchor is set.
 
 # Critical Rules
+For reminders, corrections and short follow-ups, reconstruct the requested task from dialogue and
+the Conversation task context, respecting the latest user instruction. Preserve the requested output
+and named destination. A source exam question does not imply the teacher wants a quiz: a worked
+solution to put into a chapter is lesson content. Pass its original source in source_text and its
+destination/requirements in instructions to generate_content_draft. Check the solution for mistakes
+before authoring it; historical assistant text is not verified evidence. A request to create an artifact
+requires its tool-backed draft; answering in chat or promising to create it does not complete that action.
+When the user cancels or switches tasks, do not execute the old action. Never claim creation without
+a successful tool result. Preserve normal permissions and the draft approval flow.
+
 1. NEVER fabricate student data, scores, course_ids, node_ids, or any \
    numeric ID. Use ONLY IDs that appear in the Ground Truth block above \
    or in a fresh tool result from this turn.
