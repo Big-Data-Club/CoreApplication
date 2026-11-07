@@ -296,7 +296,7 @@ fallback. The root repository must reference the frontend merge containing both
 parents, rather than selecting either pre-merge submodule pointer.
 
 Validation passed 44 frontend cases (Workspace, tenant routing/site helpers and
-notebook anchors), 43 service cases on Node 22, affected-file lint, TypeScript
+notebook anchors), 43 service cases on Node 22, full-repository lint, TypeScript
 and the full production build. All seven Workspace browser suites passed on the
 merged application with an isolated fixture database, including authentication,
 collaboration, navigation, library returns, media, trash and light/dark/mobile.
