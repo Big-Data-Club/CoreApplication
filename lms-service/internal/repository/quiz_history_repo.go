@@ -162,13 +162,14 @@ func (r *QuizRepository) GetAttempt(ctx context.Context, attemptID int64) (*mode
 	`
 
 	var attempt models.QuizAttempt
+        var focusSummary []byte
 	err := r.db.QueryRowContext(ctx, query, attemptID).Scan(
 		&attempt.ID, &attempt.QuizID, &attempt.StudentID, &attempt.AttemptNumber,
 		&attempt.StartedAt, &attempt.SubmittedAt, &attempt.TimeSpentSeconds,
 		&attempt.TotalPoints, &attempt.EarnedPoints, &attempt.Percentage,
 		&attempt.IsPassed, &attempt.Status, &attempt.AutoGradedAt,
 		&attempt.ManuallyGradedAt, &attempt.GradedBy, &attempt.IPAddress,
-		&attempt.UserAgent, &attempt.CreatedAt, &attempt.UpdatedAt, &attempt.FocusSummary,
+		&attempt.UserAgent, &attempt.CreatedAt, &attempt.UpdatedAt, &focusSummary,
 	)
 	
 	if err == sql.ErrNoRows {
@@ -178,7 +179,8 @@ func (r *QuizRepository) GetAttempt(ctx context.Context, attemptID int64) (*mode
 		return nil, err
 	}
 
-	return &attempt, nil
+	attempt.FocusSummary = focusSummary
+    return &attempt, nil
 }
 
 // GetAttemptElapsedTime retrieves the elapsed seconds for an attempt directly using database clock

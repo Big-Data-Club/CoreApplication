@@ -798,6 +798,7 @@ func (r *QuizRepository) GetStudentLatestAttempt(ctx context.Context, quizID, st
 	`
 
 	var attempt models.QuizAttempt
+        var focusSummary []byte
 	err := r.db.QueryRowContext(ctx, query, quizID, studentID).Scan(
 		&attempt.ID,
 		&attempt.QuizID,
@@ -817,7 +818,7 @@ func (r *QuizRepository) GetStudentLatestAttempt(ctx context.Context, quizID, st
 		&attempt.IPAddress,
 		&attempt.UserAgent,
 		&attempt.CreatedAt,
-		&attempt.UpdatedAt, &attempt.FocusSummary,
+		&attempt.UpdatedAt, &focusSummary,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -826,7 +827,8 @@ func (r *QuizRepository) GetStudentLatestAttempt(ctx context.Context, quizID, st
 		return nil, err
 	}
 
-	return &attempt, nil
+	attempt.FocusSummary = focusSummary
+    return &attempt, nil
 }
 
 // UpdateAttempt updates attempt details
@@ -873,6 +875,7 @@ func (r *QuizRepository) ListStudentAttempts(ctx context.Context, quizID, studen
 	var attempts []models.QuizAttempt
 	for rows.Next() {
 		var attempt models.QuizAttempt
+        var focusSummary []byte
 
 		err = rows.Scan(
 			&attempt.ID,
@@ -893,13 +896,14 @@ func (r *QuizRepository) ListStudentAttempts(ctx context.Context, quizID, studen
 			&attempt.IPAddress,
 			&attempt.UserAgent,
 			&attempt.CreatedAt,
-			&attempt.UpdatedAt, &attempt.FocusSummary,
+			&attempt.UpdatedAt, &focusSummary,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		attempts = append(attempts, attempt)
+		attempt.FocusSummary = focusSummary
+        attempts = append(attempts, attempt)
 	}
 
 	if err := rows.Err(); err != nil {
