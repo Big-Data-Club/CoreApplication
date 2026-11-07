@@ -284,3 +284,19 @@ The navigation fix passed 28 frontend cases, Workspace lint, TypeScript and the
 production build. Browser Library and Workspace chrome suites passed on the
 built isolated app, including exact page/space/field return after changing views
 and reloading, and latest-visited editor return from the gallery.
+
+## Integration with current main (2026-11-07)
+
+Workspace editor, library, guide and WebSocket paths remain at the origin root
+when tenant-aware navigation is enabled. Workspace login callbacks retain their
+page/library destination instead of being replaced by an LMS destination. Tenant
+membership and backend page authorization keep their existing separate checks.
+AI messages retain both Save to Workspace and the latest notebook course-context
+fallback. The root repository must reference the frontend merge containing both
+parents, rather than selecting either pre-merge submodule pointer.
+
+Validation passed 44 frontend cases (Workspace, tenant routing/site helpers and
+notebook anchors), 43 service cases on Node 22, affected-file lint, TypeScript
+and the full production build. All seven Workspace browser suites passed on the
+merged application with an isolated fixture database, including authentication,
+collaboration, navigation, library returns, media, trash and light/dark/mobile.

@@ -185,3 +185,19 @@ rewards into existing `User.totalScore`, with a transactional inbox.
 No direct cross-service SQL and no real-farm integration are involved.
 See [implementation and API guide](../features/KNOWLEDGE_FARM.md) and run
 `bash scripts/test-knowledge-farm.sh` for isolated PostgreSQL and Java checks.
+
+## Tenant website builder
+
+Auth/Management owns the `tenantsite` module. Global administrators open
+Organizations → **Thiết kế website** to configure draft pages, menu, slider,
+contacts and ordered homepage sections, preview, then publish. Logo remains in
+the organization record. Images use the existing LMS object storage upload.
+
+Public: `GET /api/tenant-sites/{slug}` (published snapshot only, 30-second cache).
+Admin: `GET/PUT /api/admin/organizations/{id}/site`, `POST .../publish` and
+`POST .../unpublish` (`ROLE_ADMIN`, expected revision, no-store).
+Frontend calls Auth through `/apiv1`; backend ports/secrets remain server-side.
+Information pages are public at `/{slug}/thong-tin/{pageSlug}`. Draft content is
+never returned by public APIs. Apply the forward-only Auth migration before
+deployment. See [the architecture decision](../adr/20261105-tenant-site-module.md)
+for data limits, concurrency, rate limiting and rollout order.

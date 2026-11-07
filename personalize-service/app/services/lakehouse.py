@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 import logging
 import threading
@@ -71,6 +72,9 @@ class LakehouseService:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Additive notebook schema migration; existing notes remain unchanged.
+            self.conn.execute("ALTER TABLE notebook_entries ADD COLUMN IF NOT EXISTS annotation TEXT")
 
             # 3. Notification tracking table
             self.conn.execute("""
@@ -587,14 +591,14 @@ class LakehouseService:
             # transient DB failures look like "the user has no notes".
             if course_id is not None:
                 res = self.conn.execute("""
-                    SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at
+                    SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at, annotation
                     FROM notebook_entries
                     WHERE user_id = ? AND course_id = ?
                     ORDER BY updated_at DESC
                 """, (user_id, course_id)).fetchall()
             else:
                 res = self.conn.execute("""
-                    SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at
+                    SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at, annotation
                     FROM notebook_entries
                     WHERE user_id = ?
                     ORDER BY updated_at DESC
@@ -610,18 +614,19 @@ class LakehouseService:
                     "title": r[4],
                     "content": r[5],
                     "created_at": _iso_utc(r[6]),
-                    "updated_at": _iso_utc(r[7])
+                    "updated_at": _iso_utc(r[7]),
+                    "annotation": json.loads(r[8]) if r[8] else None,
                 })
             return entries
 
-    def save_notebook_entry(self, user_id: int, title: str, content: str, course_id: Optional[int] = None, node_id: Optional[int] = None) -> Dict[str, Any]:
+    def save_notebook_entry(self, user_id: int, title: str, content: str, course_id: Optional[int] = None, node_id: Optional[int] = None, annotation: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         with self.lock:
             entry_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc)
             self.conn.execute("""
-                INSERT INTO notebook_entries (id, user_id, course_id, node_id, title, content, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (entry_id, user_id, course_id, node_id, title, content, now, now))
+                INSERT INTO notebook_entries (id, user_id, course_id, node_id, title, content, created_at, updated_at, annotation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (entry_id, user_id, course_id, node_id, title, content, now, now, json.dumps(annotation, ensure_ascii=False) if annotation else None))
             logger.info(f"Saved notebook entry {entry_id} for user {user_id}")
             return {
                 "id": entry_id,
@@ -631,7 +636,8 @@ class LakehouseService:
                 "title": title,
                 "content": content,
                 "created_at": _iso_utc(now),
-                "updated_at": _iso_utc(now)
+                "updated_at": _iso_utc(now),
+                "annotation": annotation,
             }
 
     def update_notebook_entry(
@@ -640,23 +646,27 @@ class LakehouseService:
         user_id: int,
         title: str,
         content: str,
+        annotation: Optional[Dict[str, Any]] = None,
+        annotation_provided: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Update title/content of an existing note. Returns the updated row or None."""
         with self.lock:
             exists = self.conn.execute(
-                "SELECT 1 FROM notebook_entries WHERE id = ? AND user_id = ?",
+                "SELECT course_id FROM notebook_entries WHERE id = ? AND user_id = ?",
                 (entry_id, user_id),
             ).fetchone()
             if not exists:
                 return None
+            if annotation is not None and exists[0] is None:
+                raise ValueError("Highlights require a course")
             now = datetime.now(timezone.utc)
             self.conn.execute("""
                 UPDATE notebook_entries
-                SET title = ?, content = ?, updated_at = ?
+                SET title = ?, content = ?, updated_at = ?, annotation = CASE WHEN ? THEN ? ELSE annotation END
                 WHERE id = ? AND user_id = ?
-            """, (title, content, now, entry_id, user_id))
+            """, (title, content, now, annotation_provided, json.dumps(annotation, ensure_ascii=False) if annotation else None, entry_id, user_id))
             row = self.conn.execute("""
-                SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at
+                SELECT id, user_id, course_id, node_id, title, content, created_at, updated_at, annotation
                 FROM notebook_entries
                 WHERE id = ? AND user_id = ?
             """, (entry_id, user_id)).fetchone()
@@ -670,6 +680,7 @@ class LakehouseService:
                 "content": row[5],
                 "created_at": _iso_utc(row[6]),
                 "updated_at": _iso_utc(row[7]),
+                "annotation": json.loads(row[8]) if row[8] else None,
             }
 
     def delete_notebook_entry(self, entry_id: str, user_id: int):
