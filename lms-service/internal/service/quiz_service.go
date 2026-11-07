@@ -771,6 +771,9 @@ func (s *QuizService) SubmitAnswer(ctx context.Context, req *dto.SubmitAnswerReq
 		return nil, err
 	}
 
+	if attempt == nil {
+		return nil, fmt.Errorf("attempt not found")
+	}
 	if attempt.StudentID != studentID {
 		return nil, fmt.Errorf("permission denied")
 	}
@@ -855,13 +858,16 @@ func (s *QuizService) SubmitAnswer(ctx context.Context, req *dto.SubmitAnswerReq
 }
 
 // SubmitQuiz submits the entire quiz attempt
-func (s *QuizService) SubmitQuiz(ctx context.Context, attemptID, studentID int64) (*dto.QuizResultResponse, error) {
+func (s *QuizService) SubmitQuiz(ctx context.Context, attemptID, studentID int64, focus ...*dto.QuizFocusSummary) (*dto.QuizResultResponse, error) {
 	// Verify attempt ownership
 	attempt, err := s.quizRepo.GetAttempt(ctx, attemptID)
 	if err != nil {
 		return nil, err
 	}
 
+	if attempt == nil {
+		return nil, fmt.Errorf("attempt not found")
+	}
 	if attempt.StudentID != studentID {
 		return nil, fmt.Errorf("permission denied")
 	}
@@ -874,6 +880,16 @@ func (s *QuizService) SubmitQuiz(ctx context.Context, attemptID, studentID int64
 	quiz, err := s.quizRepo.GetQuiz(ctx, attempt.QuizID)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(focus) > 0 && focus[0] != nil {
+		if focus[0].Departures < 0 || focus[0].Departures > 100000 || focus[0].AwaySeconds < 0 || focus[0].AwaySeconds > 31536000 {
+			return nil, fmt.Errorf("invalid focus summary")
+		}
+		attempt.FocusSummary, err = json.Marshal(focus[0])
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Calculate time spent
@@ -992,6 +1008,9 @@ func (s *QuizService) GetQuizResult(ctx context.Context, attemptID, studentID in
 		return nil, err
 	}
 
+	if attempt == nil {
+		return nil, fmt.Errorf("attempt not found")
+	}
 	if attempt.StudentID != studentID {
 		return nil, fmt.Errorf("permission denied")
 	}
@@ -1019,6 +1038,9 @@ func (s *QuizService) ReviewQuiz(ctx context.Context, attemptID, studentID int64
 		return nil, err
 	}
 
+	if attempt == nil {
+		return nil, fmt.Errorf("attempt not found")
+	}
 	if attempt.StudentID != studentID {
 		return nil, fmt.Errorf("permission denied")
 	}
@@ -1879,6 +1901,7 @@ func (s *QuizService) buildStudentQuestionResponse(q *models.QuestionWithOptions
 // buildAttemptResponse builds attempt response
 func (s *QuizService) buildAttemptResponse(attempt *models.QuizAttempt) *dto.QuizAttemptResponse {
 	return &dto.QuizAttemptResponse{
+		FocusSummary:     attempt.FocusSummary,
 		ID:               attempt.ID,
 		QuizID:           attempt.QuizID,
 		StudentID:        attempt.StudentID,
@@ -2119,4 +2142,12 @@ func (s *QuizService) GetQuizByContentID(ctx context.Context, contentID int64, u
 	}
 
 	return s.buildQuizResponseWithStats(quizWithStats), nil
+}
+
+// GetFocusReport authorizes the course teacher before returning bounded browser aggregates.
+func (s *QuizService) GetFocusReport(ctx context.Context, quizID, userID int64, role string) ([]dto.QuizFocusReportRow, error) {
+	if err := s.verifyQuizOwnership(ctx, quizID, userID, role); err != nil {
+		return nil, err
+	}
+	return s.quizRepo.GetFocusReport(ctx, quizID)
 }

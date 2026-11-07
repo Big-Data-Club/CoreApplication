@@ -156,7 +156,7 @@ func (r *QuizRepository) GetAttempt(ctx context.Context, attemptID int64) (*mode
 			total_points, earned_points, percentage,
 			is_passed, status, auto_graded_at,
 			manually_graded_at, graded_by, ip_address,
-			user_agent, created_at, updated_at
+			user_agent, created_at, updated_at, focus_summary
 		FROM quiz_attempts
 		WHERE id = $1
 	`
@@ -168,7 +168,7 @@ func (r *QuizRepository) GetAttempt(ctx context.Context, attemptID int64) (*mode
 		&attempt.TotalPoints, &attempt.EarnedPoints, &attempt.Percentage,
 		&attempt.IsPassed, &attempt.Status, &attempt.AutoGradedAt,
 		&attempt.ManuallyGradedAt, &attempt.GradedBy, &attempt.IPAddress,
-		&attempt.UserAgent, &attempt.CreatedAt, &attempt.UpdatedAt,
+		&attempt.UserAgent, &attempt.CreatedAt, &attempt.UpdatedAt, &attempt.FocusSummary,
 	)
 	
 	if err == sql.ErrNoRows {

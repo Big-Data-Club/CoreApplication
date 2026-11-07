@@ -462,7 +462,15 @@ func (h *QuizHandler) SubmitQuiz(c *gin.Context) {
 		return
 	}
 
-	result, err := h.quizService.SubmitQuiz(c.Request.Context(), attemptID, userID.(int64))
+	var req dto.SubmitQuizRequest
+	if c.Request.ContentLength != 0 {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024)
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_focus_summary", "Invalid submission body"))
+			return
+		}
+	}
+	result, err := h.quizService.SubmitQuiz(c.Request.Context(), attemptID, userID.(int64), req.FocusSummary)
 	if err != nil {
 		logger.Error("Failed to submit quiz", err)
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("submission_failed", err.Error()))
@@ -679,7 +687,7 @@ func (h *QuizHandler) UploadQuestionImage(c *gin.Context) {
 	if position == "" {
 		position = "above_question"
 	}
-	
+
 	caption := c.PostForm("caption")
 	altText := c.PostForm("alt_text")
 	displayWidth := c.PostForm("display_width")
@@ -701,13 +709,13 @@ func (h *QuizHandler) UploadQuestionImage(c *gin.Context) {
 	}
 
 	if !allowedTypes[file.Header.Get("Content-Type")] {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_type", 
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_type",
 			"Only JPEG, PNG, GIF, and WebP images are allowed"))
 		return
 	}
 
 	if file.Size > 25*1024*1024 {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("file_too_large", 
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("file_too_large",
 			"Image must be smaller than 25MB"))
 		return
 	}
@@ -883,4 +891,19 @@ func (h *QuizHandler) GetQuizByContentID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(quiz))
+}
+func (h *QuizHandler) GetFocusReport(c *gin.Context) {
+	quizID, err := strconv.ParseInt(c.Param("quizId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_quiz_id", "Invalid quiz ID"))
+		return
+	}
+	userID, _ := c.Get("user_id")
+	role, _ := c.Get("user_role")
+	report, err := h.quizService.GetFocusReport(c.Request.Context(), quizID, userID.(int64), role.(string))
+	if err != nil {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Cannot access focus report"))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewDataResponse(report))
 }

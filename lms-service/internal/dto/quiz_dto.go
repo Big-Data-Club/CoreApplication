@@ -1,6 +1,9 @@
 package dto
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // QuestionImage represents an image attached to a question
 type QuestionImage struct {
@@ -279,6 +282,7 @@ type StartQuizAttemptRequest struct {
 
 // QuizAttemptResponse represents quiz attempt
 type QuizAttemptResponse struct {
+	FocusSummary     json.RawMessage `json:"focus_summary,omitempty"`
 	ID               int64      `json:"id"`
 	QuizID           int64      `json:"quiz_id"`
 	StudentID        int64      `json:"student_id"`
@@ -319,7 +323,8 @@ type StudentAnswerResponse struct {
 
 // SubmitQuizRequest represents submitting entire quiz
 type SubmitQuizRequest struct {
-	AttemptID int64 `json:"attempt_id" binding:"required"`
+	AttemptID int64 `json:"attempt_id,omitempty"`
+ FocusSummary *QuizFocusSummary `json:"focus_summary"`
 }
 
 // QuizResultResponse represents quiz results after submission
@@ -359,7 +364,6 @@ type GradeError struct {
 	AnswerID int64  `json:"answer_id"`
 	Error    string `json:"error"`
 }
-
 
 // StudentAnswerForGrading represents an answer that needs grading
 type StudentAnswerForGrading struct {
@@ -448,4 +452,17 @@ type ListAttemptsRequest struct {
 	StudentID *int64  `form:"student_id"`
 	Status    *string `form:"status"`
 	PaginationRequest
+}
+
+// QuizFocusSummary is self-reported browser visibility, never proof of misconduct.
+type QuizFocusSummary struct {
+	Departures  int `json:"departures" binding:"min=0,max=100000"`
+	AwaySeconds int `json:"away_seconds" binding:"min=0,max=31536000"`
+}
+
+type QuizFocusReportRow struct {
+	AttemptID    int64           `json:"attempt_id"`
+	StudentID    int64           `json:"student_id"`
+	StudentName  string          `json:"student_name"`
+	FocusSummary json.RawMessage `json:"focus_summary"`
 }
