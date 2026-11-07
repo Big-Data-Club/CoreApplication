@@ -602,6 +602,7 @@ func main() {
 				// Student - Take Quiz
 				quizzes.POST("/:quizId/start", quizHandler.StartQuizAttempt)
 				quizzes.GET("/:quizId/my-attempts", quizHandler.GetMyQuizAttempts)
+				quizzes.GET("/:quizId/focus-report", quizHandler.GetFocusReport)
 
 				// Grading
 				quizzes.GET("/:quizId/grading", quizHandler.ListAnswersForGrading)

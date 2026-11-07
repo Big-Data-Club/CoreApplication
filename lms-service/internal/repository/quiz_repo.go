@@ -9,6 +9,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"example/hello/internal/dto"
 	"example/hello/internal/models"
 )
 
@@ -714,7 +715,7 @@ func (r *QuizRepository) GetStudentAttemptCount(ctx context.Context, quizID, stu
 // GetStudentLatestAttempt gets the latest attempt for a student
 func (r *QuizRepository) GetStudentLatestAttempt(ctx context.Context, quizID, studentID int64) (*models.QuizAttempt, error) {
 	query := `
-		SELECT * FROM quiz_attempts
+		SELECT id, quiz_id, student_id, attempt_number, started_at, submitted_at, time_spent_seconds, total_points, earned_points, percentage, is_passed, status, auto_graded_at, manually_graded_at, graded_by, ip_address, user_agent, created_at, updated_at, focus_summary FROM quiz_attempts
 		WHERE quiz_id = $1 AND student_id = $2
 		ORDER BY attempt_number DESC
 		LIMIT 1
@@ -740,7 +741,7 @@ func (r *QuizRepository) GetStudentLatestAttempt(ctx context.Context, quizID, st
 		&attempt.IPAddress,
 		&attempt.UserAgent,
 		&attempt.CreatedAt,
-		&attempt.UpdatedAt,
+		&attempt.UpdatedAt, &attempt.FocusSummary,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -760,6 +761,7 @@ func (r *QuizRepository) UpdateAttempt(ctx context.Context, attempt *models.Quiz
 			total_points = $3, earned_points = $4, percentage = $5,
 			is_passed = $6, status = $7,
 			auto_graded_at = $8, manually_graded_at = $9, graded_by = $10,
+            focus_summary = $12,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $11
 		RETURNING updated_at
@@ -771,7 +773,7 @@ func (r *QuizRepository) UpdateAttempt(ctx context.Context, attempt *models.Quiz
 		attempt.TotalPoints, attempt.EarnedPoints, attempt.Percentage,
 		attempt.IsPassed, attempt.Status,
 		attempt.AutoGradedAt, attempt.ManuallyGradedAt, attempt.GradedBy,
-		attempt.ID,
+		attempt.ID, attempt.FocusSummary,
 	).Scan(&attempt.UpdatedAt)
 
 	return err
@@ -780,7 +782,7 @@ func (r *QuizRepository) UpdateAttempt(ctx context.Context, attempt *models.Quiz
 // ListStudentAttempts lists all attempts for a student on a quiz
 func (r *QuizRepository) ListStudentAttempts(ctx context.Context, quizID, studentID int64) ([]models.QuizAttempt, error) {
 	query := `
-		SELECT * FROM quiz_attempts
+		SELECT id, quiz_id, student_id, attempt_number, started_at, submitted_at, time_spent_seconds, total_points, earned_points, percentage, is_passed, status, auto_graded_at, manually_graded_at, graded_by, ip_address, user_agent, created_at, updated_at, focus_summary FROM quiz_attempts
 		WHERE quiz_id = $1 AND student_id = $2
 		ORDER BY attempt_number DESC
 	`
@@ -815,7 +817,7 @@ func (r *QuizRepository) ListStudentAttempts(ctx context.Context, quizID, studen
 			&attempt.IPAddress,
 			&attempt.UserAgent,
 			&attempt.CreatedAt,
-			&attempt.UpdatedAt,
+			&attempt.UpdatedAt, &attempt.FocusSummary,
 		)
 		if err != nil {
 			return nil, err
@@ -1387,6 +1389,23 @@ func (r *QuizRepository) ListCorrectAnswersByQuestionIDs(
 			return nil, err
 		}
 		result[ca.QuestionID] = append(result[ca.QuestionID], ca)
+	}
+	return result, rows.Err()
+}
+
+func (r *QuizRepository) GetFocusReport(ctx context.Context, quizID int64) ([]dto.QuizFocusReportRow, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT qa.id, qa.student_id, COALESCE(u.full_name, ''), qa.focus_summary FROM quiz_attempts qa JOIN users u ON u.id = qa.student_id WHERE qa.quiz_id = $1 AND qa.focus_summary IS NOT NULL ORDER BY qa.id DESC LIMIT 500`, quizID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]dto.QuizFocusReportRow, 0)
+	for rows.Next() {
+		var row dto.QuizFocusReportRow
+		if err := rows.Scan(&row.AttemptID, &row.StudentID, &row.StudentName, &row.FocusSummary); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
 	}
 	return result, rows.Err()
 }

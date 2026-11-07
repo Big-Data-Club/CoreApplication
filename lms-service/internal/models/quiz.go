@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -116,6 +117,7 @@ type QuizCorrectAnswer struct {
 
 // QuizAttempt represents a student's attempt at a quiz
 type QuizAttempt struct {
+	FocusSummary     json.RawMessage `json:"focus_summary" db:"focus_summary"`
 	ID               int64           `json:"id" db:"id"`
 	QuizID           int64           `json:"quiz_id" db:"quiz_id"`
 	StudentID        int64           `json:"student_id" db:"student_id"`
