@@ -1,0 +1,82 @@
+# Collaborative Workspace owns documents and permissions
+
+Status: implemented locally; production rollout is separate.
+
+The BDC Workspace combines personal notes, team documents and structured
+databases. Reference Fields and Notion inform interaction patterns; their
+application data and complete implementation are not copied. There is no Notion
+account import requirement.
+
+## Decision
+
+Use a dedicated Node service with an owned PostgreSQL database. Reuse BDC access
+JWTs. NextAuth-authenticated BFF routes forward the server session access token;
+browser identity fields never determine authority. Space roles and explicit page
+grants are evaluated on every REST action and document write. Personal space
+membership is private. A page grant does not expose ordinary descendants;
+database grants include the record pages that constitute that database.
+
+Use Yjs CRDTs with the BlockNote editor. A single-use hashed, 60-second ticket is
+sent in the first WebSocket frame, never in a URL. Socket authority expires with
+the BDC access token. A document row lock serializes durable merged updates;
+operation IDs make replay idempotent. ACK follows the commit. PostgreSQL
+LISTEN/NOTIFY fans durable state out to replicas; periodic sync catches missed
+notifications. Redis and Chat remain independent.
+
+Keep a separate IndexedDB recovery document per account/page/generation.
+Server state is authoritative; local recovery merges only after edit permission
+is confirmed. Live editors may keep drafting during an interruption. An initial
+offline page open requires a connection. Version restore increments generation
+so old offline updates cannot resurrect restored-away content.
+
+Records are pages with typed properties. Views share record identities. Personal
+view settings remain private. Formula parsing has bounded tokens/depth and no
+JavaScript evaluation. Relations/rollups recheck source permissions. Metadata and
+property updates use expected versions rather than silently overwriting peers.
+
+Store bounded private attachments in PostgreSQL initially, so backup and resource
+authorization are coherent for the expected sub-100-user deployment. File bytes
+are sniffed; URLs are served only after current page permission checks. Moving to
+private object storage requires a new storage adapter and authorization contract.
+
+Reuse canonical Tasks through authenticated APIs. Workspace stores links, not
+duplicate tasks or leaderboard points. Notebook conversion fetches entries for
+the current user through the AI API. AI assistance uses the existing tool-free
+flash mode and requires an explicit insert action after preview.
+
+## User-defined fields (2026-11-05 refinement)
+
+Fields are owned containers inside spaces. Keep page parentage and field identity
+in the Workspace database, with same-space field and deferred same-field parent
+constraints. Structural writes share a space lock so moves/archive/create cannot
+split a subtree. Direct page guests never acquire field browsing authority.
+Retain legacy unfiled pages; creation and assignment are explicit user actions.
+Field archive has a batch ID distinct from earlier individual page archives.
+Block author/time is indexed from committed Yjs changes, rather than attributing
+all blocks to the last page editor. No external data ownership boundary changes.
+
+## Consequences
+
+A new service/database and WebSocket route must be operated and backed up.
+LISTEN requires a direct or session pool connection. PostgreSQL growth must be
+monitored; automatic retention remains disabled. Explicit permanent deletion
+is described below. Two-browser and ten-writer correctness checks are not capacity/stress
+certification. Production canary, managed database setup, backup verification and
+observability are required before inviting the full audience.
+
+## Page activity and privacy
+
+Record foreground opens explicitly, separate from metadata reads and previews.
+Visits are owned by Workspace and deduplicated per account/page for five minutes
+under an advisory transaction lock. Following the explicit 2026-11-06 product
+change, authorized page readers see visitor names without a visibility toggle.
+The prior opt-in preference table is no longer consulted. Page permission governs
+all analytics reads/writes. This provides the
+requested document activity UI without third-party telemetry or identity data
+copied from another service. Future retention changes need a separate product
+policy and migration.
+
+Permanent deletion is an explicit action on already trashed pages/fields, guarded
+by space management and a space transaction lock. Delete branches atomically,
+including owned dependents; preserve attachments still bound to surviving pages.
+Restore continues to respect original archive batches.

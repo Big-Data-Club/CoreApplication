@@ -494,11 +494,11 @@ jobs:
             - lab-service: ${{ needs.detect-changes.outputs.lab }}
             - personalize-service: ${{ needs.detect-changes.outputs.personalize }}
             - recommender-service: ${{ needs.detect-changes.outputs.recommender }}
-            - dutylog-service: ${{ needs.detect-changes.outputs.dutylog }}`;
+            - dutylog-service: ${{ needs.detect-changes.outputs.dutylog }}
             
             All checks passed. Ready to merge! 🚀`;
             
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
