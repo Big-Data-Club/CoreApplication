@@ -1480,8 +1480,35 @@ definitions:
         minLength: 2
         type: string
     type: object
+  dto.UpdateAnswerOptionRequest:
+    properties:
+      id:
+        minimum: 0
+        type: integer
+      option_text:
+        type: string
+      option_html:
+        type: string
+      is_correct:
+        type: boolean
+      order_index:
+        minimum: 0
+        type: integer
+      blank_id:
+        type: integer
+    required:
+    - option_text
+    type: object
   dto.UpdateQuestionRequest:
     properties:
+      answer_options:
+        items:
+          $ref: '#/definitions/dto.UpdateAnswerOptionRequest'
+        type: array
+      correct_answers:
+        items:
+          $ref: '#/definitions/dto.CreateCorrectAnswerRequest'
+        type: array
       explanation:
         type: string
       is_required:

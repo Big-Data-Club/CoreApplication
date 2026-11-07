@@ -1,6 +1,15 @@
 
 ### Quiz XML and browser visibility
 
+Teacher quiz management shows complete Markdown questions, options, accepted
+answers and explanations. Editing restores the saved required flag and explanation;
+content updates omit `order_index`, while new questions append after the maximum
+saved position. `PUT /questions/:questionId` accepts optional `answer_options` and
+`correct_answers`: omission preserves a list, `[]` clears it. Question and answer
+writes commit together. Existing options carry their `id` so student answer
+references remain stable; option IDs must belong to that question. Deploy the LMS
+API before the frontend to enable answer editing. No migration is required.
+
 Teachers can import Moodle XML through the quiz/question bank import preview.
 XML is parsed locally without AI or file uploads (2 MiB, 500 questions maximum).
 Supported types: multichoice, truefalse, shortanswer and essay. Unsupported types,

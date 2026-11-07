@@ -162,13 +162,25 @@ type BatchCreateQuestionsRequest struct {
 
 // UpdateQuestionRequest represents request to update a question
 type UpdateQuestionRequest struct {
-	QuestionText   *string                 `json:"question_text"`
-	QuestionHTML   *string                 `json:"question_html"`
-	Explanation    *string                 `json:"explanation"`
-	Points         *float64                `json:"points"`
-	OrderIndex     *int                    `json:"order_index"`
-	Settings       *map[string]interface{} `json:"settings"`
-	IsRequired     *bool                   `json:"is_required"`
+	QuestionText   *string                       `json:"question_text"`
+	QuestionHTML   *string                       `json:"question_html"`
+	Explanation    *string                       `json:"explanation"`
+	Points         *float64                      `json:"points"`
+	OrderIndex     *int                          `json:"order_index"`
+	Settings       *map[string]interface{}       `json:"settings"`
+	IsRequired     *bool                         `json:"is_required"`
+	AnswerOptions  *[]UpdateAnswerOptionRequest  `json:"answer_options" binding:"omitempty,dive"`
+	CorrectAnswers *[]CreateCorrectAnswerRequest `json:"correct_answers" binding:"omitempty,dive"`
+}
+
+// UpdateAnswerOptionRequest preserves IDs referenced by existing student answers.
+type UpdateAnswerOptionRequest struct {
+	ID         int64  `json:"id" binding:"min=0"`
+	OptionText string `json:"option_text" binding:"required"`
+	OptionHTML string `json:"option_html"`
+	IsCorrect  bool   `json:"is_correct"`
+	OrderIndex int    `json:"order_index" binding:"min=0"`
+	BlankID    *int   `json:"blank_id"`
 }
 
 // QuestionResponse represents question details

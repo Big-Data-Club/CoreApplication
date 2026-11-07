@@ -8751,6 +8751,34 @@
                 }
             }
         },
+        "dto.UpdateAnswerOptionRequest": {
+            "type": "object",
+            "required": [
+                "option_text"
+            ],
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "option_text": {
+                    "type": "string"
+                },
+                "option_html": {
+                    "type": "string"
+                },
+                "is_correct": {
+                    "type": "boolean"
+                },
+                "order_index": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "blank_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "dto.UpdateQuestionRequest": {
             "type": "object",
             "properties": {
@@ -8775,6 +8803,18 @@
                 "settings": {
                     "type": "object",
                     "additionalProperties": true
+                },
+                "answer_options": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.UpdateAnswerOptionRequest"
+                    }
+                },
+                "correct_answers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.CreateCorrectAnswerRequest"
+                    }
                 }
             }
         },

@@ -456,12 +456,11 @@ func (s *QuizService) UpdateQuestion(ctx context.Context, questionID int64, req 
 		}
 		question.Settings = settingsJSON
 	}
-	logger.Info(string(question.Settings))
 	if req.IsRequired != nil {
 		question.IsRequired = *req.IsRequired
 	}
 
-	if err := s.quizRepo.UpdateQuestion(ctx, question); err != nil {
+	if err := s.quizRepo.UpdateQuestionWithAnswers(ctx, question, req.AnswerOptions, req.CorrectAnswers); err != nil {
 		return nil, fmt.Errorf("failed to update question: %w", err)
 	}
 

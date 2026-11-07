@@ -389,6 +389,14 @@ func (r *QuizRepository) GetQuestionWithOptions(ctx context.Context, questionID 
 
 // UpdateQuestion updates question details
 func (r *QuizRepository) UpdateQuestion(ctx context.Context, question *models.QuizQuestion) error {
+	return updateQuestion(ctx, r.db, question)
+}
+
+type questionUpdater interface {
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}
+
+func updateQuestion(ctx context.Context, db questionUpdater, question *models.QuizQuestion) error {
 	query := `
 		UPDATE quiz_questions SET
 			question_text = $1, question_html = $2, explanation = $3,
@@ -404,7 +412,7 @@ func (r *QuizRepository) UpdateQuestion(ctx context.Context, question *models.Qu
 		settingsStr = "{}"
 	}
 
-	err := r.db.QueryRowContext(
+	err := db.QueryRowContext(
 		ctx, query,
 		question.QuestionText, question.QuestionHTML, question.Explanation,
 		question.Points, question.OrderIndex, settingsStr, question.IsRequired,
@@ -413,6 +421,74 @@ func (r *QuizRepository) UpdateQuestion(ctx context.Context, question *models.Qu
 	).Scan(&question.UpdatedAt)
 
 	return err
+}
+
+// UpdateQuestionWithAnswers saves the editor as one atomic change. Omitted lists
+// are preserved; explicit empty lists clear them. Existing option IDs stay stable.
+func (r *QuizRepository) UpdateQuestionWithAnswers(ctx context.Context, question *models.QuizQuestion, options *[]dto.UpdateAnswerOptionRequest, answers *[]dto.CreateCorrectAnswerRequest) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := updateQuestion(ctx, tx, question); err != nil {
+		return err
+	}
+	if options != nil {
+		ids := make([]int64, 0, len(*options))
+		seen := make(map[int64]bool)
+		for _, option := range *options {
+			id := option.ID
+			if id == 0 {
+				err = tx.QueryRowContext(ctx, `INSERT INTO quiz_answer_options
+					(question_id, option_text, option_html, is_correct, order_index, blank_id)
+					VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+					question.ID, option.OptionText, toNullableText(option.OptionHTML), option.IsCorrect, option.OrderIndex, option.BlankID).Scan(&id)
+			} else {
+				if seen[id] {
+					return fmt.Errorf("duplicate answer option ID")
+				}
+				var result sql.Result
+				result, err = tx.ExecContext(ctx, `UPDATE quiz_answer_options SET
+					option_text=$1, option_html=$2, is_correct=$3, order_index=$4, blank_id=$5
+					WHERE id=$6 AND question_id=$7`, option.OptionText, toNullableText(option.OptionHTML), option.IsCorrect,
+					option.OrderIndex, option.BlankID, id, question.ID)
+				if err == nil {
+					var count int64
+					count, err = result.RowsAffected()
+					if err == nil && count != 1 {
+						return fmt.Errorf("answer option does not belong to question")
+					}
+				}
+			}
+			if err != nil {
+				return err
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM quiz_answer_options WHERE question_id=$1 AND NOT (id = ANY($2))`, question.ID, pq.Array(ids)); err != nil {
+			return err
+		}
+	}
+	if answers != nil {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM quiz_correct_answers WHERE question_id=$1`, question.ID); err != nil {
+			return err
+		}
+		for _, answer := range *answers {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO quiz_correct_answers
+				(question_id, answer_text, blank_id, blank_position, case_sensitive, exact_match)
+				VALUES ($1, $2, $3, $4, $5, $6)`, question.ID, toNullableText(answer.AnswerText), answer.BlankID,
+				answer.BlankPosition, answer.CaseSensitive, answer.ExactMatch); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+func toNullableText(value string) sql.NullString {
+	return sql.NullString{String: value, Valid: value != ""}
 }
 
 // DeleteQuestion deletes a question
@@ -439,7 +515,7 @@ func (r *QuizRepository) ListQuestions(ctx context.Context, quizID int64) ([]mod
 	query := `
 		SELECT * FROM quiz_questions
 		WHERE quiz_id = $1
-		ORDER BY order_index
+		ORDER BY order_index, id
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, quizID)
