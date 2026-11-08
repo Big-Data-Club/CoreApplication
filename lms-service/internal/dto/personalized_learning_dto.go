@@ -8,6 +8,7 @@ import "time"
 
 // TrackLearningEventRequest represents a learning event from the frontend
 type TrackLearningEventRequest struct {
+	EventID        string                 `json:"event_id" binding:"max=100"`
 	EventType      string                 `json:"event_type" binding:"required,oneof=lesson_opened lesson_started lesson_completed lesson_abandoned lesson_resumed question_viewed answer_submitted answer_retried hint_requested recommendation_clicked"`
 	SessionID      string                 `json:"session_id" binding:"max=100"`
 	CourseID       *int64                 `json:"course_id"`

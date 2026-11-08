@@ -2,6 +2,20 @@
 
 ## Scope and authority
 
+Learning event retry contract: deploy LMS before the matching frontend. The
+authenticated `POST /personalized-learning/events` accepts optional `event_id`
+(up to 100 characters). LMS namespaces this key by authenticated student and
+uses the existing unique event ID constraint; replays return the original event
+and can retry a failed mastery refresh without adding another answer row.
+Clients without a key retain server-generated IDs. JSONB metadata is sent as
+JSON text (SQL NULL when absent), compatible with pgx simple protocol.
+Quiz review produces one stable key per attempt/question for learner progress;
+its browser marker is written only after every request succeeds. Failures leave
+the attempt retryable on reopening. Existing browser markers are preserved:
+older failed attempts already marked by a previous frontend need targeted
+recovery, rather than clearing all markers and duplicating historical events.
+Kafka projections may receive the same event ID again and must remain idempotent.
+
 This guide documents the implementation-backed data boundary in this repository.
 It covers the DuckDB Lakehouse in `personalize-service`, the topics referenced
 by current producers/consumers, and the rules for extending them. Source files

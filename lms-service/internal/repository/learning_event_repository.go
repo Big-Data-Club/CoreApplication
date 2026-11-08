@@ -24,6 +24,11 @@ func NewLearningEventRepository(db *sql.DB) *LearningEventRepository {
 // ══════════════════════════════════════════════════════════════════════════════
 
 func (r *LearningEventRepository) CreateEvent(ctx context.Context, event *models.LearningEvent) error {
+	// pgx simple_protocol encodes []byte as bytea, not JSON text.
+	var metadata interface{}
+	if len(event.Metadata) > 0 {
+		metadata = string(event.Metadata)
+	}
 	query := `
 		INSERT INTO learning_events (
 			event_id, event_type, student_id, session_id, course_id,
@@ -31,15 +36,21 @@ func (r *LearningEventRepository) CreateEvent(ctx context.Context, event *models
 			attempt_no, response_time_ms, hint_count, metadata
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-		) RETURNING id, created_at`
+		) ON CONFLICT (event_id) DO NOTHING RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(
 		ctx, query,
 		event.EventID, event.EventType, event.StudentID, event.SessionID, event.CourseID,
 		event.LessonID, event.QuestionID, event.SkillID, event.Difficulty, event.Correct,
-		event.AttemptNo, event.ResponseTimeMs, event.HintCount, event.Metadata,
+		event.AttemptNo, event.ResponseTimeMs, event.HintCount, metadata,
 	).Scan(&event.ID, &event.CreatedAt)
 
+	if err == sql.ErrNoRows {
+		// Return the original event on retries, including after a partial failure.
+		return r.db.GetContext(ctx, event,
+			`SELECT * FROM learning_events WHERE event_id = $1 AND student_id = $2`,
+			event.EventID, event.StudentID)
+	}
 	return err
 }
 

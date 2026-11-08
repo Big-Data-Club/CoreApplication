@@ -10,6 +10,7 @@ import (
 
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
+	"github.com/google/uuid"
 )
 
 type LearningEventService struct {
@@ -29,6 +30,7 @@ func NewLearningEventService(repo *repository.LearningEventRepository, kafkaServ
 // ══════════════════════════════════════════════════════════════════════════════
 
 type TrackEventRequest struct {
+	EventID        string                 `json:"event_id" binding:"max=100"`
 	EventType      string                 `json:"event_type" binding:"required"`
 	SessionID      string                 `json:"session_id"`
 	CourseID       *int64                 `json:"course_id"`
@@ -44,6 +46,10 @@ type TrackEventRequest struct {
 }
 
 func (s *LearningEventService) TrackEvent(ctx context.Context, studentID int64, eventID string, req *TrackEventRequest) (*models.LearningEvent, error) {
+	// Scope client retry keys to the authenticated student, never a browser ID.
+	if req.EventID != "" {
+		eventID = uuid.NewSHA1(uuid.NameSpaceURL, []byte(fmt.Sprintf("learning-event:%d:%s", studentID, req.EventID))).String()
+	}
 	// Convert metadata to JSON
 	var metadataJSON []byte
 	var err error

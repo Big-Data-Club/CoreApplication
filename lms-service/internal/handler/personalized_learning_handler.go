@@ -60,6 +60,7 @@ func (h *PersonalizedLearningHandler) TrackLearningEvent(c *gin.Context) {
 
 	// Convert DTO to service request
 	serviceReq := &service.TrackEventRequest{
+		EventID:        req.EventID,
 		EventType:      req.EventType,
 		SessionID:      req.SessionID,
 		CourseID:       req.CourseID,
