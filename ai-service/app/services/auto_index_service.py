@@ -2564,7 +2564,7 @@ class AutoIndexService:
                     await client.set_payload(
                         collection_name=CHUNK_COLLECTION,
                         payload={"node_id": None},
-                        points_selector=Filter(
+                        points=Filter(
                             must=[FieldCondition(key="node_id", match=MatchAny(any=node_ids))]
                         ),
                         wait=True,

@@ -748,7 +748,7 @@ class GraphConsolidationService:
             await client.set_payload(
                 collection_name=CHUNK_COLLECTION,
                 payload={"node_id": group.survivor_id},
-                points_selector=Filter(
+                points=Filter(
                     must=[FieldCondition(key="node_id", match=MatchAny(any=group.absorbed_ids))]
                 ),
                 wait=True,
