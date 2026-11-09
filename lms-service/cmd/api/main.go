@@ -75,7 +75,14 @@ func main() {
 		logger.Fatal("Failed to initialize farm learning schema", err)
 	}
 
-	// Read-path indexes are non-critical and idempotent. 
+	noticeSchemaCtx, cancelNoticeSchema := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := database.EnsureLearningNotificationSchema(noticeSchemaCtx, db); err != nil {
+		cancelNoticeSchema()
+		logger.Fatal("Failed to initialize learning notification schema", err)
+	}
+	cancelNoticeSchema()
+
+	// Read-path indexes are non-critical and idempotent.
 	// Build them in the background so a rollout remains available even on a large existing DB.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -252,6 +259,14 @@ func main() {
 	})
 
 	// Initialize handlers
+	notificationService := service.NewNotificationService(db, redisClient)
+	notificationHandler := handler.NewNotificationHandler(notificationService, redisClient)
+	go notificationService.Run(context.Background())
+	go kafka.StartNotificationHintConsumer(context.Background(), func(ctx context.Context, userID int64) error {
+		hintCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		return redisClient.Publish(hintCtx, fmt.Sprintf("learning:user:%d", userID), "refresh")
+	})
 	userHandler := handler.NewUserHandler(userService)
 	courseHandler := handler.NewCourseHandler(courseService)
 	coTeacherHandler := handler.NewCoTeacherHandler(courseService)
@@ -418,6 +433,9 @@ func main() {
 		// Protected routes - require authentication
 		auth := v1.Group("")
 		auth.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
+		auth.GET("/notifications", notificationHandler.List)
+		auth.POST("/notifications/read", notificationHandler.Read)
+		auth.GET("/notifications/stream", notificationHandler.Stream)
 		auth.Use(middleware.LoadLocalRoles(userRepo, redisClient))
 		{
 			// User role management

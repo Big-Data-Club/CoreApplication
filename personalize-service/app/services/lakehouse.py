@@ -935,7 +935,7 @@ class LakehouseService:
                         course_id,
                         NULL as node_id,
                         'inactivity' as alert_type,
-                        'Đã lâu bạn chưa tham gia học tập trong khóa học (Course ID: ' || CAST(course_id AS VARCHAR) || '). Hãy quay lại ôn luyện ngay nhé!' as alert_message,
+                        'Đã lâu bạn chưa tham gia học tập. Hãy quay lại tiếp tục lộ trình khi sẵn sàng.' as alert_message,
                         last_active_at as detected_at
                     FROM gold_student_course_metrics
                     WHERE last_active_at < NOW() - INTERVAL 7 DAY

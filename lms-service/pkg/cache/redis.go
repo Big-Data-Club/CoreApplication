@@ -6,23 +6,23 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"example/hello/internal/config"
+	"github.com/redis/go-redis/v9"
 )
 
 // Cache key prefixes
 const (
-	PrefixCourse      = "course:"
-	PrefixSection     = "section:"
-	PrefixContent     = "content:"
-	PrefixEnrollment  = "enrollment:"
-	PrefixProgress    = "progress:"
-	PrefixQuiz        = "quiz:"
-	PrefixAssignment  = "assignment:"
-	PrefixUser        = "user:"
-	PrefixSession     = "session:"
+	PrefixCourse     = "course:"
+	PrefixSection    = "section:"
+	PrefixContent    = "content:"
+	PrefixEnrollment = "enrollment:"
+	PrefixProgress   = "progress:"
+	PrefixQuiz       = "quiz:"
+	PrefixAssignment = "assignment:"
+	PrefixUser       = "user:"
+	PrefixSession    = "session:"
 
-	KeyCourseList     = "courses:list:published"
+	KeyCourseList = "courses:list:published"
 )
 
 // Cache key generators
@@ -199,8 +199,8 @@ func (c *RedisCache) Publish(ctx context.Context, channel string, value interfac
 
 // Subscribe returns a Redis Pub/Sub subscription. Call Close when the client
 // disconnects so long-lived SSE requests do not leak connections.
-func (c *RedisCache) Subscribe(ctx context.Context, channel string) (*redis.PubSub, error) {
-	pubsub := c.client.Subscribe(ctx, channel)
+func (c *RedisCache) Subscribe(ctx context.Context, channels ...string) (*redis.PubSub, error) {
+	pubsub := c.client.Subscribe(ctx, channels...)
 	if _, err := pubsub.Receive(ctx); err != nil {
 		_ = pubsub.Close()
 		return nil, err
@@ -217,19 +217,19 @@ func (c *RedisCache) Delete(ctx context.Context, keys ...string) error {
 func (c *RedisCache) DeletePattern(ctx context.Context, pattern string) error {
 	iter := c.client.Scan(ctx, 0, pattern, 0).Iterator()
 	var keys []string
-	
+
 	for iter.Next(ctx) {
 		keys = append(keys, iter.Val())
 	}
-	
+
 	if err := iter.Err(); err != nil {
 		return err
 	}
-	
+
 	if len(keys) > 0 {
 		return c.client.Del(ctx, keys...).Err()
 	}
-	
+
 	return nil
 }
 

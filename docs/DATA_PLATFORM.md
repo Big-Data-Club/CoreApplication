@@ -1,5 +1,87 @@
 # BDC Hub Data Platform: Lakehouse and Kafka
 
+## Learning notification feed (2026-11)
+
+LMS owns `learning_notification_events` and `learning_notification_reads`.
+Forward migration V021 is embedded and installed before HTTP startup, in one
+transaction under an advisory lock, following the existing LMS startup-schema
+pattern. A complete existing schema is recognized without replaying seed events;
+a partial schema stops startup rather than dropping/rebuilding data. Operators
+may instead apply V021 transactionally before rollout. Deploy LMS before frontend;
+the Personalize text cleanup is compatible in either order. No Auth email change
+is required and no additional notification email is sent by this feature.
+
+Database triggers capture published course, chapter and content publication,
+edits, order changes and removals in the mutation's transaction. Draft/no-op/AI
+index-status writes are silent. Known course publications from the last 14 days
+are backfilled; historical edits are not invented. The outbox has no recipient
+copies: visibility and accepted enrollment are checked when reading. The scope
+function matches the catalog's organization/private-organization rules. Revoked
+access, hidden content and moved resources cannot leak through old events.
+
+An indexed relay inspects only pending rows (50 per two-second tick), claims them
+with `FOR UPDATE SKIP LOCKED`, and coalesces Redis wake-ups by channel per batch.
+It marks rows delivered only after publish, rolling back on failure. It never
+holds up the course-edit transaction. Redis channels are `learning:course:<id>`,
+`learning:org:<id>`, `learning:public` and `learning:user:<id>`. They carry only the
+constant `refresh`, no resource names, IDs or personal text in the message body.
+The JWT-authenticated SSE endpoint subscribes only to the viewer's scope. Browser
+connections close while hidden, reconnect with capped backoff, and receive a
+catch-up hint after subscribing. Connections expire after five minutes to
+revalidate authentication/scope. Redis is a hint bus, not durable storage:
+reconnect, visibility and bell-open reads recover missed hints from PostgreSQL.
+
+The existing `personalize.notification.trigger` topic additionally has a
+lightweight LMS hint consumer (`lms-notification-hints-v1`). Its unchanged
+`user_id` payload wakes the corresponding SSE stream; repeated hints are harmless.
+The consumer commits after the Redis wake-up, retries failures, and starts at the
+latest offset for a new group because the durable suggestion source is read on
+connect. Auth retains its separate email consumer/group. The frontend BFF reads
+Personalize directly with internal authentication and enriches only alerts whose
+courses are in the authenticated LMS response; no AI request or cross-service DB
+read is needed.
+
+The bell uses explicit **Học tập** and **Gợi ý** groups. Learning includes real
+course/chapter/content changes and quiz deadlines; struggle/inactivity/practice
+suggestions belong to Gợi ý. Course/content titles and exact content or chapter
+links replace raw numeric identifiers. The chapter/content deep links also work
+when the viewer is already inside the same course. An event revision in learning
+links reloads a lesson that is already open so edited content does not remain
+stale. Deleted resources link to the
+remaining chapter/course instead of a missing item.
+
+At most 20 change groups and five course launches are read, plus five upcoming
+quiz deadlines and eight suggestions. Bulk content additions group per chapter
+per ten-minute window. Repeated edits collapse to the latest event of that type
+for the resource; a new edit has a new read identity. A feed read uses bounded
+relational queries, not catalog/chapter crawling. The browser has no periodic
+notification polling; refresh hints are debounced and concurrent reads deduplicated.
+Mark-all-read is one bulk idempotent write. Server receipts and capped browser
+caches/failed-write queues are scoped to the authenticated user. Initial history
+does not produce a toast storm. Inaccessible resources are removed on each read.
+
+The serving window is 30 days. Hourly cleanup removes expired events/receipts in
+bounded batches of 1,000; older records may remain pending cleanup but are not
+served. Purpose: notify learners of changes to accessible learning material and
+provide their own study suggestions. Only resource titles/keys and read timestamps
+are stored here, never lesson bodies or answer text. Existing source-event
+retention and SMTP preferences are unchanged.
+
+Regression coverage: Go notification handler/format tests, frontend
+`tests/notifications.test.cjs` and `tests/notification-navigation.test.cjs`, and an
+isolated PostgreSQL/WASM integration suite:
+
+```bash
+npm install --prefix /tmp/bdc-notification-pg --no-audit --no-fund @electric-sql/pglite@0.5.15
+PGLITE_TEST_MODULE=/tmp/bdc-notification-pg/node_modules/@electric-sql/pglite/dist/index.js \
+  node --test lms-service/tests/notification_events.mjs
+```
+
+These tests exercise real trigger/transaction/scope SQL without production data.
+After rollout, verify a published content edit reaches an enrolled viewer, an
+outsider sees no private update, and Redis reconnect recovers the stored event.
+This is functional coverage, not a production latency/load benchmark.
+
 ## Behavioral recommendation serving (2026-11)
 
 Roll out LMS and Personalize before Recommender, then the frontend. No Kafka
@@ -183,7 +265,7 @@ approved Parquet snapshots or a read-only DuckDB copy through `BDC_GOLD_DIR` or
 | `lms.maintenance.command` | LMS | AI worker | Implemented cleanup/maintenance command |
 | `personalize.profile.updated` | Personalize | AI worker | Implemented profile update signal |
 | `recommender.interactions.v1` | Recommender | Personalize | Implemented outcome ledger ingestion |
-| `personalize.notification.trigger` | Personalize | Auth | Implemented notification trigger |
+| `personalize.notification.trigger` | Personalize | Auth; LMS hint consumer | Existing email trigger plus scoped in-app refresh hint |
 | `user.login.events` | No producer found here | Personalize | Consumer acceptance only; integration gap |
 | `lms.analytics.telemetry` | No producer found here | Personalize | Consumer acceptance only; integration gap |
 | `lms.course.interactions` | No producer found here | Personalize | Consumer acceptance only; integration gap |
