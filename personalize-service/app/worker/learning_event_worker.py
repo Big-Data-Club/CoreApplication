@@ -76,6 +76,13 @@ class LearningEventProcessor:
 
         logger.debug(f"Processing event {event_id}: {event_type} for student {student_id}")
 
+        if not event_id or not student_id:
+            return
+        # All learning events contribute to behavior, even without skill maps.
+        await asyncio.to_thread(self._store_event_in_lakehouse, event)
+        from app.worker.kafka_worker import mark_profile_dirty
+        mark_profile_dirty(int(student_id))
+
         # Only process events that affect mastery
         mastery_relevant_events = {
             'answer_submitted',
@@ -96,8 +103,6 @@ class LearningEventProcessor:
 
         try:
             # Store event in lakehouse
-            self._store_event_in_lakehouse(event)
-
             # Get recent events for this student+skill
             recent_events = self._get_skill_events(student_id, skill_id, limit=50)
 

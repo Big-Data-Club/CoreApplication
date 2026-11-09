@@ -14,6 +14,35 @@ from app.services.lakehouse import lakehouse_service
 
 settings = get_settings()
 _producer: AIOKafkaProducer | None = None
+_dirty_profiles: set[tuple[int, int]] = set()
+
+
+def mark_profile_dirty(user_id: int, course_id: int = 0) -> None:
+    _dirty_profiles.add((user_id, course_id))
+
+
+async def run_profile_projector():
+    """Coalesce bursts; profile computation and Parquet never run on HTTP."""
+    while True:
+        await asyncio.sleep(1)
+        pending = set(_dirty_profiles)
+        _dirty_profiles.difference_update(pending)
+        users = set()
+        for user_id, course_id in pending:
+            try:
+                if course_id:
+                    profile = await asyncio.to_thread(lakehouse_service.refresh_student_profile, user_id, course_id)
+                    await publish_profile_update(user_id, course_id, profile)
+                users.add(user_id)
+            except Exception:
+                logger.exception("Profile projection failed")
+                mark_profile_dirty(user_id, course_id)
+        for user_id in users:
+            try:
+                await asyncio.to_thread(lakehouse_service.refresh_recommendation_profile, user_id)
+            except Exception:
+                logger.exception("Behavior projection failed")
+                mark_profile_dirty(user_id)
 
 
 async def get_producer() -> AIOKafkaProducer:
@@ -62,13 +91,10 @@ async def process_interaction_event(event: dict):
         return
 
     # 1. Ingest into DuckDB
-    lakehouse_service.ingest_interaction(event)
+    await asyncio.to_thread(lakehouse_service.ingest_interaction, event)
 
     # 2. Compute Gold profile
-    profile = lakehouse_service.get_student_profile(int(user_id), int(course_id))
-
-    # 3. Publish update event
-    await publish_profile_update(int(user_id), int(course_id), profile)
+    mark_profile_dirty(int(user_id), int(course_id))
 
 
 async def publish_notification_trigger(user_id: int, course_id: int, alert_type: str, alert_message: str):
@@ -97,7 +123,7 @@ async def run_notification_detector():
     while True:
         try:
             logger.info("Running struggle alert detector query...")
-            alerts = lakehouse_service.get_gold_struggle_alerts()
+            alerts = await asyncio.to_thread(lakehouse_service.get_gold_struggle_alerts)
             for alert in alerts:
                 user_id = alert["user_id"]
                 course_id = alert["course_id"]
@@ -150,7 +176,7 @@ async def run_archive_scheduler():
     while True:
         try:
             logger.info("Running scheduled Lakehouse archival task (Bronze -> Parquet)...")
-            lakehouse_service.archive_interactions_to_parquet(age_days=7)
+            await asyncio.to_thread(lakehouse_service.archive_interactions_to_parquet, age_days=7)
         except Exception as e:
             logger.error(f"Lakehouse archival task error: {str(e)}")
         await asyncio.sleep(3600)  # Sleep for 1 hour
@@ -158,6 +184,8 @@ async def run_archive_scheduler():
 
 async def main():
     logger.info("Initializing Personalize Kafka Worker")
+    await asyncio.to_thread(lakehouse_service.backfill_profile_snapshots)
+    asyncio.create_task(run_profile_projector())
     
     # Start background tasks
     asyncio.create_task(run_archive_scheduler())
@@ -190,9 +218,11 @@ async def main():
             elif msg.topic == "lms.analytics.telemetry":
                 lakehouse_service.ingest_clickstream_event(msg.value)
             elif msg.topic == "lms.course.interactions":
-                lakehouse_service.ingest_course_interaction(msg.value)
+                await asyncio.to_thread(lakehouse_service.ingest_course_interaction, msg.value)
+                mark_profile_dirty(int(msg.value["user_id"]))
             elif msg.topic == "recommender.interactions.v1":
-                lakehouse_service.ingest_recommendation_event(msg.value)
+                await asyncio.to_thread(lakehouse_service.ingest_recommendation_event, msg.value)
+                mark_profile_dirty(int(msg.value["user_id"]))
     except asyncio.CancelledError:
         logger.info("Personalize Kafka Worker cancelled")
     finally:

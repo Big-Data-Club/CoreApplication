@@ -19,6 +19,7 @@ class RecommendationContext(BaseModel):
     interested_categories: list[str] = Field(default_factory=list, max_length=20)
     experience_level: str | None = Field(default=None, max_length=40)
     profile_resolved: bool = False
+    learning_history: list[RecommendationCandidate] = Field(default_factory=list, max_length=500)
 
 
 class RecommendationCandidate(BaseModel):
@@ -93,9 +94,9 @@ class RecommendationItem(BaseModel):
 
 class RecommendationResponse(BaseModel):
     request_id: str
-    recommendation_set_id: str
-    policy_version: str = "heuristic-v1"
-    model_version: str = "rules-2026-07"
+    recommendation_set_id: str = Field(default_factory=lambda: f"rs_{uuid4().hex}")
+    policy_version: str = "behavior-rules-v4"
+    model_version: str = "rules-2026-11"
     fallback: bool = False
     clarification_needed: bool = False
     clarification_message: str | None = None
@@ -106,7 +107,7 @@ class RecommendationResponse(BaseModel):
 class RecommendationInteraction(BaseModel):
     event_id: str = Field(default_factory=lambda: f"re_{uuid4().hex}")
     event_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    event_type: Literal["impression", "click", "accept", "reject", "dismiss", "started", "completed"]
+    event_type: Literal["impression", "click", "accept", "reject", "dismiss", "not_interested", "favorite", "started", "completed"]
     user_id: int = Field(gt=0)
     recommendation_id: str
     recommendation_set_id: str | None = None
@@ -117,6 +118,11 @@ class RecommendationInteraction(BaseModel):
     entity_id: str | None = None
     rank: int | None = Field(default=None, ge=1, le=50)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("event_time")
+    @classmethod
+    def ensure_utc(cls, value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
     @field_validator("event_time", mode="before")
     @classmethod
@@ -146,7 +152,7 @@ class SkillRecommendationItem(BaseModel):
     difficulty: float = Field(ge=0, le=1)
     reason: str
     score: float = Field(ge=0, le=1)
-    action: Literal["review", "practice", "advance", "learn_new"]
+    action: Literal["review", "practice", "advance", "learn_new", "continue_lesson"]
     estimated_minutes: int = Field(default=20)
 
 
@@ -156,4 +162,6 @@ class NextBestLessonResponse(BaseModel):
     course_id: int
     recommendations: list[SkillRecommendationItem] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    policy_version: str = "skill-based-v1"
+    policy_version: str = "next-action-v2"
+
+RecommendationContext.model_rebuild()

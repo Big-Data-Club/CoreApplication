@@ -1,5 +1,63 @@
 # BDC Hub Data Platform: Lakehouse and Kafka
 
+## Behavioral recommendation serving (2026-11)
+
+Roll out LMS and Personalize before Recommender, then the frontend. No Kafka
+topic is renamed. Personalize creates the additive `learner_profile_snapshots`
+table at startup and backfills existing learning history in its worker.
+HTTP reads snapshots only; worker projections coalesce dirty user/course pairs
+on a one-second tick. Profile computation and Parquet export run off the ASGI
+event loop. Archived micro-interactions remain part of course-profile history.
+
+The existing LMS learning-events and analytics producers, plus authenticated
+frontend recommendation interactions, feed this projection. The internal
+`/personalize/student/{id}/recommendation-profile` route requires `X-AI-Secret`.
+Course metadata comes from the authorized catalogue/enrollments; the snapshot
+contains per-course action counts and latest timestamps, not raw learner text.
+Behavioral features use a 90-day window; source-ledger retention is unchanged.
+The profile is for the learner's own recommendations and existing internal
+analytics only. Event IDs remain the deduplication keys; duplicate/late input
+must not multiply evidence or roll the latest action timestamp backwards.
+
+`recommender.interactions.v1` now accepts `favorite` (explicit interest) and
+`not_interested` (suppress that course for 30 days). Existing impression, click,
+accept, reject, dismiss, started and completed events remain compatible. A
+rejection/dismissal is a short-lived penalty, not permanent disinterest. New
+tracking tokens bind the user, recommendation and entity; previously issued
+tokens remain accepted during the compatible transition. Feedback is published
+to Kafka before acknowledgement, with a bounded per-process cache bridging
+projection delay. If publication fails, explicit feedback is not shown as saved.
+The durable ledger survives recommender restarts. Behavioral snapshots are
+cached for five seconds and may be served stale for up to one hour on dependency
+failure; response fallback is explicit. Browser clicks are not counted as starts:
+starts occur on content exposure, completions on confirmed content completion.
+Attribution expires after 24 hours and tracks only its target content when known.
+
+Discovery retrieves a general catalogue page plus up to two topic-specific
+candidate pages from explicit interests/recent enrollment history. Ranking
+prioritizes explicit preference and learning history; popularity/freshness are
+small secondary signals. Frontend uses backend `rank`, not pre-diversity score.
+Catalogue/enrollment rendering does not wait for profile/ranking. Serving has a
+two-second deadline, with bounded BFF/browser waits and an explicit fallback.
+
+Daily and chat course actions and `/v1/recommendations/next-best-lesson` share
+`app/next_action.py`. LMS supplies published content in curriculum order, actual
+completion, last-open activity, observed mastery and declared skill-prerequisite
+eligibility. Enrollment must be accepted. Unmapped content can still be the next
+lesson; missing mastery is not a skill gap. The policy prioritizes observed
+remediation, resuming the most recently opened unfinished item and the next
+eligible curriculum item, deduplicating content and respecting a time budget.
+Links identify the exact content. Durations are baseline estimates (up to ten
+minutes per item), not measured lesson times. Missing author prerequisite/skill
+maps cannot be inferred by this policy. Legacy LMS personalized endpoints remain
+compatible, but the current daily dashboard consumes the shared action policy.
+
+Design references: [YouTube's two-stage recommendation paper](https://research.google.com/pubs/archive/45530.pdf)
+and [YouTube's documented history and feedback signals](https://support.google.com/youtube/answer/16089387?hl=en-GB).
+This release applies these serving/feedback principles to an explainable rules
+baseline; it does not claim to reproduce YouTube's trained models. Validate
+production latency and start/completion outcomes before claiming a quality lift.
+
 ## Scope and authority
 
 Learning event retry contract: deploy LMS before the matching frontend. The

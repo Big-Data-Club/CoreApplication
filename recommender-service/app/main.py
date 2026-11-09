@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -60,13 +61,21 @@ def verify_secret(secret: str | None) -> None:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "healthy", "service": "recommender-service", "policy_version": "heuristic-v1"}
+    return {"status": "healthy", "service": "recommender-service", "policy_version": "behavior-rules-v4"}
 
 
 @app.post("/v1/recommendations", response_model=RecommendationResponse)
 async def recommendations(body: RecommendationRequest, x_ai_secret: str | None = Header(None, alias="X-AI-Secret")) -> RecommendationResponse:
     verify_secret(x_ai_secret)
-    return await recommendation_service.recommend(body)
+    try:
+        async with asyncio.timeout(settings.recommendation_deadline_seconds):
+            return await recommendation_service.recommend(body)
+    except TimeoutError:
+        return RecommendationResponse(
+            request_id=body.request_id, fallback=True,
+            items=(recommendation_service._rank_course_candidates(body, recommendation_service.cached_behavior(body.user_id))
+                   if body.context.role.lower() == "student" and body.surface in {"dashboard", "course_discovery"} else []),
+        )
 
 
 @app.post("/v1/recommendations/next-best-lesson", response_model=NextBestLessonResponse)

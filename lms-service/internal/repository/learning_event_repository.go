@@ -404,7 +404,8 @@ func (r *LearningEventRepository) GetQuestionSkills(ctx context.Context, questio
 }
 
 // GetCourseSkillProfile returns the learner's mastery states plus every
-// published, skill-mapped content item of the course (with completion flags).
+// published content item of the course (including unmapped content), with
+// completion, recent activity and prerequisite eligibility.
 // It is the data foundation for the recommender-service next-best-lesson
 // engine and must only be exposed through the internal service API.
 func (r *LearningEventRepository) GetCourseSkillProfile(ctx context.Context, studentID, courseID int64) (*models.CourseSkillProfile, error) {
@@ -422,24 +423,31 @@ func (r *LearningEventRepository) GetCourseSkillProfile(ctx context.Context, stu
 	profile.SkillStates = states
 
 	contentQuery := `
-		SELECT
-			sc.id AS content_id,
-			sc.title AS content_title,
-			sc.type AS content_type,
-			cs.skill_id AS skill_id,
-			s.name AS skill_name,
+		SELECT sc.id AS content_id, sc.title AS content_title, sc.type AS content_type,
+			COALESCE(cs.skill_id, 0) AS skill_id, COALESCE(s.name, '') AS skill_name,
 			COALESCE(cs.difficulty, s.difficulty, 0.5) AS difficulty,
-			EXISTS (
-				SELECT 1 FROM content_progress cp
-				WHERE cp.content_id = sc.id AND cp.student_id = $1
-			) AS completed
-		FROM content_skills cs
-		JOIN skills s ON s.id = cs.skill_id
-		JOIN section_content sc ON sc.id = cs.content_id AND sc.is_published = true
+			EXISTS (SELECT 1 FROM content_progress cp WHERE cp.content_id = sc.id AND cp.student_id = $1) AS completed,
+			activity.last_activity_at IS NOT NULL AS started,
+			activity.last_activity_at,
+			NOT EXISTS (
+				SELECT 1 FROM content_skills mapped
+				JOIN skill_prerequisites prereq ON prereq.skill_id = mapped.skill_id
+				LEFT JOIN learner_skill_states mastery ON mastery.skill_id = prereq.prerequisite_skill_id AND mastery.student_id = $1
+				WHERE mapped.content_id = sc.id AND COALESCE(mastery.mastery_score, 0) < 0.6
+			) AS prerequisites_met
+		FROM section_content sc
 		JOIN course_sections sec ON sec.id = sc.section_id
 		JOIN courses c ON c.id = sec.course_id AND c.status = 'PUBLISHED'
-		WHERE sec.course_id = $2
-		ORDER BY cs.skill_id, difficulty, sc.order_index`
+		LEFT JOIN content_skills cs ON cs.content_id = sc.id
+		LEFT JOIN skills s ON s.id = cs.skill_id
+		LEFT JOIN LATERAL (
+			SELECT MAX(le.created_at) AS last_activity_at FROM learning_events le
+			WHERE le.student_id = $1 AND le.lesson_id = sc.id AND le.course_id = $2
+			  AND le.event_type IN ('lesson_opened', 'lesson_started', 'lesson_resumed')
+		) activity ON true
+		WHERE sec.course_id = $2 AND sc.is_published = true AND sec.is_published = true
+		  AND EXISTS (SELECT 1 FROM enrollments en WHERE en.student_id = $1 AND en.course_id = $2 AND en.status = 'ACCEPTED')
+		ORDER BY sec.order_index, sec.id, sc.order_index, sc.id, cs.skill_id`
 
 	if err := r.db.SelectContext(ctx, &profile.AvailableContent, contentQuery, studentID, courseID); err != nil {
 		return nil, err

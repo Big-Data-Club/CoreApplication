@@ -44,6 +44,14 @@ class LakehouseService:
 
     def _init_tables(self):
         with self.lock:
+            # Serving reads snapshots; aggregation/export belongs to workers.
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS learner_profile_snapshots (
+                    user_id BIGINT, course_id BIGINT, profile_json TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, course_id)
+                )
+            """)
             # 1. Bronze: Raw Interactions
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS bronze_interactions (
@@ -480,6 +488,17 @@ class LakehouseService:
     # ── Gold Queries: Personalization Profile ───────────────────────────────
 
     def get_student_profile(self, user_id: int, course_id: int) -> Dict[str, Any]:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT profile_json FROM learner_profile_snapshots WHERE user_id = ? AND course_id = ?",
+                (user_id, course_id),
+            ).fetchone()
+        return json.loads(row[0]) if row else {
+            "user_id": user_id, "course_id": course_id, "profile_available": False,
+            "check_accuracy": None, "struggle_nodes": [],
+        }
+
+    def refresh_student_profile(self, user_id: int, course_id: int) -> Dict[str, Any]:
         """
         Compute Gold student profile metrics using DuckDB.
         Aggregates clicks, quick checks, quiz successes, and weak spots.
@@ -491,7 +510,7 @@ class LakehouseService:
                     SELECT 
                         COUNT(DISTINCT lesson_id) FILTER (WHERE action_type IN ('lesson_complete', 'lesson_completed')) as completed_lessons,
                         COUNT(DISTINCT lesson_id) as attempted_lessons
-                    FROM bronze_interactions
+                    FROM unified_interactions
                     WHERE user_id = ? AND course_id = ?
                 """, (user_id, course_id)).fetchone()
                 
@@ -503,7 +522,7 @@ class LakehouseService:
                     SELECT 
                         COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') as correct_checks,
                         COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') as incorrect_checks
-                    FROM bronze_interactions
+                    FROM unified_interactions
                     WHERE user_id = ? AND course_id = ?
                 """, (user_id, course_id)).fetchone()
                 
@@ -518,7 +537,7 @@ class LakehouseService:
                         node_id,
                         COUNT(*) FILTER (WHERE action_type = 'quick_check_incorrect') as incorrects,
                         COUNT(*) FILTER (WHERE action_type = 'quick_check_correct') as corrects
-                    FROM bronze_interactions
+                    FROM unified_interactions
                     WHERE user_id = ? AND course_id = ? AND node_id IS NOT NULL
                     GROUP BY node_id
                     HAVING incorrects > corrects OR incorrects >= 2
@@ -531,7 +550,7 @@ class LakehouseService:
                 # 4. Recent activity timeline
                 timeline_res = self.conn.execute("""
                     SELECT action_type, lesson_id, node_id, created_at
-                    FROM bronze_interactions
+                    FROM unified_interactions
                     WHERE user_id = ? AND course_id = ?
                     ORDER BY created_at DESC
                     LIMIT 3
@@ -559,6 +578,13 @@ class LakehouseService:
                     "recent_activities": recent_activities,
                     "last_updated": datetime.now().isoformat()
                 }
+                profile["profile_available"] = True
+                profile["check_accuracy"] = round(check_accuracy, 2) if total_checks else None
+                self.conn.execute("""
+                    INSERT INTO learner_profile_snapshots (user_id, course_id, profile_json)
+                    VALUES (?, ?, ?) ON CONFLICT (user_id, course_id) DO UPDATE
+                    SET profile_json = excluded.profile_json, updated_at = now()
+                """, (user_id, course_id, json.dumps(profile)))
                 
                 # Write Gold Profile snapshot to gold parquet directory for future cold analysis
                 self._save_gold_profile_parquet(profile)
@@ -567,6 +593,47 @@ class LakehouseService:
             except Exception as e:
                 logger.error(f"Failed to query student personalization profile: {str(e)}")
                 return {"user_id": user_id, "course_id": course_id, "error": str(e)}
+
+    def refresh_recommendation_profile(self, user_id: int) -> Dict[str, Any]:
+        """Worker-only, bounded behavioral evidence. No raw text in serving data."""
+        with self.lock:
+            rows = self.conn.execute("""
+                WITH evidence AS (
+                    SELECT course_id, action_type AS action, created_at AS ts FROM unified_interactions WHERE user_id = ?
+                    UNION ALL
+                    SELECT course_id, action_type, created_at FROM bronze_course_interactions WHERE user_id = ?
+                    UNION ALL
+                    SELECT course_id, event_type, event_time FROM bronze_recommendation_events WHERE user_id = ?
+                    UNION ALL
+                    SELECT course_id, event_type, created_at FROM bronze_learning_events WHERE student_id = ?
+                )
+                SELECT course_id, action, MAX(ts), COUNT(*) FROM evidence
+                WHERE course_id IS NOT NULL AND ts >= CURRENT_TIMESTAMP - INTERVAL '90 days'
+                GROUP BY course_id, action
+            """, (user_id, user_id, user_id, user_id)).fetchall()
+            courses: Dict[str, Any] = {}
+            for course_id, action, ts, count in rows:
+                courses.setdefault(str(course_id), {})[action] = {"count": count, "at": _iso_utc(ts)}
+            profile = {"user_id": user_id, "courses": courses, "profile_available": bool(courses), "last_updated": datetime.now(timezone.utc).isoformat()}
+            self.conn.execute("""
+                INSERT INTO learner_profile_snapshots (user_id, course_id, profile_json)
+                VALUES (?, 0, ?) ON CONFLICT (user_id, course_id) DO UPDATE
+                SET profile_json = excluded.profile_json, updated_at = now()
+            """, (user_id, json.dumps(profile)))
+            return profile
+
+    def backfill_profile_snapshots(self) -> None:
+        """Run at worker startup, including existing/archived learning history."""
+        with self.lock:
+            pairs = self.conn.execute("SELECT DISTINCT user_id, course_id FROM unified_interactions").fetchall()
+            users = self.conn.execute("""
+                SELECT user_id FROM unified_interactions UNION SELECT user_id FROM bronze_recommendation_events
+                UNION SELECT user_id FROM bronze_course_interactions UNION SELECT student_id FROM bronze_learning_events
+            """).fetchall()
+        for user_id, course_id in pairs:
+            self.refresh_student_profile(user_id, course_id)
+        for (user_id,) in users:
+            self.refresh_recommendation_profile(user_id)
 
     def _save_gold_profile_parquet(self, profile: Dict[str, Any]):
         """Save a quick snapshot to Parquet for analytical history of personalization changes."""
@@ -577,9 +644,10 @@ class LakehouseService:
             flat["recent_activities"] = len(flat["recent_activities"]) # count only
             
             # Use temporary relation to write
-            df = duckdb.df(flat)
+            import pandas as pd
+            df = pd.DataFrame([flat])
             parquet_file = os.path.join(self.gold_parquet_dir, f"profile_{profile['user_id']}_{profile['course_id']}.parquet")
-            duckdb.query("COPY df TO ? (FORMAT 'PARQUET')", (parquet_file,))
+            self.conn.from_df(df).write_parquet(parquet_file)
         except Exception as e:
             logger.debug(f"Failed to write Gold profile parquet: {str(e)}")
 
@@ -717,7 +785,7 @@ class LakehouseService:
                         SELECT 
                             interaction_id, user_id, course_id, lesson_id, node_id, action_type, score, status, created_at
                         FROM bronze_interactions
-                        UNION ALL
+                        UNION
                         SELECT 
                             interaction_id, user_id, course_id, lesson_id, node_id, action_type, score, status, created_at
                         FROM read_parquet('{parquet_pattern}', union_by_name=True)

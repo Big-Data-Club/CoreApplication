@@ -8,60 +8,40 @@ from app.service import RecommendationService
 
 
 class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_weak_concept_is_ranked_before_course_continuation(self):
+    async def asyncSetUp(self):
+        self.behavior_patch = patch.object(RecommendationService, "behavior_profile", AsyncMock(return_value={"courses": {}}))
+        self.behavior_patch.start()
+        self.addCleanup(self.behavior_patch.stop)
+
+    async def test_weak_concept_links_to_actual_review_content(self):
         service = RecommendationService()
-        service.profile = AsyncMock(return_value=({
-            "struggle_nodes": [914],
-            "check_accuracy": 0.4,
-            "completed_lessons": 2,
-        }, False))
-        response = await service.recommend(RecommendationRequest(
-            user_id=42,
-            context={"course_id": 38, "role": "student", "time_budget_minutes": 20},
-        ))
+        service.course_skill_profile = AsyncMock(return_value={
+            "skill_states": [{"skill_id": 9, "skill_name": "Loops", "attempt_count": 3, "mastery_score": 0.2}],
+            "available_content": [{"content_id": 12, "content_title": "Loops practice", "skill_id": 9, "completed": True, "prerequisites_met": True}],
+        })
+        response = await service.recommend(RecommendationRequest(user_id=42, context={"course_id": 38}))
+        self.assertEqual(response.items[0].action, "review")
+        self.assertEqual(response.items[0].href, "/lms/student/courses/38/learn?contentId=12")
+        self.assertTrue(service.valid_token(response.items[0].recommendation_id, 42, response.items[0].tracking_token))
 
-        self.assertFalse(response.fallback)
-        self.assertEqual(response.items[0].action, "review_weak_concept")
-        self.assertTrue(service.valid_token(
-            response.items[0].recommendation_id,
-            42,
-            response.items[0].tracking_token,
-        ))
-
-    async def test_healthy_learner_gets_no_mentor_filler(self):
-        """A learner with no struggles and good accuracy should not receive
-        filler suggestions — only the meaningful course continuation."""
+    async def test_healthy_learner_gets_only_real_next_lesson(self):
         service = RecommendationService()
-        service.profile = AsyncMock(return_value=({
-            "struggle_nodes": [],
-            "check_accuracy": 0.9,
-            "completed_lessons": 5,
-        }, False))
-        response = await service.recommend(RecommendationRequest(
-            user_id=42,
-            context={"course_id": 38, "role": "student"},
-        ))
+        service.course_skill_profile = AsyncMock(return_value={
+            "skill_states": [], "available_content": [
+                {"content_id": 1, "content_title": "Done", "completed": True},
+                {"content_id": 2, "content_title": "Next", "completed": False},
+            ],
+        })
+        response = await service.recommend(RecommendationRequest(user_id=42, context={"course_id": 38}))
+        self.assertEqual([item.action for item in response.items], ["learn_new"])
+        self.assertEqual(response.items[0].entity["content_id"], 2)
 
-        actions = [item.action for item in response.items]
-        self.assertNotIn("ask_mentor", actions)
-        self.assertNotIn("practice_quick_check", actions)
-        self.assertEqual(actions, ["continue_course"])
-
-    async def test_struggling_learner_still_gets_mentor_support(self):
+    async def test_profile_failure_does_not_invent_a_task(self):
         service = RecommendationService()
-        service.profile = AsyncMock(return_value=({
-            "struggle_nodes": [11],
-            "check_accuracy": 0.5,
-            "completed_lessons": 3,
-        }, False))
-        response = await service.recommend(RecommendationRequest(
-            user_id=42,
-            limit=4,
-            context={"course_id": 38, "role": "student"},
-        ))
-
-        actions = [item.action for item in response.items]
-        self.assertIn("ask_mentor", actions)
+        service.course_skill_profile = AsyncMock(return_value=None)
+        response = await service.recommend(RecommendationRequest(user_id=42, context={"course_id": 38}))
+        self.assertTrue(response.fallback)
+        self.assertEqual(response.items, [])
 
     async def test_missing_course_requests_clarification(self):
         response = await RecommendationService().recommend(RecommendationRequest(user_id=42))
@@ -82,7 +62,7 @@ class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
             ],
         ))
 
-        self.assertEqual(response.policy_version, "hybrid-rules-v3")
+        self.assertEqual(response.policy_version, "behavior-rules-v4")
         self.assertTrue(response.fallback)
         self.assertEqual({item.entity["course_id"] for item in response.items}, {1, 3})
         self.assertTrue(all(item.action == "explore_course" for item in response.items))
@@ -195,3 +175,55 @@ class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
         ))
         self.assertTrue(response.clarification_needed)
         self.assertEqual(response.items, [])
+
+
+    async def test_recent_learning_history_beats_unrelated_popularity(self):
+        service = RecommendationService()
+        response = await service.recommend(RecommendationRequest(
+            user_id=42, surface="course_discovery",
+            context={"profile_resolved": True, "learning_history": [{"entity_id": 90, "title": "Python", "category": "Python", "progress_percent": 50, "last_activity_at": "2099-01-01T00:00:00Z"}]},
+            candidates=[{"entity_id": 1, "title": "Python tiếp theo", "category": "Python"}, {"entity_id": 2, "title": "Unrelated", "enrollment_count": 10000}],
+        ))
+        self.assertEqual(response.items[0].entity["course_id"], 1)
+        self.assertFalse(response.fallback)
+
+    async def test_disinterest_is_scoped_to_user_and_course_and_expires(self):
+        service = RecommendationService()
+        service.behavior_profile = AsyncMock(return_value={"courses": {"1": {"not_interested": {"at": "2099-01-01T00:00:00Z", "count": 1}}, "2": {"not_interested": {"at": "2000-01-01T00:00:00Z", "count": 1}}}})
+        response = await service.recommend(RecommendationRequest(user_id=42, surface="course_discovery", context={"profile_resolved": True}, candidates=[{"entity_id": 1, "title": "Hidden"}, {"entity_id": 2, "title": "Expired"}]))
+        self.assertEqual([i.entity["course_id"] for i in response.items], [2])
+
+    async def test_favorite_and_recent_activity_outweigh_old_completion(self):
+        service = RecommendationService()
+        service.behavior_profile = AsyncMock(return_value={"courses": {"1": {"favorite": {"at": "2099-01-01T00:00:00Z", "count": 1}}}})
+        response = await service.recommend(RecommendationRequest(user_id=42, surface="dashboard", context={"profile_resolved": True}, candidates=[{"entity_id": 1, "title": "Focus", "enrolled": True, "progress_percent": 10, "last_activity_at": "2099-01-01T00:00:00Z"}, {"entity_id": 2, "title": "Old", "enrolled": True, "progress_percent": 95, "last_activity_at": "2000-01-01T00:00:00Z"}]))
+        self.assertEqual(response.items[0].entity["course_id"], 1)
+
+    async def test_feedback_replay_is_idempotent_and_cannot_change_entity(self):
+        service = RecommendationService()
+        request = RecommendationRequest(user_id=42, surface="course_discovery", context={"profile_resolved": True}, candidates=[{"entity_id": 1, "title": "Python"}])
+        item = service._rank_course_candidates(request)[0]
+        producer = AsyncMock()
+        service._producer_instance = AsyncMock(return_value=producer)
+        event = RecommendationInteraction(event_id="feedback-1", user_id=42, event_type="favorite", recommendation_id=item.recommendation_id, tracking_token=item.tracking_token, course_id=1, entity_type="course", entity_id="1")
+        await service.log_interaction(event)
+        await service.log_interaction(event)
+        self.assertEqual(len(service._feedback), 1)
+        self.assertIn("favorite", service.cached_behavior(42)["courses"]["1"])
+        self.assertEqual(service.cached_behavior(43)["courses"], {})
+        with self.assertRaisesRegex(ValueError, "entity mismatch"):
+            await service.log_interaction(event.model_copy(update={"course_id": 2}))
+
+    async def test_request_deadline_returns_fallback_without_waiting_for_dependency(self):
+        import asyncio
+        from app.main import recommendations
+        service = RecommendationService()
+        async def slow(_):
+            await asyncio.sleep(60)
+        service.recommend = slow
+        request = RecommendationRequest(user_id=42, surface="course_discovery", candidates=[{"entity_id": 1, "title": "Python"}])
+        with patch("app.main.recommendation_service", service), patch("app.main.settings.recommendation_deadline_seconds", 0.01):
+            from app.main import settings
+            response = await recommendations(request, settings.ai_service_secret)
+        self.assertTrue(response.fallback)
+        self.assertEqual(len(response.items), 1)

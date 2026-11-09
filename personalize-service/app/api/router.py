@@ -39,16 +39,22 @@ def verify_secret(x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")
 # ── Personalization Profile Endpoint ────────────────────────────────────────
 
 @router.get("/personalize/student/{user_id}/course/{course_id}")
-async def get_student_profile(user_id: int, course_id: int, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+def get_student_profile(user_id: int, course_id: int, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
     verify_secret(x_ai_secret)
     profile = lakehouse_service.get_student_profile(user_id, course_id)
     return profile
 
 
 @router.get("/personalize/student/{user_id}/onboarding")
-async def get_onboarding_profile(user_id: int, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+def get_onboarding_profile(user_id: int, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
     verify_secret(x_ai_secret)
     return lakehouse_service.get_user_onboarding(user_id)
+
+
+@router.get("/personalize/student/{user_id}/recommendation-profile")
+def get_recommendation_profile(user_id: int, x_ai_secret: Optional[str] = Header(None, alias="X-AI-Secret")):
+    verify_secret(x_ai_secret)
+    return lakehouse_service.get_student_profile(user_id, 0)
 
 
 @router.post("/personalize/onboarding")

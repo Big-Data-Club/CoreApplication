@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     tracking_secret: str = ""
     profile_cache_seconds: int = 300
     request_timeout_seconds: float = 1.5
+    recommendation_deadline_seconds: float = 2.0
 
     class Config:
         env_file = ".env"

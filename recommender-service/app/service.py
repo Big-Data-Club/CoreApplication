@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import base64
 import hashlib
 import hmac
@@ -39,14 +40,106 @@ class RecommendationService:
         self._onboarding_cache: dict[int, tuple[float, dict[str, Any]]] = {}
         self._producer: AIOKafkaProducer | None = None
         self._producer_lock = asyncio.Lock()
+        self._client: httpx.AsyncClient | None = None
+        self._feedback: dict[str, dict] = {}
+        self._behavior_cache: dict[int, tuple[float, dict]] = {}
 
-    def _token(self, recommendation_id: str, user_id: int) -> str:
+    def _http(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
+        return self._client
+
+    async def behavior_profile(self, user_id: int) -> dict:
+        cached = self._behavior_cache.get(user_id)
+        if cached and time.monotonic() - cached[0] < 5:
+            return self.cached_behavior(user_id)
+        try:
+            response = await self._http().get(
+                f"{settings.personalize_service_url}/personalize/student/{user_id}/recommendation-profile",
+                headers={"X-AI-Secret": settings.ai_service_secret},
+            )
+            response.raise_for_status()
+            self._behavior_cache[user_id] = (time.monotonic(), response.json())
+            if len(self._behavior_cache) > 1024:
+                self._behavior_cache.pop(next(iter(self._behavior_cache)))
+        except Exception:
+            pass
+        return self.cached_behavior(user_id)
+
+    def cached_behavior(self, user_id: int) -> dict:
+        cached = self._behavior_cache.get(user_id)
+        profile = copy.deepcopy(cached[1]) if cached and time.monotonic() - cached[0] < 3600 else {"courses": {}}
+        profile["_stale"] = cached is None or time.monotonic() - cached[0] >= 5
+        courses = profile.setdefault("courses", {})
+        # Read-your-feedback while the durable Kafka projection catches up.
+        now = datetime.now(timezone.utc)
+        self._feedback = {k: v for k, v in self._feedback.items()
+                          if (now - v["event_time"]).total_seconds() < 300}
+        for event in self._feedback.values():
+            if event["user_id"] != user_id or not event.get("course_id"):
+                continue
+            actions = courses.setdefault(str(event["course_id"]), {})
+            current = actions.get(event["event_type"], {})
+            at = event["event_time"].isoformat()
+            if not current.get("at") or current["at"] < at:
+                actions[event["event_type"]] = {"at": at, "count": 1}
+        return profile
+
+    @staticmethod
+    def _signal(actions: dict, name: str, days: float = 21) -> float:
+        evidence = actions.get(name)
+        if not evidence or not evidence.get("at"):
+            return 0.0
+        try:
+            at = datetime.fromisoformat(evidence["at"].replace("Z", "+00:00"))
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=timezone.utc)
+            age = max(0.0, (datetime.now(timezone.utc) - at).total_seconds() / 86400)
+            return math.exp(-age / days)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def _history_match(self, request: RecommendationRequest, candidate: RecommendationCandidate, courses: dict) -> float:
+        target = self._tokens(candidate.category or candidate.title)
+        best = 0.0
+        history = {item.entity_id: item for item in request.candidates}
+        history.update({item.entity_id: item for item in request.context.learning_history})
+        for learned in history.values():
+            evidence = courses.get(str(learned.entity_id), {})
+            meaningful = max((self._signal(evidence, key) for key in
+                ("started", "completed", "lesson_completed", "lesson_complete", "answer_submitted", "favorite")), default=0.0)
+            activity = self._activity_recency(learned) if learned.last_activity_at else 0.0
+            strength = max(meaningful, activity if (learned.progress_percent or 0) > 0 else 0.0)
+            # Enrollment alone is weak evidence of interest, not proof of learning.
+            if strength == 0 and (learned.progress_percent or 0) > 0:
+                strength = 0.35
+            source = self._tokens(learned.category or learned.title)
+            similarity = len(source & target) / max(1, len(source | target))
+            best = max(best, similarity * strength)
+        return best
+
+    def _token(self, recommendation_id: str, user_id: int, entity: dict | None = None) -> str:
+        if entity is not None:
+            claims = {"recommendation_id": recommendation_id, "user_id": user_id, "entity": entity}
+            encoded = base64.urlsafe_b64encode(json.dumps(claims, sort_keys=True).encode()).decode().rstrip("=")
+            secret = settings.tracking_secret or settings.ai_service_secret
+            signature = base64.urlsafe_b64encode(hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+            return f"{encoded}.{signature}"
         message = f"{recommendation_id}:{user_id}".encode()
         secret = settings.tracking_secret or settings.ai_service_secret
         signature = hmac.new(secret.encode(), message, hashlib.sha256).digest()
         return base64.urlsafe_b64encode(signature).decode().rstrip("=")
 
     def valid_token(self, recommendation_id: str, user_id: int, token: str) -> bool:
+        if "." in token:
+            try:
+                encoded, signature = token.split(".", 1)
+                claims = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+                return (claims["recommendation_id"] == recommendation_id and claims["user_id"] == user_id
+                        and hmac.compare_digest(self._token(recommendation_id, user_id, claims["entity"]), token))
+            except (ValueError, KeyError, TypeError):
+                return False
+        # Compatibility for tokens issued before the entity-bound format.
         return hmac.compare_digest(self._token(recommendation_id, user_id), token)
 
     async def profile(self, user_id: int, course_id: int) -> tuple[dict[str, Any], bool]:
@@ -58,12 +151,11 @@ class RecommendationService:
 
         url = f"{settings.personalize_service_url}/personalize/student/{user_id}/course/{course_id}"
         try:
-            async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
-                response = await client.get(url, headers={"X-AI-Secret": settings.ai_service_secret})
-                response.raise_for_status()
-                profile = response.json()
-                self._profile_cache[key] = (now, profile)
-                return profile, False
+            response = await self._http().get(url, headers={"X-AI-Secret": settings.ai_service_secret})
+            response.raise_for_status()
+            profile = response.json()
+            self._profile_cache[key] = (now, profile)
+            return profile, False
         except Exception as exc:
             logger.warning("profile lookup failed for user=%s course=%s: %s", user_id, course_id, exc)
             return {}, True
@@ -76,12 +168,11 @@ class RecommendationService:
 
         url = f"{settings.personalize_service_url}/personalize/student/{user_id}/onboarding"
         try:
-            async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
-                response = await client.get(url, headers={"X-AI-Secret": settings.ai_service_secret})
-                response.raise_for_status()
-                profile = response.json()
-                self._onboarding_cache[user_id] = (now, profile)
-                return profile
+            response = await self._http().get(url, headers={"X-AI-Secret": settings.ai_service_secret})
+            response.raise_for_status()
+            profile = response.json()
+            self._onboarding_cache[user_id] = (now, profile)
+            return profile
         except Exception as exc:
             logger.warning("onboarding profile lookup failed for user=%s: %s", user_id, exc)
             return {}
@@ -90,70 +181,21 @@ class RecommendationService:
         """Fetch mastery states + eligible content from the LMS internal API."""
         url = f"{settings.lms_service_url}/api/v1/internal/students/{student_id}/skill-profile"
         try:
-            async with httpx.AsyncClient(timeout=settings.request_timeout_seconds + 1.5) as client:
-                response = await client.get(
-                    url,
-                    params={"course_id": course_id},
-                    headers={"X-API-Secret": settings.ai_service_secret},
-                )
-                response.raise_for_status()
-                body = response.json()
-                return body.get("data") or body
+            response = await self._http().get(
+                url, params={"course_id": course_id},
+                headers={"X-API-Secret": settings.ai_service_secret},
+            )
+            response.raise_for_status()
+            body = response.json()
+            return body.get("data") or body
         except Exception as exc:
             logger.warning("skill profile lookup failed for student=%s course=%s: %s", student_id, course_id, exc)
             return None
 
     def next_best_lessons(self, student_id: int, course_id: int, profile: dict[str, Any], time_budget_minutes: int) -> list[dict[str, Any]]:
         """Run the skill-based engine over an LMS skill profile payload."""
-        from app.skill_recommender import skill_based_recommender
-
-        skill_states = [
-            {
-                "skill_id": state.get("skill_id"),
-                "mastery_score": float(state.get("mastery_score") or 0.0),
-                "attempt_count": int(state.get("attempt_count") or 0),
-                "recommended_difficulty": (
-                    float(state["recommended_difficulty"])
-                    if state.get("recommended_difficulty") is not None
-                    else 0.5
-                ),
-                "skill_name": state.get("skill_name") or f"Skill {state.get('skill_id')}",
-            }
-            for state in profile.get("skill_states") or []
-        ]
-        available_content = [
-            {
-                "id": item.get("content_id"),
-                "title": item.get("content_title"),
-                "skill_id": item.get("skill_id"),
-                "skill_name": item.get("skill_name"),
-                "difficulty": float(item.get("difficulty") if item.get("difficulty") is not None else 0.5),
-                "completed": bool(item.get("completed")),
-            }
-            for item in profile.get("available_content") or []
-        ]
-
-        recommendations = skill_based_recommender.get_next_best_lesson(
-            student_id=student_id,
-            course_id=course_id,
-            skill_states=skill_states,
-            available_content=available_content,
-            time_budget_minutes=time_budget_minutes,
-        )
-        budget_per_item = max(5, time_budget_minutes // max(1, len(recommendations)))
-        return [
-            {
-                "content_id": rec.content_id,
-                "skill_id": rec.skill_id,
-                "skill_name": rec.skill_name,
-                "difficulty": round(max(0.0, min(rec.difficulty, 1.0)), 3),
-                "reason": rec.reason,
-                "score": round(max(0.0, min(rec.score, 1.0)), 3),
-                "action": rec.action,
-                "estimated_minutes": budget_per_item,
-            }
-            for rec in recommendations
-        ]
+        from app.next_action import next_actions
+        return next_actions(profile, time_budget_minutes)
 
     def _item(
         self,
@@ -172,6 +214,11 @@ class RecommendationService:
     ) -> RecommendationItem:
         recommendation_id = f"rec_{uuid4().hex}"
         course_id = candidate.entity_id if candidate else request.context.course_id
+        entity = {
+            "type": "course" if candidate else "course_action",
+            "id": str(course_id) if candidate else f"{course_id}:{action}",
+            "course_id": course_id,
+        }
         return RecommendationItem(
             recommendation_id=recommendation_id,
             entity={
@@ -195,14 +242,15 @@ class RecommendationService:
             why_facts=facts,
             badges=badges or [],
             expected_outcome=expected_outcome,
-            tracking_token=self._token(recommendation_id, request.user_id),
+            tracking_token=self._token(recommendation_id, request.user_id, entity),
         )
 
     @staticmethod
     def _tokens(value: str | None) -> set[str]:
         if not value:
             return set()
-        return {token for token in re.findall(r"[\wÀ-ỹ]+", value.lower()) if len(token) > 1}
+        stopwords = {"khóa", "học", "cơ", "bản", "nâng", "cao", "nhập", "môn", "và", "the", "and", "for", "course", "introduction"}
+        return {token for token in re.findall(r"[\wÀ-ỹ]+", value.lower()) if len(token) > 1 and token not in stopwords}
 
     @staticmethod
     def _freshness(candidate: RecommendationCandidate) -> float:
@@ -261,8 +309,9 @@ class RecommendationService:
         desired = aliases.get(desired, desired)
         return 1.0 if actual in {desired, "ALL_LEVELS"} else 0.35
 
-    def _rank_course_candidates(self, request: RecommendationRequest) -> list[RecommendationItem]:
+    def _rank_course_candidates(self, request: RecommendationRequest, behavior: dict | None = None) -> list[RecommendationItem]:
         discovery = request.surface == "course_discovery"
+        courses = (behavior or {}).get("courses", {})
         candidates = [
             candidate for candidate in request.candidates
             if (not discovery or not candidate.enrolled)
@@ -275,7 +324,17 @@ class RecommendationService:
         max_enrollments = max((candidate.enrollment_count for candidate in candidates), default=0)
         scored: list[tuple[float, RecommendationCandidate, list[ReasonFact], list[RecommendationBadge]]] = []
         for candidate in candidates:
+            evidence = courses.get(str(candidate.entity_id), {})
+            # Explicit disinterest suppresses this course for 30 days.
+            if self._signal(evidence, "not_interested", 30) > math.exp(-1):
+                continue
             match = self._profile_match(request, candidate)
+            history_match = self._history_match(request, candidate, courses)
+            favorite = self._signal(evidence, "favorite", 90)
+            positive = max(self._signal(evidence, "click") * 0.2,
+                           self._signal(evidence, "started") * 0.7,
+                           self._signal(evidence, "completed"))
+            penalty = 0.10 * max(self._signal(evidence, "reject", 7), self._signal(evidence, "dismiss", 7))
             freshness = self._freshness(candidate)
             activity_recency = self._activity_recency(candidate)
             popularity = math.log1p(candidate.enrollment_count) / math.log1p(max(1, max_enrollments))
@@ -285,7 +344,7 @@ class RecommendationService:
 
             if discovery:
                 level_fit = self._level_fit(request, candidate)
-                score = 0.30 * match + 0.22 * level_fit + 0.20 * popularity + 0.18 * freshness + 0.10 * exploration
+                score = 0.62 * max(match, history_match * 0.9) + 0.16 * level_fit + 0.06 * popularity + 0.04 * freshness + 0.02 * exploration + 0.35 * favorite + 0.10 * positive - penalty
                 if match > 0:
                     facts.append(ReasonFact(code="goal_topic_match", value=round(match, 3)))
                     badges.append(RecommendationBadge(type="goal_match", text="Phù hợp mục tiêu"))
@@ -302,12 +361,13 @@ class RecommendationService:
                 completion_momentum = min(progress / 100.0, 1.0)
                 new_content = min(candidate.new_content_count / 3.0, 1.0)
                 score = (
-                    0.28 * continuity
-                    + 0.22 * completion_momentum
-                    + 0.18 * new_content
-                    + 0.12 * match
-                    + 0.10 * freshness
-                    + 0.10 * activity_recency
+                    0.20 * continuity
+                    + 0.08 * completion_momentum
+                    + 0.05 * new_content
+                    + 0.25 * match
+                    + 0.35 * activity_recency
+                    + 0.35 * favorite
+                    + 0.10 * positive - penalty
                 )
                 facts.append(ReasonFact(code="course_progress", value=progress))
                 if candidate.last_activity_at:
@@ -326,6 +386,12 @@ class RecommendationService:
                 if match > 0:
                     facts.append(ReasonFact(code="goal_topic_match", value=round(match, 3)))
 
+            if history_match > 0:
+                facts.append(ReasonFact(code="learning_history_match", value=round(history_match, 3)))
+            if favorite > 0:
+                facts.append(ReasonFact(code="explicit_course_preference", value=round(favorite, 3)))
+            if positive > 0:
+                facts.append(ReasonFact(code="recommendation_feedback", value=round(positive, 3)))
             scored.append((score, candidate, facts, badges))
 
         scored.sort(key=lambda entry: (-entry[0], entry[1].entity_id))
@@ -339,7 +405,7 @@ class RecommendationService:
                 best = max(
                     remaining,
                     key=lambda entry: (
-                        entry[0] - 0.08 * category_counts.get((entry[1].category or "").lower(), 0),
+                        entry[0] - 0.02 * category_counts.get((entry[1].category or "").lower(), 0),
                         -entry[1].entity_id,
                     ),
                 )
@@ -353,7 +419,11 @@ class RecommendationService:
         for rank, (score, candidate, facts, badges) in enumerate(scored[: request.limit], start=1):
             matched_goal = any(fact.code == "goal_topic_match" for fact in facts)
             level_fit = next((fact.value for fact in facts if fact.code == "level_fit"), None)
-            if discovery and matched_goal:
+            if any(f.code == "explicit_course_preference" for f in facts):
+                explanation = "Bạn đã chọn quan tâm khóa học này."
+            elif discovery and any(f.code == "learning_history_match" for f in facts):
+                explanation = "Chủ đề liên quan đến các khóa bạn đã học hoặc đang học gần đây."
+            elif discovery and matched_goal:
                 explanation = "Chủ đề khóa học liên quan đến lĩnh vực hoặc mục tiêu bạn đã lưu."
             elif discovery and request.context.experience_level and level_fit == 1.0:
                 explanation = "Trình độ khóa học phù hợp với trình độ bạn đã chọn."
@@ -402,11 +472,12 @@ class RecommendationService:
                 request.context.experience_level = (
                     request.context.experience_level or onboarding.get("experience_level") or None
                 )
-            response.policy_version = "hybrid-rules-v3"
-            response.model_version = "hybrid-2026-10"
-            response.items = self._rank_course_candidates(request)
+            response.policy_version = "behavior-rules-v4"
+            response.model_version = "rules-2026-11"
+            behavior = await self.behavior_profile(request.user_id)
+            response.items = self._rank_course_candidates(request, behavior)
             has_effective_profile = any(
-                any(fact.code == "goal_topic_match" for fact in item.why_facts)
+                any(fact.code in {"goal_topic_match", "learning_history_match", "explicit_course_preference", "recommendation_feedback"} for fact in item.why_facts)
                 or (
                     bool(request.context.experience_level)
                     and any(fact.code == "level_fit" and fact.value == 1.0 for fact in item.why_facts)
@@ -419,61 +490,30 @@ class RecommendationService:
                 or candidate.new_content_count > 0
                 for candidate in request.candidates
             )
-            response.fallback = not (has_effective_profile or has_behavioral_profile)
+            response.fallback = bool(behavior.get("_stale")) or not (has_effective_profile or has_behavioral_profile)
             return response
         if not course_id:
             response.clarification_needed = True
             response.clarification_message = "Bạn muốn nhận gợi ý cho khóa học nào? Hãy mở một khóa học hoặc chọn khóa học trong chat."
             return response
 
-        profile, fallback = await self.profile(request.user_id, course_id)
-        response.fallback = fallback
-        accuracy = float(profile.get("check_accuracy") or 0.0)
-        completed = int(profile.get("completed_lessons") or 0)
-        struggles = [int(node) for node in profile.get("struggle_nodes") or [] if node is not None]
-        minutes = request.context.time_budget_minutes or 20
-        prefer_practice = request.conversation.constraints.get("prefer_format") == "practice"
-
-        candidates: list[RecommendationItem] = []
-        if struggles:
-            candidates.append(self._item(
-                request, 1, 0.86, "review_weak_concept",
-                "Củng cố chủ đề đang yếu",
-                "Ôn nhanh nội dung liên quan rồi làm một Quick Check để kiểm tra lại.",
-                "Củng cố một điểm yếu và hoàn thành một lượt tự kiểm tra.",
-                min(minutes, 20),
-                [ReasonFact(code="struggle_detected", node_id=struggles[0]), ReasonFact(code="time_budget", value=minutes)],
-            ))
-        if accuracy < 0.60 and completed > 0:
-            candidates.append(self._item(
-                request, len(candidates) + 1, 0.76, "practice_quick_check",
-                "Làm Quick Check ngắn",
-                "Thực hành một lượt kiểm tra ngắn trước khi chuyển sang nội dung mới.",
-                "Xác định phần cần ôn thêm qua kết quả Quick Check.",
-                min(minutes, 15),
-                [ReasonFact(code="low_quick_check_accuracy", value=accuracy)],
-            ))
-        candidates.append(self._item(
-            request, len(candidates) + 1, 0.58 if completed else 0.70, "continue_course",
-            "Tiếp tục lộ trình của khóa học",
-            "Mở nội dung kế tiếp trong khóa học và tiếp tục theo trình tự giáo trình.",
-            "Hoàn thành hoặc bắt đầu một nội dung phù hợp trong giáo trình.",
-            min(minutes, 25),
-            [ReasonFact(code="course_progress", value=completed)],
-        ))
-        # Mentoring is only a meaningful suggestion while the learner actually
-        # needs support; as an unconditional item it reads as filler.
-        needs_support = bool(struggles) or (accuracy < 0.60 and completed > 0)
-        if needs_support and not prefer_practice:
-            candidates.append(self._item(
-                request, len(candidates) + 1, 0.52, "ask_mentor",
-                "Trao đổi với AI Mentor",
-                "Yêu cầu giải thích một phần bạn đang vướng trước khi thực hành tiếp.",
-                "Làm rõ một khái niệm bằng ví dụ phù hợp với khóa học.",
-                min(minutes, 10),
-                [ReasonFact(code="guided_support_available")],
-            ))
-        response.items = candidates[: request.limit]
+        profile = await self.course_skill_profile(request.user_id, course_id)
+        response.fallback = profile is None
+        if profile is None:
+            return response
+        from app.next_action import next_actions
+        tasks = next_actions(profile, request.context.time_budget_minutes or 20,
+                             request.conversation.constraints.get("prefer_format", "mixed"))
+        for rank, task in enumerate(tasks[:request.limit], 1):
+            item = self._item(
+                request, rank, task["score"], task["action"], task["title"],
+                task["reason"], "Hoàn thành nội dung được gợi ý.", task["estimated_minutes"],
+                [ReasonFact(code="skill_gap" if task["action"] == "review" else "curriculum_progress", value=task["skill_name"])],
+            )
+            item.entity.update({"type": "content", "id": str(task["content_id"]), "content_id": task["content_id"]})
+            item.href = f"/lms/student/courses/{course_id}/learn?contentId={task['content_id']}"
+            item.tracking_token = self._token(item.recommendation_id, request.user_id, item.entity)
+            response.items.append(item)
         return response
 
     async def _producer_instance(self) -> AIOKafkaProducer:
@@ -489,11 +529,20 @@ class RecommendationService:
     async def log_interaction(self, event: RecommendationInteraction) -> bool:
         if not self.valid_token(event.recommendation_id, event.user_id, event.tracking_token):
             raise ValueError("invalid tracking token")
+        if "." in event.tracking_token:
+            encoded = event.tracking_token.split(".", 1)[0]
+            entity = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))["entity"]
+            if entity.get("course_id") != event.course_id or entity.get("id") != event.entity_id or entity.get("type") != event.entity_type:
+                raise ValueError("tracking token entity mismatch")
         payload = event.model_dump(mode="json")
         try:
             producer = await self._producer_instance()
             key = f"{event.user_id}:{event.course_id or 0}".encode()
             await producer.send_and_wait(settings.recommendation_event_topic, value=payload, key=key)
+            # Bounded read-your-feedback cache, durable source remains Kafka.
+            self._feedback[event.event_id] = event.model_dump()
+            if len(self._feedback) > 4096:
+                self._feedback.pop(next(iter(self._feedback)))
             return True
         except Exception as exc:
             # Analytics must not break a human action. The client may retry with the same event_id.
@@ -501,6 +550,9 @@ class RecommendationService:
             return False
 
     async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
         if self._producer is not None:
             await self._producer.stop()
             self._producer = None
