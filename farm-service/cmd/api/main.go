@@ -104,20 +104,28 @@ func main() {
 	learningDone := make(chan struct{})
 	go func() {
 		defer close(learningDone)
+		var backoff learningBackoff
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case now := <-ticker.C:
+				if now.Before(backoff.nextAttempt) {
+					continue
+				}
 				for i := 0; i < 20; i++ {
 					c, cancel := context.WithTimeout(ctx, 6*time.Second)
 					sent, e := game.DispatchLearning(c, pool, lmsClient)
 					cancel()
 					if e != nil {
-						slog.Warn("LMS learning attempt deferred", "error", e)
+						delay := backoff.failed(time.Now())
+						slog.Warn("LMS learning attempt deferred", "error", e, "retry_after", delay)
 						break
+					}
+					if sent {
+						backoff = learningBackoff{}
 					}
 					if !sent {
 						break

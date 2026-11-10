@@ -47,3 +47,11 @@ Set `FARM_TEST_DATABASE_URL` only to a disposable PostgreSQL database to enable
 integration tests; they truncate the farm test tables. The repository script
 `bash scripts/test-knowledge-farm.sh` creates an isolated test database and
 runs both Go and Java tests without mounting application credentials.
+
+The LMS attempt dispatcher checks pending work every two seconds. After a
+failed dispatch, the whole worker pauses for 5, 10, 20, 40, then 60 seconds
+(capped at 60 seconds); successful delivery resets this cooldown. This prevents
+an outbox backlog from bypassing per-attempt retry delays during an LMS outage.
+Attempts remain queued for recovery. The warning includes `retry_after`.
+LMS request error logs include the challenge ID and underlying recording error;
+use those logs to diagnose persistent 503 responses before changing data or schema.

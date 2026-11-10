@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -54,6 +55,7 @@ func (h *FarmLearningHandler) Attempt(c *gin.Context) {
 		return
 	}
 	if err := h.service.RecordAttempt(c.Request.Context(), body); err != nil {
+		_ = c.Error(fmt.Errorf("record farm attempt challenge_id=%s: %w", body.ChallengeID, err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Could not record attempt"})
 		return
 	}
