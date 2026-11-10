@@ -11,12 +11,14 @@ import (
 // Start every game operation by locking its owning farm. This serializes coin, inventory,
 // placement, production and reward writes and prevents double-harvest / double-spend.
 func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) error) error {
-	return s.tx(r.Context(), func(tx pgx.Tx) error {
+	var game *gameTx
+	err := s.tx(r.Context(), func(tx pgx.Tx) error {
 		f, e := s.farmTx(r, tx, u.ID, true)
 		if e != nil {
 			return e
 		}
 		g := &gameTx{Farm: f, Inventory: map[string]int{}}
+		game = g
 		var careRulesVersion int
 		if e = tx.QueryRow(r.Context(), "SELECT clock_timestamp()").Scan(&g.Now); e != nil {
 			return e
@@ -221,6 +223,13 @@ func (s *Server) withGame(r *http.Request, u User, fn func(pgx.Tx, *gameTx) erro
 		}
 		return fn(tx, g)
 	})
+	if err == nil && game != nil && game.learningQueued {
+		select {
+		case s.learningWake <- struct{}{}:
+		default:
+		}
+	}
+	return err
 }
 
 const updateRuntimeSQL = `UPDATE entity_runtime SET last_tick=$2,work_seconds=$3,hunger_seconds=$4,water_seconds=$5,health=$6,sick=$7,yield_ready=$8,oxygen=$9,build_until=$10,oxygen_age_seconds=$11,starvation_seconds=$12,work_remainder=$13,regrow_until=$14 WHERE entity_id=$1`

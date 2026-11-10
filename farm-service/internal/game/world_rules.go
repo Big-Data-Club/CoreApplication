@@ -48,12 +48,13 @@ type gameEntity struct {
 	RT               domain.Runtime `json:"-"`
 }
 type gameTx struct {
-	Farm      worldFarm
-	Life      life
-	Inventory map[string]int
-	Entities  []gameEntity
-	Insects   []wildInsect
-	Now       time.Time
+	learningQueued bool
+	Farm           worldFarm
+	Life           life
+	Inventory      map[string]int
+	Entities       []gameEntity
+	Insects        []wildInsect
+	Now            time.Time
 }
 
 func secs(t time.Time, now time.Time) int {

@@ -62,3 +62,15 @@ contract and human approval of publication remain in their existing owners.
 Offline regression coverage: `tests/agents/test_conversation_task.py` in AI service.
 Mocked model tests verify context transport, failure handling and the approval
 workflow; they do not measure real-provider semantic accuracy.
+
+### Farm learning attempt delivery
+
+Farm answers queue LMS attempts in the same game transaction. After a successful
+commit, a nonblocking local signal wakes the LMS dispatcher; rolled-back writes
+do not signal delivery. The dispatcher drains at startup and uses a one-minute
+fallback for missed signals, other replicas, and pending retry times. Idle LMS
+outbox database checks are reduced from 30 to 1 per minute per replica. New
+signals respect the existing 5–60 second failure cooldown. Durable outbox rows
+and LMS challenge-ID deduplication remain authoritative, so restart recovery
+needs no new infrastructure or database migration. See `farm-service/README.md`
+for diagnostics. The separate Kafka reward dispatcher is unchanged.

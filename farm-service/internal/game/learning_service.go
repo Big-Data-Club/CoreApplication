@@ -95,6 +95,7 @@ func (s *Server) gradeHarvest(r *http.Request, tx pgx.Tx, g *gameTx, u User, ent
 		if _, err = tx.Exec(r.Context(), `INSERT INTO game_learning_outbox(challenge_id,payload) VALUES($1,$2)`, id, raw); err != nil {
 			return result, false, err
 		}
+		g.learningQueued = true
 	}
 	if event != nil {
 		raw, _ = json.Marshal(event)

@@ -25,11 +25,12 @@ var schema string
 
 type User struct{ ID int64 }
 type Server struct {
-	DB     *pgxpool.Pool
-	Store  *farm.Store
-	LMS    *LMSClient
-	mux    *http.ServeMux
-	secret string
+	DB           *pgxpool.Pool
+	Store        *farm.Store
+	LMS          *LMSClient
+	mux          *http.ServeMux
+	secret       string
+	learningWake chan<- struct{}
 }
 type worldFarm struct {
 	ID    string `json:"id"`
@@ -57,7 +58,13 @@ func Handler(store *farm.Store, secret string) http.Handler {
 	return HandlerWithLMS(store, secret, nil)
 }
 func HandlerWithLMS(store *farm.Store, secret string, lms *LMSClient) http.Handler {
-	s := &Server{DB: store.Pool, Store: store, LMS: lms, mux: http.NewServeMux(), secret: secret}
+	return HandlerWithLearningWake(store, secret, lms, nil)
+}
+
+// HandlerWithLearningWake signals the local dispatcher only after an attempt commits.
+// Signals are coalesced and must never block answer submission.
+func HandlerWithLearningWake(store *farm.Store, secret string, lms *LMSClient, wake chan<- struct{}) http.Handler {
+	s := &Server{DB: store.Pool, Store: store, LMS: lms, mux: http.NewServeMux(), secret: secret, learningWake: wake}
 	s.registerEconomy()
 	s.registerLearning()
 	return s.mux

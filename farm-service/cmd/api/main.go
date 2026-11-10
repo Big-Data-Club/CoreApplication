@@ -101,38 +101,15 @@ func main() {
 			}
 		}
 	}()
+	learningWake := make(chan struct{}, 1)
 	learningDone := make(chan struct{})
 	go func() {
 		defer close(learningDone)
-		var backoff learningBackoff
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				if now.Before(backoff.nextAttempt) {
-					continue
-				}
-				for i := 0; i < 20; i++ {
-					c, cancel := context.WithTimeout(ctx, 6*time.Second)
-					sent, e := game.DispatchLearning(c, pool, lmsClient)
-					cancel()
-					if e != nil {
-						delay := backoff.failed(time.Now())
-						slog.Warn("LMS learning attempt deferred", "error", e, "retry_after", delay)
-						break
-					}
-					if sent {
-						backoff = learningBackoff{}
-					}
-					if !sent {
-						break
-					}
-				}
-			}
-		}
+		runLearningWorker(ctx, learningWake, func(c context.Context) (bool, error) {
+			return game.DispatchLearning(c, pool, lmsClient)
+		}, func(err error, delay time.Duration) {
+			slog.Warn("LMS learning attempt deferred", "error", err, "retry_after", delay)
+		}, time.Minute)
 	}()
 
 	port := os.Getenv("PORT")
@@ -140,7 +117,7 @@ func main() {
 		port = "8087"
 	}
 
-	gameHandler := game.HandlerWithLMS(store, secret, lmsClient)
+	gameHandler := game.HandlerWithLearningWake(store, secret, lmsClient, learningWake)
 	legacyHandler := farm.Handler(store, secret)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/farm/game/") {

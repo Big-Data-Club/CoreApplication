@@ -48,7 +48,11 @@ integration tests; they truncate the farm test tables. The repository script
 `bash scripts/test-knowledge-farm.sh` creates an isolated test database and
 runs both Go and Java tests without mounting application credentials.
 
-The LMS attempt dispatcher checks pending work every two seconds. After a
+The LMS attempt dispatcher wakes after a local answer transaction commits. Wake
+signals are coalesced and never block answer submission. It drains pending work
+at startup and checks once per minute as a fallback for missed notifications,
+other replicas, and rows waiting for their retry time. An empty queue causes no
+LMS requests (idle database checks fall from 30 to 1 per minute per replica). After a
 failed dispatch, the whole worker pauses for 5, 10, 20, 40, then 60 seconds
 (capped at 60 seconds); successful delivery resets this cooldown. This prevents
 an outbox backlog from bypassing per-attempt retry delays during an LMS outage.

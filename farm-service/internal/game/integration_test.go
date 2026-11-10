@@ -245,7 +245,8 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 	}))
 	defer lms.Close()
 	client := NewLMSClient(lms.URL, "farm-to-lms-test-secret")
-	handler = HandlerWithLMS(store, secret, client)
+	learningWake := make(chan struct{}, 1)
+	handler = HandlerWithLearningWake(store, secret, client, learningWake)
 	r = call(501, "POST", "challenge", fmt.Sprintf(`{"entityId":%q,"action":"HARVEST","kind":"quiz"}`, chicken))
 	if r.Code != 200 || strings.Contains(r.Body.String(), `"answer"`) {
 		t.Fatal("LMS challenge", r.Code, r.Body.String())
@@ -257,6 +258,11 @@ func TestPlayableWorldQuizAtomicHarvest(t *testing.T) {
 	r = call(501, "POST", "action", fmt.Sprintf(`{"entityId":%q,"action":"HARVEST","challenge_id":%q,"answer":"1"}`, chicken, lmsChallenge.ID))
 	if r.Code != 200 || !strings.Contains(r.Body.String(), `"correct_answer":"Thóc"`) {
 		t.Fatal("wrong LMS answer feedback", r.Code, r.Body.String())
+	}
+	select {
+	case <-learningWake:
+	default:
+		t.Fatal("committed attempt did not wake dispatcher")
 	}
 	var pending int
 	if e = pool.QueryRow(ctx, `SELECT count(*) FROM game_learning_outbox WHERE delivered_at IS NULL`).Scan(&pending); e != nil || pending != 1 {
