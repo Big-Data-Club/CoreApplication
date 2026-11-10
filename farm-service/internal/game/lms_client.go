@@ -50,7 +50,7 @@ func (c *LMSClient) Question(ctx context.Context, user int64, kind, exclude stri
 	if resp.StatusCode != http.StatusOK {
 		return q, fmt.Errorf("LMS question status %d", resp.StatusCode)
 	}
-	err = json.NewDecoder(io.LimitReader(resp.Body, 8192)).Decode(&q)
+	err = json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&q)
 	return q, err
 }
 func (c *LMSClient) deliver(ctx context.Context, payload []byte) error {

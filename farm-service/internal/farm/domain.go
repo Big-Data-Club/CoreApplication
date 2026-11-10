@@ -26,16 +26,26 @@ const Topic = "farm.harvest.reward.v1"
 //go:embed questions.json
 var questionData []byte
 
+type QuestionImage struct {
+	URL          string `json:"url"`
+	AltText      string `json:"alt_text,omitempty"`
+	Caption      string `json:"caption,omitempty"`
+	Position     string `json:"position,omitempty"`
+	DisplayWidth string `json:"display_width,omitempty"`
+}
+
 type Question struct {
-	ID          string   `json:"id"`
-	Kind        string   `json:"kind"`
-	Prompt      string   `json:"prompt"`
-	Species     string   `json:"species,omitempty"`
-	Options     []string `json:"options,omitempty"`
-	Answer      string   `json:"answer,omitempty"`
-	Explanation string   `json:"explanation,omitempty"`
-	CourseID    int64    `json:"course_id,omitempty"`
-	NodeID      *int64   `json:"node_id,omitempty"`
+	Images       []QuestionImage  `json:"images,omitempty"`
+	OptionImages []*QuestionImage `json:"option_images,omitempty"`
+	ID           string           `json:"id"`
+	Kind         string           `json:"kind"`
+	Prompt       string           `json:"prompt"`
+	Species      string           `json:"species,omitempty"`
+	Options      []string         `json:"options,omitempty"`
+	Answer       string           `json:"answer,omitempty"`
+	Explanation  string           `json:"explanation,omitempty"`
+	CourseID     int64            `json:"course_id,omitempty"`
+	NodeID       *int64           `json:"node_id,omitempty"`
 }
 
 var questions = func() []Question {
@@ -101,11 +111,12 @@ type Event struct {
 	Signature  string `json:"signature"`
 }
 type Result struct {
-	Correct       bool   `json:"correct"`
-	Explanation   string `json:"explanation"`
-	CorrectAnswer string `json:"correct_answer,omitempty"`
-	Awarded       int    `json:"awarded"`
-	EventID       string `json:"event_id,omitempty"`
+	CorrectOptionIndex *int   `json:"correct_option_index,omitempty"`
+	Correct            bool   `json:"correct"`
+	Explanation        string `json:"explanation"`
+	CorrectAnswer      string `json:"correct_answer,omitempty"`
+	Awarded            int    `json:"awarded"`
+	EventID            string `json:"event_id,omitempty"`
 }
 type Error struct {
 	Status  int
@@ -228,12 +239,14 @@ func (s *State) Answer(user int64, id int, challengeID, answer string, now time.
 		return Result{}, nil, bad("Ô này chưa sẵn sàng thu hoạch.")
 	}
 	correctAnswer := c.Question.Answer
+	var correctOptionIndex *int
 	if c.Question.Kind == "quiz" {
 		if index, e := strconv.Atoi(c.Question.Answer); e == nil && index >= 0 && index < len(c.Question.Options) {
 			correctAnswer = c.Question.Options[index]
+			correctOptionIndex = &index
 		}
 	}
-	result := Result{Correct: normalize(answer) == normalize(c.Question.Answer), Explanation: c.Question.Explanation, CorrectAnswer: correctAnswer}
+	result := Result{CorrectOptionIndex: correctOptionIndex, Correct: normalize(answer) == normalize(c.Question.Answer), Explanation: c.Question.Explanation, CorrectAnswer: correctAnswer}
 	p.Challenge = nil // A challenge is single use, including wrong answers.
 	if !result.Correct {
 		p.RetryAt = now.Add(30 * time.Second)

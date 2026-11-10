@@ -12,8 +12,11 @@ sync = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sync)
 
 
-def secret(data, mode=None):
-    return {'metadata': {'name': sync.SECRET, 'annotations': {sync.SOURCE: mode} if mode else {}},
+def secret(data, mode=None, managed=False):
+    annotations = {sync.SOURCE: mode} if mode else {}
+    if managed:
+        annotations[sync.MANAGED_URL_DIGEST] = sync.url_digest(data['FARM_DATABASE_URL'])
+    return {'metadata': {'name': sync.SECRET, 'annotations': annotations},
             'data': {k: base64.b64encode(v.encode()).decode() for k, v in data.items()}}
 
 
@@ -32,10 +35,10 @@ class SyncTests(unittest.TestCase):
 
     def test_retry_preserves_signing_secret_and_updates_shared_password(self):
         first, mode = sync.connection_values(None, self.config, self.shared)
-        second, _ = sync.connection_values(secret(first, mode), self.config, dict(self.shared, POSTGRES_PASSWORD='rotated-test'))
+        second, _ = sync.connection_values(secret(first, mode, managed=True), self.config, dict(self.shared, POSTGRES_PASSWORD='rotated-test'))
         self.assertEqual(first['FARM_EVENT_SECRET'], second['FARM_EVENT_SECRET'])
         self.assertEqual(urlsplit(second['FARM_DATABASE_URL']).password, 'rotated-test')
-        third, _ = sync.connection_values(secret(second, mode), self.config, dict(self.shared, POSTGRES_PASSWORD='rotated-test'))
+        third, _ = sync.connection_values(secret(second, mode, managed=True), self.config, dict(self.shared, POSTGRES_PASSWORD='rotated-test'))
         self.assertEqual(second, third)
 
     def test_explicit_github_secret_and_existing_connection_preserved(self):
@@ -43,6 +46,29 @@ class SyncTests(unittest.TestCase):
         first, mode = sync.connection_values(None, self.config, self.shared, explicit)
         second, mode = sync.connection_values(secret(first, mode), self.config, self.shared)
         self.assertEqual(second, first)
+        self.assertEqual(mode, 'explicit')
+
+    def test_manual_edit_of_shared_url_survives_deploy(self):
+        first, mode = sync.connection_values(None, self.config, self.shared)
+        existing = secret(first, mode, managed=True)
+        corrected = 'postgres://dedicated:test@corrected.invalid/gamefarm?sslmode=require'
+        existing['data']['FARM_DATABASE_URL'] = base64.b64encode(corrected.encode()).decode()
+        second, mode = sync.connection_values(existing, self.config, self.shared)
+        self.assertEqual(second['FARM_DATABASE_URL'], corrected)
+        self.assertEqual(second['FARM_EVENT_SECRET'], first['FARM_EVENT_SECRET'])
+        self.assertEqual(mode, 'explicit')
+
+    def test_legacy_shared_url_is_preserved_without_proof_of_ownership(self):
+        first, _ = sync.connection_values(None, self.config, self.shared)
+        second, mode = sync.connection_values(secret(first, 'shared'), dict(self.config, POSTGRES_HOST='other.invalid'), self.shared)
+        self.assertEqual(second, first)
+        self.assertEqual(mode, 'explicit')
+
+    def test_github_override_takes_precedence_over_existing_secret(self):
+        first, _ = sync.connection_values(None, self.config, self.shared)
+        override = 'postgres://dedicated:test@override.invalid/gamefarm?sslmode=require'
+        second, mode = sync.connection_values(secret(first, 'explicit'), self.config, self.shared, override)
+        self.assertEqual(second['FARM_DATABASE_URL'], override)
         self.assertEqual(mode, 'explicit')
 
     def test_wrong_database_and_malformed_urls_fail_closed(self):
@@ -63,6 +89,7 @@ class SyncTests(unittest.TestCase):
             kube.assert_called_once()
             self.assertEqual(kube.call_args.args, ('create', '-f', '-'))
             self.assertEqual(kube.call_args.kwargs['obj']['kind'], 'Secret')
+            self.assertIn(sync.MANAGED_URL_DIGEST, kube.call_args.kwargs['obj']['metadata']['annotations'])
             self.assertRegex(stdout.getvalue(), r'^[a-f0-9]{64}\n$')
 
     def test_kubectl_error_redacts_credentials(self):

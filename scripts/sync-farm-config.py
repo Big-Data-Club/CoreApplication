@@ -11,6 +11,11 @@ from urllib.parse import quote, urlsplit
 
 SECRET = 'bdc-farm-secrets'
 SOURCE = 'bdc.io/farm-connection-source'
+MANAGED_URL_DIGEST = 'bdc.io/farm-managed-url-sha256'
+
+
+def url_digest(url):
+    return hashlib.sha256(url.encode()).hexdigest()
 
 
 def kubectl(*args, obj=None):
@@ -36,11 +41,20 @@ def decode(obj):
 
 def connection_values(existing, config, shared, override=''):
     data = decode(existing) if existing else {}
-    mode = (existing or {}).get('metadata', {}).get('annotations', {}).get(SOURCE)
+    annotations = (existing or {}).get('metadata', {}).get('annotations', {})
+    mode = annotations.get(SOURCE)
+    current_url = data.get('FARM_DATABASE_URL')
+    # Regenerate only a connection that is demonstrably still managed by us.
+    # Manual Secret edits must survive deployment, including legacy shared
+    # connections for which no digest was previously recorded.
+    unchanged_managed_url = (
+        mode == 'shared' and current_url
+        and annotations.get(MANAGED_URL_DIGEST) == url_digest(current_url)
+    )
     if override:
         data['FARM_DATABASE_URL'] = override
         mode = 'explicit'
-    elif mode == 'shared' or not data.get('FARM_DATABASE_URL'):
+    elif unchanged_managed_url or not current_url:
         host = config['POSTGRES_HOST']
         user, password = shared['POSTGRES_USER'], shared['POSTGRES_PASSWORD']
         if not user or not password:
@@ -81,7 +95,16 @@ def main():
         action = 'create'
     else:
         action = 'replace'
-    existing['metadata'].setdefault('annotations', {})[SOURCE] = mode
+    annotations = existing['metadata'].setdefault('annotations', {})
+    annotations[SOURCE] = mode
+    if mode == 'shared':
+        annotations[MANAGED_URL_DIGEST] = url_digest(data['FARM_DATABASE_URL'])
+    else:
+        annotations.pop(MANAGED_URL_DIGEST, None)
+    source = ('GitHub Actions FARM_DATABASE_URL override' if os.environ.get('FARM_DATABASE_URL')
+              else 'managed shared PostgreSQL configuration' if mode == 'shared'
+              else 'existing Kubernetes FARM_DATABASE_URL (preserved)')
+    print('Farm database connection source: ' + source, file=sys.stderr)
     obj = {'apiVersion': 'v1', 'kind': 'Secret', 'type': 'Opaque',
            'metadata': existing['metadata'],
            'data': {k: base64.b64encode(v.encode()).decode() for k, v in data.items()}}

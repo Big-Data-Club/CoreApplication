@@ -8,21 +8,33 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 
 	"example/hello/internal/dto"
 	"example/hello/internal/repository"
 )
 
+// FarmQuestionImage exposes presentation metadata only, never arbitrary quiz settings.
+type FarmQuestionImage struct {
+	URL          string `json:"url"`
+	AltText      string `json:"alt_text,omitempty"`
+	Caption      string `json:"caption,omitempty"`
+	Position     string `json:"position,omitempty"`
+	DisplayWidth string `json:"display_width,omitempty"`
+}
+
 type FarmQuestion struct {
-	ID          string   `json:"id"`
-	Kind        string   `json:"kind"`
-	Prompt      string   `json:"prompt"`
-	Options     []string `json:"options,omitempty"`
-	Answer      string   `json:"answer"`
-	Explanation string   `json:"explanation,omitempty"`
-	CourseID    int64    `json:"course_id"`
-	NodeID      *int64   `json:"node_id,omitempty"`
+	Images       []FarmQuestionImage  `json:"images,omitempty"`
+	OptionImages []*FarmQuestionImage `json:"option_images,omitempty"`
+	ID           string               `json:"id"`
+	Kind         string               `json:"kind"`
+	Prompt       string               `json:"prompt"`
+	Options      []string             `json:"options,omitempty"`
+	Answer       string               `json:"answer"`
+	Explanation  string               `json:"explanation,omitempty"`
+	CourseID     int64                `json:"course_id"`
+	NodeID       *int64               `json:"node_id,omitempty"`
 }
 
 type FarmAttempt struct {
@@ -80,7 +92,7 @@ func (s *FarmLearningService) Question(ctx context.Context, userID int64, kind, 
 
 func (s *FarmLearningService) quizQuestion(ctx context.Context, userID int64, exclude string) (*FarmQuestion, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT q.id, q.course_id, q.node_id, q.question_text, q.explanation, q.answer_options
+		SELECT q.id, q.course_id, q.node_id, q.question_text, q.explanation, q.answer_options, q.settings
 		FROM question_bank_items q
 		JOIN enrollments e ON e.course_id=q.course_id AND e.student_id=$1 AND e.status='ACCEPTED'
 		JOIN courses c ON c.id=q.course_id AND c.status='PUBLISHED'
@@ -91,53 +103,20 @@ func (s *FarmLearningService) quizQuestion(ctx context.Context, userID int64, ex
 		return nil, err
 	}
 	defer rows.Close()
-	type option struct {
-		OptionText string `json:"option_text"`
-		IsCorrect  bool   `json:"is_correct"`
-		OrderIndex int    `json:"order_index"`
-	}
 	var choices []*FarmQuestion
 	for rows.Next() {
 		var id, courseID int64
 		var node sql.NullInt64
 		var prompt string
 		var explanation sql.NullString
-		var raw []byte
-		if err = rows.Scan(&id, &courseID, &node, &prompt, &explanation, &raw); err != nil {
+		var raw, settings []byte
+		if err = rows.Scan(&id, &courseID, &node, &prompt, &explanation, &raw, &settings); err != nil {
 			return nil, err
 		}
-		var options []option
-		if json.Unmarshal(raw, &options) != nil || len(options) < 2 {
+		q := farmQuizQuestion(id, courseID, node, prompt, explanation.String, raw, settings)
+		if q == nil {
 			continue
 		}
-		// The stored order index is part of the LMS answer contract.
-		for i := 0; i < len(options); i++ {
-			for j := i + 1; j < len(options); j++ {
-				if options[j].OrderIndex < options[i].OrderIndex {
-					options[i], options[j] = options[j], options[i]
-				}
-			}
-		}
-		q := &FarmQuestion{ID: fmt.Sprintf("lms:quiz:%d", id), Kind: "quiz", Prompt: prompt, Explanation: explanation.String, CourseID: courseID}
-		if node.Valid {
-			v := node.Int64
-			q.NodeID = &v
-		}
-		correct := -1
-		for i, item := range options {
-			q.Options = append(q.Options, item.OptionText)
-			if item.IsCorrect {
-				if correct >= 0 {
-					correct = -2
-					break
-				}
-				correct = i
-			}
-		}
-		if correct < 0 || strings.TrimSpace(prompt) == "" {
-			continue
-		}
-		q.Answer = fmt.Sprint(correct)
 		choices = append(choices, q)
 	}
 	if err = rows.Err(); err != nil {
@@ -147,6 +126,52 @@ func (s *FarmLearningService) quizQuestion(ctx context.Context, userID int64, ex
 		return nil, sql.ErrNoRows
 	}
 	return pickFarmQuestion(choices, exclude), nil
+}
+
+func farmQuizQuestion(id, courseID int64, node sql.NullInt64, prompt, explanation string, raw, settings []byte) *FarmQuestion {
+	type option struct {
+		OptionText string             `json:"option_text"`
+		IsCorrect  bool               `json:"is_correct"`
+		OrderIndex int                `json:"order_index"`
+		Image      *FarmQuestionImage `json:"image"`
+	}
+	var options []option
+	if json.Unmarshal(raw, &options) != nil || len(options) < 2 || strings.TrimSpace(prompt) == "" {
+		return nil
+	}
+	sort.SliceStable(options, func(i, j int) bool { return options[i].OrderIndex < options[j].OrderIndex })
+	q := &FarmQuestion{ID: fmt.Sprintf("lms:quiz:%d", id), Kind: "quiz", Prompt: prompt, Explanation: explanation, CourseID: courseID}
+	if node.Valid {
+		v := node.Int64
+		q.NodeID = &v
+	}
+	var presentation struct {
+		Images []FarmQuestionImage `json:"images"`
+	}
+	if json.Unmarshal(settings, &presentation) == nil {
+		q.Images = presentation.Images
+	}
+	correct := -1
+	hasImage := false
+	for i, item := range options {
+		q.Options = append(q.Options, item.OptionText)
+		q.OptionImages = append(q.OptionImages, item.Image)
+		hasImage = hasImage || item.Image != nil
+		if item.IsCorrect {
+			if correct >= 0 {
+				return nil
+			}
+			correct = i
+		}
+	}
+	if correct < 0 {
+		return nil
+	}
+	if !hasImage {
+		q.OptionImages = nil
+	}
+	q.Answer = fmt.Sprint(correct)
+	return q
 }
 
 func (s *FarmLearningService) flashcardQuestion(ctx context.Context, userID int64, exclude string) (*FarmQuestion, error) {

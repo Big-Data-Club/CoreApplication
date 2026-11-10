@@ -167,8 +167,20 @@ chạy migration Job. Không cần SSH chỉnh `.env` hoặc tạo Secret trên 
   trong repo parent hoặc environment **`production`**. Giá trị là PostgreSQL
   connection string của database gamefarm, password đã URL-encode. Pipeline
   tự đồng bộ Secret này xuống cluster. Không đưa giá trị vào Git hoặc log.
-- URL đã cấu hình riêng được giữ khi GitHub Secret không được cung cấp. URL
-  ở chế độ dùng chung được cập nhật theo host/credentials runtime mỗi lần deploy.
+- URL đã cấu hình riêng được giữ khi GitHub Secret không được cung cấp.
+  Connection dùng chung chỉ tự cập nhật host/credentials khi digest quản lý
+  khớp URL hiện tại. Nếu quản trị viên sửa URL trong Kubernetes Secret, deploy
+  giữ nguyên URL đã sửa và chuyển sang `explicit`; connection `shared` cũ chưa
+  có digest cũng được giữ để tránh ghi đè bản sửa thủ công. Việc xoay credentials
+  sau đó cần cập nhật URL explicit hoặc GitHub override tương ứng.
+- GitHub Actions Secret `FARM_DATABASE_URL`, nếu có, luôn ưu tiên hơn Kubernetes.
+  Kiểm tra cả repository secrets và environment `production` khi sửa kết nối;
+  pipeline ghi nguồn cấu hình đã chọn, không ghi URL/password. Nếu bản deploy
+  cũ còn chạy, đặt annotation `bdc.io/farm-connection-source=explicit` sau khi
+  sửa Kubernetes Secret để tránh chế độ `shared` ghi đè ở lần deploy tiếp theo.
+- `SQLSTATE 3D000` nghĩa là database `gamefarm` không tồn tại trên server/branch
+  được chọn. Sync chỉ cấu hình kết nối, không tạo database; cần chọn đúng
+  connection tới database có dữ liệu Farm, thay vì chỉ deploy lại image.
 - Secret ký reward được sinh lần đầu, giữ nguyên ở các lần sau; Auth và Farm
   cùng nhận secret này. `FARM_REWARDS_ENABLED=true` bật consumer vì migration
   inbox Auth đã được thực hiện trước. Không xóa secret để chạy lại.
@@ -300,3 +312,23 @@ It requires a local production Next server on `FARM_SMOKE_URL`, a dedicated
 `NEXTAUTH_SECRET` matching `FARM_SMOKE_SECRET`, and Playwright Chromium.
 Screenshots are written only to `/tmp/knowledge-farm-*.png`. Never point it
 at production or provide a production session secret.
+
+### Rich harvest quizzes
+
+Harvest questions render Markdown, math, code and embedded images in prompts,
+answer text and post-answer explanations. The internal LMS question response now
+adds optional `images` and an index-aligned `option_images` array, selected from
+question-bank `settings.images` and answer-option `image` fields. Only display
+metadata is forwarded; arbitrary settings and correctness flags are excluded.
+Farm stores this presentation snapshot with the challenge and strips the answer
+and explanation before returning an open challenge. Submitted answers retain
+server-side single-choice grading; results add `correct_option_index` after
+grading so image-only choices can be identified in feedback. Both image positions,
+captions and zoom are available in the scrollable harvest dialog.
+
+Rollout: deploy LMS, then Farm, then frontend for full image support. All new
+fields are optional, so older components remain compatible. Existing challenge
+snapshots gain attachments when a new question is opened. No migration or Kafka
+contract changes are required. Farm keeps the existing enrolled-course and
+approved-question scope; this does not copy quiz-wide time limits or add other
+question types to the harvest flow.

@@ -112,17 +112,20 @@ func TestLMSQuestionSnapshotAndAnswerFeedback(t *testing.T) {
 	s := NewState()
 	ready := epoch
 	s.Plots[0].ReadyAt = &ready
-	q := Question{ID: "lms:quiz:7", Kind: "quiz", Prompt: "Lúa cho gì?", Options: []string{"Thóc", "Trứng"}, Answer: "0", CourseID: 9}
+	q := Question{Images: []QuestionImage{{URL: "https://example.com/question.png"}}, OptionImages: []*QuestionImage{{URL: "https://example.com/answer.png"}, nil}, Explanation: "Private explanation", ID: "lms:quiz:7", Kind: "quiz", Prompt: "Lúa cho gì?", Options: []string{"Thóc", "Trứng"}, Answer: "0", CourseID: 9}
 	c, err := s.StartWithQuestion(1, "quiz", epoch, q)
 	if err != nil {
 		t.Fatal(err)
 	}
 	public := s.PublicState().Plots[0].Challenge
-	if public.Question.Answer != "" {
+	if len(public.Question.Images) != 1 || len(public.Question.OptionImages) != 2 || public.Question.OptionImages[0].URL != "https://example.com/answer.png" {
+		t.Fatal("image metadata lost in public challenge")
+	}
+	if public.Question.Explanation != "" || public.Question.Answer != "" {
 		t.Fatal("LMS answer leaked in open challenge")
 	}
 	r, event, err := s.Answer(41, 1, c.ID, "1", epoch, "test-secret")
-	if err != nil || r.Correct || event != nil || r.CorrectAnswer != "Thóc" {
+	if err != nil || r.Correct || event != nil || r.CorrectAnswer != "Thóc" || r.CorrectOptionIndex == nil || *r.CorrectOptionIndex != 0 {
 		t.Fatalf("wrong answer feedback: %+v %v", r, err)
 	}
 }

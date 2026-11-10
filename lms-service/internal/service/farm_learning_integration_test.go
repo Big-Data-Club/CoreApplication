@@ -36,11 +36,11 @@ func TestFarmLearningAttemptAtomicAndIdempotent(t *testing.T) {
 	ddl := `CREATE TABLE users(id BIGINT PRIMARY KEY);
 	CREATE TABLE courses(id BIGINT PRIMARY KEY,status TEXT NOT NULL);
 	CREATE TABLE enrollments(student_id BIGINT,course_id BIGINT,status TEXT);
-	CREATE TABLE question_bank_items(id BIGINT PRIMARY KEY,course_id BIGINT,node_id BIGINT,question_text TEXT,explanation TEXT,answer_options JSONB,status TEXT,question_type TEXT);
+	CREATE TABLE question_bank_items(id BIGINT PRIMARY KEY,course_id BIGINT,node_id BIGINT,question_text TEXT,explanation TEXT,answer_options JSONB,status TEXT,question_type TEXT,settings JSONB DEFAULT '{}');
 	CREATE TABLE micro_lesson_interactions(id BIGSERIAL PRIMARY KEY,user_id BIGINT,course_id BIGINT,node_id BIGINT,action_type TEXT,score DOUBLE PRECISION,status TEXT,payload JSONB,created_at TIMESTAMPTZ DEFAULT now());
 	CREATE TABLE knowledge_node_mastery(user_id BIGINT,course_id BIGINT,node_id BIGINT,formal_quiz_score DOUBLE PRECISION DEFAULT 0,formal_quiz_count INT DEFAULT 0,mini_quiz_score DOUBLE PRECISION DEFAULT 0,mini_quiz_count INT DEFAULT 0,completion_score DOUBLE PRECISION DEFAULT 0,completion_count INT DEFAULT 0,engagement_score DOUBLE PRECISION DEFAULT 0,engagement_count INT DEFAULT 0,mastery_level DOUBLE PRECISION DEFAULT 0,last_interaction_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,PRIMARY KEY(user_id,course_id,node_id));
 	INSERT INTO users VALUES(41);INSERT INTO courses VALUES(9,'PUBLISHED');INSERT INTO enrollments VALUES(41,9,'ACCEPTED');
-	INSERT INTO question_bank_items VALUES(7,9,55,'Lúa cho gì?','Lúa tạo ra thóc','[{"option_text":"Thóc","is_correct":true,"order_index":0},{"option_text":"Trứng","is_correct":false,"order_index":1}]','APPROVED','SINGLE_CHOICE');`
+	INSERT INTO question_bank_items VALUES(7,9,55,'Lúa cho gì?','Lúa tạo ra thóc','[{"option_text":"Thóc","is_correct":true,"order_index":0},{"option_text":"Trứng","is_correct":false,"order_index":1}]','APPROVED','SINGLE_CHOICE','{}');`
 	if _, err = db.ExecContext(ctx, ddl); err != nil {
 		t.Fatal(err)
 	}
