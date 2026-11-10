@@ -961,3 +961,61 @@ It does not create databases/roles or run a migration Job. Select
 `auth-service,farm-service` together; configuration revisions reload both pods
 when connection settings change, including retries of the same image tag.
 See [Knowledge Farm GitHub rollout instructions](../features/KNOWLEDGE_FARM.md#rollout-k3s).
+
+## HPCC AI Gateway (aimodels) rollout
+
+`ai-gateway` (`ai-gateway/`) routes OpenAI-compatible traffic from
+`https://bdc.hpcc.vn/aimodels/*` through one Autossh tunnel to the HPCC GPU
+nodes. One pod runs both containers (`tunnel` and `gateway`) sharing
+localhost; the tunnel holds the SSH forwards, the gateway probes
+`/healthz`/`/readyz` and listens on 8080 behind the `ai-gateway` Service
+(port 8090), Traefik Ingress, and a shared public edge (TLS terminates
+upstream, never at the gateway).
+
+One-time cluster prerequisites (never in Git). The `.env` file used by local
+docker-compose maps 1:1 to these Secret keys: `GATEWAY_API_KEY`,
+`SSH_HOST`, `SSH_PORT`, `SSH_USER` (optional upstream keys such as
+`VLLM_API_KEY` when a backend uses `api_key_env`):
+
+```bash
+kubectl -n default create secret generic ai-gateway-secrets \
+  --from-literal=SSH_HOST=<hpcc-login-host> \
+  --from-literal=SSH_PORT=<hpcc-login-port> \
+  --from-literal=SSH_USER=<hpcc-user> \
+  --from-literal=GATEWAY_API_KEY="$(openssl rand -base64 32)" \
+  --from-file=ssh_key=/path/to/id_ed25519 \
+  --from-file=known_hosts=/path/to/known_hosts \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Verify the `known_hosts` fingerprint with the HPCC administrator first.
+Anything secret stays in `ai-gateway-secrets`.
+
+The backend inventory in `config.yaml` (GPU node names, internal hosts/ports,
+model IDs) is also private infrastructure data. Therefore the full
+`ai-gateway-config` ConfigMap is applied out-of-band from the operator's
+working copy — the local `ai-gateway/config.yaml` is directly usable because
+its `/run/secrets/*` paths match the pod mounts:
+
+```bash
+cd ai-gateway
+kubectl -n default create configmap ai-gateway-config \
+  --from-file=config.yaml=config.yaml \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+`config.example.yaml` is the public template (only `${VAR}` placeholders);
+`k3s/base/ai-gateway-deployment.yaml` references the ConfigMap by name only
+and contains no topology data. Create/refresh the ConfigMap and Secret BEFORE
+the first rollout; a missing object fails pods with
+`CreateContainerConfigError`. Adding a GPU node afterwards is one kubectl
+ConfigMap apply plus a pod restart; no image change is required.
+
+Deployment: `main` selects the gateway through the `ai-gateway` path filter in
+`production.yml`, which builds two images (`bdc-ai-gateway`,
+`bdc-ai-gateway-tunnel`) from `ai-gateway/` and patches both containers on one
+rollout (`SERVICES=ai-gateway`). The `/aimodels` route strips
+its prefix and rate limits 120 req/min; gzip is intentionally NOT applied to
+that route. During the `ai-gateway` private-submodule migration, CI copies the
+submodule using the `SUBMODULE_PAT` repository secret; until that secret is
+set, `github.token` is used.

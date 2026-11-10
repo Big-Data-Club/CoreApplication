@@ -30,6 +30,7 @@ deployments=(
   recommender-service
   dutylog-service
   farm-service
+  ai-gateway
 )
 
 # A deployment job may roll out only the workloads whose image was published.
@@ -54,6 +55,7 @@ declare -A containers=(
   [frontend]=frontend
   [farm-service]=farm-service
   [dutylog-service]=dutylog-service
+  [ai-gateway]=gateway
 )
 
 declare -A images=(
@@ -70,6 +72,7 @@ declare -A images=(
   [frontend]=bdc-frontend
   [farm-service]=bdc-farm
   [dutylog-service]=bdc-dutylog
+  [ai-gateway]=bdc-ai-gateway
 )
 
 # Some workloads have deployment-level configuration (env, probes, resources)
@@ -84,11 +87,22 @@ declare -A manifests=(
   [lab-service]=k3s/base/lab-service-deployment.yaml
   [farm-service]=k3s/base/farm-service-deployment.yaml
   [dutylog-service]=k3s/base/dutylog-service-deployment.yaml
+  [ai-gateway]=k3s/base/ai-gateway-deployment.yaml
+)
+
+# ai-gateway shares one pod between the gateway proxy and the Autossh tunnel;
+# both container images must be patched on the same rollout.
+declare -A sidecars=(
+  [ai-gateway]=tunnel
+)
+declare -A sidecar_images=(
+  [ai-gateway]=bdc-ai-gateway-tunnel
 )
 
 updated=()
 created=()
 declare -A previous_images=()
+declare -A previous_sidecars=()
 rollback_on_error() {
   exit_code=$?
   if (( exit_code == 0 )); then
@@ -102,6 +116,11 @@ rollback_on_error() {
     kubectl set image "deployment/${deployment}" \
       "${containers[$deployment]}=${previous_images[$deployment]}" \
       --namespace "$DEPLOY_NAMESPACE" || true
+    if [[ -n "${sidecars[$deployment]:-}" && -n "${previous_sidecars[$deployment]:-}" ]]; then
+      kubectl set image "deployment/${deployment}" \
+        "${sidecars[$deployment]}=${previous_sidecars[$deployment]}" \
+        --namespace "$DEPLOY_NAMESPACE" || true
+    fi
   done
   for deployment in "${created[@]}"; do
     kubectl delete deployment "${deployment}" --namespace "$DEPLOY_NAMESPACE" --ignore-not-found || true
@@ -187,6 +206,12 @@ for deployment in "${deployments[@]}"; do
     else
       created+=("$deployment")
     fi
+    if [[ -n "${sidecars[$deployment]:-}" ]]; then
+      previous_sidecars[$deployment]="$(
+        kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
+          -o "jsonpath={.spec.template.spec.containers[?(@.name=='${sidecars[$deployment]}')].image}" 2>/dev/null || true
+      )"
+    fi
     kubectl apply -f "${manifests[$deployment]}" --namespace "$DEPLOY_NAMESPACE"
   elif [[ "$deployment" == "recommender-service" ]]; then
     kubectl apply -f k3s/base/recommender-service-deployment.yaml --namespace "$DEPLOY_NAMESPACE"
@@ -227,6 +252,21 @@ for deployment in "${deployments[@]}"; do
     "${containers[$deployment]}=${image}" \
     --namespace "$DEPLOY_NAMESPACE"
   updated+=("$deployment")
+  if [[ -n "${sidecars[$deployment]:-}" ]]; then
+    sidecar_tag="$IMAGE_TAG"
+    sidecar_image="${REGISTRY_NAMESPACE}/${sidecar_images[$deployment]}:${sidecar_tag}"
+    if [[ -z "${previous_sidecars[$deployment]:-}" ]]; then
+      previous_sidecars[$deployment]="$(
+        kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
+          -o "jsonpath={.spec.template.spec.containers[?(@.name=='${sidecars[$deployment]}')].image}" 2>/dev/null || true
+      )"
+    fi
+    if [[ "${previous_sidecars[$deployment]}" != "$sidecar_image" ]]; then
+      kubectl set image "deployment/${deployment}" \
+        "${sidecars[$deployment]}=${sidecar_image}" \
+        --namespace "$DEPLOY_NAMESPACE"
+    fi
+  fi
 done
 
 for deployment in "${deployments[@]}"; do

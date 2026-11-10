@@ -1,0 +1,223 @@
+# ── AI Gateway (HPCC model router) ───────────────────────────────────────────
+# Two containers in ONE pod share the localhost network namespace:
+#   tunnel  : Autossh keeps one SSH session to the HPCC login node and binds
+#             127.0.0.1:{backend.local_tunnel_port} forwards to each GPU node.
+#   gateway : FastAPI proxy, listens on 0.0.0.0:8080 and routes /v1/* traffic
+#             to the localhost forwards. Public entry is Ingress /aimodels.
+#
+# NOTHING SENSITIVE OR INFRASTRUCTURE-SPECIFIC IS COMMITTED HERE. The
+# Deployment references two out-of-band objects that are applied on the
+# cluster only (see docs/teams/DEVOPS_RUNBOOK.md -> "HPCC AI Gateway rollout"):
+#
+#   ConfigMap ai-gateway-config  -- the real config.yaml with backend
+#                                  inventory (GPU node names, internal ports,
+#                                  model IDs). This repo never contains it.
+#   Secret    ai-gateway-secrets -- SSH_HOST/SSH_PORT/SSH_USER/GATEWAY_API_KEY
+#                                  (+ ssh_key, known_hosts, optional upstream
+#                                  keys such as VLLM_API_KEY).
+# Create both BEFORE the first rollout; pods otherwise fail with
+# CreateContainerConfigError. /aimodels and the manifest structure below are
+# public; credentials and topology are not.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-gateway
+  labels:
+    app: ai-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ai-gateway
+  template:
+    metadata:
+      labels:
+        app: ai-gateway
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+      # SSH refuses keys that are group/world readable, but the kubelet mounts
+      # secret files as root with a fixed mode. Stage both files into a shared
+      # emptyDir with 0400/0444 modes owned by UID 10001.
+      - name: ssh-key-perm
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          cp /key-source/ssh_key /run/secrets/ssh_key
+          chmod 400 /run/secrets/ssh_key
+          cp /key-source/known_hosts /run/secrets/known_hosts
+          chmod 444 /run/secrets/known_hosts
+          chown -R 10001:10001 /run/secrets
+          chmod 700 /run/secrets
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - CHOWN
+            - FOWNER
+        volumeMounts:
+        - name: ssh-key-source
+          mountPath: /key-source
+          readOnly: true
+        - name: ssh-secrets-runtime
+          mountPath: /run/secrets
+      containers:
+      - name: tunnel
+        image: phucnhan2809/bdc-ai-gateway-tunnel:latest
+        imagePullPolicy: Always
+        env:
+        - name: GATEWAY_CONFIG_FILE
+          value: /etc/ai-gateway/config.yaml
+        - name: SSH_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ai-gateway-secrets
+              key: SSH_HOST
+        - name: SSH_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ai-gateway-secrets
+              key: SSH_PORT
+        - name: SSH_USER
+          valueFrom:
+            secretKeyRef:
+              name: ai-gateway-secrets
+              key: SSH_USER
+        - name: AUTOSSH_GATETIME
+          value: "0"
+        securityContext:
+          runAsUser: 10001
+          runAsGroup: 10001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 128Mi
+        volumeMounts:
+        - name: ai-gateway-config
+          mountPath: /etc/ai-gateway
+          readOnly: true
+        - name: ssh-secrets-runtime
+          mountPath: /run/secrets
+          readOnly: true
+        - name: tunnel-tmp
+          mountPath: /tmp
+      - name: gateway
+        image: phucnhan2809/bdc-ai-gateway:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: GATEWAY_CONFIG_FILE
+          value: /etc/ai-gateway/config.yaml
+        - name: GATEWAY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-gateway-secrets
+              key: GATEWAY_API_KEY
+        - name: SSH_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ai-gateway-secrets
+              key: SSH_HOST
+        - name: SSH_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ai-gateway-secrets
+              key: SSH_PORT
+        - name: SSH_USER
+          valueFrom:
+            secretKeyRef:
+              name: ai-gateway-secrets
+              key: SSH_USER
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 20
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 20
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsUser: 10001
+          runAsGroup: 10001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 96Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+        volumeMounts:
+        - name: ai-gateway-config
+          mountPath: /etc/ai-gateway
+          readOnly: true
+        - name: gateway-tmp
+          mountPath: /tmp
+      volumes:
+      - name: ai-gateway-config
+        configMap:
+          name: ai-gateway-config
+      - name: ssh-key-source
+        secret:
+          secretName: ai-gateway-secrets
+          items:
+          - key: ssh_key
+            path: ssh_key
+          - key: known_hosts
+            path: known_hosts
+      - name: ssh-secrets-runtime
+        emptyDir:
+          medium: Memory
+          sizeLimit: 8Mi
+      - name: tunnel-tmp
+        emptyDir:
+          sizeLimit: 32Mi
+      - name: gateway-tmp
+        emptyDir:
+          sizeLimit: 32Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway
+  labels:
+    app: ai-gateway
+spec:
+  selector:
+    app: ai-gateway
+  ports:
+  - name: http
+    port: 8090
+    targetPort: http
