@@ -13,3 +13,6 @@
 [submodule "dutylog"]
 	path = dutylog
 	url = https://github.com/Big-Data-Club/BDCHub---DutyLog.git
+[submodule "BDCHub---AIGateway"]
+	path = ai-gateway
+	url = git@github.com:Big-Data-Club/BDCHub---AIGateway.git
