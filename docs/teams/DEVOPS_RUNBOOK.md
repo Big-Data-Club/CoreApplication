@@ -1016,13 +1016,18 @@ Deployment: `main` selects the gateway through the `ai-gateway` path filter in
 `bdc-ai-gateway-tunnel`) from `ai-gateway/` and patches both containers on one
 rollout (`SERVICES=ai-gateway`). A public marketing page is served at
 `https://bdc.hpcc.vn/aimodels/info` (`k3s/base/ai-gateway-info.yaml`): a
-standalone nginx pod with a zero-dependency static HTML index ConfigMap,
-strictly branded with the LMS design tokens and free of hosts, ports, model
-IDs or keys. Its route has a longer path prefix, so Traefik auto-priority
-keeps it ahead of the gateway router. Updating the page is a manifest edit
-plus a normal push; the pod consumes an upstream `nginx:1.27-alpine` image
-and is applied inside the `ai-gateway` selection only. The `/aimodels` route
-strips its prefix and rate limits 120 req/min; gzip is intentionally NOT
-applied to that route; the info page has gzip plus a 10-minute cache. During the `ai-gateway` private-submodule migration, CI copies the
+standalone nginx pod with a static HTML index ConfigMap plus the BDC logo and
+favicon embedded as `binaryData` (copied from `frontend/src/assets/bdclogo.png`,
+resized). The page supports light and dark themes, shows no hosts, ports,
+credentials or topology, and renders the live model list by calling the
+gateway's unauthenticated catalog endpoint `/aimodels/public/models`, which
+returns only model IDs, derived capabilities and replica counts. If the
+gateway is unreachable the page falls back to a static overview. Its route has
+a longer path prefix, so Traefik auto-priority keeps it ahead of the gateway
+router. Updating the page is a manifest edit plus a normal push; the pod
+consumes an upstream `nginx:1.27-alpine` image and is applied inside the
+`ai-gateway` selection only. The `/aimodels` route strips its prefix and rate
+limits 120 req/min; gzip is intentionally NOT applied to that route; the info
+page has gzip plus a 10-minute cache. During the `ai-gateway` private-submodule migration, CI copies the
 submodule using the `SUBMODULE_PAT` repository secret; until that secret is
 set, `github.token` is used.
