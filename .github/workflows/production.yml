@@ -203,7 +203,7 @@ jobs:
             services+=(dutylog-service)
           fi
           if [[ "${AI_GATEWAY_CHANGED}" == "true" || "${AI_GATEWAY_SUBMODULE_CHANGED}" == "true" ]]; then
-            items+=('{"image":"bdc-ai-gateway","context":"ai-gateway"}')
+            items+=('{"image":"bdc-ai-gateway","context":"ai-gateway","dockerfile":"Dockerfile.gateway"}')
             items+=('{"image":"bdc-ai-gateway-tunnel","context":"ai-gateway","dockerfile":"Dockerfile.tunnel"}')
             services+=(ai-gateway)
           fi
