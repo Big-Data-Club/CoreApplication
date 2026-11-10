@@ -36,6 +36,10 @@ spec:
       labels:
         app: ai-gateway
     spec:
+      # Neither container talks to the Kubernetes API; without this flag the
+      # auto-mounted SA token breaks readOnlyRootFilesystem containers whose
+      # image lacks /run/secrets/kubernetes.io (observed: tunnel CrashLoop).
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       initContainers:
       # SSH refuses keys that are group/world readable, but the kubelet mounts
