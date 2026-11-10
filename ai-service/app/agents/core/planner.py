@@ -1,7 +1,7 @@
 """
 ai-service/app/agents/core/planner.py
 
-Unified Agent Planner v2 - Merged Router + Planner in one LLM call.
+Unified Agent Planner v2 - Merged Router + Planner in one LLM call
 
 Changes from v1:
   - RouterOutput fields (intent, is_ambiguous, matched_course_id, requires_tool)

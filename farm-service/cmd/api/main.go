@@ -51,6 +51,7 @@ func main() {
 	config.ConnConfig.ConnectTimeout = 5 * time.Second
 	config.MaxConns = 10
 	config.MinConns = 1
+
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		slog.Error("database pool failed")

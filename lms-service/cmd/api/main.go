@@ -83,7 +83,7 @@ func main() {
 	cancelNoticeSchema()
 
 	// Read-path indexes are non-critical and idempotent.
-	// Build them in the background so a rollout remains available even on a large existing DB.
+	// Build them in the background so a rollout remains available even on a large existing DB
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
