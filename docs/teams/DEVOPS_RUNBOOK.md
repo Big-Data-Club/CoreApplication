@@ -1014,8 +1014,15 @@ ConfigMap apply plus a pod restart; no image change is required.
 Deployment: `main` selects the gateway through the `ai-gateway` path filter in
 `production.yml`, which builds two images (`bdc-ai-gateway`,
 `bdc-ai-gateway-tunnel`) from `ai-gateway/` and patches both containers on one
-rollout (`SERVICES=ai-gateway`). The `/aimodels` route strips
-its prefix and rate limits 120 req/min; gzip is intentionally NOT applied to
-that route. During the `ai-gateway` private-submodule migration, CI copies the
+rollout (`SERVICES=ai-gateway`). A public marketing page is served at
+`https://bdc.hpcc.vn/aimodels/info` (`k3s/base/ai-gateway-info.yaml`): a
+standalone nginx pod with a zero-dependency static HTML index ConfigMap,
+strictly branded with the LMS design tokens and free of hosts, ports, model
+IDs or keys. Its route has a longer path prefix, so Traefik auto-priority
+keeps it ahead of the gateway router. Updating the page is a manifest edit
+plus a normal push; the pod consumes an upstream `nginx:1.27-alpine` image
+and is applied inside the `ai-gateway` selection only. The `/aimodels` route
+strips its prefix and rate limits 120 req/min; gzip is intentionally NOT
+applied to that route; the info page has gzip plus a 10-minute cache. During the `ai-gateway` private-submodule migration, CI copies the
 submodule using the `SUBMODULE_PAT` repository secret; until that secret is
 set, `github.token` is used.

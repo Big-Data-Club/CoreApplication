@@ -258,6 +258,31 @@ spec:
               number: 8090
 
 ---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bdc-ingress-ai-gateway-info
+  namespace: default
+  annotations:
+    # Marketing site; longer path wins via Traefik auto-priority over /aimodels.
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-aimodels-info-rewrite@kubernetescrd,
+      default-compress@kubernetescrd,
+      default-aimodels-info-cache@kubernetescrd
+spec:
+  rules:
+  - host: bdc.hpcc.vn
+    http:
+      paths:
+      - path: /aimodels/info
+        pathType: Prefix
+        backend:
+          service:
+            name: ai-gateway-info
+            port:
+              number: 8091
+
+---
 # ── Traefik Middleware: Coarse edge protection for public MCP ────────────────
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
@@ -398,3 +423,25 @@ spec:
     average: 120
     burst: 240
     period: 1m
+---
+# ── Traefik Middleware: /aimodels/info → static marketing site root ──────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: aimodels-info-rewrite
+  namespace: default
+spec:
+  replacePathRegex:
+    regex: "^/aimodels/info"
+    replacement: "/"
+---
+# ── Traefik Middleware: Cache headers for the static /aimodels/info page ─────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: aimodels-info-cache
+  namespace: default
+spec:
+  headers:
+    customResponseHeaders:
+      Cache-Control: "public, max-age=600, must-revalidate"

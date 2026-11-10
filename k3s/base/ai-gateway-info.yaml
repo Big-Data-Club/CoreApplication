@@ -1,0 +1,294 @@
+# ── AI Gateway marketing site (bdc.hpcc.vn/aimodels/info) ────────────────────
+# Fully static, zero-JS, single-file HTML served by a minimal nginx pod.
+# Separate from the ai-gateway Deployment so public traffic for the marketing
+# page never touches the tunnel/gateway services. Content is Marketing-safe:
+# model families and capabilities only — NO hosts, ports, model IDs, keys or
+# cluster topology. Automounted API token disabled (no K8s API usage).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-gateway-info-nginx
+  labels:
+    app: ai-gateway-info
+data:
+  default.conf: |
+    server {
+      listen 8080;
+      server_name _;
+      server_tokens off;
+      root /usr/share/nginx/html;
+      index index.html;
+      location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+      }
+      location / {
+        try_files $uri $uri/ /index.html;
+      }
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-gateway-info-content
+  labels:
+    app: ai-gateway-info
+data:
+  index.html: |
+    <!doctype html>
+    <html lang="en">
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BDC Hub — Campus AI Models</title>
+    <meta name="description" content="AI model families running on Big Data Club's dedicated GPU cluster: conversational chat, vision, semantic search, speech-to-text and text-to-speech. OpenAI-compatible and built into the BDC Hub learning platform.">
+    <meta property="og:title" content="BDC Hub — Campus AI Models">
+    <meta property="og:description" content="Chat, vision, search and speech models running on a dedicated campus GPU cluster.">
+    <meta property="og:type" content="website">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@500;700&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700&display=swap" rel="stylesheet">
+    <style>
+    :root{--bg:#050B18;--shell:#070E1C;--card:#0F1E35;--subtle:#132240;--fg:#f8fafc;--muted:#94a3b8;--border:rgba(59,130,246,.12);--border-hi:rgba(59,130,246,.25);--cyan:#22D3EE;--blue:#3B82F6;--display:'Comfortaa',ui-rounded,system-ui,sans-serif;--body:'Nunito Sans',system-ui,-apple-system,sans-serif}
+    *{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    body{background:var(--bg);color:var(--fg);font-family:var(--body);line-height:1.6;-webkit-font-smoothing:antialiased}
+    a{color:inherit}
+    .wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+    header{position:sticky;top:0;z-index:10;background:rgba(5,11,24,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+    .nav{display:flex;align-items:center;justify-content:space-between;height:64px}
+    .brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:1.05rem;text-decoration:none}
+    .dot{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--blue),var(--cyan))}
+    .nav a.btn{background:linear-gradient(135deg,var(--blue),var(--cyan));color:#04101f;font-weight:700;padding:9px 18px;border-radius:999px;text-decoration:none;font-size:.9rem;transition:opacity .2s}
+    .nav a.btn:hover{opacity:.9}
+    .hero{padding:88px 0 64px;text-align:center;position:relative;overflow:hidden}
+    .hero::before{content:"";position:absolute;inset:-40% 30% auto;height:520px;background:radial-gradient(closest-side,rgba(34,211,238,.14),transparent 70%);pointer-events:none}
+    h1{font-family:var(--display);font-size:clamp(2rem,5vw,3.2rem);line-height:1.15;letter-spacing:-.5px}
+    h1 em{font-style:normal;background:linear-gradient(90deg,var(--cyan),var(--blue));-webkit-background-clip:text;background-clip:text;color:transparent}
+    .lead{color:var(--muted);max-width:620px;margin:18px auto 0;font-size:1.08rem}
+    .cta{display:inline-flex;gap:12px;margin-top:28px;flex-wrap:wrap;justify-content:center}
+    .btn-lg{background:linear-gradient(135deg,var(--blue),var(--cyan));color:#04101f;font-weight:700;padding:14px 30px;border-radius:999px;text-decoration:none;font-size:1rem;transition:transform .15s,opacity .2s}
+    .btn-ghost{border:1px solid var(--border-hi);color:var(--fg);padding:14px 26px;border-radius:999px;text-decoration:none;font-size:1rem;transition:border-color .2s}
+    .btn-lg:hover{transform:translateY(-1px);opacity:.92}
+    .btn-ghost:hover{border-color:var(--cyan)}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:56px auto 0;max-width:900px}
+    .stat{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px}
+    .stat b{display:block;font-family:var(--display);font-size:1.4rem;color:var(--cyan)}
+    .stat span{color:var(--muted);font-size:.88rem}
+    section{padding:56px 0}
+    .kicker{color:var(--cyan);font-family:var(--display);font-weight:700;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem}
+    h2{font-family:var(--display);font-size:clamp(1.5rem,3.4vw,2.1rem);margin:8px 0 6px}
+    .sub{color:var(--muted);max-width:640px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px;margin-top:36px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:26px;transition:border-color .2s,transform .2s}
+    .card:hover{border-color:var(--border-hi);transform:translateY(-3px)}
+    .badge{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:5px 12px;border-radius:999px;margin-bottom:16px}
+    .ic{font-size:1.6rem;display:block;margin-bottom:10px}
+    .card h3{font-family:var(--display);font-size:1.15rem;margin-bottom:6px}
+    .card p{color:var(--muted);font-size:.95rem}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+    .chip{font-size:.75rem;background:var(--subtle);border:1px solid var(--border);color:#c9d6e8;padding:4px 10px;border-radius:999px}
+    .features{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:36px}
+    .feat{background:var(--shell);border:1px solid var(--border);border-radius:16px;padding:22px}
+    .feat b{font-family:var(--display)}
+    .feat p{color:var(--muted);font-size:.92rem;margin-top:6px}
+    .band{background:linear-gradient(135deg,var(--card),var(--subtle));border:1px solid var(--border-hi);border-radius:24px;padding:44px 36px;text-align:center;margin-top:36px}
+    .band .lead{font-size:1rem}
+    footer{border-top:1px solid var(--border);padding:34px 0;color:var(--muted);font-size:.85rem}
+    .frow{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+    footer a{color:var(--cyan);text-decoration:none}
+    </style>
+    </head>
+    <body>
+    <header>
+      <div class="wrap nav">
+        <a class="brand" href="/aimodels/info"><span class="dot"></span>BDC Hub · AI Models</a>
+        <a class="btn" href="https://bdc.hpcc.vn/login">Request access</a>
+      </div>
+    </header>
+
+    <div class="hero">
+      <div class="wrap">
+        <p class="kicker">Powered by our dedicated GPU cluster</p>
+        <h1>One hub. <em>Every AI capability</em> your campus needs.</h1>
+        <p class="lead">BDC Hub runs a curated set of AI model families on high-performance GPUs we operate ourselves — chat, vision, semantic search and speech, all behind one OpenAI-compatible experience, built into the platform you already use.</p>
+        <div class="cta">
+          <a class="btn-lg" href="https://bdc.hpcc.vn/login">Request access</a>
+          <a class="btn-ghost" href="#models">Explore the models</a>
+        </div>
+        <div class="stats">
+          <div class="stat"><b>5</b><span>Model families</span></div>
+          <div class="stat"><b>4</b><span>Capabilities — chat, vision, search, speech</span></div>
+          <div class="stat"><b>100+</b><span>Languages understood by our search engine</span></div>
+          <div class="stat"><b>0</b><span>Your data leaving our cluster</span></div>
+        </div>
+      </div>
+    </div>
+
+    <section id="models">
+      <div class="wrap">
+        <p class="kicker">Model families</p>
+        <h2>What you can build with it today</h2>
+        <p class="sub">Each family is production-grade, monitored, and served redundantly — ready to be embedded in your study workflow.</p>
+        <div class="grid">
+          <article class="card">
+            <span class="badge" style="background:rgba(59,130,246,.15);color:#93c5fd">Language</span>
+            <span class="ic">💬</span><h3>Conversational Chat</h3>
+            <p>Fast, high-quality answers for coursework, writing and research — with streamed responses that feel instant on every device.</p>
+            <div class="chips"><span class="chip">Streaming</span><span class="chip">Multilingual</span><span class="chip">Long documents</span></div>
+          </article>
+          <article class="card">
+            <span class="badge" style="background:rgba(34,211,238,.15);color:#67e8f9">Vision</span>
+            <span class="ic">👁️</span><h3>Vision Understanding</h3>
+            <p>Point it at slides, screenshots, diagrams or handwritten notes and get answers — the model reads what you see.</p>
+            <div class="chips"><span class="chip">Image Q&amp;A</span><span class="chip">Documents</span><span class="chip">Diagrams</span></div>
+          </article>
+          <article class="card">
+            <span class="badge" style="background:rgba(167,139,250,.15);color:#c4b5fd">Search</span>
+            <span class="ic">🔎</span><h3>Semantic Search &amp; Embeddings</h3>
+            <p>State-of-the-art multilingual embeddings power smart document search, flash suggestions and personalized recommendations inside BDC Hub.</p>
+            <div class="chips"><span class="chip">Semantic search</span><span class="chip">100+ languages</span><span class="chip">Recommendations</span></div>
+          </article>
+          <article class="card">
+            <span class="badge" style="background:rgba(251,191,36,.15);color:#fcd34d">Speech</span>
+            <span class="ic">🎙️</span><h3>Speech-to-Text</h3>
+            <p>Tuned for Vietnamese. Turn recorded lectures, meetings and study sessions into clean, searchable text.</p>
+            <div class="chips"><span class="chip">Vietnamese-first</span><span class="chip">Transcription</span></div>
+          </article>
+          <article class="card">
+            <span class="badge" style="background:rgba(52,211,153,.15);color:#6ee7b7">Speech</span>
+            <span class="ic">🔊</span><h3>Text-to-Speech</h3>
+            <p>Natural Vietnamese voices for narration, pronunciation practice and accessible learning materials.</p>
+            <div class="chips"><span class="chip">Natural voices</span><span class="chip">Narration</span></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <p class="kicker">Why BDC Hub</p>
+        <h2>Built for the campus<br>not the cloud</h2>
+        <div class="features">
+          <div class="feat"><b>🔐 Your data stays home</b><p>Models run on our own cluster — coursework and files never leave campus infrastructure.</p></div>
+          <div class="feat"><b>🧩 OpenAI-compatible</b><p>One familiar API shape. Drop the hub into any tool that speaks OpenAI and it just works.</p></div>
+          <div class="feat"><b>🎓 Built into learning</b><p>Chat, quizzes, flashcards, document Q&amp;A and recommendations — woven into the BDC Hub platform itself.</p></div>
+          <div class="feat"><b>⚡ Redundant by design</b><p>Multiple serving replicas per capability keep the hub responsive when it matters.</p></div>
+        </div>
+        <div class="band">
+          <h2>Try it with your coursework</h2>
+          <p class="lead">AI access is granted by our admins. Log in to BDC Hub with your account and request an API key — onboarding takes a few minutes.</p>
+          <div class="cta">
+            <a class="btn-lg" href="https://bdc.hpcc.vn/login">Request access</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap frow">
+        <span>© 2026 Big Data Club — AI on our own GPU cluster</span>
+        <span><a href="https://bdc.hpcc.vn/login">BDC Hub</a> · <a href="/aimodels/info">AI Models</a></span>
+      </div>
+    </footer>
+    </body>
+    </html>
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-gateway-info
+  labels:
+    app: ai-gateway-info
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-gateway-info
+  template:
+    metadata:
+      labels:
+        app: ai-gateway-info
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 20
+          timeoutSeconds: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 3
+        securityContext:
+          runAsUser: 101
+          runAsGroup: 101
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        volumeMounts:
+        - name: content
+          mountPath: /usr/share/nginx/html
+          readOnly: true
+        - name: nginx-conf
+          mountPath: /etc/nginx/conf.d
+          readOnly: true
+        - name: cache
+          mountPath: /var/cache/nginx
+        - name: run
+          mountPath: /var/run
+        - name: logs
+          mountPath: /var/log/nginx
+      volumes:
+      - name: content
+        configMap:
+          name: ai-gateway-info-content
+      - name: nginx-conf
+        configMap:
+          name: ai-gateway-info-nginx
+      - name: cache
+        emptyDir:
+          sizeLimit: 8Mi
+      - name: run
+        emptyDir:
+          sizeLimit: 2Mi
+      - name: logs
+        emptyDir:
+          sizeLimit: 8Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway-info
+  labels:
+    app: ai-gateway-info
+spec:
+  selector:
+    app: ai-gateway-info
+  ports:
+  - name: http
+    port: 8091
+    targetPort: http

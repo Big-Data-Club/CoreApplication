@@ -10,6 +10,7 @@ resources:
 - chat-service-deployment.yaml
 - ai-service-deployment.yaml
 - ai-gateway-deployment.yaml
+- ai-gateway-info.yaml
 - ai-lab-authoring-worker-deployment.yaml
 - course-blueprint-worker-deployment.yaml
 - ai-model-cache-pvc.yaml

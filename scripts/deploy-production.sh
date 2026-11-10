@@ -182,6 +182,16 @@ if [[ ",${SERVICES:-}," == *",ai-worker,"* ]]; then
     --namespace "$DEPLOY_NAMESPACE" \
     --timeout "$ROLLOUT_TIMEOUT"
 fi
+# The AI Gateway rollout also owns the static marketing site pod. Its manifest
+# carries no image from this registry (upstream nginx), so it stays outside the
+# set-image loop; applying and verifying here keeps it versioned with the
+# ai-gateway change set.
+if [[ ",${SERVICES:-}," == *",ai-gateway,"* ]]; then
+  kubectl apply -f k3s/base/ai-gateway-info.yaml --namespace "$DEPLOY_NAMESPACE"
+  kubectl rollout status deployment/ai-gateway-info \
+    --namespace "$DEPLOY_NAMESPACE" \
+    --timeout "$ROLLOUT_TIMEOUT"
+fi
 # Establish the restricted, default-deny namespace before any future executor
 # image can be rolled out. Applying this declarative policy is idempotent and
 # does not start learner workloads by itself.

@@ -128,6 +128,7 @@ jobs:
             ai-gateway:
               - 'ai-gateway/**'
               - 'k3s/base/ai-gateway-deployment.yaml'
+              - 'k3s/base/ai-gateway-info.yaml'
               - 'k3s/base/ingress.yaml'
               - 'scripts/deploy-production.sh'
               - '.github/workflows/production.yml'
