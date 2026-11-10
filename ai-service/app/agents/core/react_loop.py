@@ -2235,39 +2235,53 @@ async def _maybe_emit_title_update(
     user_message: str,
     turn_id: str,
 ) -> AsyncIterator[AgentEvent]:
-    """Emit title update event on first turn - unchanged."""
+    """Name untitled sessions even when the auxiliary model is unavailable."""
+    import asyncio
+
     try:
         existing = await mtm.get_title(session_id)
-        if existing:
+        if existing and existing.strip():
             return
-        from app.core.llm import chat_complete
-        from app.core.llm_gateway import TASK_AGENT_ROUTER
-        title_resp = await chat_complete(
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Generate a short 3-5 word conversation title in the same "
-                        "language as the user message. No punctuation. Plain text only."
-                    ),
-                },
-                {"role": "user", "content": user_message[:200]},
-            ],
-            max_tokens=24,
-            temperature=0.3,
-            task=TASK_AGENT_ROUTER,
+        # Always have a useful, bounded title without depending on another LLM
+        # request succeeding. Do not log user text when generation fails.
+        fallback = " ".join(user_message.split())[:80].strip()
+        if not fallback:
+            return
+        title = fallback
+        try:
+            from app.core.llm import chat_complete
+            from app.core.llm_gateway import TASK_AGENT_ROUTER
+            title_resp = await asyncio.wait_for(chat_complete(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Generate a short 3-5 word conversation title in the same "
+                            "language as the user message. No punctuation. Plain text only."
+                        ),
+                    },
+                    {"role": "user", "content": user_message[:200]},
+                ],
+                max_tokens=128,
+                temperature=0.3,
+                task=TASK_AGENT_ROUTER,
+            ), timeout=5)
+            generated = " ".join((title_resp or "").strip().strip('"').strip("'").split())[:80]
+            if generated:
+                title = generated
+            else:
+                logger.warning("title generation returned empty content; using fallback session=%s", session_id)
+        except Exception as exc:
+            logger.warning("title generation unavailable; using fallback session=%s error_type=%s", session_id, type(exc).__name__)
+        await mtm.update_title(session_id, title)
+        yield AgentEvent(
+            type=AgentEventType.TITLE_UPDATE,
+            data={"title": title},
+            session_id=session_id,
+            turn_id=turn_id,
         )
-        title = (title_resp or "").strip().strip('"').strip("'")
-        if title:
-            await mtm.update_title(session_id, title)
-            yield AgentEvent(
-                type=AgentEventType.TITLE_UPDATE,
-                data={"title": title},
-                session_id=session_id,
-                turn_id=turn_id,
-            )
     except Exception as exc:
-        logger.debug("title generation failed (non-fatal): %s", exc)
+        logger.warning("title persistence failed session=%s error_type=%s", session_id, type(exc).__name__)
 
 
 async def _trigger_post_turn_consolidation(
