@@ -1,0 +1,61 @@
+# Create/resize the Kafka topics used by the AI lanes. Idempotent: the Job can
+# be re-applied on every AI rollout. lms.ai.interactive must have multiple
+# partitions so the interactive consumer group can run diagnoses in parallel.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-ai-topics
+  labels:
+    app: kafka-topics
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: kafka-topics
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: topics
+        image: bitnamilegacy/kafka:3.7.0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: KAFKA_BOOTSTRAP
+          value: "kafka-service:9092"
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          BIN=/opt/bitnami/kafka/bin/kafka-topics.sh
+
+          ensure_topic() {
+            local topic="$1" wanted="$2"
+            "$BIN" --bootstrap-server "$KAFKA_BOOTSTRAP" --create --if-not-exists \
+              --topic "$topic" --partitions "$wanted" --replication-factor 1
+            local current
+            current=$("$BIN" --bootstrap-server "$KAFKA_BOOTSTRAP" \
+              --describe --topic "$topic" \
+              | awk 'NR==1{for(i=1;i<=NF;i++){if($i=="PartitionCount:"){print $(i+1); exit} if($i ~ /^PartitionCount:/){split($i,a,":"); print a[2]; exit}}}')
+            if [[ -z "${current}" ]]; then
+              echo "Could not determine partition count for $topic" >&2
+              exit 1
+            fi
+            if (( current < wanted )); then
+              echo "Increasing $topic partitions ${current} -> ${wanted}"
+              "$BIN" --bootstrap-server "$KAFKA_BOOTSTRAP" --alter \
+                --topic "$topic" --partitions "$wanted"
+            else
+              echo "$topic already has ${current} partitions"
+            fi
+          }
+
+          ensure_topic lms.ai.interactive 6
+          ensure_topic lms.ai.command 3
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi

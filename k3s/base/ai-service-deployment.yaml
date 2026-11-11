@@ -309,6 +309,17 @@ spec:
             secretKeyRef:
               name: bdc-secrets
               key: AI_KEY_ENCRYPTION_SECRET
+        # Interactive lane: consume lms.ai.interactive in a separate consumer
+        # group with bounded concurrency, so wrong-answer diagnosis never waits
+        # behind a document index or blueprint job on lms.ai.command.
+        - name: AI_WORKER_MODE
+          value: "all"
+        - name: AI_INTERACTIVE_TOPIC
+          value: "lms.ai.interactive"
+        - name: AI_INTERACTIVE_GROUP
+          value: "ai-worker-interactive"
+        - name: AI_INTERACTIVE_CONCURRENCY
+          value: "6"
         resources:
           # bge-m3 + reranker already use ~1.45Gi before PDF extraction.
           # Keep one replica until lms.document.uploaded has more partitions;

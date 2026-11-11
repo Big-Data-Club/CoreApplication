@@ -257,6 +257,7 @@ approved Parquet snapshots or a read-only DuckDB copy through `BDC_GOLD_DIR` or
 | `lms.analytics.interactions` | LMS | Personalize, LMS | Implemented micro-interaction pipeline |
 | `lms.document.uploaded` | LMS | AI worker | Implemented document processing command |
 | `lms.ai.command` | LMS and AI worker | AI worker | Implemented async AI command/job pipeline |
+| `lms.ai.interactive` | LMS | AI worker (dedicated group) | Latency-sensitive jobs a learner is waiting on, currently wrong-answer diagnosis. Separate consumer group so batch work cannot block it |
 | `ai.job.status` | AI worker | LMS | Implemented AI job status pipeline |
 | `ai.document.processed.status` | AI worker | LMS | Implemented document indexing status |
 | `lms.graph.command` | Trigger endpoints/services | AI worker | Implemented graph command boundary |
@@ -310,6 +311,15 @@ personalize worker inserts with `ON CONFLICT (interaction_id) DO NOTHING`.
 Use `job_id` as the correlation and idempotency reference. The LMS owns the job
 request; the worker owns processing status. Consumers must accept status updates
 in a safe, repeatable way.
+
+`DIAGNOSE_ERROR` is published to `lms.ai.interactive` instead, because a student
+is waiting on that answer. The worker runs a second consumer in group
+`ai-worker-interactive` with bounded concurrency (`AI_INTERACTIVE_CONCURRENCY`,
+default 6). Messages from one partition are serialised so offsets stay ordered,
+while six partitions allow six diagnoses in parallel. `k3s/base/kafka-ai-topics-job.yaml`
+creates the topic with 6 partitions and raises `lms.ai.command` to 3 on every AI
+rollout. The payload shape is identical to `lms.ai.command`; only the topic and
+consumer group differ.
 
 ```json
 {

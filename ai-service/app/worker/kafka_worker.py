@@ -2,7 +2,8 @@ import asyncio
 import json
 import os
 import traceback
-from aiokafka import AIOKafkaConsumer
+from aiokafka import AIOKafkaConsumer, TopicPartition
+from aiokafka.structs import OffsetAndMetadata
 
 # Configure structured logging before other imports
 from app.core.logging_config import configure_logging
@@ -359,6 +360,115 @@ def _is_youtube(url: str) -> bool:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
+BATCH_TOPICS = (
+    "lms.document.uploaded",
+    "lms.graph.command",
+    "lms.maintenance.command",
+    "lms.ai.command",
+    "personalize.profile.updated",
+)
+INTERACTIVE_TOPIC = os.getenv("AI_INTERACTIVE_TOPIC", "lms.ai.interactive")
+INTERACTIVE_GROUP = os.getenv("AI_INTERACTIVE_GROUP", "ai-worker-interactive")
+DEFAULT_INTERACTIVE_CONCURRENCY = 6
+
+
+def _build_consumer(topics: tuple[str, ...], group_id: str) -> AIOKafkaConsumer:
+    return AIOKafkaConsumer(
+        *topics,
+        bootstrap_servers=os.getenv("KAFKA_BROKERS", "kafka:9092"),
+        group_id=group_id,
+        value_deserializer=lambda x: json.loads(x.decode("utf-8")),
+        auto_offset_reset="earliest",
+        # A document can take many minutes to extract, embed and persist. Auto
+        # commit used to acknowledge the record while that work was still in
+        # flight, so a worker/broker restart could permanently lose the job.
+        # Commit only after the handler has reached a terminal state.
+        enable_auto_commit=False,
+        max_poll_interval_ms=settings.document_index_max_poll_interval_ms,
+        session_timeout_ms=60_000,
+        heartbeat_interval_ms=10_000,
+        request_timeout_ms=70_000,
+    )
+
+
+async def _dispatch_batch(msg) -> None:
+    payload = msg.value
+    if msg.topic == "lms.document.uploaded":
+        if "content_id" in payload:
+            await process_document_event(payload)
+    elif msg.topic == "lms.graph.command":
+        await process_graph_command(payload)
+    elif msg.topic == "lms.ai.command":
+        await process_ai_command(payload)
+    elif msg.topic == "lms.maintenance.command":
+        await process_maintenance_command(payload)
+    elif msg.topic == "personalize.profile.updated":
+        await process_personalize_profile_update(payload)
+
+
+async def _consume_batch(consumer: AIOKafkaConsumer) -> None:
+    """Strictly sequential: long batch work keeps its existing semantics."""
+    async for msg in consumer:
+        if not msg.value:
+            await consumer.commit()
+            continue
+        logger.debug("Kafka message received",
+                     extra={"topic": msg.topic, "partition": msg.partition,
+                            "offset": msg.offset})
+        await _dispatch_batch(msg)
+        # Committing here acknowledges exactly the record whose handler just
+        # completed. An exception before this point leaves the offset
+        # uncommitted and Kafka replays it.
+        await consumer.commit()
+
+
+async def _consume_interactive(consumer: AIOKafkaConsumer, concurrency: int) -> None:
+    """Bounded-concurrency lane for jobs a student is actively waiting on.
+
+    Messages from one partition are serialised with a per-partition lock, so
+    offsets are committed in order, while different partitions run in
+    parallel. A slow diagnosis can no longer sit behind a document index.
+    """
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+    locks: dict[tuple[str, int], asyncio.Lock] = {}
+    inflight: set[asyncio.Task] = set()
+
+    async def handle(msg) -> None:
+        partition = TopicPartition(msg.topic, msg.partition)
+        lock = locks.setdefault((msg.topic, msg.partition), asyncio.Lock())
+        async with semaphore:
+            async with lock:
+                try:
+                    if isinstance(msg.value, dict) and msg.value.get("command_type"):
+                        await process_ai_command(msg.value)
+                    elif isinstance(msg.value, dict):
+                        logger.warning(
+                            "Interactive topic received a non AI command; dropping",
+                            extra={"payload_keys": list(msg.value.keys())},
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # process_ai_command already reports failures; never let a
+                    # single poisoned record stall an interactive partition.
+                    logger.exception("Interactive job failed before status update")
+                finally:
+                    await consumer.commit(
+                        {partition: OffsetAndMetadata(msg.offset + 1, "")}
+                    )
+
+    async for msg in consumer:
+        # Backpressure: keep at most a few waves of work in memory instead of
+        # buffering an unbounded burst of fetched records.
+        while len(inflight) >= max(1, concurrency) * 3:
+            await asyncio.wait(inflight, return_when=asyncio.FIRST_COMPLETED)
+        task = asyncio.create_task(handle(msg), name=f"interactive:{msg.offset}")
+        inflight.add(task)
+        task.add_done_callback(inflight.discard)
+    if inflight:
+        await asyncio.gather(*inflight, return_exceptions=True)
+
+
 async def main():
     logger.info("Initializing AI Kafka Worker", extra={"event": "startup"})
 
@@ -390,80 +500,56 @@ async def main():
         await loop.run_in_executor(pool, warm_up_models)
     logger.info("Embedding models ready")
 
-    brokers  = os.getenv("KAFKA_BROKERS", "kafka:9092")
-    consumer = AIOKafkaConsumer(
-        "lms.document.uploaded",
-        "lms.graph.command",
-        "lms.maintenance.command",
-        "lms.ai.command",
-        "personalize.profile.updated",
-        bootstrap_servers=brokers,
-        group_id="ai-worker-group",
-        value_deserializer=lambda x: json.loads(x.decode("utf-8")),
-        auto_offset_reset="earliest",
-        # A document can take many minutes to extract, embed and persist.  Auto
-        # commit used to acknowledge the record while that work was still in
-        # flight, so a worker/broker restart could permanently lose the job.
-        # Commit only after the handler has reached a terminal state.
-        enable_auto_commit=False,
-        # ── Tuned for long-running document processing (95+ image PDFs) ───
-        # Default max_poll_interval_ms=300s is too tight: heavy PDFs can
-        # take much longer when they contain many images/VLM calls.
-        max_poll_interval_ms=settings.document_index_max_poll_interval_ms,
-        session_timeout_ms=60_000,       # 60 seconds (default 10s)
-        heartbeat_interval_ms=10_000,    # 10 seconds (default 3s)
-        request_timeout_ms=70_000,       # must be > session_timeout_ms
-    )
+    mode = os.getenv("AI_WORKER_MODE", "batch").strip().lower()
+    if mode not in {"batch", "interactive", "all"}:
+        raise SystemExit(f"Unsupported AI_WORKER_MODE={mode!r}")
 
-    await consumer.start()
-    from app.services.studio.jobs import serve as serve_studio_jobs
-    studio_worker = asyncio.create_task(serve_studio_jobs())
-    from app.services.speech_service import serve_speech
-    speech_worker = asyncio.create_task(serve_speech())
-    from app.services.studio.temporary_media import serve_cleanup
-    cleanup_worker = asyncio.create_task(serve_cleanup())
-    from app.services.studio.youtube_publishing import serve_uploads
-    youtube_worker = asyncio.create_task(serve_uploads())
+    consumers: list[AIOKafkaConsumer] = []
+    consumers_ready: list[asyncio.Task] = []
+    background: list[asyncio.Task] = []
+
+    if mode in {"batch", "all"}:
+        batch = _build_consumer(BATCH_TOPICS, "ai-worker-group")
+        await batch.start()
+        consumers.append(batch)
+        consumers_ready.append(asyncio.create_task(_consume_batch(batch), name="batch-consumer"))
+        from app.services.studio.jobs import serve as serve_studio_jobs
+        from app.services.speech_service import serve_speech
+        from app.services.studio.temporary_media import serve_cleanup
+        from app.services.studio.youtube_publishing import serve_uploads
+        background.append(asyncio.create_task(serve_studio_jobs(), name="studio-jobs"))
+        background.append(asyncio.create_task(serve_speech(), name="speech-jobs"))
+        background.append(asyncio.create_task(serve_cleanup(), name="studio-cleanup"))
+        background.append(asyncio.create_task(serve_uploads(), name="youtube-uploads"))
+
+    if mode in {"interactive", "all"}:
+        interactive = _build_consumer((INTERACTIVE_TOPIC,), INTERACTIVE_GROUP)
+        await interactive.start()
+        consumers.append(interactive)
+        raw_concurrency = os.getenv("AI_INTERACTIVE_CONCURRENCY", "").strip()
+        concurrency = max(1, int(raw_concurrency or DEFAULT_INTERACTIVE_CONCURRENCY))
+        consumers_ready.append(
+            asyncio.create_task(
+                _consume_interactive(interactive, concurrency),
+                name="interactive-consumer",
+            )
+        )
+
     logger.info("Kafka Worker ready",
-                extra={"group_id": "ai-worker-group", "brokers": brokers})
+                extra={"mode": mode, "brokers": os.getenv("KAFKA_BROKERS", "kafka:9092"),
+                       "interactive_topic": INTERACTIVE_TOPIC,
+                       "interactive_group": INTERACTIVE_GROUP})
 
     try:
-        async for msg in consumer:
-            if not msg.value:
-                await consumer.commit()
-                continue
-            logger.debug("Kafka message received",
-                         extra={"topic": msg.topic, "partition": msg.partition,
-                                "offset": msg.offset})
-            payload = msg.value
-
-            if msg.topic == "lms.document.uploaded":
-                if "content_id" in payload:
-                    await process_document_event(payload)
-            elif msg.topic == "lms.graph.command":
-                await process_graph_command(payload)
-            elif msg.topic == "lms.ai.command":
-                await process_ai_command(payload)
-            elif msg.topic == "lms.maintenance.command":
-                await process_maintenance_command(payload)
-            elif msg.topic == "personalize.profile.updated":
-                await process_personalize_profile_update(payload)
-
-            # The loop processes one record at a time, so committing the
-            # consumer position here acknowledges exactly the record whose
-            # handler just completed.  An unexpected exception before this
-            # point leaves the offset uncommitted and Kafka replays it.
-            await consumer.commit()
-
+        await asyncio.gather(*consumers_ready)
     except asyncio.CancelledError:
         logger.info("Worker cancelled", extra={"event": "shutdown"})
     finally:
-        studio_worker.cancel()
-        speech_worker.cancel()
-        cleanup_worker.cancel()
-        youtube_worker.cancel()
-        await asyncio.gather(studio_worker, speech_worker, cleanup_worker, youtube_worker, return_exceptions=True)
-        await consumer.stop()
+        for task in [*consumers_ready, *background]:
+            task.cancel()
+        await asyncio.gather(*consumers_ready, *background, return_exceptions=True)
+        for consumer in consumers:
+            await consumer.stop()
         await close_kafka_producer()
         await close_ai_pool()
         if getattr(settings, "neo4j_enabled", True):

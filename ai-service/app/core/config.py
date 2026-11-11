@@ -155,6 +155,9 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
     top_k_chunks: int = 6
+    # Wrong-answer diagnosis is interactive: fewer, sharper chunks keep the
+    # prompt small so a fast model can answer within a couple of seconds.
+    diagnosis_top_k: int = 3
     use_native_multilingual: bool = True
 
     # Hierarchical chunking (parent-child). Children are embedded and indexed

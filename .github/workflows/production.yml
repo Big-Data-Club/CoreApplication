@@ -74,6 +74,7 @@ jobs:
               - 'k3s/base/ai-service-deployment.yaml'
               - 'k3s/base/ai-lab-authoring-worker-deployment.yaml'
               - 'k3s/base/course-blueprint-worker-deployment.yaml'
+              - 'k3s/base/kafka-ai-topics-job.yaml'
               - 'k3s/base/kafka-statefulset.yaml'
               - 'k3s/base/configmap.yaml'
               - 'k3s/base/ingress.yaml'

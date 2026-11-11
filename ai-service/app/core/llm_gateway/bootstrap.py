@@ -648,7 +648,10 @@ async def bootstrap_llm_registry() -> None:
         (TASK_MEMORY_COMPRESS,  default_model_id, 10),
         (TASK_FLASHCARD_GEN,    default_model_id, 10),
         (TASK_GRAPH_LINK,       default_model_id, 10),
-        (TASK_DIAGNOSIS,        default_model_id, 10),
+        # Wrong-answer diagnosis is answered while a student waits, so it is
+        # seeded on the latency-first model and never on the heavyweight chat
+        # default. Admins can still override the binding at runtime.
+        (TASK_DIAGNOSIS,        flash_model_id, 10),
         (TASK_QUIZ_GEN,         default_model_id, 10),
         (TASK_MICRO_LESSON_GEN, default_model_id, 10),
         (TASK_MICRO_QUIZ_GEN,   default_model_id, 10),

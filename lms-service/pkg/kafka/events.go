@@ -4,6 +4,12 @@ import "time"
 
 const TopicCourseDeleted = "lms.course.deleted"
 
+// TopicAIInteractive carries latency-sensitive AI jobs that a student is
+// actively waiting for (currently wrong-answer diagnosis). It is consumed by
+// a dedicated consumer group so batch work on lms.ai.command can never block
+// an interactive request. The topic is created with multiple partitions.
+const TopicAIInteractive = "lms.ai.interactive"
+
 type CourseInstructor struct {
 	UserID   int64  `json:"user_id"`
 	FullName string `json:"full_name"`

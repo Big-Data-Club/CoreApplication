@@ -335,6 +335,11 @@ The normal `main` release path is `production.yml`:
      `recommender-service`, `personalize-service`, or `lms-service` changed.
    - AI changes select both `ai-service` and `ai-worker` because they share the
      same image.
+   - AI deploys also run the `kafka-ai-topics` Job, which creates
+     `lms.ai.interactive` with 6 partitions. Wrong-answer diagnosis consumes it
+     in the `ai-worker-interactive` group (`AI_WORKER_MODE=all`,
+     `AI_INTERACTIVE_CONCURRENCY=6`) so it never queues behind document
+     indexing on `lms.ai.command`.
 2. **Build**
    - GitHub-hosted runners build `linux/amd64` images with Buildx.
    - Images are pushed to Docker Hub as both the immutable commit SHA and

@@ -239,7 +239,7 @@ func (h *AIHandler) DiagnoseWrongAnswer(c *gin.Context) {
 		logger.Error("Failed to tracking AI diagnosis job in Redis", err)
 	}
 
-	err = kafka.PublishEvent(c.Request.Context(), "lms.ai.command", []byte(jobID), event)
+	err = kafka.PublishEvent(c.Request.Context(), kafka.TopicAIInteractive, []byte(jobID), event)
 	if err != nil {
 		logger.Error("AI diagnosis command publish failed", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("kafka_error", "Failed to queue diagnosis"))

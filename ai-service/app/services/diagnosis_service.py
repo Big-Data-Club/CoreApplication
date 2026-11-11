@@ -70,13 +70,13 @@ class DiagnosisService:
             question_text=question_text,
             course_id=course_id,
             node_id=node_id,
-            top_k=settings.top_k_chunks,
+            top_k=settings.diagnosis_top_k,
         )
         if not chunks:
             chunks = await rag_service.search_multilingual(
                 query=f"{question_text} {wrong_answer}",
                 course_id=course_id,
-                top_k=settings.top_k_chunks,
+                top_k=settings.diagnosis_top_k,
             )
 
         # Hydrate child chunks with their parent passages so the LLM
@@ -116,7 +116,10 @@ class DiagnosisService:
             llm_result = await chat_complete_json(
                 messages=messages, task=TASK_DIAGNOSIS,
                 message_packer=make_evidence_packer(evidence, query=f"{question_text} {correct_answer} {wrong_answer}"),
-                min_completion_tokens=768,
+                # Diagnosis is interactive: cap the answer instead of reserving
+                # 768 completion tokens, which dominated latency on slow models.
+                max_tokens=640,
+                min_completion_tokens=320,
             )
         except Exception as exc:
             logger.error("LLM diagnosis failed: %s", exc)

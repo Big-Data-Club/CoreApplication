@@ -203,6 +203,13 @@ if [[ " ${deployments[*]} " == *" farm-service "* ]]; then
   kubectl apply -f k3s/base/farm-topic-job.yaml --namespace "$DEPLOY_NAMESPACE"
   kubectl wait --for=condition=complete job/farm-reward-topic-v1 --namespace "$DEPLOY_NAMESPACE" --timeout=180s
 fi
+# Interactive AI jobs get their own topic and consumer group. Ensure the topic
+# exists with enough partitions before the worker starts consuming it.
+if [[ " ${deployments[*]} " == *" ai-worker "* ]]; then
+  kubectl delete job kafka-ai-topics --ignore-not-found --namespace "$DEPLOY_NAMESPACE"
+  kubectl apply -f k3s/base/kafka-ai-topics-job.yaml --namespace "$DEPLOY_NAMESPACE"
+  kubectl wait --for=condition=complete job/kafka-ai-topics --namespace "$DEPLOY_NAMESPACE" --timeout=180s
+fi
 # Apply manifests only for selected workloads that require spec-level changes.
 # Capture the previous immutable image before apply so rollback remains correct
 # even though the base manifest uses a `latest` placeholder.
