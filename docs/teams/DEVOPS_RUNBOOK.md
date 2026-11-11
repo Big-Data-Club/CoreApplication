@@ -253,6 +253,18 @@ It checks both routes and the required AI columns without reading student data.
 A POST 404 can originate from a missing LMS route or from an older AI image;
 check the deployed image tags and the route probe before changing migrations.
 
+### Course knowledge map rollout
+
+The AI migration step also applies V023 (`managed_by`, `external_key` and
+`metadata` on `knowledge_nodes`, plus the per-course external-key index) before
+the AI image rolls out. It is additive and rerunnable. A manually deployed AI
+image must not receive `mcp_save_course_knowledge` traffic until V023 is applied,
+because the save path selects and writes those columns. After rollout, open an
+owned course, call `mcp_course_knowledge_read` with `action="outline"`, then run
+`mcp_save_course_knowledge` with `dry_run=true` and inspect the plan before any
+confirmed write. Verify coverage increases and `list_knowledge_nodes` returns
+the new nodes.
+
 ## 4. First five minutes: standard cluster health check
 
 Run the following read-only commands after connecting and before a release,

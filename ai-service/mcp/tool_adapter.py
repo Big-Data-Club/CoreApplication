@@ -61,6 +61,8 @@ SAFE_DEFAULT_TOOLS = {
     "mcp_generate_slide_deck",
     "mcp_generate_report",
     "mcp_create_lesson",
+    "mcp_course_knowledge_read",
+    "mcp_save_course_knowledge",
     "mcp_studio_read", "mcp_studio_write", "mcp_flashcards_read", "mcp_flashcards_write",
 }
 WRITE_TOOLS = {
@@ -71,11 +73,13 @@ WRITE_TOOLS = {
     "mcp_apply_course_blueprint",
     "mcp_create_lesson",
     "mcp_batch_generate_quiz",
+    "mcp_save_course_knowledge",
 }
 
 COURSE_READ_TOOLS = {
     "list_knowledge_nodes",
     "search_course_materials",
+    "mcp_course_knowledge_read",
 }
 
 COURSE_OWNER_TOOLS = {
@@ -83,6 +87,7 @@ COURSE_OWNER_TOOLS = {
     "mcp_index_files",
     "mcp_batch_generate_quiz",
     "mcp_create_lesson",
+    "mcp_save_course_knowledge",
 }
 
 
@@ -145,7 +150,7 @@ def get_mcp_tool_list() -> list[dict]:
                 "annotations": {
                     "readOnlyHint": tool.name not in WRITE_TOOLS,
                     "destructiveHint": False,
-                    "idempotentHint": tool.name in {"assess_question", "list_my_courses", "list_knowledge_nodes", "search_course_materials", "mcp_generate_slide_deck", "mcp_generate_report"},
+                    "idempotentHint": tool.name in {"assess_question", "list_my_courses", "list_knowledge_nodes", "search_course_materials", "mcp_generate_slide_deck", "mcp_generate_report", "mcp_save_course_knowledge"},
                     "openWorldHint": tool.name == "assess_question",
                 },
             })

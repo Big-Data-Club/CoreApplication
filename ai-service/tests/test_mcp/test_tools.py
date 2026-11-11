@@ -41,6 +41,13 @@ def test_blueprint_materialization_requires_write_scoped_key():
     assert "mcp_apply_course_blueprint" in WRITE_TOOLS
 
 
+def test_course_knowledge_map_tools_are_exposed():
+    names = get_mcp_tool_names()
+    assert "mcp_course_knowledge_read" in names
+    assert "mcp_save_course_knowledge" in names
+    assert "mcp_save_course_knowledge" in WRITE_TOOLS
+
+
 # ── _tool_result_to_mcp ──────────────────────────────────────────────────────
 
 def test_tool_result_to_mcp_success():

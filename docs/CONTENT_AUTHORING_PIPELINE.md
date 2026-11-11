@@ -149,6 +149,37 @@ Speech objects remain in MinIO until operational cleanup; deleting a card cascad
 job metadata but does not automatically delete its audio object. A retention/cleanup
 policy is required before treating these caches as disposable personal data.
 
+## Agent-built course knowledge maps
+
+Courses created in bulk often have lessons but no knowledge nodes, so mastery,
+prerequisites and graph-aware recommendations have nothing to attach to. Two
+owner/co-teacher MCP tools close that gap without hand-authoring every course:
+
+- `mcp_course_knowledge_read` reads one course. `action="outline"` returns
+  sections, lessons, text/indexing coverage, existing nodes and prerequisite
+  counts. `action="lesson"` returns one paged lesson text
+  (`offset`/`limit`, 12,000 characters by default, 30,000 maximum). Unindexed
+  DOCUMENT lessons report `text_chars=0` and must be indexed first.
+- `mcp_save_course_knowledge` persists the taxonomy the external client model
+  authored: up to 200 nodes and 500 relations per call. Nodes carry a stable
+  `key` slug, optional `parent_key` skill hierarchy, `source_content_id`,
+  objectives, misconceptions and difficulty. Relations use
+  `prerequisite|related|extends|equivalent|contrasts_with`; prerequisite cycles
+  are rejected after combining new and existing edges.
+
+Writes require a write-scoped credential, course ownership/co-teaching and
+`confirmed=true`. `dry_run=true` validates and reports the plan first. Reusing
+the same key updates the same row, so retries are safe. Nodes created this way
+are marked `managed_by='mcp-knowledge-map'` and keyed by `external_key` (V023).
+A teacher or indexing node with the same normalized name is reused and never
+overwritten; relations can still point at it. Deletes are intentionally not
+offered because `user_concept_mastery` and chunk links cascade from node rows.
+
+Learner mastery is not fabricated: it accrues from real quick-check and quiz
+interactions once questions carry these node IDs. The recommended loop is
+build map, then author quizzes with `mcp_batch_generate_quiz` using the returned
+`node_ids`.
+
 ## MCP compatibility
 
 Legacy Markdown/Mermaid formatters remain compatible. New own-model MCP tools

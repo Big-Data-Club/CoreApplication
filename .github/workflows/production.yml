@@ -460,6 +460,19 @@ jobs:
                   await conn.close()
           asyncio.run(main())
           ' < ai-service/migrations/V014__mcp_api_keys.sql
+          echo "Applying course knowledge map schema"
+          kubectl exec -i -n "$DEPLOY_NAMESPACE" "$POD" -- python -c '
+          import asyncio, os, sys, asyncpg
+          SQL = sys.stdin.read()
+          async def main():
+              conn = await asyncpg.connect(host=os.environ["AI_DB_HOST"], port=int(os.environ["AI_DB_PORT"]), user=os.environ["AI_DB_USER"], password=os.environ["AI_DB_PASSWORD"], database=os.environ["AI_DB_NAME"])
+              try:
+                  async with conn.transaction():
+                      await conn.execute(SQL)
+              finally:
+                  await conn.close()
+          asyncio.run(main())
+          ' < ai-service/migrations/V023__course_knowledge_map.sql
           python3 scripts/apply-flashcard-migrations.py | kubectl exec -i -n "$DEPLOY_NAMESPACE" "$POD" -- python -
 
       - name: Deploy immutable images and verify rollouts

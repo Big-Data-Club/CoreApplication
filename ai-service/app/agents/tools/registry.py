@@ -34,6 +34,10 @@ from app.agents.tools.teacher.mcp_generate_slide_deck import McpGenerateSlideDec
 from app.agents.tools.teacher.mcp_generate_report import McpGenerateReportTool
 from app.agents.tools.teacher.mcp_index_files import McpIndexFilesTool
 from app.agents.tools.teacher.mcp_create_lesson import McpCreateLessonTool
+from app.agents.tools.teacher.mcp_course_knowledge import (
+    McpCourseKnowledgeReadTool,
+    McpSaveCourseKnowledgeTool,
+)
 from app.agents.tools.shared.list_accessible_courses import ListAccessibleCoursesTool
 
 # ── Mentor Tools ──────────────────────────────────────────────────────────────
@@ -79,6 +83,8 @@ _TEACHER_ONLY_TOOLS: list[BaseTool] = [
     McpGenerateReportTool(),
     McpIndexFilesTool(),
     McpCreateLessonTool(),
+    McpCourseKnowledgeReadTool(),
+    McpSaveCourseKnowledgeTool(),
 ]
 
 _MENTOR_ONLY_TOOLS: list[BaseTool] = [
