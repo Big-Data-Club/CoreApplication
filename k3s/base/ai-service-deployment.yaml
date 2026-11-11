@@ -104,6 +104,16 @@ spec:
               name: bdc-secrets
               key: OPENAI_API_KEY
               optional: true
+        # Self-hosted BDC AI Gateway (aimodels). Optional: admins can add the
+        # key in the Gateway UI instead of the cluster secret.
+        - name: AI_GATEWAY_BASE_URL
+          value: "https://bdc.hpcc.vn/aimodels/v1"
+        - name: AI_GATEWAY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_GATEWAY_API_KEY
+              optional: true
         - name: AI_SERVICE_SECRET
           valueFrom:
             secretKeyRef:
@@ -278,6 +288,16 @@ spec:
             secretKeyRef:
               name: bdc-secrets
               key: OPENAI_API_KEY
+              optional: true
+        # Self-hosted BDC AI Gateway (aimodels). Optional: admins can add the
+        # key in the Gateway UI instead of the cluster secret.
+        - name: AI_GATEWAY_BASE_URL
+          value: "https://bdc.hpcc.vn/aimodels/v1"
+        - name: AI_GATEWAY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_GATEWAY_API_KEY
               optional: true
         - name: AI_SERVICE_SECRET
           valueFrom:

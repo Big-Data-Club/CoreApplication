@@ -10,8 +10,22 @@ from app.core.llm_gateway.errors import AuthError, ProviderError, RateLimitedErr
 from app.core.llm_gateway.types import Model, SpeechRequest
 from app.core.llm_gateway.speech_errors import SpeechProviderError
 
-SPEECH_ADAPTERS = {"runway", "elevenlabs"}
+SPEECH_ADAPTERS = {"runway", "elevenlabs", "openai_speech"}
 MAX_AUDIO_BYTES = 32 * 1024 * 1024
+_AUDIO_MEDIA_TYPES = {
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "opus": "audio/ogg",
+    "flac": "audio/flac",
+}
+
+
+def speech_media_type(model: Model) -> str:
+    """Audio MIME type declared by a speech model, for previews and storage."""
+    config = model.config or {}
+    default = "wav" if model.adapter_type == "openai_speech" else "mp3"
+    fmt = str(config.get("response_format") or default).lower()
+    return _AUDIO_MEDIA_TYPES.get(fmt, "audio/mpeg")
 
 
 def check_response(response: httpx.Response, provider: str = "speech", *, credentials: bool = True) -> None:
@@ -81,6 +95,39 @@ async def synthesize(model: Model, api_key: str, req: SpeechRequest) -> bytes:
             data = response.content
             if not data or len(data) > MAX_AUDIO_BYTES:
                 raise ProviderError("Invalid speech output size")
+            return data
+        if model.adapter_type == "openai_speech":
+            # OpenAI-compatible endpoint served by the self-hosted BDC gateway
+            # (POST {base}/audio/speech with model, input, voice, format).
+            base = (model.base_url or "").rstrip("/")
+            if not base:
+                raise SpeechProviderError("missing_base_url", provider="openai_speech")
+            path = str(config.get("endpoint_path") or "/audio/speech")
+            payload: dict[str, object] = {
+                "model": model.model_name,
+                "input": req.text,
+                "response_format": str(config.get("response_format") or "wav"),
+            }
+            if voice:
+                payload["voice"] = str(voice)
+            if config.get("send_speed"):
+                payload["speed"] = round(speed, 3)
+            if config.get("send_language"):
+                payload["language"] = language
+            extra = config.get("extra")
+            if isinstance(extra, dict):
+                payload.update(extra)
+            response = await client.post(
+                f"{base}{path}",
+                headers={"Authorization": f"Bearer {api_key}", "Accept": "audio/*"},
+                json=payload,
+            )
+            check_response(response, "openai_speech")
+            data = response.content
+            if not data:
+                raise ProviderError("Speech provider returned empty audio")
+            if len(data) > MAX_AUDIO_BYTES:
+                raise ProviderError("Speech output exceeds size limit")
             return data
         if model.adapter_type != "runway":
             raise SpeechProviderError("unsupported_adapter", provider=model.adapter_type)

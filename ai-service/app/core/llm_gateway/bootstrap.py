@@ -47,8 +47,9 @@ logger = logging.getLogger(__name__)
 
 
 async def _bootstrap_speech(registry: ModelRegistry) -> None:
-    """Seed configuration only: no paid calls, no keys, preserve admin edits."""
+    """Seed configuration only: no paid calls, no keys except env-provided ones."""
     from app.core.llm_gateway.types import TASK_TEXT_TO_SPEECH
+    settings = get_settings()
     specs = (
         ("runway", "Runway Speech", "https://api.dev.runwayml.com", {"voice_id": "Niki", "speed": 0.97}),
         ("elevenlabs", "ElevenLabs Speech", "https://api.elevenlabs.io", {"voice_id": "", "speed": 0.97}),
@@ -67,10 +68,80 @@ async def _bootstrap_speech(registry: ModelRegistry) -> None:
                 context_window=2400, default_max_tokens=1, config=config,
             )
         models.append(model)
-    if not await registry.list_bindings(TASK_TEXT_TO_SPEECH):
-        for index, model in enumerate(models):
-            await registry.upsert_binding(task_code=TASK_TEXT_TO_SPEECH, model_id=model.id,
-                                          priority=10 + index * 10, notes="seeded-speech")
+
+    # Self-hosted neural speech behind the BDC AI Gateway. Reuse any provider an
+    # admin already created for this adapter instead of adding a duplicate row;
+    # chat models need `openai_compat`, so they cannot share this provider.
+    gateway_base = (settings.ai_gateway_base_url or "").strip().rstrip("/") or None
+    gateway_provider = next(
+        (p for p in await registry.list_providers() if p.adapter_type == "openai_speech"),
+        None,
+    )
+    if gateway_provider is None:
+        gateway_provider = await registry.upsert_provider(
+            code="bdc-tts",
+            display_name="BDC Neural Speech",
+            adapter_type="openai_speech",
+            base_url=gateway_base,
+        )
+    elif not gateway_provider.base_url and gateway_base:
+        gateway_provider = await registry.update_provider(gateway_provider.id, base_url=gateway_base)
+    gateway_models = await registry.list_models(provider_id=gateway_provider.id)
+    gateway_model = next(
+        (m for m in gateway_models if m.model_name == settings.ai_gateway_tts_model), None
+    )
+    if gateway_model is None:
+        gateway_model = await registry.upsert_model(
+            provider_id=gateway_provider.id,
+            model_name=settings.ai_gateway_tts_model,
+            display_name="BDC Neural Speech · Vieneu v3 Turbo",
+            family="speech",
+            supports_json=False,
+            supports_tools=False,
+            supports_streaming=False,
+            context_window=2400,
+            default_max_tokens=1,
+            config={
+                "voice_id": settings.ai_gateway_tts_voice,
+                "speed": 1.0,
+                "response_format": "wav",
+            },
+        )
+
+    gateway_keys = await registry.list_api_keys(provider_id=gateway_provider.id)
+    if not gateway_keys and _is_usable_env_key(settings.ai_gateway_api_key):
+        try:
+            await registry.create_api_key(
+                provider_id=gateway_provider.id,
+                alias="bdc-ai-gateway-env",
+                plaintext_key=settings.ai_gateway_api_key,
+            )
+            gateway_keys = await registry.list_api_keys(provider_id=gateway_provider.id)
+            logger.info("Migrated AI_GATEWAY_API_KEY from env into llm_api_keys (alias=bdc-ai-gateway-env)")
+        except Exception as exc:
+            logger.warning("Could not seed BDC AI Gateway env key: %s", exc)
+    key_ready = bool(gateway_keys)
+
+    existing_bindings = await registry.list_bindings(TASK_TEXT_TO_SPEECH)
+    if not existing_bindings:
+        ordered = [gateway_model, *models] if key_ready else [*models, gateway_model]
+        for index, model in enumerate(ordered):
+            await registry.upsert_binding(
+                task_code=TASK_TEXT_TO_SPEECH, model_id=model.id,
+                priority=10 + index * 10, notes="seeded-speech",
+            )
+        return
+
+    if any(binding.model.id == gateway_model.id for binding in existing_bindings):
+        return
+    if key_ready:
+        priority = max(1, min(b.priority for b in existing_bindings) - 10)
+    else:
+        priority = max(b.priority for b in existing_bindings) + 10
+    await registry.upsert_binding(
+        task_code=TASK_TEXT_TO_SPEECH, model_id=gateway_model.id,
+        priority=priority, notes="seeded-bdc-tts",
+    )
  
  
 # Model catalog based on GroqCloud production models (April 2026).

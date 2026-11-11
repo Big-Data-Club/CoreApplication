@@ -120,6 +120,16 @@ class Settings(BaseSettings):
     freemodel_api_key: str = ""
     freemodel_base_url: str = "https://cc.freemodel.dev"
 
+    # Self-hosted BDC AI Gateway (private HPCC model router). The key is
+    # optional because an admin can add or rotate it through the gateway UI.
+    # Base URL points at the OpenAI-compatible surface of the router.
+    ai_gateway_base_url: str = "https://bdc.hpcc.vn/aimodels/v1"
+    ai_gateway_api_key: str = ""
+    # Neural speech model served by the gateway. Empty voice means "provider
+    # default"; the vieneu model ignores it.
+    ai_gateway_tts_model: str = "vieneu-v3-turbo"
+    ai_gateway_tts_voice: str = ""
+
     # Optional System One decision endpoint. It is not a chat/tool model.
     jev_enabled: bool = False
     jev_timeout_seconds: float = 2.5

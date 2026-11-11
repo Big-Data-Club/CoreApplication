@@ -314,11 +314,13 @@ async def test_call(body: TestCallIn, request: Request):
         except Exception as exc:
             from app.core.llm_gateway.speech_errors import speech_failure_message
             raise HTTPException(502, speech_failure_message(exc))
+        from app.core.llm_gateway.adapters.speech import speech_media_type
+        media_type = speech_media_type(speech.model)
         return {"content": "Neural speech generated", "model": speech.model.model_name,
                 "provider": speech.model.provider_code, "fallback_used": False, "attempt_no": 1,
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                 "latency_ms": int((time.monotonic()-start)*1000),
-                "audio_data_url": "data:audio/mpeg;base64," + base64.b64encode(speech.audio).decode()}
+                "audio_data_url": f"data:{media_type};base64," + base64.b64encode(speech.audio).decode()}
     if task == TASK_JEV_DECISION:
         if body.model_hint:
             raise HTTPException(400, "Model hint is not supported for the System One task; use task bindings")

@@ -268,14 +268,22 @@ memory/permission boundaries.
 ## Neural speech
 
 Startup registers `runway` and `elevenlabs` adapters, one `eleven_v3` model per
-provider and a `text_to_speech` fallback chain (Runway first). This is a catalog/cache
-warm-up only: no API key is seeded and no paid synthesis runs. Existing speech
-provider/model/binding edits survive startup. Speech models can bind only to
-`text_to_speech`, and text models cannot bind to that task.
+provider and a `text_to_speech` fallback chain (Runway first). It also seeds the
+self-hosted `bdc-tts` provider (`adapter_type: openai_speech`) pointed at
+`AI_GATEWAY_BASE_URL` (default `https://bdc.hpcc.vn/aimodels/v1`) with the
+`vieneu-v3-turbo` model and config `{"response_format":"wav","speed":1.0}`. When
+`AI_GATEWAY_API_KEY` is set and that provider has no key yet, it is seeded once as
+`bdc-ai-gateway-env`. The self-hosted model is bound to `text_to_speech` ahead of
+the paid providers only when a usable key exists; otherwise it is appended as a
+fallback. This is a catalog/cache warm-up only: no API key is seeded from
+elsewhere and no paid synthesis runs. Existing speech provider/model/binding
+edits survive startup. Speech models can bind only to `text_to_speech`, and text
+models cannot bind to that task.
 
 In Admin → LLM Configuration:
 
-1. Add an active key to Runway or ElevenLabs using the existing encrypted key pool.
+1. Add an active key to Runway, ElevenLabs or `bdc-tts` using the existing
+   encrypted key pool (or set `AI_GATEWAY_API_KEY` in the AI service secret).
 2. Runway model config defaults to `{"voice_id":"Niki","speed":0.97}`.
    ElevenLabs config starts with an empty `voice_id`; replace it with the actual
    voice ID from your account. Do not enter `Niki` as an ElevenLabs voice ID.
@@ -288,9 +296,16 @@ In Admin → LLM Configuration:
    accordingly; learner speech uses durable polling instead.
 
 Runway uses `/v1/text_to_speech` plus task polling with the Niki preset; ElevenLabs
-uses `/v1/text-to-speech/{voice_id}`. Provider keys are never sent to audio asset
-hosts. Audio is MP3; speech usage logs record calls/latency/errors and zero token
-counts rather than misreporting character billing as text-model tokens. Character
+uses `/v1/text-to-speech/{voice_id}`. The self-hosted adapter uses the OpenAI
+speech contract at `POST {base_url}/audio/speech` with `model`, `input`,
+`response_format` and an optional `voice`; `speed` and `language` are sent only
+when `send_speed`/`send_language` are enabled in the model config, because some
+self-hosted engines reject unknown fields. It is not streamed: the gateway waits
+for the full audio payload and the worker still normalises to MP3 through FFmpeg,
+so WAV output from `vieneu` is converted before storage. Provider keys are never
+sent to audio asset hosts. Audio is MP3 in storage; speech usage logs record
+calls/latency/errors and zero token counts rather than misreporting character
+billing as text-model tokens. Character
 billing is still visible at the provider; token-based daily limits do not represent
 speech character credits. Existing key health rotation handles 429/auth failures;
 explicit Retry-After is respected even for daily exhaustion.

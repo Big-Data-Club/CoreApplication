@@ -27,15 +27,16 @@ def speech_failure_message(error: Exception, *, stage: str = "synthesis") -> str
     if isinstance(error, AuthError):
         return f"Dịch vụ giọng nói từ chối key hoặc quyền API (HTTP {error.status_code}). Kiểm tra key của đúng provider và quyền của tổ chức."
     if isinstance(error, SpeechProviderError):
-        name = {"runway": "Runway", "elevenlabs": "ElevenLabs"}.get(error.provider, "Dịch vụ giọng nói")
+        name = {"runway": "Runway", "elevenlabs": "ElevenLabs", "openai_speech": "BDC AI Gateway"}.get(error.provider, "Dịch vụ giọng nói")
         messages = {
             "credits_required": f"{name} yêu cầu thanh toán hoặc không đủ credit. Thêm API key chưa đồng nghĩa tài khoản đã có credit.",
             "voice_required": f"{name} chưa cấu hình model.config.voice_id. ElevenLabs cần voice ID thực; Niki là preset của Runway.",
+            "missing_base_url": f"{name} chưa có base URL. Cấu hình base_url của provider (ví dụ https://bdc.hpcc.vn/aimodels/v1).",
             "request_rejected": f"{name} từ chối cấu hình/request (HTTP {error.status_code}). Kiểm tra model, voice, ngôn ngữ và tham số; xem text_to_speech trong Gateway.",
             "not_found": f"{name} không tìm thấy endpoint, model hoặc voice (HTTP 404). Kiểm tra base URL và model/voice đã chọn.",
             "asset_download": f"{name} đã tạo tác vụ nhưng tải file audio không thành công. Kiểm tra mạng/URL audio trong worker; đây không phải lỗi API key.",
             "task_failed": f"{name} báo tác vụ tạo giọng thất bại. Xem trạng thái tác vụ và credit trong tài khoản provider.",
-            "unsupported_adapter": "Task text_to_speech phải dùng provider adapter runway hoặc elevenlabs.",
+            "unsupported_adapter": "Task text_to_speech phải dùng provider adapter runway, elevenlabs hoặc openai_speech.",
             "invalid_speed": "Tốc độ giọng nói phải nằm trong khoảng 0.7–1.2.",
             "transport_failed": f"Không kết nối được {name}. Kiểm tra mạng, DNS và base URL của worker.",
             "timeout": f"{name} tạo giọng quá thời gian cho phép. Kiểm tra tác vụ và trạng thái dịch vụ trước khi thử lại.",

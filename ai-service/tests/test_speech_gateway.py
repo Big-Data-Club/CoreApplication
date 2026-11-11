@@ -164,19 +164,184 @@ def test_flashcard_speech_uses_server_owned_text_and_checks_course():
 
 def test_speech_bootstrap_preserves_existing_admin_voice_and_binding():
     from app.core.llm_gateway.bootstrap import _bootstrap_speech
+    speech_settings = SimpleNamespace(
+        ai_gateway_base_url="https://bdc.example/aimodels/v1",
+        ai_gateway_api_key="",
+        ai_gateway_tts_model="vieneu-v3-turbo",
+        ai_gateway_tts_voice="",
+    )
+
     async def run():
-        custom = replace(model(), config={"voice_id": "custom", "speed": .9})
-        registry = SimpleNamespace(
-            get_provider_by_code=AsyncMock(return_value=SimpleNamespace(id=1)),
-            list_models=AsyncMock(return_value=[custom]), list_bindings=AsyncMock(return_value=["admin"]),
-            upsert_provider=AsyncMock(), upsert_model=AsyncMock(), upsert_binding=AsyncMock(),
+        registry = _FakeRegistry()
+        provider = await registry.upsert_provider(
+            code="runway", display_name="Runway Speech", adapter_type="runway",
+            base_url="https://api.dev.runwayml.com",
         )
-        await _bootstrap_speech(registry)
-        registry.upsert_provider.assert_not_awaited()
-        registry.upsert_model.assert_not_awaited()
-        registry.upsert_binding.assert_not_awaited()
+        custom = await registry.upsert_model(
+            provider_id=provider.id, model_name="eleven_v3", config={"voice_id": "custom", "speed": .9},
+        )
+        admin_binding = await registry.upsert_binding(
+            task_code="text_to_speech", model_id=custom.id, priority=10, notes="admin",
+        )
+        with patch("app.core.llm_gateway.bootstrap.get_settings", return_value=speech_settings):
+            await _bootstrap_speech(registry)
         assert custom.config == {"voice_id": "custom", "speed": .9}
+        assert admin_binding.priority == 10
+        gateway = registry.providers["bdc-tts"]
+        gateway_model = next(m for m in registry.models[gateway.id] if m.model_name == "vieneu-v3-turbo")
+        gateway_binding = next(b for b in registry.bindings if b.model.id == gateway_model.id)
+        # Without a usable key the self-hosted model is a fallback, never first.
+        assert gateway_binding.priority > admin_binding.priority
+
     asyncio.run(run())
+
+
+def test_speech_bootstrap_binds_self_hosted_tts_first_when_gateway_key_exists():
+    from app.core.llm_gateway.bootstrap import _bootstrap_speech
+    speech_settings = SimpleNamespace(
+        ai_gateway_base_url="https://bdc.example/aimodels/v1",
+        ai_gateway_api_key="fixture-gateway-key-not-a-placeholder",
+        ai_gateway_tts_model="vieneu-v3-turbo",
+        ai_gateway_tts_voice="",
+    )
+
+    async def run():
+        registry = _FakeRegistry()
+        with patch("app.core.llm_gateway.bootstrap.get_settings", return_value=speech_settings):
+            await _bootstrap_speech(registry)
+        gateway = registry.providers["bdc-tts"]
+        assert registry.providers["bdc-tts"].base_url == "https://bdc.example/aimodels/v1"
+        gateway_model = next(m for m in registry.models[gateway.id] if m.model_name == "vieneu-v3-turbo")
+        assert registry.keys[gateway.id][0].alias == "bdc-ai-gateway-env"
+        assert registry.bindings[0].model.id == gateway_model.id
+        assert registry.bindings[0].priority < registry.bindings[1].priority
+
+    asyncio.run(run())
+
+
+def test_speech_bootstrap_reuses_an_existing_self_hosted_speech_provider():
+    from app.core.llm_gateway.bootstrap import _bootstrap_speech
+    speech_settings = SimpleNamespace(
+        ai_gateway_base_url="https://bdc.example/aimodels/v1",
+        ai_gateway_api_key="",
+        ai_gateway_tts_model="vieneu-v3-turbo",
+        ai_gateway_tts_voice="",
+    )
+
+    async def run():
+        registry = _FakeRegistry()
+        existing = await registry.upsert_provider(
+            code="bdc", display_name="BDC AI Models", adapter_type="openai_speech",
+            base_url="https://custom.example/v1",
+        )
+        with patch("app.core.llm_gateway.bootstrap.get_settings", return_value=speech_settings):
+            await _bootstrap_speech(registry)
+        assert "bdc-tts" not in registry.providers
+        assert registry.providers["bdc"].base_url == "https://custom.example/v1"
+        assert any(m.model_name == "vieneu-v3-turbo" for m in registry.models[existing.id])
+        assert any(b.model.id == next(m.id for m in registry.models[existing.id]) for b in registry.bindings)
+
+    asyncio.run(run())
+
+
+def test_openai_speech_uses_gateway_contract_and_reports_wav_media_type():
+    from app.core.llm_gateway.adapters.speech import speech_media_type
+    requests = []
+
+    def handle(req):
+        requests.append(req)
+        assert req.url.path == "/aimodels/v1/audio/speech"
+        assert req.headers["authorization"] == "Bearer fixture-key"
+        import json
+        assert json.loads(req.content) == {
+            "model": "vieneu-v3-turbo",
+            "input": "Xin chào",
+            "response_format": "wav",
+        }
+        return httpx.Response(200, content=b"RIFFwav-bytes", headers={"content-type": "audio/wav"})
+
+    speech_model = replace(
+        model(), adapter_type="openai_speech", model_name="vieneu-v3-turbo",
+        base_url="https://bdc.example/aimodels/v1",
+        config={"voice_id": "", "response_format": "wav"},
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    with patch("app.core.llm_gateway.adapters.speech.httpx.AsyncClient", return_value=client):
+        data = asyncio.run(synthesize(speech_model, "fixture-key", SpeechRequest(text="Xin chào")))
+    assert data == b"RIFFwav-bytes" and len(requests) == 1
+    assert speech_media_type(speech_model) == "audio/wav"
+
+
+def test_openai_speech_requires_a_base_url():
+    from app.core.llm_gateway.speech_errors import SpeechProviderError
+    broken = replace(model(), adapter_type="openai_speech", base_url=None, config={})
+    with pytest.raises(SpeechProviderError, match="missing_base_url"):
+        asyncio.run(synthesize(broken, "fixture", SpeechRequest(text="x")))
+
+
+class _FakeRegistry:
+    """Minimal in-memory registry for bootstrap seeding tests."""
+
+    def __init__(self):
+        self.providers: dict[str, SimpleNamespace] = {}
+        self.models: dict[int, list[SimpleNamespace]] = {}
+        self.bindings: list[SimpleNamespace] = []
+        self.keys: dict[int, list[SimpleNamespace]] = {}
+        self._next_id = 100
+
+    def _new(self, **fields):
+        self._next_id += 1
+        return SimpleNamespace(id=self._next_id, **fields)
+
+    async def get_provider_by_code(self, code):
+        return self.providers.get(code)
+
+    async def list_providers(self):
+        return list(self.providers.values())
+
+    async def update_provider(self, provider_id, **fields):
+        provider = next(p for p in self.providers.values() if p.id == provider_id)
+        for key, value in fields.items():
+            setattr(provider, key, value)
+        return provider
+
+    async def upsert_provider(self, *, code, display_name, adapter_type, base_url=None, enabled=True, config=None):
+        provider = self._new(code=code, display_name=display_name, adapter_type=adapter_type,
+                             base_url=base_url, enabled=enabled, config=config or {})
+        self.providers[code] = provider
+        return provider
+
+    async def list_models(self, provider_id=None, only_enabled=False):
+        return list(self.models.get(provider_id, []))
+
+    async def upsert_model(self, *, provider_id, model_name, config=None, **fields):
+        existing = next((m for m in self.models.get(provider_id, []) if m.model_name == model_name), None)
+        if existing is not None:
+            return existing
+        created = self._new(provider_id=provider_id, model_name=model_name, config=config or {}, **fields)
+        self.models.setdefault(provider_id, []).append(created)
+        return created
+
+    async def list_api_keys(self, provider_id=None):
+        return list(self.keys.get(provider_id, []))
+
+    async def create_api_key(self, *, provider_id, alias, plaintext_key):
+        created = self._new(provider_id=provider_id, alias=alias)
+        self.keys.setdefault(provider_id, []).append(created)
+        return created
+
+    async def list_bindings(self, task_code=None):
+        return list(self.bindings)
+
+    async def upsert_binding(self, *, task_code, model_id, priority, notes=None):
+        for binding in self.bindings:
+            if binding.task_code == task_code and binding.model.id == model_id:
+                binding.priority = priority
+                return binding
+        created = self._new(task_code=task_code, model=SimpleNamespace(id=model_id),
+                            model_id=model_id, priority=priority, notes=notes)
+        self.bindings.append(created)
+        return created
 
 
 def test_short_quota_wait_happens_only_in_worker_and_daily_quota_fails_fast():
