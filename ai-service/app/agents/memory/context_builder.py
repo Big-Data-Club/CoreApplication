@@ -214,7 +214,13 @@ class ContextBuilder:
                                         and math.isfinite(candidate[key]) and candidate[key] >= 0
                                         for key in count_fields)
                             accuracy = candidate.get("check_accuracy")
-                            valid = valid and type(accuracy) in (int, float) and 0 <= accuracy <= 1
+                            # A learner with no quick-check attempts legitimately
+                            # has a null accuracy; it must not discard the whole
+                            # profile.
+                            valid = valid and (
+                                accuracy is None
+                                or (type(accuracy) in (int, float) and 0 <= accuracy <= 1)
+                            )
                             valid = valid and candidate.get("user_id", user_id) == user_id
                             valid = valid and candidate.get("course_id", course_id) == course_id
                             if valid:
@@ -481,10 +487,11 @@ class ContextBuilder:
         current_chars = len(parts[0])
 
         if profile:
-            comp = profile.get("completed_lessons", 0)
-            att = profile.get("attempted_lessons", 0)
-            acc = profile.get("check_accuracy", 0.0)
-            line = f"  Lakehouse metrics: completed_lessons={comp}/{att}, quick_check_accuracy={acc:.1%}"
+            comp = profile.get("completed_lessons") or 0
+            att = profile.get("attempted_lessons") or 0
+            acc = profile.get("check_accuracy")
+            acc_text = f"{acc:.1%}" if isinstance(acc, (int, float)) else "n/a"
+            line = f"  Lakehouse metrics: completed_lessons={comp}/{att}, quick_check_accuracy={acc_text}"
             if current_chars + len(line) + 1 <= max_chars:
                 parts.append(line)
                 current_chars += len(line) + 1

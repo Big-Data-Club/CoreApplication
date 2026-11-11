@@ -123,6 +123,15 @@ async def test_profile_errors_are_not_reported_as_no_learning_activity(memory_de
 
 
 @pytest.mark.asyncio
+async def test_profile_without_quick_checks_still_loads(memory_deps):
+    response, _, _ = memory_deps
+    response.json.return_value = {**PROFILE, "check_accuracy": None}
+    ctx = await build()
+    assert ctx["raw"]["profile_fetch_status"] == "loaded"
+    assert "quick_check_accuracy=n/a" in ctx["prompt_section"]
+
+
+@pytest.mark.asyncio
 async def test_successful_empty_profile_has_distinct_status(memory_deps):
     response, _, _ = memory_deps
     response.json.return_value = {**PROFILE, "completed_lessons": 0, "attempted_lessons": 0,

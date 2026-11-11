@@ -73,7 +73,7 @@ def build_decision_explanation(
         explanation["course_profile"] = {
             "completed_lessons": profile.get("completed_lessons", 0),
             "attempted_lessons": profile.get("attempted_lessons", 0),
-            "check_accuracy": profile.get("check_accuracy", 0),
+            "check_accuracy": profile.get("check_accuracy"),
             "quick_checks": (profile.get("correct_checks_count") or 0)
                 + (profile.get("incorrect_checks_count") or 0),
         }

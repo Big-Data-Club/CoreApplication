@@ -311,9 +311,10 @@ class GetStudyPlanTool(BaseTool):
 
             message_suffix = ""
             if personalize_profile:
-                comp = personalize_profile.get("completed_lessons", 0)
-                acc = personalize_profile.get("check_accuracy", 0.0)
-                message_suffix = f" (Lakehouse: Đã học {comp} bài, độ chính xác Quick Check: {acc:.0%})"
+                comp = personalize_profile.get("completed_lessons") or 0
+                acc = personalize_profile.get("check_accuracy")
+                acc_text = f"{acc:.0%}" if isinstance(acc, (int, float)) else "chưa có"
+                message_suffix = f" (Lakehouse: Đã học {comp} bài, độ chính xác Quick Check: {acc_text})"
 
             return ToolResult(
                 status="success",

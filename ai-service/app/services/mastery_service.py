@@ -8,6 +8,32 @@ from app.core.database import get_ai_conn
 logger = logging.getLogger(__name__)
 
 
+def _as_count(value) -> int:
+    """Profile counters arrive as None for learners with no activity."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_ratio(value) -> float:
+    """check_accuracy is null until the learner answers a quick check."""
+    try:
+        return min(1.0, max(0.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def build_progress_fact(profile: dict) -> str:
+    completed_count = _as_count(profile.get("completed_lessons"))
+    attempted_count = _as_count(profile.get("attempted_lessons"))
+    accuracy = _as_ratio(profile.get("check_accuracy"))
+    return (
+        f"Đã hoàn thành {completed_count}/{attempted_count} bài học, "
+        f"độ chính xác quick check {accuracy * 100:g}%."
+    )
+
+
 class MasteryService:
 
     async def get_user_struggles(self, user_id: int, course_id: Optional[int] = None) -> list[dict]:
@@ -138,7 +164,7 @@ class MasteryService:
         Synchronizes the DuckDB calculated personalization profile with the Postgres AI database.
         Sets concept struggles and writes learning progress summary facts.
         """
-        struggle_nodes = profile.get("struggle_nodes", [])
+        struggle_nodes = profile.get("struggle_nodes") or []
         
         async with get_ai_conn() as conn:
             # 1. Update concept struggles flags in user_concept_mastery
@@ -162,11 +188,7 @@ class MasteryService:
                 )
                 
             # 2. Update general student learning progress in student_facts
-            completed_count = profile.get("completed_lessons", 0)
-            attempted_count = profile.get("attempted_lessons", 0)
-            accuracy = profile.get("check_accuracy", 0.0)
-            
-            fact_text = f"Đã hoàn thành {completed_count}/{attempted_count} bài học, độ chính xác quick check {accuracy * 100}%."
+            fact_text = build_progress_fact(profile)
             
             existing_fact = await conn.fetchrow(
                 "SELECT id FROM student_facts WHERE user_id = $1 AND course_id = $2 AND category = 'progress'",
