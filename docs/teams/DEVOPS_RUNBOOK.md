@@ -1074,3 +1074,20 @@ organization approval/SSO, and that the repo URL and pinned commit exist. A fork
 without access to secrets cannot build private gateway code. Re-run the failed job
 after configuring access; never paste the token into YAML, `.gitmodules`, chat,
 or logs. No submodule URL or public/private visibility change is needed.
+
+
+### GitHub organization management dashboards
+
+The [GitHub observability design](../operations/GITHUB_ORG_OBSERVABILITY.md)
+contains seven management views and an interactive synthetic-data preview.
+The standalone `scripts/enable-github-grafana.py --org-id 2 --dashboards --apply`
+installs the native pack on the VM after the existing Helm operation completes.
+The script is local preparation until an operator runs it; an observer/exporter
+is not implemented. Open `/monitor/d/bdc-gh-overview?orgId=2` after rollout.
+It reuses this Grafana
+instance and the existing five-day Prometheus retention, with no additional
+history database. Private GitHub data needs a management-only Grafana
+organization/datasource boundary and a separate read-only credential; folder
+visibility alone is not datasource isolation on OSS. Confirm installed plugin
+compatibility and endpoint capabilities before provisioning. Do not put a PAT
+in dashboard JSON or use an operational green state for missing permissions.

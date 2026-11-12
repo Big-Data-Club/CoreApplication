@@ -1,0 +1,105 @@
+{
+  "uid": "bdc-gh-coverage",
+  "title": "GitHub \u00b7 Coverage & access",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "tags": [
+    "bdc",
+    "github",
+    "management"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-5d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Scope & definitions",
+      "options": {
+        "mode": "markdown",
+        "content": "## Coverage & access\nDatasource: `bdc-github` \u00b7 private Grafana organization. These dashboards query GitHub directly; they do not create a historical metrics database or change Prometheus retention (5d). The time picker is a query filter, not deletion of GitHub history."
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "id": 1
+    },
+    {
+      "type": "text",
+      "title": "Interpret results correctly",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 12
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### Scope and freshness\n- Only repositories visible to the PAT are included. Cross-check the inventory with a GitHub organization owner.\n- GitHub search can cap results at 1,000. Narrow the window or repository when approaching that limit. Workflow inventory is limited to 100.\n- Plugin cache can delay changes by about five minutes. Panels sharing a query use the same cached source response.\n- Red query errors, 403, disabled features and no data must be investigated individually. They are not zero alerts.\n\n### Management links\n[Organization](https://github.com/Big-Data-Club) \u00b7 [Projects](https://github.com/orgs/Big-Data-Club/projects) \u00b7 [People](https://github.com/orgs/Big-Data-Club/people) \u00b7 [Security](https://github.com/organizations/Big-Data-Club/settings/security_analysis)\n\n### Not collected by this pack\nBilling, audit events, team membership, organization-wide CI history, API quota telemetry and historical backlog snapshots need additional authorized endpoints or a collector. There are no fabricated charts for those metrics."
+      },
+      "id": 2
+    }
+  ],
+  "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-overview?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Pull requests",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-reviews?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Issues",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-issues?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "CI & workflows",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-actions?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Security",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-security?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Repositories",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-repositories?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Coverage & access",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-coverage?orgId=2",
+      "targetBlank": false
+    }
+  ]
+}

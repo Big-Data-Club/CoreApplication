@@ -1,0 +1,445 @@
+{
+  "uid": "bdc-gh-actions",
+  "title": "GitHub \u00b7 CI & workflows",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "tags": [
+    "bdc",
+    "github",
+    "management"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-5d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "repository",
+        "label": "Repository",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-github-datasource",
+          "uid": "bdc-github"
+        },
+        "query": {
+          "queryType": "Repositories",
+          "owner": "Big-Data-Club",
+          "repository": "",
+          "field": "name"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {
+          "text": "CoreApplication",
+          "value": "CoreApplication"
+        },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Scope & definitions",
+      "options": {
+        "mode": "markdown",
+        "content": "## CI \u00b7 $repository\nChoose a repository above. Runs follow the selected time window; distributions count returned run records. A successful workflow is not proof of a production deployment. Billing and attempt-level statistics are not inferred from these records."
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "id": 1
+    },
+    {
+      "type": "barchart",
+      "title": "Run conclusions \u00b7 selected repository",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Workflow_Runs",
+          "owner": "Big-Data-Club",
+          "repository": "$repository",
+          "options": {
+            "workflow": "",
+            "branch": ""
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "conclusion": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "id": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "count"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xField": "conclusion"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 12
+      },
+      "id": 2
+    },
+    {
+      "type": "barchart",
+      "title": "Run status \u00b7 selected repository",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Workflow_Runs",
+          "owner": "Big-Data-Club",
+          "repository": "$repository",
+          "options": {
+            "workflow": "",
+            "branch": ""
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "status": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "id": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "count"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xField": "status"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 12
+      },
+      "id": 3
+    },
+    {
+      "type": "table",
+      "title": "Workflow runs \u00b7 open run for logs",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Workflow_Runs",
+          "owner": "Big-Data-Club",
+          "repository": "$repository",
+          "options": {
+            "workflow": "",
+            "branch": ""
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "name",
+                "run_number",
+                "head_branch",
+                "status",
+                "conclusion",
+                "event",
+                "created_at",
+                "html_url"
+              ]
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "html_url"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open GitHub",
+                    "url": "${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 12
+      },
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Workflow inventory \u00b7 first 100",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Workflows",
+          "owner": "Big-Data-Club",
+          "repository": "$repository",
+          "options": {
+            "timeField": 0
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "name",
+                "path",
+                "state",
+                "updated_at",
+                "html_url"
+              ]
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "html_url"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open GitHub",
+                    "url": "${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 12
+      },
+      "id": 5
+    }
+  ],
+  "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-overview?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Pull requests",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-reviews?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Issues",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-issues?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "CI & workflows",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-actions?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Security",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-security?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Repositories",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-repositories?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Coverage & access",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-coverage?orgId=2",
+      "targetBlank": false
+    }
+  ]
+}

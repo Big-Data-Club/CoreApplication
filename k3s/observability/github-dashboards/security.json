@@ -1,0 +1,438 @@
+{
+  "uid": "bdc-gh-security",
+  "title": "GitHub \u00b7 Security",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "tags": [
+    "bdc",
+    "github",
+    "management"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-5d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "repository",
+        "label": "Repository",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-github-datasource",
+          "uid": "bdc-github"
+        },
+        "query": {
+          "queryType": "Repositories",
+          "owner": "Big-Data-Club",
+          "repository": "",
+          "field": "name"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {
+          "text": "CoreApplication",
+          "value": "CoreApplication"
+        },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Scope & definitions",
+      "options": {
+        "mode": "markdown",
+        "content": "## Security \u00b7 $repository\nCurrent alerts for the selected repository. Code scanning and Dependabot require endpoint permissions and enabled repository features. An error or no data is not a clean security verdict. No secret values or source snippets are displayed."
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "id": 1
+    },
+    {
+      "type": "barchart",
+      "title": "Open code alerts by severity",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Code_Scanning",
+          "owner": "Big-Data-Club",
+          "repository": "$repository",
+          "options": {
+            "state": "open"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "rule_security_severity_level": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "number": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "count"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xField": "rule_security_severity_level"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 12
+      },
+      "id": 2
+    },
+    {
+      "type": "barchart",
+      "title": "Dependency alerts by state",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Vulnerabilities",
+          "owner": "Big-Data-Club",
+          "repository": "$repository",
+          "options": {}
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "state": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "value": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "count"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xField": "state"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 12
+      },
+      "id": 3
+    },
+    {
+      "type": "table",
+      "title": "Open code scanning alerts",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Code_Scanning",
+          "owner": "Big-Data-Club",
+          "repository": "$repository",
+          "options": {
+            "state": "open"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "number",
+                "state",
+                "rule_description",
+                "rule_security_severity_level",
+                "tool_name",
+                "created_at",
+                "url"
+              ]
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open GitHub",
+                    "url": "${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 12
+      },
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Dependency vulnerabilities",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Vulnerabilities",
+          "owner": "Big-Data-Club",
+          "repository": "$repository",
+          "options": {}
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "packageName",
+                "severity",
+                "state",
+                "firstPatchedVersion",
+                "vulnerableVersionRange",
+                "permalink"
+              ]
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "permalink"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open GitHub",
+                    "url": "${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 12
+      },
+      "id": 5
+    }
+  ],
+  "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-overview?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Pull requests",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-reviews?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Issues",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-issues?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "CI & workflows",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-actions?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Security",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-security?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Repositories",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-repositories?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Coverage & access",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-coverage?orgId=2",
+      "targetBlank": false
+    }
+  ]
+}

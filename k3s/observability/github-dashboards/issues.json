@@ -1,0 +1,379 @@
+{
+  "uid": "bdc-gh-issues",
+  "title": "GitHub \u00b7 Issues",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "tags": [
+    "bdc",
+    "github",
+    "management"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-5d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Scope & definitions",
+      "options": {
+        "mode": "markdown",
+        "content": "## Issue activity\nOrganization-wide issues updated in the selected window. This is activity, not the complete open backlog: untouched older issues are excluded by the plugin time filter. [Open the full backlog on GitHub](https://github.com/issues?q=org%3ABig-Data-Club+is%3Aissue+is%3Aopen)."
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "id": 1
+    },
+    {
+      "type": "barchart",
+      "title": "Updated issues by repository",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Issues",
+          "owner": "Big-Data-Club",
+          "repository": "",
+          "options": {
+            "timeField": 2
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "repo": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "number": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "count"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xField": "repo"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 12
+      },
+      "id": 2
+    },
+    {
+      "type": "barchart",
+      "title": "Updated issues by state",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Issues",
+          "owner": "Big-Data-Club",
+          "repository": "",
+          "options": {
+            "timeField": 2
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "state": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "number": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "count"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xField": "state"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 12
+      },
+      "id": 3
+    },
+    {
+      "type": "table",
+      "title": "Open issues updated in window",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Issues",
+          "owner": "Big-Data-Club",
+          "repository": "",
+          "options": {
+            "timeField": 2,
+            "query": "is:open"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "repo",
+                "number",
+                "title",
+                "author",
+                "assignees",
+                "milestone",
+                "updated_at"
+              ]
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 12
+      },
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Closed in window",
+      "datasource": {
+        "type": "grafana-github-datasource",
+        "uid": "bdc-github"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-github-datasource",
+            "uid": "bdc-github"
+          },
+          "queryType": "Issues",
+          "owner": "Big-Data-Club",
+          "repository": "",
+          "options": {
+            "timeField": 1,
+            "query": "is:closed"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "repo",
+                "number",
+                "title",
+                "closed_at"
+              ]
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 12
+      },
+      "id": 5
+    }
+  ],
+  "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-overview?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Pull requests",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-reviews?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Issues",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-issues?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "CI & workflows",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-actions?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Security",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-security?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Repositories",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-repositories?orgId=2",
+      "targetBlank": false
+    },
+    {
+      "title": "Coverage & access",
+      "type": "link",
+      "url": "/monitor/d/bdc-gh-coverage?orgId=2",
+      "targetBlank": false
+    }
+  ]
+}
