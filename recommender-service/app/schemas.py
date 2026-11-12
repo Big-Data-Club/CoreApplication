@@ -95,7 +95,7 @@ class RecommendationItem(BaseModel):
 class RecommendationResponse(BaseModel):
     request_id: str
     recommendation_set_id: str = Field(default_factory=lambda: f"rs_{uuid4().hex}")
-    policy_version: str = "behavior-rules-v4"
+    policy_version: str = "behavior-rules-v5"
     model_version: str = "rules-2026-11"
     fallback: bool = False
     clarification_needed: bool = False

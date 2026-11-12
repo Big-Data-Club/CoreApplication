@@ -61,7 +61,7 @@ def verify_secret(secret: str | None) -> None:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "healthy", "service": "recommender-service", "policy_version": "behavior-rules-v4"}
+    return {"status": "healthy", "service": "recommender-service", "policy_version": "behavior-rules-v5"}
 
 
 @app.post("/v1/recommendations", response_model=RecommendationResponse)

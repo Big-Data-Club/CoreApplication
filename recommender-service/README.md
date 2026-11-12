@@ -30,7 +30,7 @@ rules slate rather than delaying the user-facing action.
 
 ## Hybrid course ranking
 
-`hybrid-rules-v3` supports course ranking on `dashboard` and
+`behavior-rules-v5` supports course ranking on `dashboard` and
 `course_discovery`. The authenticated surface supplies an eligibility-safe
 `candidates` array; LMS remains the authority for course visibility and
 enrollment. The recommender never grants access to a candidate.
@@ -52,3 +52,17 @@ freshness. LMS computes `new_content_count` from published content created
 after the learner's latest completion (or enrollment when no content has been
 completed). Badges such as `new_content` are only emitted for that
 source-grounded count; the recommender does not infer or generate this claim.
+
+
+Discovery does not require per-course mastery. Mastery is used for next lessons
+inside a course; discovery ranks the authorized catalogue candidates using topic,
+career, level and behavioral signals. Independent interests use their best topic
+match rather than being diluted by unrelated interests. Research Engineer uses an
+explicit research/ML/Python/statistics topic rule; this is not semantic model
+inference. Missing course level is neutral, not evidence of an exact level fit.
+
+The authenticated frontend verifies LMS learner membership via `/api/v1/me/roles`;
+global account role is not the LMS learner role. The existing request deadline is
+shared by membership verification and recommendation serving. Empty catalogues
+return an explicit fallback slate, never a request for mastery or a course ID.
+The UI distinguishes empty and clarification responses from successful ranking.

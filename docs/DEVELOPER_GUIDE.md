@@ -130,3 +130,22 @@ Validation: `go test ./...`, AI pytest, frontend TypeScript/ESLint. PostgreSQL
 regression: set `QUIZ_RESULTS_TEST_DSN` to an isolated database with CREATE SCHEMA,
 then run `go test ./internal/repository -run TestQuizResultsIntegration -v`.
 The fixture creates a unique schema with synthetic learners and drops it afterwards.
+
+
+### Course discovery without mastery (rules v5)
+
+Discovery is a cold-start course ranking path and never requires skill mastery.
+Per-course mastery remains specific to next-lesson suggestions. A signed global
+account role may differ from the LMS role: `/api/recommendations` verifies the
+session access token against LMS `/api/v1/me/roles` before injecting `student`.
+Browser-supplied role and user ID cannot override that decision. The existing
+2.5-second serving deadline includes this membership check.
+
+Empty candidate slates do not fall through to next-lesson/course-ID clarification.
+Frontend displays empty/clarification responses explicitly instead of claiming
+successful personalization of zero courses. Rules v5 match the strongest of the
+learner's independent interests; adding React/Cloud does not dilute a Python
+course's relevance. A bounded Research Engineer topic rule boosts research,
+statistics and ML tooling; missing course level is neutral. These remain lexical
+rules, not semantic model inference. Deploy recommender and frontend together;
+no mastery backfill or migration is needed.

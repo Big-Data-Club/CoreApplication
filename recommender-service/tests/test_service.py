@@ -62,7 +62,7 @@ class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
             ],
         ))
 
-        self.assertEqual(response.policy_version, "behavior-rules-v4")
+        self.assertEqual(response.policy_version, "behavior-rules-v5")
         self.assertTrue(response.fallback)
         self.assertEqual({item.entity["course_id"] for item in response.items}, {1, 3})
         self.assertTrue(all(item.action == "explore_course" for item in response.items))
@@ -227,3 +227,35 @@ class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
             response = await recommendations(request, settings.ai_service_secret)
         self.assertTrue(response.fallback)
         self.assertEqual(len(response.items), 1)
+
+    async def test_discovery_does_not_require_mastery(self):
+        service = RecommendationService()
+        service.course_skill_profile = AsyncMock(side_effect=AssertionError("Discovery must not request mastery"))
+        response = await service.recommend(RecommendationRequest(
+            user_id=42,surface="course_discovery",
+            context={"profile_resolved":True,"interested_categories":["Python","Data Science","AI / ML","React","Cloud Computing"],"goal":"Trở thành Research Engineer","experience_level":"ADVANCED"},
+            candidates=[{"entity_id":1,"title":"Python for Machine Learning","level":"BEGINNER"},{"entity_id":2,"title":"React Advanced","level":"ADVANCED"},{"entity_id":3,"title":"Kế toán","level":"ADVANCED"}],
+        ))
+        self.assertEqual(response.items[0].entity["course_id"],1)
+        self.assertFalse(response.fallback)
+        service.course_skill_profile.assert_not_awaited()
+
+    async def test_unrelated_interests_do_not_dilute_topic_match(self):
+        service=RecommendationService()
+        candidate={"entity_id":1,"title":"Python"}
+        one=RecommendationRequest(user_id=42,context={"interested_categories":["Python"]},candidates=[candidate])
+        many=one.model_copy(update={"context":one.context.model_copy(update={"interested_categories":["Python","React","Cloud Computing"]})})
+        self.assertEqual(service._profile_match(one,one.candidates[0]),service._profile_match(many,many.candidates[0]))
+
+    async def test_empty_discovery_is_not_a_missing_course_or_mastery_request(self):
+        service=RecommendationService()
+        service.course_skill_profile=AsyncMock(side_effect=AssertionError("No mastery lookup"))
+        response=await service.recommend(RecommendationRequest(user_id=42,surface="course_discovery",candidates=[]))
+        self.assertEqual(response.items,[])
+        self.assertTrue(response.fallback)
+        self.assertFalse(response.clarification_needed)
+
+    async def test_unknown_course_level_is_not_an_exact_level_match(self):
+        response=await RecommendationService().recommend(RecommendationRequest(user_id=42,surface="course_discovery",context={"profile_resolved":True,"experience_level":"ADVANCED"},candidates=[{"entity_id":1,"title":"Unspecified course"}]))
+        self.assertTrue(response.fallback)
+        self.assertFalse(any(f.code=="level_fit" and f.value==1.0 for f in response.items[0].why_facts))

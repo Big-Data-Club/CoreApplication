@@ -279,30 +279,35 @@ class RecommendationService:
         return int.from_bytes(digest[:2], "big") / 65535.0
 
     def _profile_match(self, request: RecommendationRequest, candidate: RecommendationCandidate) -> float:
-        interests = set()
-        for category in request.context.interested_categories:
-            interests |= self._tokens(category)
-        interests |= self._tokens(request.context.goal)
-        if not interests:
-            return 0.0
         course_tokens = self._tokens(" ".join(filter(None, [candidate.title, candidate.description, candidate.category])))
-        # A few common course-label aliases make explicit goals useful even
-        # when a learner writes "AI" and an author titles the course
-        # "Machine Learning". This is an explainable lexical rule, not a
-        # model-derived probability.
         aliases = {
             "ai": {"ai", "artificial", "intelligence", "machine", "learning", "ml"},
             "ml": {"ml", "machine", "learning", "ai"},
             "data": {"data", "dữ", "liệu"},
-            "python": {"python"},
+            "cloud": {"cloud", "aws", "azure", "gcp"},
         }
-        matched = sum(bool(aliases.get(token, {token}) & course_tokens) for token in interests)
-        return matched / max(1, len(interests))
+        def match(tokens: set[str]) -> float:
+            return sum(bool(aliases.get(token, {token}) & course_tokens) for token in tokens) / max(1, len(tokens))
+        # Interests are alternatives, not a checklist every course must satisfy.
+        category_match = max((match(self._tokens(category)) for category in request.context.interested_categories), default=0.0)
+        goal = (request.context.goal or "").lower()
+        goal_tokens = self._tokens(goal) - {"trở", "thành", "become", "engineer", "developer", "career"}
+        goal_match = match(goal_tokens)
+        if "research engineer" in goal:
+            # Explainable career/topic rule, not a semantic model probability.
+            research_terms = {"research", "statistics", "statistical", "scientific", "experiment", "pytorch", "tensorflow", "python", "ml", "ai"}
+            if research_terms & course_tokens or {"machine", "learning"} <= course_tokens or {"deep", "learning"} <= course_tokens:
+                goal_match = 1.0
+        if request.context.interested_categories and goal:
+            return 0.7 * category_match + 0.3 * goal_match
+        return category_match if request.context.interested_categories else goal_match
 
     @staticmethod
     def _level_fit(request: RecommendationRequest, candidate: RecommendationCandidate) -> float:
         desired = (request.context.experience_level or "").upper()
-        actual = (candidate.level or "ALL_LEVELS").upper()
+        actual = (candidate.level or "").upper()
+        if not actual:
+            return 0.5
         if not desired:
             return 0.65 if actual in {"BEGINNER", "ALL_LEVELS"} else 0.45
         aliases = {"NEW": "BEGINNER", "BASIC": "BEGINNER", "EXPERIENCED": "ADVANCED"}
@@ -457,10 +462,14 @@ class RecommendationService:
             recommendation_set_id=f"rs_{uuid4().hex}",
         )
         if request.context.role.lower() != "student":
+            response.fallback = True
             response.clarification_needed = True
             response.clarification_message = "Gợi ý học tập hiện chỉ dành cho vai trò học viên."
             return response
-        if request.surface in {"dashboard", "course_discovery"} and request.candidates:
+        if request.surface in {"dashboard", "course_discovery"}:
+            if not request.candidates:
+                response.fallback = True
+                return response
             if (
                 not request.context.profile_resolved
                 and not request.context.interested_categories
@@ -472,7 +481,7 @@ class RecommendationService:
                 request.context.experience_level = (
                     request.context.experience_level or onboarding.get("experience_level") or None
                 )
-            response.policy_version = "behavior-rules-v4"
+            response.policy_version = "behavior-rules-v5"
             response.model_version = "rules-2026-11"
             behavior = await self.behavior_profile(request.user_id)
             response.items = self._rank_course_candidates(request, behavior)
