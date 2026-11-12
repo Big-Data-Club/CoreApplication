@@ -981,6 +981,17 @@ See [Knowledge Farm GitHub rollout instructions](../features/KNOWLEDGE_FARM.md#r
 
 ## HPCC AI Gateway (aimodels) rollout
 
+> **Suspended (2026-11-12):** HPCC access is unavailable. Keep the submodule
+> and manifests for future reuse, but do not reconnect. Both gateway deployments
+> have zero replicas; production CI no longer builds/selects gateway images.
+> The deployment script rejects manual gateway selection and scales existing
+> gateway/info deployments to zero before rolling out other workloads.
+> Stop an existing tunnel immediately on the production context with
+> `kubectl -n default scale deployment ai-gateway --replicas=0`.
+> This source change must be deployed before CI can enforce suspension.
+> The historical setup instructions below are retained only for future reuse.
+
+
 `ai-gateway` (`ai-gateway/`) routes OpenAI-compatible traffic from
 `https://bdc.hpcc.vn/aimodels/*` through one Autossh tunnel to the HPCC GPU
 nodes. One pod runs both containers (`tunnel` and `gateway`) sharing

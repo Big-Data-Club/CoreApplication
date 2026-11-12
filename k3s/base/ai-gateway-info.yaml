@@ -863,7 +863,8 @@ metadata:
   labels:
     app: ai-gateway-info
 spec:
-  replicas: 1
+  # Paused: keep source for reuse; do not reconnect to HPCC.
+  replicas: 0
   selector:
     matchLabels:
       app: ai-gateway-info

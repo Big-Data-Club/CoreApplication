@@ -25,7 +25,8 @@ metadata:
   labels:
     app: ai-gateway
 spec:
-  replicas: 1
+  # Paused: keep source for reuse; do not reconnect to HPCC.
+  replicas: 0
   strategy:
     type: Recreate
   selector:

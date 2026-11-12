@@ -37,21 +37,6 @@ jobs:
         with:
           fetch-depth: 2
 
-      - id: submodule-ai-gateway
-        name: Detect ai-gateway submodule pointer changes
-        shell: bash
-        run: |
-          set -euo pipefail
-          changed=false
-          before="${GITHUB_EVENT_BEFORE:-}"
-          if [[ -n "$before" && "$before" != "0000000000000000000000000000000000000000" ]]; then
-            if git -c diff.submodule=log diff "$before" "${GITHUB_SHA}" -- ai-gateway 2>/dev/null \
-              | grep -q 'Subproject commit'; then
-              changed=true
-            fi
-          fi
-          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
-
       - uses: dorny/paths-filter@v3
         id: changes
         with:
@@ -123,16 +108,6 @@ jobs:
               - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
               - '.github/workflows/production.yml'
-            # ai-gateway (private HPCC model router). dorny/paths-filter does not
-            # track submodule pointer bumps, so a second detection (below) also
-            # inspects the `ai-gateway` submodule entry when only the pointer moved.
-            ai-gateway:
-              - 'ai-gateway/**'
-              - 'k3s/base/ai-gateway-deployment.yaml'
-              - 'k3s/base/ai-gateway-info.yaml'
-              - 'k3s/base/ingress.yaml'
-              - 'scripts/deploy-production.sh'
-              - '.github/workflows/production.yml'
 
       - id: select
         env:
@@ -145,8 +120,6 @@ jobs:
           CHAT_CHANGED: ${{ steps.changes.outputs.chat }}
           FARM_CHANGED: ${{ steps.changes.outputs.farm }}
           DUTYLOG_CHANGED: ${{ steps.changes.outputs.dutylog }}
-          AI_GATEWAY_CHANGED: ${{ steps.changes.outputs.ai-gateway }}
-          AI_GATEWAY_SUBMODULE_CHANGED: ${{ steps.submodule-ai-gateway.outputs.changed }}
           MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
           MANUAL_SERVICES: ${{ inputs.services }}
         shell: bash
@@ -203,11 +176,6 @@ jobs:
           if [[ "${DUTYLOG_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-dutylog","context":"dutylog/backend"}')
             services+=(dutylog-service)
-          fi
-          if [[ "${AI_GATEWAY_CHANGED}" == "true" || "${AI_GATEWAY_SUBMODULE_CHANGED}" == "true" ]]; then
-            items+=('{"image":"bdc-ai-gateway","context":"ai-gateway","dockerfile":"Dockerfile.gateway"}')
-            items+=('{"image":"bdc-ai-gateway-tunnel","context":"ai-gateway","dockerfile":"Dockerfile.tunnel"}')
-            services+=(ai-gateway)
           fi
 
           if [[ ${#items[@]} -eq 0 ]]; then

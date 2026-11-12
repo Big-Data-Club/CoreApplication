@@ -7,6 +7,15 @@ set -Eeuo pipefail
 DEPLOY_NAMESPACE="${DEPLOY_NAMESPACE:-default}"
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-12m}"
 
+# Gateway access is suspended. Reject manual selection before any mutation.
+IFS=',' read -r -a requested_services <<< "${SERVICES:-}"
+for requested_service in "${requested_services[@]}"; do
+  if [[ "$requested_service" == "ai-gateway" || "$requested_service" == "ai-gateway-info" ]]; then
+    echo "AI gateway is suspended; deployment is disabled." >&2
+    exit 2
+  fi
+done
+
 # Keep schema/config/image changes mutually exclusive with online DB migration.
 # The full production workflow acquires this before its schema/Secret steps.
 if [[ -n "${BDC_OPERATION_OWNER:-}" ]]; then
@@ -30,7 +39,6 @@ deployments=(
   recommender-service
   dutylog-service
   farm-service
-  ai-gateway
 )
 
 # A deployment job may roll out only the workloads whose image was published.
@@ -166,6 +174,13 @@ if [[ " ${deployments[*]} " == *" farm-service "* ]]; then
 fi
 
 kubectl cluster-info >/dev/null
+# Applying other workloads must never revive the suspended SSH tunnel.
+for paused in ai-gateway ai-gateway-info; do
+  if [[ -n "$(kubectl get deployment "$paused" --namespace "$DEPLOY_NAMESPACE" --ignore-not-found -o name)" ]]; then
+    kubectl scale deployment "$paused" --replicas=0 --namespace "$DEPLOY_NAMESPACE"
+    kubectl rollout status deployment/"$paused" --namespace "$DEPLOY_NAMESPACE" --timeout=90s
+  fi
+done
 ./scripts/k3s-maintenance.sh \
   --namespace "$DEPLOY_NAMESPACE" \
   --phase pre
