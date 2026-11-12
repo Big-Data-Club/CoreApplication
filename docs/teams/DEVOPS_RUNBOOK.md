@@ -1045,6 +1045,32 @@ router. Updating the page is a manifest edit plus a normal push; the pod
 consumes an upstream `nginx:1.27-alpine` image and is applied inside the
 `ai-gateway` selection only. The `/aimodels` route strips its prefix and rate
 limits 120 req/min; gzip is intentionally NOT applied to that route; the info
-page has gzip plus a 10-minute cache. During the `ai-gateway` private-submodule migration, CI copies the
-submodule using the `SUBMODULE_PAT` repository secret; until that secret is
-set, `github.token` is used.
+page has gzip plus a 10-minute cache.
+
+### Private submodule checkout in Actions
+
+CI and production builds check out the root with `submodules: false`, then run
+`scripts/checkout-service-submodules.py` with the matrix build context. Only
+ancestor/descendant gitlinks required by that context are initialized at their
+pinned revisions: frontend for frontend, DutyLog for dutylog/backend, and MCP
+skills for ai-service. An unrelated service never clones ai-gateway. Rollout
+jobs need only root-owned scripts/manifests and gitlink SHAs, so do not clone
+submodules at all.
+
+The default `GITHUB_TOKEN` is scoped to CoreApplication and cannot read another
+private repository. For gateway image builds, configure **CoreApplication →
+Settings → Secrets and variables → Actions → New repository secret** named
+`SUBMODULE_PAT`. Use a fine-grained token with **Resource owner: Big-Data-Club** and selected
+repositories CoreApplication, BDCHub---AIGateway, and any other private submodule
+needed by the selected build; grant **Contents: Read-only**. Complete organization
+approval/SSO requirements where applicable. The token owner must already have
+access; storing a token cannot create repository access.
+
+Build checkout uses this secret when present and the default token otherwise.
+Gateway builds explicitly stop with instructions if the secret is absent, rather
+than silently trying a default token that cannot work. If it exists but checkout
+still reports Repository not found, check selected repositories, token expiry,
+organization approval/SSO, and that the repo URL and pinned commit exist. A fork PR
+without access to secrets cannot build private gateway code. Re-run the failed job
+after configuring access; never paste the token into YAML, `.gitmodules`, chat,
+or logs. No submodule URL or public/private visibility change is needed.

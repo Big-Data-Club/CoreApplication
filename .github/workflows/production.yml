@@ -246,12 +246,15 @@ jobs:
       - name: Check out CoreApplication
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 1
-          # Falls back to github.token while ai-gateway is still a plain
-          # directory; set the SUBMODULE_PAT repo secret once ai-gateway is a
-          # private submodule so Actions can fetch it.
           token: ${{ secrets.SUBMODULE_PAT || github.token }}
+
+      - name: Check out required service submodules
+        env:
+          SERVICE_CONTEXT: ${{ matrix.context }}
+          SUBMODULE_PAT_CONFIGURED: ${{ secrets.SUBMODULE_PAT != '' }}
+        run: python3 scripts/checkout-service-submodules.py "$SERVICE_CONTEXT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -302,9 +305,9 @@ jobs:
       - name: Check out deployment scripts
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          # Rollout uses root-owned scripts/manifests and gitlink SHAs only.
+          submodules: false
           fetch-depth: 1
-          token: ${{ secrets.SUBMODULE_PAT || github.token }}
 
       - name: Verify production kubeconfig
         shell: bash

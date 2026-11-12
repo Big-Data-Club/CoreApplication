@@ -55,6 +55,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify scoped submodule checkout
+        run: python3 -m unittest discover -s scripts/tests -p test_checkout_service_submodules.py
+
       - name: Detect file changes
         uses: dorny/paths-filter@v3
         id: filter
@@ -249,9 +252,15 @@ jobs:
         if: matrix.should_build == true
         uses: actions/checkout@v4
         with:
-          # The frontend is a Git submodule. setup-node resolves the pnpm lock
-          # file before installation, so it must be present before cache setup.
-          submodules: recursive
+          submodules: false
+          token: ${{ secrets.SUBMODULE_PAT || github.token }}
+
+      - name: Check out required service submodules
+        if: matrix.should_build == true
+        env:
+          SERVICE_CONTEXT: ${{ matrix.context }}
+          SUBMODULE_PAT_CONFIGURED: ${{ secrets.SUBMODULE_PAT != '' }}
+        run: python3 scripts/checkout-service-submodules.py "$SERVICE_CONTEXT"
 
       # Setup build environments
       - name: Setup Java 21
