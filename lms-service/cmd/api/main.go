@@ -621,6 +621,11 @@ func main() {
 				quizzes.POST("/:quizId/start", quizHandler.StartQuizAttempt)
 				quizzes.GET("/:quizId/my-attempts", quizHandler.GetMyQuizAttempts)
 				quizzes.GET("/:quizId/focus-report", quizHandler.GetFocusReport)
+				quizResultsHandler := handler.NewQuizResultsHandler(quizService, redisClient)
+				quizzes.GET("/:quizId/results", quizResultsHandler.Get)
+				quizzes.GET("/:quizId/results/attempts/:attemptId", quizResultsHandler.Answers)
+				quizzes.POST("/:quizId/results/insights", quizResultsHandler.Analyze)
+				quizzes.GET("/:quizId/results/insights/:jobId", quizResultsHandler.Status)
 
 				// Grading
 				quizzes.GET("/:quizId/grading", quizHandler.ListAnswersForGrading)

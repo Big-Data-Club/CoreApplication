@@ -17,6 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.core.llm_gateway.errors import ContextLengthError
 from app.core.config import get_settings
 from app.services.quiz_service import quiz_gen_service, sr_service, BLOOM_LEVELS
 from app.services.learning_context import AuthoringSource
@@ -156,6 +157,8 @@ async def generate_to_bank(body: GenerateToBankRequest, request: Request):
             "rejected_count": rejected,
             "status": "ok",
         }
+    except ContextLengthError as exc:
+        raise HTTPException(status_code=422, detail="Model sinh quiz không đủ ngân sách ngữ cảnh. Hãy giảm số câu hoặc nhờ quản trị viên cấu hình model có ngữ cảnh lớn hơn.") from exc
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:

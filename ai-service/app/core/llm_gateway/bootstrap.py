@@ -34,6 +34,7 @@ from app.core.llm_gateway.types import (
     TASK_MEMORY_COMPRESS,
     TASK_NODE_EXTRACT,
     TASK_QUIZ_GEN,
+    TASK_QUIZ_INSIGHTS,
     TASK_MICRO_LESSON_GEN,
     TASK_MICRO_QUIZ_GEN,
     TASK_VLM_DESCRIBE,
@@ -653,6 +654,7 @@ async def bootstrap_llm_registry() -> None:
         # default. Admins can still override the binding at runtime.
         (TASK_DIAGNOSIS,        flash_model_id, 10),
         (TASK_QUIZ_GEN,         default_model_id, 10),
+        (TASK_QUIZ_INSIGHTS,    default_model_id, 10),
         (TASK_MICRO_LESSON_GEN, default_model_id, 10),
         (TASK_MICRO_QUIZ_GEN,   default_model_id, 10),
         (TASK_AGENT_REACT,      default_model_id, 10),

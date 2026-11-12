@@ -70,9 +70,10 @@ async def _request_budget(task: str, requested_output_tokens: int, fixed_prompt_
             windows.extend(gateway._request_budget(binding.model.context_window, limit, binding.model)
                            for limit in (limits or [None]))
         if windows:
-            # A context prepared for the smallest fallback works for every
-            # configured model rather than failing only after a provider switch.
-            hard_limit = min(hard_limit, min(windows))
+            # Let the gateway select a viable binding. A tiny fallback must
+            # not veto a request that fits the primary; its evidence packer
+            # still enforces each selected model/key's input allowance.
+            hard_limit = min(hard_limit, max(windows))
     except Exception:
         pass
     guard = max(384, int(hard_limit * 0.08))

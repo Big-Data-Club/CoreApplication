@@ -356,7 +356,7 @@ class QuizGenerationService:
         from app.services.learning_design import plan_learning_units
 
         context = await build_learning_context(course_id, sources)
-        units = await plan_learning_units(context, kind="assessment questions", language=language, count=count)
+        units = await plan_learning_units(context, kind="assessment questions", language=language, count=count, task=TASK_QUIZ_GEN)
 
         async def generate(index, unit):
             async with _LLM_SEMAPHORE:

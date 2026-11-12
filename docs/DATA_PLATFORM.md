@@ -568,3 +568,33 @@ startup; see `personalize-service/migrations/V20261105__notebook_annotations.sql
 Rollout order: Personalize → AI HTTP → frontend. Old notes require no backfill.
 Do not run tests against a production DuckDB file; tests force a temporary data
 directory and verify legacy rows, isolation, color updates and removal.
+
+### Quiz insights command
+
+LMS produces `ANALYZE_QUIZ_RESULTS` on existing `lms.ai.command`, keyed by the
+stable `job_id` (`quiz-insights-<uuid>`). AI worker consumes it using the dedicated
+`quiz_insights` LLM task and publishes existing `ai.job.status` statuses/results.
+LMS owns authorization and snapshots; AI owns interpretation. This additive command
+does not change existing consumers or create a new topic. Deploy AI V024 and its
+worker before enabling the LMS/UI producer; older workers reject an unknown command.
+
+Payload fields are `summary` (whole-quiz counts, score and focus/time aggregates),
+`distribution` (five score bins), and `questions` (question statistics/options).
+The size is independent of the number of learners/attempts. `unique_students`
+counts everyone who started; `submitted_attempts` counts submitted attempts.
+No student names, student IDs, individual scores/answers, IP addresses or browser
+agents are sent. The worker still accepts the initial `scores` payload for
+in-flight command compatibility. A shared LMS Redis SET NX gate reuses a quiz's
+analysis job for five minutes, bounding duplicate creation across replicas.
+The purpose is teaching feedback: observed question difficulty, topics needing
+reinforcement and limitations of the evidence. Visibility cannot establish cheating.
+The AI response contains `summary`, `strengths`, `gaps`, `recommendations` and
+`limitations`; LMS returns it only after reauthorizing the course and quiz/job scope.
+
+At-least-once retries use an AI PostgreSQL transaction advisory lock and the
+`quiz_insight_results.job_id` primary key. Completed duplicate deliveries reuse the
+saved result; failures roll back and release the lock, allowing redelivery. Model
+calls time out after 150 seconds; failure is published as `failed`. LMS pending
+state and job scope expire after 24 hours. AI prunes saved results older than 24
+hours on subsequent analysis processing. Queue failure returns 503; no result is
+presented as completed. Rollback the producer/UI first when removing worker support.

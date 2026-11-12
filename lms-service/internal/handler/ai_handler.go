@@ -49,6 +49,10 @@ func NewAIHandler(aiClient *ai.Client, courseRepo *repository.CourseRepository, 
 func (h *AIHandler) GetJobStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		jobID := c.Param("jobId")
+		if strings.HasPrefix(jobID, "quiz-insights-") {
+			c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Use the course-authorized quiz insights endpoint"))
+			return
+		}
 		redisKey := "ai_job:" + jobID
 
 		data, err := h.redisCache.Get(c.Request.Context(), redisKey)

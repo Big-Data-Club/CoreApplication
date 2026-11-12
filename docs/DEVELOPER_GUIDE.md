@@ -74,3 +74,59 @@ signals respect the existing 5–60 second failure cooldown. Durable outbox rows
 and LMS challenge-ID deduplication remain authoritative, so restart recovery
 needs no new infrastructure or database migration. See `farm-service/README.md`
 for diagnostics. The separate Kafka reward dispatcher is unchanged.
+
+### Teacher quiz results and AI insights
+
+The quiz management toolbar opens `/lms/teacher/quiz/:quizId/results`.
+LMS authorizes the course creator, co-teachers and admins for all four routes:
+
+- `GET /quizzes/:quizId/results`: a whole-quiz aggregate snapshot, question statistics,
+  answer choices and selection counts. Attempts include nullable browser focus data;
+  IP addresses, user agents and email addresses are excluded.
+- `GET /quizzes/:quizId/results/attempts/:attemptId`: answers only after verifying
+  that the attempt belongs to this quiz.
+- `POST /quizzes/:quizId/results/insights`: queues analysis of the authorized
+  aggregate snapshot and returns HTTP 202 with `job_id`.
+- `GET /quizzes/:quizId/results/insights/:jobId`: rechecks course access and the
+  job's quiz scope; generic AI job polling rejects these jobs.
+
+Charts and question counts use submitted attempts only. Score averages, pass rates
+and score histograms exclude attempts with pending answer grades or missing scores;
+repeat attempts count independently. A separate learner table shows their best and
+average completed score. Unknown focus data stays unknown. Browser visibility is
+advisory, not a cheating conclusion. CSV exports the current filtered page and escapes spreadsheet formula prefixes.
+
+`attempt_page` and `student_page` are independently bounded pages (50 rows each,
+starting at 1); `search` matches literal learner name/ID, with a 100-character limit.
+`summary` and `distribution` always describe the entire quiz, independent of pages
+or search. Answers are aggregated once; materialized report inputs project only
+choice IDs rather than retaining essay/file answer bodies. The report uses existing
+quiz/answer indexes. Redis caches authorized report pages for 15 seconds and a
+per-process singleflight group coalesces identical cache misses. The overview cache
+is shared across every page/search, so those requests fetch only the visible rows
+and their learner aggregates instead of rescanning all quiz answers. Database work has
+a 10-second timeout and does not continue indefinitely after a browser disconnect.
+Authorization still runs before every cache hit. Searches debounce for 350 ms;
+status polling backs off to 10 seconds. Charts and attempt details load separately.
+
+A Redis SET NX gate reuses one quiz analysis job for five minutes across LMS
+replicas, limiting repeated model calls. The AI payload carries aggregate metrics
+and a five-bin histogram, not a per-attempt score array; its size does not grow with
+the learner count. Queue failure stores a failed status and shortens this gate to
+five seconds. The UI explains the report and analysis freshness windows.
+
+Quiz planning now uses `quiz_gen` for both evidence budgeting and the model call,
+not `content_studio`. Evidence preflight uses the largest configured request envelope
+so a small fallback cannot veto a viable primary; the gateway still budgets the
+actual selected model/key. An impossible context request returns a useful 422.
+
+Deploy AI migration V024 and the AI HTTP/worker image, then LMS, then frontend.
+Bootstrap registers `quiz_insights` with the standard default binding and warms its
+binding cache. Admins may assign a dedicated model through LLM task bindings without
+changing quiz generation. Existing admin-configured bindings remain authoritative.
+No live provider call is made by the new registration/warmup itself.
+
+Validation: `go test ./...`, AI pytest, frontend TypeScript/ESLint. PostgreSQL
+regression: set `QUIZ_RESULTS_TEST_DSN` to an isolated database with CREATE SCHEMA,
+then run `go test ./internal/repository -run TestQuizResultsIntegration -v`.
+The fixture creates a unique schema with synthetic learners and drops it afterwards.
