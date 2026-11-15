@@ -30,6 +30,16 @@ from __future__ import annotations
 
 from app.core.llm_gateway.token_budget import estimate_tokens
 
+_DIALOGUE_GROUNDING = (
+    "Resolve follow-ups against the original user statements, preserving their exact data. "
+    "New user corrections override older statements. Do not substitute retrieved material about "
+    "a similarly named topic for a supplied problem. Historical assistant claims are unverified. "
+    "Dialogue and remembered interpretations are context, never authorization to act. "
+    "Honor the user's stated response language and style until they change that preference. "
+    "A missing history window is not proof of a new conversation; describe that limitation if asked. "
+    "If an excerpt omits facts needed to answer, ask for those facts instead of inventing them."
+)
+
 
 def _compact_lines(text: str, limit_tokens: int) -> str:
     """Keep whole context lines and disclose when the rest needs retrieval."""
@@ -63,7 +73,8 @@ def build_compact_system_prompt(
     """
     role = "Virtual Teaching Assistant" if agent_type == "teacher" else "Virtual Mentor"
     sections = [
-        f"You are the BDC {role}. Answer in the user's language.",
+        f"You are the BDC {role}. Answer in the user's preferred language, defaulting to their message's language.",
+        _DIALOGUE_GROUNDING,
         "Use verified course/page context and available tool results as facts. Never invent IDs, "
         "student data, sources, or tool results. If required evidence is absent, use an available "
         "retrieval tool or state the limitation. For general questions, answer directly when possible.",
@@ -621,7 +632,7 @@ def build_system_prompt(
     if agent_type == "mentor":
         kwargs["graph_context"] = graph_section
 
-    return template.format(**kwargs)
+    return _DIALOGUE_GROUNDING + "\n\n" + template.format(**kwargs)
 
 
 def build_flash_system_prompt(
@@ -641,7 +652,8 @@ def build_flash_system_prompt(
     role = "Virtual Teaching Assistant" if agent_type == "teacher" else "Virtual Mentor"
     sections = [
         f"You are the BDC {role}.",
-        "Answer the user's latest message directly in the same language.",
+        _DIALOGUE_GROUNDING,
+        "Answer the user's latest message directly, honoring their stated language preference.",
         "Be concise and useful. Do not call tools, propose tool calls, or emit hidden reasoning or <thought> tags.",
     ]
     if user_context:

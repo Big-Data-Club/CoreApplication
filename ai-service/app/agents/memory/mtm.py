@@ -241,6 +241,22 @@ class MTMemory:
                 "agent_type": row["agent_type"],
             }
 
+    async def save_conversation_state(self, session_id: str, user_id: int, state: dict, message_id: int) -> None:
+        """Update only dialogue state, atomically and scoped to its owner."""
+        async with get_ai_conn() as conn:
+            await conn.execute(
+                """UPDATE agent_sessions
+                   SET compressed_ctx = jsonb_set(COALESCE(compressed_ctx, '{}'::jsonb),
+                       '{conversation_state}', $1::jsonb, true)
+                   WHERE id = $2 AND user_id = $3
+                     AND COALESCE(CASE
+                       WHEN jsonb_typeof(compressed_ctx->'conversation_state'->'message_id') = 'number'
+                         AND compressed_ctx->'conversation_state'->>'message_id' ~ '^[0-9]{1,19}$'
+                       THEN (compressed_ctx->'conversation_state'->>'message_id')::numeric
+                     END, 0) < $4""",
+                json.dumps({**state, "message_id": message_id}, ensure_ascii=False), session_id, user_id, message_id,
+            )
+
     async def get_working_state(self, session_id: str) -> dict:
         """Get the unified working state for a session."""
         ctx = await self.get_context(session_id)

@@ -34,7 +34,7 @@ from app.agents.core.context_foundation import (
     resolve_turn_context,
     resume_request_after_course_choice,
 )
-from app.agents.core.prompt_budget import pack_agent_messages
+from app.agents.core.prompt_budget import pack_agent_messages, remaining_memory_budget
 from app.agents.core.clarification import (
     build_scope_clarification,
     should_clarify,
@@ -433,6 +433,7 @@ async def run_react_loop(
     page_context: dict | None = None,
     system_context: dict | None = None,
     chat_mode: str = "standard",
+    session_context: dict | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """
     Execute the full ReAct loop for a single user turn.
@@ -643,6 +644,11 @@ async def run_react_loop(
     from app.agents.memory.history import load_history
     history_window = await load_history(session_id, user_id, limit=30)
     history_turns = history_window["messages"]
+    from app.agents.memory.conversation_state import advance_dialogue, restore_dialogue
+    previous_dialogue_state = (session_context or {}).get("conversation_state")
+    dialogue_course_id = context_resolution.course_id or course_id
+    history_turns = restore_dialogue(previous_dialogue_state, history_turns, dialogue_course_id)
+    history_window = {**history_window, "messages": history_turns}
     planning_history_available = history_window["status"] != "unavailable"
 
     effective_user_request = resume_request_after_course_choice(
@@ -694,6 +700,7 @@ async def run_react_loop(
             page_context=page_context,
             system_context=system_context,
             history=history_turns,
+            conversation_state=previous_dialogue_state,
         )
 
     from app.agents.core.conversation_task import execution_request, planning_dialogue
@@ -870,6 +877,13 @@ async def run_react_loop(
             logger.warning("push_recent_course failed: %s", exc)
 
     # -- Step 2: Assemble memory context --------------------------------------
+    try:
+        request_budget = await get_gateway().preview_request_budget(
+            TASK_AGENT_FLASH if mode == "flash" else TASK_AGENT_REACT,
+        )
+    except Exception as exc:
+        logger.warning("Could not preview gateway context budget: %s", exc)
+        request_budget = min(settings.llm_request_token_budget, 4096)
     use_learner_snapshot = False
     if mode == "flash":
         # Keep a small local dialogue window for coherence without touching
@@ -877,24 +891,40 @@ async def run_react_loop(
         # standard/deep turn can contain a large tool result (for example
         # search_course_materials).  Never replay that result into Flash:
         # Flash has no tools and must keep its prompt strictly bounded.
-        flash_history = [
-            {"role": item["role"], "content": str(item["content"])[:1200]}
-            for item in history_turns
-            if item.get("role") in ("user", "assistant") and item.get("content")
-        ][-3:]
+        from app.agents.memory.context_builder import ContextBuilder
+        from app.core.llm_gateway.token_budget import estimate_messages_tokens
+        flash_budget = remaining_memory_budget(request_budget, [
+            {"role": "system", "content": build_flash_system_prompt(agent_type,
+                user_context=user_context, page_context=ctx_decision.effective_page_context,
+                system_context=ctx_decision.effective_system_context)},
+            {"role": "user", "content": effective_user_request},
+        ], {})
+        flash_history, excerpted = ContextBuilder._fit_recent_dialogue(
+            history_turns, min(settings.stm_budget, flash_budget),
+        )
         memory_ctx = {
-            "prompt_section": "",
-            "stm_messages": flash_history,
-            "token_estimate": sum(len(str(item.get("content") or "")) // 4 for item in flash_history),
-            "raw": {"mtm": {}},
+            "prompt_section": "", "stm_messages": flash_history,
+            "token_estimate": estimate_messages_tokens(flash_history),
+            "raw": {"mtm": {}, "stm": {
+                "available_count": len(history_turns), "excerpted": excerpted,
+                "token_estimate": estimate_messages_tokens(flash_history),
+            }},
         }
     else:
-        try:
-            request_budget = await get_gateway().preview_request_budget(TASK_AGENT_REACT)
-        except Exception as exc:
-            logger.warning("Could not preview gateway context budget: %s", exc)
-            request_budget = min(settings.llm_request_token_budget, 4096)
-        memory_budget = min(settings.max_context_tokens, max(256, int(request_budget * 0.18)))
+        budget_schemas, _ = select_tool_schemas(get_tool_schemas(agent_type), execution_plan.selected_tools)
+        if intent_type == "general_chat" and not execution_plan.requires_tool and not execution_plan.selected_tools:
+            budget_schemas = []
+        budget_prompt = build_compact_system_prompt(
+            agent_type, page_context=ctx_decision.effective_page_context,
+            system_context=ctx_decision.effective_system_context,
+            active_courses_section=format_active_courses_for_prompt(active_courses,
+                max_tokens=max(128, min(800, int(request_budget * 0.12))), include_nodes=False),
+        )
+        memory_budget = min(settings.max_context_tokens, remaining_memory_budget(
+            request_budget, [{"role": "system", "content": budget_prompt},
+                             {"role": "user", "content": effective_user_request}],
+            {"tools": budget_schemas} if budget_schemas else {},
+        ))
         use_learner_snapshot = should_inject_learner_snapshot(
             agent_type=agent_type,
             personalization_enabled=execution_plan.personalization_enabled,
@@ -914,6 +944,7 @@ async def run_react_loop(
             memory_budget_tokens=memory_budget,
             include_ltm_facts=not use_learner_snapshot,
             history_window=history_window,
+            session_context=session_context,
         )
 
     yield AgentEvent(
@@ -1015,7 +1046,16 @@ async def run_react_loop(
 
     # Save user message to STM and persistent store before processing
     await stm.append(session_id, "user", user_message)
-    await message_store.save_message(session_id, "user", user_message)
+    user_message_id = await message_store.save_message(session_id, "user", user_message)
+    # Only the session orchestrator supplies owner-checked durable context.
+    if session_context is not None and type(user_message_id) is int and user_message_id > 0:
+        try:
+            await mtm.save_conversation_state(session_id, user_id, advance_dialogue(
+                previous_dialogue_state, user_message, execution_plan.conversation_task,
+                history_turns, dialogue_course_id,
+            ), user_message_id)
+        except Exception as exc:
+            logger.warning("Dialogue state persistence unavailable error_type=%s", type(exc).__name__)
 
     # -- Step 3.8: Deterministic learner snapshot (mentor) ----------------------
     # Fetch the few facts that make the agent *know* the student (due reviews,
@@ -1343,6 +1383,7 @@ async def run_react_loop(
     )
     agent_message_packer = partial(
         pack_agent_messages, compact_system_prompt=compact_system_prompt,
+        required_tools=frozenset(execution_plan.selected_tools),
     )
 
     # Start with system prompt
@@ -1379,6 +1420,8 @@ async def run_react_loop(
     messages.append({"role": "user", "content": effective_message})
 
     tool_schemas = get_tool_schemas(agent_type)
+    if intent_type == "general_chat" and not execution_plan.requires_tool and not execution_plan.selected_tools:
+        tool_schemas = []
     # Progressive disclosure: iteration 0 only shows the planner-selected
     # tools (small models drown in 20+ schemas); later iterations re-open
     # the full catalogue so the model can recover from a bad plan.
@@ -1498,7 +1541,7 @@ async def run_react_loop(
             messages=messages,
             temperature=0.3,
             max_tokens=max_tokens,          # dynamic
-            min_completion_tokens=768 if mode == "flash" else 1024,
+            min_completion_tokens=min(768 if mode == "flash" else 1024, max(128, request_budget // 4)),
             json_mode=False,
             extra={
                 "tools": active_tool_schemas,

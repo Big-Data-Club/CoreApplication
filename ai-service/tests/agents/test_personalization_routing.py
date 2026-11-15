@@ -196,3 +196,21 @@ async def test_history_outage_notice_is_in_model_prompt(memory_deps):
     ctx = await build(history_window={"messages": [], "source": "none", "status": "unavailable"})
     assert 'HISTORY UNAVAILABLE' in ctx['prompt_section']
     assert 'Do not claim this is a new conversation' in ctx['prompt_section']
+
+
+@pytest.mark.asyncio
+async def test_owner_checked_session_snapshot_avoids_a_second_database_read(memory_deps):
+    snapshot = {"key_facts": {"current_topic": "MPI"}}
+    with patch('app.agents.memory.context_builder.mtm.get_context', new=AsyncMock()) as read:
+        ctx = await build(session_context=snapshot)
+    read.assert_not_awaited()
+    assert ctx["raw"]["mtm"] == snapshot
+    assert snapshot == {"key_facts": {"current_topic": "MPI"}}
+
+
+@pytest.mark.asyncio
+async def test_casual_chat_does_not_fetch_course_mastery(memory_deps):
+    _, client, scoring = memory_deps
+    await build(intent_type="general_chat")
+    client.get.assert_not_awaited()
+    scoring.assert_not_awaited()

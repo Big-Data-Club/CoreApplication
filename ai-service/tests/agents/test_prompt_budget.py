@@ -54,7 +54,9 @@ class PromptBudgetTests(unittest.TestCase):
     def test_small_key_packs_history_and_evidence_without_breaking_tool_protocol(self) -> None:
         packed = pack_agent_messages(self.messages, self.extra, 1150)
         self.assertLessEqual(estimate_request_tokens(packed, self.extra), 1150)
-        self.assertEqual(packed[0], self.messages[0])
+        self.assertTrue(packed[0]["content"].startswith(self.messages[0]["content"]))
+        self.assertIn("Earlier dialogue was omitted", packed[0]["content"])
+        self.assertEqual(self.messages[0]["content"], "Teach precisely.")
         self.assertIn("Explain Strassen.", [m.get("content") for m in packed])
         self.assertEqual(packed[-2]["tool_calls"][0]["id"], packed[-1]["tool_call_id"])
         self.assertNotIn("old question " * 200, [m.get("content") for m in packed])

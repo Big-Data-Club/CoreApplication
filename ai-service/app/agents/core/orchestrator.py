@@ -133,6 +133,7 @@ async def handle_chat_message(
         page_context=page_context,
         system_context=system_context,
         chat_mode=chat_mode,
+        session_context=session_data.get("context") or {},
     ):
         if event.type == AgentEventType.TEXT_RESET:
             partial = ""

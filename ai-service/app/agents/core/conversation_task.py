@@ -23,7 +23,7 @@ class ConversationTask(BaseModel):
         description="Indices of relevant supplied history messages, especially the original user request/source.")
 
 
-def _excerpt(content: str, limit: int) -> str:
+def excerpt_dialogue(content: str, limit: int) -> str:
     if len(content) <= limit:
         return content
     notice = "\n[Middle omitted; this is an excerpt, not the complete source.]\n"
@@ -40,7 +40,10 @@ def planning_dialogue(history: list[dict] | None) -> list[dict]:
     """
     entries = []
     remaining = 24000
-    for index in range(len(history or []) - 1, -1, -1):
+    indices = sorted(range(len(history or [])), key=lambda index: (
+        bool(history[index].get("pinned")) and history[index].get("role") == "user", index,
+    ), reverse=True)
+    for index in indices:
         message = history[index]
         role, content = message.get("role"), message.get("content")
         if role not in ("user", "assistant", "clarification") or not isinstance(content, str) or not content:
@@ -48,11 +51,12 @@ def planning_dialogue(history: list[dict] | None) -> list[dict]:
         if len(entries) == 16 or remaining < 300:
             break
         limit = min(remaining, 6000 if role == "user" else 1800)
-        excerpt = _excerpt(content, limit)
+        excerpt = excerpt_dialogue(content, limit)
         entries.append({"message_id": index, "role": role, "content": excerpt,
-                        "excerpted": len(content) > limit})
+                        "excerpted": len(content) > limit,
+                        **({"pinned": True} if message.get("pinned") and role == "user" else {})})
         remaining -= len(excerpt)
-    return list(reversed(entries))
+    return sorted(entries, key=lambda item: item["message_id"])
 
 
 def execution_request(message: str, task: ConversationTask | None, history: list[dict]) -> str:
@@ -75,7 +79,7 @@ def execution_request(message: str, task: ConversationTask | None, history: list
         content = original["content"]
         if remaining < 300:
             break
-        excerpt = _excerpt(content, remaining)
+        excerpt = excerpt_dialogue(content, remaining)
         sources.append({"message_id": index, "role": original["role"], "content": excerpt,
                         "excerpted": len(content) > remaining})
         remaining -= len(excerpt)

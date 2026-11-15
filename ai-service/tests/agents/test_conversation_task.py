@@ -111,7 +111,7 @@ async def test_planner_receives_full_problem_and_returns_semantic_task():
     with patch("app.agents.core.planner.chat_complete_structured", new=AsyncMock(return_value=action_plan())) as llm:
         plan = await generate_plan("sao không tạo bài", history=HISTORY, agent_type="teacher")
     messages = llm.await_args.kwargs["messages"]
-    assert SOURCE in json.loads(messages[1]["content"].split("local index):\n")[1].split("\nGenerate")[0])[0]["content"]
+    assert SOURCE in json.loads(messages[1]["content"])["history"][0]["content"]
     assert "worked solution" in messages[0]["content"]
     assert plan.conversation_task.artifact == "lesson"
     assert plan.selected_tools == ["generate_content_draft"]

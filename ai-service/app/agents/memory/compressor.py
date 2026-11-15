@@ -22,6 +22,15 @@ from app.core.llm_gateway.token_budget import estimate_tokens, split_text_preser
 
 logger = logging.getLogger(__name__)
 
+_SUMMARY_KEYS = frozenset({"decisions_made", "content_created", "identified_gaps",
+                           "student_progress", "pending_actions", "key_facts", "memory_items"})
+
+
+def _summary_context(context: dict | None) -> dict:
+    # Dialogue anchors and consolidation cursors belong to server code, not LLM output.
+    return {key: value for key, value in (context or {}).items() if key in _SUMMARY_KEYS}
+
+
 COMPRESS_SYSTEM_PROMPT = """\
 You are a conversation compressor for an AI teaching/mentoring system.
 Your job is to extract ONLY valuable long-term information from a conversation
@@ -109,7 +118,7 @@ async def compress_conversation(
     conversation_text = "\n".join(conversation_lines)
 
     if not conversation_text.strip():
-        return existing_ctx or {}
+        return _summary_context(existing_ctx)
 
     # Add context about what to prioritise
     agent_hint = (
@@ -122,7 +131,7 @@ async def compress_conversation(
         import json
         from app.agents.memory.memory_policy import normalize_memory_items
 
-        result = existing_ctx or {}
+        result = _summary_context(existing_ctx)
         try:
             request_budget = await get_gateway().preview_request_budget(TASK_MEMORY_COMPRESS)
         except Exception:
@@ -159,8 +168,7 @@ async def compress_conversation(
                 "student_progress": {}, "pending_actions": [], "key_facts": {},
                 "memory_items": [],
             }
-            for key, default in defaults.items():
-                next_result.setdefault(key, default)
+            next_result = {key: next_result.get(key, default) for key, default in defaults.items()}
             for key in ("decisions_made", "content_created", "identified_gaps", "pending_actions"):
                 values = next_result.get(key)
                 next_result[key] = [str(value)[:240] for value in values[:8]] if isinstance(values, list) else []
@@ -210,4 +218,4 @@ async def compress_conversation(
         logger.error("Context compression failed: %s", exc)
         if strict:
             raise
-        return existing_ctx or {}
+        return _summary_context(existing_ctx)

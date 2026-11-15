@@ -45,7 +45,7 @@ WEIGHT_PROFILES: dict[str, dict[str, float]] = {
     "general_chat": {
         "stm": 0.9,
         "ltm_episodic": 0.2,
-        "ltm_facts": 0.3,
+        "ltm_facts": 0.0,
     },
     "interactive_exercise": {
         "stm": 0.8,
@@ -80,6 +80,7 @@ class ContextBuilder:
         memory_budget_tokens: Optional[int] = None,
         include_ltm_facts: bool = True,
         history_window: Optional[dict] = None,
+        session_context: Optional[dict] = None,
     ) -> dict[str, Any]:
         """
         Build a context dict from all active memory tiers.
@@ -90,9 +91,9 @@ class ContextBuilder:
             settings.max_context_tokens,
             memory_budget_tokens if memory_budget_tokens is not None else settings.max_context_tokens,
         ))
-        durable_budget = int(budget * 0.25)
-        stm_budget = min(settings.stm_budget, int(budget * 0.40))
-        episodic_budget = min(settings.ltm_episodic_budget, int(budget * 0.20))
+        # Allocate by purpose and actual demand; unused tiers yield to dialogue.
+        durable_budget = min(512, budget)
+        facts_reserve = min(settings.ltm_facts_budget, budget // 2) if intent_type == "progress_advice" else 0
 
         raw: dict[str, Any] = {}
         sections: list[str] = []
@@ -101,7 +102,7 @@ class ContextBuilder:
         # Retrieve prior MTM context for backwards compatibility / active node tracking
         mtm_ctx = {}
         try:
-            mtm_ctx = await mtm.get_context(session_id)
+            mtm_ctx = session_context if session_context is not None else await mtm.get_context(session_id)
             raw["mtm"] = mtm_ctx
         except Exception as exc:
             logger.warning("Failed to fetch MTM context: %s", exc)
@@ -141,6 +142,7 @@ class ContextBuilder:
                 total_tokens += estimate_tokens(notice)
             
             available_count = len(stm_messages)
+            stm_budget = min(settings.stm_budget, max(0, budget - total_tokens - facts_reserve - 40))
             stm_messages, excerpted = self._fit_recent_dialogue(stm_messages, stm_budget)
             raw["stm"] = {
                 "message_count": len(stm_messages),
@@ -153,6 +155,7 @@ class ContextBuilder:
             total_tokens += raw["stm"]["token_estimate"]
 
         # ── 2. LTM Episodic: Past session episodes ───────────────────────────
+        episodic_budget = min(settings.ltm_episodic_budget, max(0, budget - total_tokens - facts_reserve - 40))
         if weights["ltm_episodic"] >= 0.3 and query and episodic_budget >= 80:
             recall_course_ids: Optional[list[int]] = None
             if course_id is not None:
@@ -296,26 +299,42 @@ class ContextBuilder:
         Excerpts explicitly retain both ends; they are not fabricated summaries.
         Tool protocol is not replayed from an incomplete history window.
         """
-        kept = []
+        kept: list[tuple[int, dict]] = []
         excerpted = False
-        for original in reversed(messages):
+        indices = sorted(range(len(messages)), key=lambda i: (
+            bool(messages[i].get("pinned")) and messages[i].get("role") == "user",
+            messages[i].get("role") == "user", i,
+        ), reverse=True)
+        for index in indices:
+            original = messages[index]
             if original.get("role") == "tool" or original.get("tool_calls"):
                 continue
             message = dict(original)
-            remaining = budget - estimate_messages_tokens(kept)
-            cap = min(max(0, budget // 2), remaining)
+            used = estimate_messages_tokens([item for _, item in kept])
+            cap = min(max(0, budget // 2), budget - used)
             if estimate_messages_tokens([message]) > cap:
                 text = str(message.get("content") or "")
                 marker = "\n[Earlier message excerpt; middle omitted to fit context]\n"
-                chars = max(0, int((cap - 40) * 2.4) - len(marker))
-                if chars < 64:
-                    break
-                message["content"] = text[:chars // 2] + marker + text[-(chars - chars // 2):]
+                low, high = 0, len(text)
+                while low < high:
+                    middle = (low + high + 1) // 2
+                    head, tail = middle // 2, middle - middle // 2
+                    message["content"] = text[:head] + marker + (text[-tail:] if tail else "")
+                    if estimate_messages_tokens([message]) <= cap:
+                        low = middle
+                    else:
+                        high = middle - 1
+                if low < 64:
+                    excerpted = True
+                    continue
+                head, tail = low // 2, low - low // 2
+                message["content"] = text[:head] + marker + text[-tail:]
                 excerpted = True
-            if estimate_messages_tokens([message, *kept]) > budget:
-                break
-            kept.insert(0, message)
-        return kept, excerpted
+            if used + estimate_messages_tokens([message]) <= budget:
+                kept.append((index, message))
+            else:
+                excerpted = True
+        return [item for _, item in sorted(kept)], excerpted
 
     @staticmethod
     def _fit_section_lines(section: str, budget_tokens: int) -> str:

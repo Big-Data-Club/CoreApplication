@@ -22,6 +22,13 @@ _EVIDENCE_NOTICE = (
 )
 
 
+def remaining_memory_budget(request_budget: int, messages: list[dict], extra: dict) -> int:
+    """Budget memory from actual prompt/schema cost, reserving answer and headroom."""
+    output = min(2048, max(128, request_budget // 4))
+    margin = min(256, request_budget // 20)
+    return max(0, request_budget - output - margin - estimate_request_tokens(messages, extra))
+
+
 def _compact_tool_content(content: str, target_tokens: int) -> str:
     """Select bounded evidence entries and state how many were omitted."""
     if estimate_tokens(content) <= target_tokens:
@@ -140,6 +147,7 @@ def pack_agent_messages(
     max_input_tokens: int,
     *,
     compact_system_prompt: str | None = None,
+    required_tools: frozenset[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     """Fit dialogue and evidence without removing the active request.
 
@@ -158,26 +166,6 @@ def pack_agent_messages(
     )
     if current_user < 0:
         raise ContextLengthError("Agent request has no current user message")
-
-    removed_history = 0
-    while estimate_request_tokens(packed, extra) > max_input_tokens:
-        oldest = next(
-            (i for i in range(current_user) if packed[i].get("role") in ("user", "assistant")),
-            None,
-        )
-        if oldest is None:
-            break
-        role = packed[oldest].get("role")
-        packed.pop(oldest)
-        current_user -= 1
-        removed_history += 1
-        if role == "user" and oldest < current_user:
-            # STM holds plain user/assistant dialogue. Drop the corresponding
-            # old answer too, so no orphan reply remains in the prompt.
-            if packed[oldest].get("role") == "assistant" and not packed[oldest].get("tool_calls"):
-                packed.pop(oldest)
-                current_user -= 1
-                removed_history += 1
 
     compact_prompt_used = False
     if compact_system_prompt and estimate_request_tokens(packed, extra) > max_input_tokens:
@@ -206,8 +194,7 @@ def pack_agent_messages(
         message["content"] = _compact_tool_content(message["content"], target)
         compacted_results += 1
 
-    # The selected plan's tools are listed first. Under a very small TPM tier,
-    # remove lower-priority definitions only after dialogue/evidence packing.
+    # Keep planned/called tools; optional schemas yield before dialogue.
     # The gateway passes a private copy of `extra` for each key attempt.
     referenced_tools = {
         call.get("function", {}).get("name")
@@ -218,7 +205,7 @@ def pack_agent_messages(
         removable = next((
             i for i in reversed(range(len(extra["tools"])))
             if (extra["tools"][i].get("function", {}).get("name")
-                or extra["tools"][i].get("name")) not in referenced_tools
+                or extra["tools"][i].get("name")) not in (referenced_tools | required_tools)
         ), None)
         if removable is None:
             break  # Let the gateway try a larger binding, keep protocol valid.
@@ -227,6 +214,30 @@ def pack_agent_messages(
         if not extra["tools"]:
             extra.pop("tools", None)
             extra.pop("tool_choice", None)
+
+    removed_history = 0
+    while estimate_request_tokens(packed, extra) > max_input_tokens:
+        oldest = next(
+            (i for i in range(current_user) if packed[i].get("role") in ("user", "assistant")),
+            None,
+        )
+        if oldest is None:
+            break
+        if removed_history == 0:
+            system = next((m for m in packed if m.get("role") == "system"), None)
+            if system is not None:
+                system["content"] += "\nEarlier dialogue was omitted for this request budget. Do not claim the conversation was empty or fully reviewed."
+        role = packed[oldest].get("role")
+        packed.pop(oldest)
+        current_user -= 1
+        removed_history += 1
+        if role == "user" and oldest < current_user:
+            # STM holds plain user/assistant dialogue. Drop the corresponding
+            # old answer too, so no orphan reply remains in the prompt.
+            if packed[oldest].get("role") == "assistant" and not packed[oldest].get("tool_calls"):
+                packed.pop(oldest)
+                current_user -= 1
+                removed_history += 1
 
     actual = estimate_request_tokens(packed, extra)
     if actual > max_input_tokens:

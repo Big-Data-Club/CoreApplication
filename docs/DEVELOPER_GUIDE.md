@@ -122,6 +122,43 @@ roles, missing references and references outside the supplied window are ignored
 This remains bounded context, not unlimited memory. Planner outages retain the
 existing fallback and do not fabricate a resolved task.
 
+The session's `compressed_ctx.conversation_state` stores a versioned, bounded
+dialogue anchor: the planner interpretation and at most four exact user sources
+(6,000 characters each, explicit head/tail excerpts for longer input). This covers
+conversation/preferences as well as questions and authoring. It does not copy
+assistant claims into user facts. New tasks/cancellation reset anchors; continued
+exchanges retain original sources and newer corrections remain last. Only the
+owner-checked session orchestrator supplies this state; sources restore within
+the same UI course scope. They are context, never authorization or verified IDs.
+The original PostgreSQL transcript remains unchanged.
+
+State is saved after the user message persists, with an owner-scoped atomic JSONB
+update ordered by persisted message ID. Older writes cannot replace newer state.
+Failed state writes remain best-effort and do not block answering. Prompt assembly
+reuses the orchestrator's owner-checked context for prompt assembly, avoiding a
+second session read. Background compression accepts summary fields only,
+preventing model output from overwriting server-owned
+state, working anchors or consolidation cursors. No database migration is needed;
+release the shared image to both AI HTTP and the consolidation worker. For the
+initial rollout, update the worker before enabling new state-writing HTTP pods.
+
+Planner data (course titles, UI hints and dialogue) now travels in the user payload,
+separate from static instructions. Its gateway packer selects a compact policy,
+then fits the optional course catalogue and dialogue to each actual model/key
+budget, including schema-validation retries. Local message indices stay stable;
+returned references are filtered against the messages actually sent on that
+attempt. Current requests are never silently sliced. If required input cannot fit,
+the existing gateway/fallback path reports the limit rather than inventing data.
+
+Answer memory uses remaining input headroom after compact instructions, selected
+tool schemas, current request and answer reservation. Configured tier caps still
+apply. Conversation uses dialogue first; progress requests reserve learner facts.
+General chat does not fetch course mastery merely because a course is open.
+The final per-key packer remains authoritative: compact instructions, tool evidence
+and optional schemas yield before dialogue; planned/called tool schemas and the
+current request stay intact. History omissions are disclosed. Flash keeps a
+token-bounded dialogue window, no enrichment/tools and one initial answer call.
+
 Parameter clarification reads the same dialogue and planned task. Worked solutions
 destined for course chapters use the editable content-draft workflow; a source exam
 question alone does not imply quiz creation. A clear teacher draft request that
@@ -133,6 +170,11 @@ contract and human approval of publication remain in their existing owners.
 Offline regression coverage: `tests/agents/test_conversation_task.py` in AI service.
 Mocked model tests verify context transport, failure handling and the approval
 workflow; they do not measure real-provider semantic accuracy.
+`test_dialogue_budget.py`, `test_dialogue_runtime.py` and
+`test_conversation_state.py` cover small/large tiers, ordinary conversation,
+corrections, source retention, worker boundaries and resumed sessions.
+`test_conversation_state_postgres.py` uses an explicit disposable
+`AGENT_STATE_TEST_DSN` to verify JSONB merging, ownership and concurrent ordering.
 
 ### Farm learning attempt delivery
 
