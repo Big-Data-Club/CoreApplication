@@ -34,6 +34,15 @@ Verify that the object bucket has no anonymous read policy or public custom
 endpoint; API ACLs cannot protect a directly public bucket. No bucket policy or
 live CDN setting is changed by this source patch.
 
+For the browser file-session fix, release the matching frontend image and
+`bdc-ingress-files` route together: `/files` targets frontend port 3001 without
+`default-rewrite-files`. Next.js rewrites it to the session-aware `/api/files`
+BFF, which sends the user's Bearer token to LMS. Routing directly to LMS loses
+the NextAuth identity and can return `file_not_found` for existing private files.
+Verify a protected PDF from a fresh signed-in browser session, including a byte
+range request; an anonymous request must still fail. Cached success on another
+browser does not verify the deployed authentication path.
+
 New document/video uploads are private by default; legacy unregistered non-image
 objects require audited reconciliation to an owner/course before access. Inventory
 those objects and course thumbnails before rollout; do not guess an owner from a

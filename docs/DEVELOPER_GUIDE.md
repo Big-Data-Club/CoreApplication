@@ -31,6 +31,12 @@ public read compatibility. Existing private course attachments are resolved from
 course ownership/enrollment. Do not infer confidentiality for an image explicitly
 uploaded as public.
 
+Browser `/files/...` requests go through the frontend file BFF, which resolves
+the NextAuth session and forwards its access token to LMS. The ingress must route
+this prefix to frontend without rewriting it; LMS cannot decode NextAuth cookies.
+Explicit Bearer clients and anonymous public media remain supported. The proxy
+preserves byte ranges/HEAD for PDF and video and returns private/no-store headers.
+
 The body/file/batch limit is enforced while reading; at most ten files share one
 `UPLOAD_MAX_SIZE` request budget (plus bounded multipart overhead). Passive inline
 image/PDF content must match its extension. New file metadata owns a per-user byte
