@@ -32,15 +32,23 @@ jobs:
       should_build: ${{ steps.select.outputs.should_build }}
       matrix: ${{ steps.select.outputs.matrix }}
       services: ${{ steps.select.outputs.services }}
+      frontend_image_tag: ${{ steps.select.outputs.frontend_image_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
+      - name: Verify release routing
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          python3 -m unittest discover -s scripts/tests -p test_ci_release_routing.py
+
       - uses: dorny/paths-filter@v3
         id: changes
         with:
           filters: |
+            frontend:
+              - 'frontend'
             auth:
               - 'auth-and-management-service/**'
               - 'farm-service/**'
@@ -55,7 +63,6 @@ jobs:
               - 'ai-service/**'
               - 'scripts/apply-flashcard-migrations.py'
               - 'scripts/flashcard-migration-runner.py'
-              - '.github/workflows/production.yml'
               - 'k3s/base/ai-service-deployment.yaml'
               - 'k3s/base/ai-lab-authoring-worker-deployment.yaml'
               - 'k3s/base/course-blueprint-worker-deployment.yaml'
@@ -85,16 +92,11 @@ jobs:
               - 'k3s/base/lab-sandbox-policy.yaml'
               - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
-              # Keep the lab production selector itself deployable.
-              - '.github/workflows/production.yml'
             chat:
               - 'chat-service/**'
               - 'k3s/base/chat-service-deployment.yaml'
               - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
-              # Keep a workflow fix deployable: this file controls the chat
-              # production selection itself.
-              - '.github/workflows/production.yml'
             farm:
               - 'scripts/sync-farm-config.py'
               - 'scripts/tests/test_sync_farm_config.py'
@@ -107,7 +109,6 @@ jobs:
               - 'k3s/base/dutylog-service-deployment.yaml'
               - 'k3s/base/configmap.yaml'
               - 'scripts/deploy-production.sh'
-              - '.github/workflows/production.yml'
 
       - id: select
         env:
@@ -120,6 +121,7 @@ jobs:
           CHAT_CHANGED: ${{ steps.changes.outputs.chat }}
           FARM_CHANGED: ${{ steps.changes.outputs.farm }}
           DUTYLOG_CHANGED: ${{ steps.changes.outputs.dutylog }}
+          FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend }}
           MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
           MANUAL_SERVICES: ${{ inputs.services }}
         shell: bash
@@ -141,6 +143,9 @@ jobs:
             echo 'should_build=false' >> "$GITHUB_OUTPUT"
             echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
             echo "services=${MANUAL_SERVICES}" >> "$GITHUB_OUTPUT"
+            if [[ ",${MANUAL_SERVICES}," == *",frontend,"* ]]; then
+              echo "frontend_image_tag=${MANUAL_IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
 
@@ -178,10 +183,17 @@ jobs:
             services+=(dutylog-service)
           fi
 
+          # Frontend owns its image build. A gitlink update only selects rollout.
+          if [[ "${FRONTEND_CHANGED}" == "true" ]]; then
+            services+=(frontend)
+            echo "frontend_image_tag=$(git rev-parse HEAD:frontend)" >> "$GITHUB_OUTPUT"
+          fi
+
+          IFS=,
           if [[ ${#items[@]} -eq 0 ]]; then
             echo 'should_build=false' >> "$GITHUB_OUTPUT"
             echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-            echo 'services=' >> "$GITHUB_OUTPUT"
+            echo "services=${services[*]}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -189,6 +201,36 @@ jobs:
           echo "matrix={\"include\":[${items[*]}]}" >> "$GITHUB_OUTPUT"
           echo "services=${services[*]}" >> "$GITHUB_OUTPUT"
           echo 'should_build=true' >> "$GITHUB_OUTPUT"
+
+  verify-frontend-image:
+    name: Wait for the pinned frontend image
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend_image_tag != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ env.REGISTRY_NAMESPACE }}
+          password: ${{ secrets.DOCKER_PASSWORD || secrets.DOCKERHUB_TOKEN }}
+      - name: Verify publication before touching production
+        env:
+          FRONTEND_IMAGE_TAG: ${{ needs.detect-changes.outputs.frontend_image_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${REGISTRY_NAMESPACE}/bdc-frontend:${FRONTEND_IMAGE_TAG}"
+          for attempt in {1..30}; do
+            if docker buildx imagetools inspect "$image" > /dev/null 2>&1; then
+              echo "Pinned frontend image is available: $image"
+              exit 0
+            fi
+            echo "Waiting for frontend publication ($attempt/30)..."
+            sleep 30
+          done
+          echo "::error::Frontend image was not published: $image. Check Publish Docker Image in the frontend repository."
+          exit 1
 
   verify-farm:
     name: Verify farm score transactions
@@ -256,11 +298,12 @@ jobs:
 
   deploy:
     name: Roll out production
-    needs: [detect-changes, verify-farm, build]
+    needs: [detect-changes, verify-farm, verify-frontend-image, build]
     if: >-
       always() && needs.detect-changes.result == 'success' &&
       needs.detect-changes.outputs.services != '' &&
       (needs.verify-farm.result == 'success' || needs.verify-farm.result == 'skipped') &&
+      (needs.verify-frontend-image.result == 'success' || needs.verify-frontend-image.result == 'skipped') &&
       (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.detect-changes.outputs.should_build == 'false'))
     runs-on: [self-hosted, linux, x64, production]
     environment: production
@@ -313,6 +356,7 @@ jobs:
             --type merge -p '{"imagePullSecrets":[{"name":"dockerhub-registry"}]}'
 
       - name: Sync migrated Neon credentials
+        if: needs.detect-changes.outputs.services != 'frontend'
         env:
           DEPLOY_NAMESPACE: default
           NEON_DB_USER: neondb_owner
@@ -452,6 +496,7 @@ jobs:
           REGISTRY_NAMESPACE: ${{ secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USERNAME }}
           IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
           SERVICES: ${{ needs.detect-changes.outputs.services }}
+          FRONTEND_IMAGE_TAG: ${{ needs.detect-changes.outputs.frontend_image_tag }}
           DEPLOY_NAMESPACE: default
           ROLLOUT_TIMEOUT: 12m
         run: ./scripts/deploy-production.sh

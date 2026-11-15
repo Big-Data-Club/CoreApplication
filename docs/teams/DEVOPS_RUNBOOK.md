@@ -171,9 +171,8 @@ Run `data-warehouse/scripts/analyze_foundation.py` with authorized operator CLI
 authentication for aggregate source coverage, key uniqueness and relationship
 checks. The source register records producer gaps independently of row counts.
 
-The legacy CD path now selects only actual changed application sources (or an
-explicit manual target). Warehouse-only and documentation-only commits do not
-restart the other application deployments.
+The legacy CD path is manual-only. Warehouse-only and documentation-only commits
+do not restart application deployments through it.
 
 ```text
 Developer push
@@ -378,127 +377,75 @@ kubectl -n default rollout history deployment/<SERVICE>
 
 ## 5. Current CI/CD design - source of truth
 
-The repository has more than one workflow. The following table prevents a
-common operational mistake: assuming every workflow deploys every service.
+Each image has one build owner. Application releases use one automatic rollout
+workflow in this repository; a frontend pointer update is part of that rollout.
 
-| Workflow | Trigger | Current role | Important limitation |
-|---|---|---|---|
-| `.github/workflows/production.yml` | Push to `main`, or manual dispatch | **Primary production build and deployment path** | Its change matrix currently covers only AI, Recommender, Personalize, and LMS. |
-| `.github/workflows/ci.yml` | PR to `main`/`dev`/release, push to `dev`/release, manual | Quality CI: detect, test, build, and conditionally publish images | It does **not** run on a push to `main`. |
-| `.github/workflows/cd-production.yml` | Completion of `CI - Build, Test & Push`, or manual | Legacy/selective restart workflow | It may restart deployments but is not the normal SHA-based main production path. Review before use. |
-| `.github/workflows/frontend-pointer-deploy.yml` | Frontend submodule pointer update on `main` | Frontend-specific deployment path | Frontend is managed separately from the primary service matrix. |
+| Workflow | Trigger | Responsibility |
+|---|---|---|
+| `.github/workflows/production.yml` | Push to `main`, manual dispatch | Build changed root-owned images; reuse the pinned frontend image; deploy the combined service list once. |
+| `.github/workflows/ci.yml` | PR to `main`/`dev`/release, push to `dev`/`develop`/release, manual | Check root-owned services; publish nonproduction branch images where configured. No automatic main push build. |
+| `.github/workflows/cd-production.yml` | Manual dispatch only | Emergency restart of existing images, serialized with production releases. |
+| Frontend `ci.yml` | PR to `main`/`dev`, push to `dev` | Lint and test-build frontend; superseded checks on the same ref are cancelled. |
+| Frontend `cd-dockerhub.yml` | Push to frontend `main` | Build/publish `bdc-frontend:<frontend SHA>` once, with Docker layer caching. The Docker Next.js build includes lint/type checks. No K3s access. |
+
+`frontend-pointer-deploy.yml` was removed. Root CI no longer builds/tests or
+publishes the frontend, including when `force_build_all=true`. The dedicated
+warehouse workflow remains separate and continues to own its image and rollout.
 
 ### 5.1 Primary production pipeline
 
-The normal `main` release path is `production.yml`:
+1. Detect changed services. The matrix covers Auth, AI, Recommender, Personalize,
+   LMS, Lab, Chat, Farm and DutyLog. Frontend gitlink changes add `frontend` to
+   the service list without adding a Docker build. Workflow-only edits do not
+   rebuild application images; release-routing tests run in the detector.
+2. Build changed root-owned images on GitHub-hosted runners, tagged with the
+   CoreApplication commit SHA (and the existing `latest` compatibility tag).
+   AI shares one image across its HTTP and worker deployments.
+3. If frontend is selected, verify that its exact gitlink SHA image exists in
+   Docker Hub. This check runs alongside backend builds on a hosted runner and
+   waits up to 15 minutes for frontend publication. Missing images fail before
+   any production mutation; do not substitute `latest` or rebuild in root CI.
+4. Deploy the combined explicit service list once on the production runner.
+   `IMAGE_TAG` supplies root-owned images; `FRONTEND_IMAGE_TAG` supplies the
+   separately published frontend image. The existing database lock, migration
+   ordering, pull-secret setup, ingress apply, rollout verification and image
+   rollback behavior remain in place. Never cancel an active production rollout
+   merely to prioritize a newer commit.
 
-1. **Detect changes**
-   - `dorny/paths-filter` determines whether `ai-service`,
-     `recommender-service`, `personalize-service`, or `lms-service` changed.
-   - AI changes select both `ai-service` and `ai-worker` because they share the
-     same image.
-   - AI deploys also run the `kafka-ai-topics` Job, which creates
-     `lms.ai.interactive` with 6 partitions. Wrong-answer diagnosis consumes it
-     in the `ai-worker-interactive` group (`AI_WORKER_MODE=all`,
-     `AI_INTERACTIVE_CONCURRENCY=6`) so it never queues behind document
-     indexing on `lms.ai.command`.
-2. **Build**
-   - GitHub-hosted runners build `linux/amd64` images with Buildx.
-   - Images are pushed to Docker Hub as both the immutable commit SHA and
-     `latest`.
-3. **Deploy**
-   - The self-hosted runner configured with
-     `self-hosted, linux, x64, production` runs on the production environment.
-   - It refreshes the `dockerhub-registry` pull secret and patches the default
-     service account to use it.
-   - It calls `scripts/deploy-production.sh` with `IMAGE_TAG=<Git SHA>` and an
-     explicit comma-separated `SERVICES` list.
-4. **Verification and rollback**
-   - The script waits for each selected deployment to roll out.
-   - If any wait fails, its trap resets every deployment changed by that run to
-     the image recorded immediately before the update.
+Publish frontend changes to its repository first, then push the updated gitlink
+in CoreApplication. A source-repository push alone does not deploy frontend.
+For mixed backend/frontend changes, include the pointer in the same root commit
+so both are selected by one release. Existing frontend SHA tags remain usable.
+No new dispatch token, repository webhook or cluster credential is needed.
 
-### 5.2 No-change, skipped, success, and deployed: exact meanings
+### 5.2 No-change, skipped, success, and deployed
 
-"Green" does not always mean that an image was built or that production was
-changed. Read the outputs of **Select production workloads** before treating a
-workflow run as a release.
-
-#### `production.yml` - the normal `main` production path
-
-On every push to `main`, the `detect-changes` job always runs. It only selects
-these paths and workloads:
-
-| Changed path category | Selected image build | Selected deployment rollout |
+| Change | Docker build in root | Production rollout |
 |---|---|---|
-| `ai-service/**`, AI manifest, shared ConfigMap, or deploy script | `bdc-ai` | `ai-service`, `ai-worker` |
-| `recommender-service/**`, recommender manifest, shared ConfigMap, or deploy script | `bdc-recommender` | `recommender-service` |
-| `personalize-service/**`, personalize manifest, shared ConfigMap, or deploy script | `bdc-personalize` | `personalize-service` |
-| `lms-service/**`, LMS manifest, or deploy script | `bdc-lms` | `lms-service` |
-| Anything outside the rows above | none | none |
+| Frontend pointer only | None | Frontend only, using the frontend SHA image. |
+| LMS + frontend pointer | LMS only | LMS and frontend in one deployment job. |
+| Recommender source only | Recommender only | Recommender only. |
+| Docs or workflow-only edits | None | None. Routing validation can still run. |
+| Manual `image_tag` + explicit `services` | None | Exactly those services with the supplied immutable tag. |
 
-If a commit changes only documentation, performance-test assets, Chat, Lab,
-Auth, frontend, or another unlisted path, the detector writes:
+For frontend-only commits, `should_build=false` and an empty build matrix are
+expected, but `services=frontend` means the deploy job must still run after image
+verification. For no-change commits, `services` is empty and deploy is skipped.
+A green detector/CI job alone is not evidence of a production release.
 
-```text
-should_build=false
-matrix={"include":[]}
-services=
-```
+Manual rollback keeps its existing interface: specify an immutable `image_tag`
+and an explicit comma-separated `services` list. When that list includes
+frontend, the provided tag overrides the current gitlink for frontend too. For
+mixed rollbacks whose repositories have different SHAs, run separately for each
+image tag. Missing `services` with an explicit tag fails deliberately. A manual
+run without a tag still relies on change detection; it does not mean deploy all.
 
-The **Build** job and **Roll out production** job then display **Skipped** in
-GitHub Actions. The overall workflow can still finish **Success** because this
-is an intentional no-op. In that case there is no Docker build, no Docker Hub
-push, no self-hosted runner use, no ConfigMap apply, no `kubectl set image`, and
-no restart. This is the expected status, not a CI/CD failure.
-
-If one or more selected paths change, only the matching images are built and
-pushed with the immutable commit SHA (and currently `latest`), and only the
-matching deployments are changed to the SHA. A multi-service commit produces a
-small matrix and deploys the combined explicit service list; unrelated
-workloads remain untouched.
-
-For **Run workflow** with both `image_tag` and `services`, a skipped Build job
-is also expected: the workflow deliberately does not rebuild and rolls out the
-already-published immutable tag to exactly the requested deployments. The
-Deploy job must run. If `image_tag` is provided without `services`, detection
-fails deliberately and production is not changed. Do not use `latest` as the
-manual tag.
-
-For a manual run without `image_tag`, the deploy input resolves to the current
-commit SHA, but deployment still depends on the change detector selecting
-services. Therefore it is not a safe "redeploy everything" control. Use a
-manual run with an existing immutable `image_tag` and an explicit `services`
-list when an intentional redeploy or rollback is needed.
-
-#### `ci.yml` - quality CI, not the normal main release
-
-This workflow runs for pull requests to `main`, `dev`, and `release/*`; pushes
-to `dev` and `release/*`; and manual dispatch. It does **not** run for a push
-to `main`, so it does not gate or trigger the primary `main` production path.
-
-Its `any_change` flag is true only for Auth/backend, frontend, LMS, AI, Chat,
-Lab, Personalize, Recommender, or `force_build_all=true`. A change only under
-`k3s/**`, `docker-compose*.yml`, or `.github/workflows/**` is detected in the
-separate `docker` output but is not included in `any_change`; it currently
-causes no application build or test.
-
-When `any_change=false`, `build-and-test` and `security-scan` are **Skipped**;
-`ci-summary` runs and records **No Changes - Skipped build**. No image is
-built or pushed. When `any_change=true`, the eight-entry matrix is created.
-Only changed services run checkout, tests, application build, and optional
-image push. Matrix entries for unchanged services run the initial "Skip if no
-changes" step and normally finish **Success** with their remaining steps
-skipped. Thus the matrix job can be green even though only one service was
-actually built; use the detector outputs and individual step logs to identify
-which one.
-
-An important current defect: this workflow triggers on `dev`, but its image
-push condition allows `main`, `develop`, and `release/*` (not `dev`). As a
-result, a normal push to `dev` can test and build an application but must show
-`should_push=false` and will not publish an image. Treat that as current
-configuration behavior, not as a registry outage; fix the branch-name mismatch
-before relying on `dev` images.
+Root quality CI still runs for PRs and development/release branches. It reports
+frontend changes as delegated to the source repository and does not initialize
+or build that submodule. `force_build_all` applies to root-owned matrix services.
+Development image publication never automatically restarts production; production
+releases are owned by `production.yml`. Use PR checks before merging to main;
+a direct main push uses the production build path, not a second quality workflow.
 
 #### Jev planner and Deep answer configuration
 
@@ -514,7 +461,7 @@ Editing `.env.example` does not configure Kubernetes pods. AI HTTP and worker
 Deployments import `bdc-config` via `envFrom`. The normal `production.yml` path
 detects ConfigMap edits, builds immutable images, applies the ConfigMap through
 `scripts/deploy-production.sh`, and rolls selected workloads to the new image
-SHA. The shared ConfigMap currently selects all eight service categories in
+SHA. The shared ConfigMap selects the matching service categories in
 the workflow, not just AI. No workflow edit is needed to ship these keys.
 
 Applying only the ConfigMap does not refresh environment variables in existing
@@ -550,13 +497,10 @@ check the application explicitly after this workflow. Do not run its manual
 threshold-based, but simultaneous image pulls and cold starts can still create
 temporary disk, network, and memory pressure.
 
-Its automatic trigger waits for a successful `CI - Build, Test & Push` run on
-`main` or `develop`. Because `ci.yml` does not run on `main` and uses `dev`
-rather than `develop` for push triggers, this automatic legacy CD path is not
-the normal route for either current branch. Manual dispatch is a restart-only
-operation and must be treated as production-impacting: select one target where
-possible, check its current image first, and do not use it as a substitute for
-the SHA-based primary deployment workflow.
+The legacy workflow has no `workflow_run` trigger. Manual dispatch is a
+restart-only operation, shares the `production` concurrency group, and must be
+treated as production-impacting: select one target where possible and inspect
+its current image first. Use the SHA-based primary workflow for releases.
 
 | GitHub status or observation | Operational meaning | Required interpretation/action |
 |---|---|---|
@@ -914,8 +858,8 @@ Priorities are ordered. Do not start a 20+ VU test until P0 is complete.
 
 ### P1 - make CI/CD deterministic and complete
 
-- [ ] Consolidate the three workflow paths or clearly deprecate the legacy
-      path. There must be one documented production release authority.
+- [x] Consolidate automatic application releases in `production.yml`; keep legacy
+      restarts manual-only with the same production concurrency lock.
 - [ ] Resolve the `dev` versus `develop` branch mismatch in `ci.yml` and
       `cd-production.yml`; decide which branch may publish non-production
       images and make both trigger and `should_push` conditions match it.
@@ -926,10 +870,9 @@ Priorities are ordered. Do not start a 20+ VU test until P0 is complete.
 - [ ] Add a per-service CI summary instead of repeating one matrix-job result
       for every row; the current summary can look green even when most matrix
       entries intentionally performed no build.
-- [ ] Extend `production.yml` detection/build/deploy matrix to cover Auth,
-      Chat, and Lab, or document their approved independent deployment path.
-- [ ] Verify frontend deployment ownership: the primary production workflow
-      does not build it, while the frontend-pointer workflow does.
+- [x] Cover Auth, Chat and Lab in the production matrix.
+- [x] Frontend repository owns image builds; root production reuses its pinned
+      image and combines it with other selected deployments.
 - [ ] Align Go toolchain versions in CI with the Go versions declared in the
       service `go.mod` files; the current quality workflow configures Go 1.21
       while services declare newer Go versions.

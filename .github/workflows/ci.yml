@@ -4,11 +4,12 @@ on:
   pull_request:
     branches: [main, dev, release/*]
   push:
-    branches: [main, dev, develop, release/*]
+    # main releases are built by production.yml; do not publish them twice.
+    branches: [dev, develop, release/*]
   workflow_dispatch:
     inputs:
       force_build_all:
-        description: 'Force build all services'
+        description: 'Force build root-owned services (frontend builds in its own repository)'
         required: false
         type: boolean
         default: false
@@ -55,8 +56,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify scoped submodule checkout
-        run: python3 -m unittest discover -s scripts/tests -p test_checkout_service_submodules.py
+      - name: Verify checkout and release routing
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          python3 -m unittest discover -s scripts/tests -p test_checkout_service_submodules.py
+          python3 -m unittest discover -s scripts/tests -p test_ci_release_routing.py
 
       - name: Detect file changes
         uses: dorny/paths-filter@v3
@@ -100,7 +104,6 @@ jobs:
         id: check
         run: |
           if [ "${{ steps.filter.outputs.backend }}" == "true" ] || \
-             [ "${{ steps.filter.outputs.frontend }}" == "true" ] || \
              [ "${{ steps.filter.outputs.lms }}" == "true" ] || \
              [ "${{ steps.filter.outputs.ai }}" == "true" ] || \
              [ "${{ steps.filter.outputs.chat }}" == "true" ] || \
@@ -158,15 +161,6 @@ jobs:
             # This service intentionally does not commit a Maven wrapper.
             test_cmd: 'mvn -B test'
             build_cmd: 'mvn -B clean package -DskipTests'
-            
-          - service: frontend
-            context: ./frontend
-            dockerfile: ./frontend/Dockerfile
-            image: bdc-frontend
-            should_build: ${{ needs.detect-changes.outputs.frontend == 'true' || github.event.inputs.force_build_all == 'true' }}
-            setup: 'node'
-            test_cmd: 'pnpm run test:ci || echo "No tests configured"'
-            build_cmd: 'pnpm install --frozen-lockfile && pnpm run build'
             
           - service: lms
             context: ./lms-service
@@ -462,7 +456,7 @@ jobs:
           echo "| Service | Changed | Build Status | Security Scan |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|---------|--------------|---------------|" >> $GITHUB_STEP_SUMMARY
           echo "| auth-and-management-service | ${{ needs.detect-changes.outputs.backend }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Frontend | ${{ needs.detect-changes.outputs.frontend }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | ${{ needs.detect-changes.outputs.frontend }} | Owned by frontend repository | External CI |" >> $GITHUB_STEP_SUMMARY
           echo "| lms-service | ${{ needs.detect-changes.outputs.lms }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| ai-service | ${{ needs.detect-changes.outputs.ai }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| chat-service | ${{ needs.detect-changes.outputs.chat }} | ${{ needs.build-and-test.result }} | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY

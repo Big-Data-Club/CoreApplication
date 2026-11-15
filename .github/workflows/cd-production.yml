@@ -1,11 +1,7 @@
 name: CD - Deploy Production (Self-Hosted K8s Rollout)
 
 on:
-  workflow_run:
-    workflows: ["CI - Build, Test & Push"]
-    types: [completed]
-    branches: [main, develop]
-
+  # Emergency restart only. Automatic releases belong to production.yml.
   workflow_dispatch:
     inputs:
       target_service:
@@ -14,19 +10,17 @@ on:
         default: 'all'
 
 concurrency:
-  group: deploy-production
+  group: production
   cancel-in-progress: false
 
 jobs:
   select-workloads:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     outputs:
       services: ${{ steps.select.outputs.services }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
       - id: select
         env:
