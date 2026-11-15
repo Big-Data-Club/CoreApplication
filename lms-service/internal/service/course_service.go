@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
@@ -15,8 +17,6 @@ import (
 	"example/hello/pkg/cache"
 	"example/hello/pkg/kafka"
 	"example/hello/pkg/logger"
-
-	"github.com/google/uuid"
 )
 
 // TTLs for course-related cache entries.
@@ -43,6 +43,7 @@ type CourseService struct {
 	cache          *cache.RedisCache
 	loader         *cache.Loader
 	aiClient       *ai.Client
+	fileAccess     fileAuthorizer
 }
 
 func NewCourseService(
@@ -52,7 +53,12 @@ func NewCourseService(
 	orgRepo *repository.OrganizationRepository,
 	c *cache.RedisCache,
 	aiClient *ai.Client,
+	access ...fileAuthorizer,
 ) *CourseService {
+	var policy fileAuthorizer
+	if len(access) > 0 {
+		policy = access[0]
+	}
 	return &CourseService{
 		courseRepo:     courseRepo,
 		userRepo:       userRepo,
@@ -61,6 +67,7 @@ func NewCourseService(
 		cache:          c,
 		loader:         cache.NewLoader(c),
 		aiClient:       aiClient,
+		fileAccess:     policy,
 	}
 }
 
@@ -826,6 +833,11 @@ func (s *CourseService) CreateContent(ctx context.Context, sectionID int64, req 
 		return nil, fmt.Errorf("unauthorized to create content in this section")
 	}
 
+	if path, ok := req.Metadata["file_path"].(string); ok && path != "" {
+		if err := s.authorizeFileLink(ctx, path, userID, role); err != nil {
+			return nil, err
+		}
+	}
 	metadata, err := json.Marshal(req.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
@@ -980,6 +992,13 @@ func (s *CourseService) UpdateContent(ctx context.Context, contentID int64, req 
 		return fmt.Errorf("unauthorized to update this content")
 	}
 
+	if req.Metadata != nil {
+		if path, ok := (*req.Metadata)["file_path"].(string); ok && path != "" && path != content.FilePath.String {
+			if err := s.authorizeFileLink(ctx, path, userID, role); err != nil {
+				return err
+			}
+		}
+	}
 	updates := make(map[string]interface{})
 	if req.Title != nil {
 		updates["title"] = *req.Title

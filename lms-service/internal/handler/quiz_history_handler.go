@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gin-gonic/gin"
+
 	"example/hello/internal/dto"
 	"example/hello/internal/service"
-
-	"github.com/gin-gonic/gin"
 )
 
 // GetMyQuizAttempts godoc
@@ -166,23 +166,9 @@ func (h *QuizHandler) GetAttemptAnswers(c *gin.Context) {
 		return
 	}
 
-	// Get attempt to verify ownership
-	attempt, err := h.quizService.GetAttempt(c.Request.Context(), attemptID)
+	answers, err := h.quizService.GetAttemptAnswers(c.Request.Context(), attemptID, userID.(int64))
 	if err != nil {
-		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Attempt not found"))
-		return
-	}
-
-	// Check authorization
-	if attempt.StudentID != userID.(int64) {
-		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "Not authorized to view this attempt"))
-		return
-	}
-
-	// Get answers
-	answers, err := h.quizService.GetAttemptAnswers(c.Request.Context(), attemptID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", err.Error()))
+		writeQuizError(c, "answers_failed", err)
 		return
 	}
 

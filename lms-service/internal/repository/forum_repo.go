@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"example/hello/internal/models"
 	"github.com/lib/pq"
+
+	"example/hello/internal/models"
 )
 
 type ForumRepository struct {
@@ -204,6 +205,10 @@ func (r *ForumRepository) ListPosts(ctx context.Context, contentID, currentUserI
 
 // UpdatePost updates a post
 func (r *ForumRepository) UpdatePost(ctx context.Context, postID int64, updates map[string]interface{}) error {
+	if err := validateUpdateFields(updates, "title", "body", "tags"); err != nil {
+		return err
+	}
+
 	if len(updates) == 0 {
 		return fmt.Errorf("no fields to update")
 	}
@@ -217,7 +222,7 @@ func (r *ForumRepository) UpdatePost(ctx context.Context, postID int64, updates 
 			query += ", "
 		}
 		query += fmt.Sprintf("%s = $%d", field, argCount)
-		
+
 		// Handle pq.Array for tags
 		if field == "tags" {
 			if tags, ok := value.([]string); ok {
@@ -405,6 +410,10 @@ func (r *ForumRepository) ListCommentsByPost(ctx context.Context, postID, curren
 
 // UpdateComment updates a comment
 func (r *ForumRepository) UpdateComment(ctx context.Context, commentID int64, updates map[string]interface{}) error {
+	if err := validateUpdateFields(updates, "body"); err != nil {
+		return err
+	}
+
 	if len(updates) == 0 {
 		return fmt.Errorf("no fields to update")
 	}

@@ -24,14 +24,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
 	"example/hello/pkg/ai"
 	"example/hello/pkg/cache"
 	"example/hello/pkg/logger"
-
-	"github.com/gin-gonic/gin"
 )
 
 type MicroLessonHandler struct {
@@ -294,8 +294,10 @@ func (h *MicroLessonHandler) UpdateLesson(c *gin.Context) {
 // PublishLesson godoc
 // @Summary  Promote a draft micro-lesson into a published SectionContent + auto-index it
 // @Description Creates a TEXT SectionContent in the chosen section, marks the lesson
-//              as published, and triggers the existing auto-index pipeline so the
-//              lesson is immediately searchable in the RAG index.
+//
+//	as published, and triggers the existing auto-index pipeline so the
+//	lesson is immediately searchable in the RAG index.
+//
 // @Tags     Micro-Lessons
 // @Accept   json
 // @Produce  json
@@ -331,10 +333,10 @@ func (h *MicroLessonHandler) PublishLesson(c *gin.Context) {
 	}
 
 	metadata := map[string]interface{}{
-		"content":            lesson.MarkdownContent,
-		"estimated_minutes":  lesson.EstimatedMinutes,
-		"micro_lesson_id":    lesson.ID,
-		"micro_lesson_job":   lesson.JobID,
+		"content":                 lesson.MarkdownContent,
+		"estimated_minutes":       lesson.EstimatedMinutes,
+		"micro_lesson_id":         lesson.ID,
+		"micro_lesson_job":        lesson.JobID,
 		"micro_lesson_image_urls": rawJSONOrEmpty(lesson.ImageURLs),
 	}
 	metaBytes, _ := json.Marshal(metadata)
@@ -433,6 +435,11 @@ func (h *MicroLessonHandler) CallbackStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
 		return
 	}
+	if !validCallbackStatus(body.Status, body.Progress) {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_status", "Invalid callback status or progress"))
+		return
+	}
+
 	if err := h.microRepo.UpdateJobStatus(
 		c.Request.Context(),
 		body.JobID, body.Status, body.Progress, body.Stage, body.LessonsCount, body.Error,
@@ -451,50 +458,15 @@ func (h *MicroLessonHandler) CallbackLessons(c *gin.Context) {
 		return
 	}
 
-	job, err := h.microRepo.GetJob(c.Request.Context(), body.JobID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Job not found"))
+	if len(body.Lessons) == 0 || len(body.Lessons) > 100 {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", "Callback batch must contain 1 to 100 items"))
 		return
 	}
-
-	for i, l := range body.Lessons {
-		objectives, _ := json.Marshal(l.Objectives)
-		images, _ := json.Marshal(l.ImageURLs)
-		summary := sql.NullString{}
-		if l.Summary != "" {
-			summary = sql.NullString{String: l.Summary, Valid: true}
-		}
-
-		lesson := &models.MicroLesson{
-			JobID:            body.JobID,
-			CourseID:         body.CourseID,
-			Title:            l.Title,
-			Summary:          summary,
-			Objectives:       objectives,
-			MarkdownContent:  l.MarkdownContent,
-			EstimatedMinutes: l.EstimatedMinutes,
-			OrderIndex:       l.OrderIndex,
-			ImageURLs:        images,
-			Language:         body.Language,
-			CreatedBy:        job.CreatedBy,
-		}
-		if body.SectionID != nil {
-			lesson.SectionID = sql.NullInt64{Int64: *body.SectionID, Valid: true}
-		}
-		if body.SourceContentID != nil {
-			lesson.SourceContentID = sql.NullInt64{Int64: *body.SourceContentID, Valid: true}
-		}
-		if l.NodeID != nil {
-			lesson.NodeID = sql.NullInt64{Int64: *l.NodeID, Valid: true}
-		}
-		if _, err := h.microRepo.CreateLesson(c.Request.Context(), lesson); err != nil {
-			logger.Error(fmt.Sprintf("CreateLesson failed for job %d (idx %d)", body.JobID, i), err)
-		}
+	if err := h.microRepo.SaveGeneratedLessons(c.Request.Context(), &body); err != nil {
+		writeCallbackError(c, err)
+		return
 	}
-	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{
-		"job_id":       body.JobID,
-		"created":      len(body.Lessons),
-	}))
+	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{"job_id": body.JobID, "created": len(body.Lessons)}))
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

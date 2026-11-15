@@ -3591,13 +3591,14 @@ const docTemplate = `{
         },
         "/files/download/{filepath}": {
             "get": {
+                "description": "Private assets require owner/course access or internal service authentication.",
                 "produces": [
                     "application/octet-stream"
                 ],
                 "tags": [
                     "Files"
                 ],
-                "summary": "Download a file as attachment",
+                "summary": "Download an authorized file as attachment",
                 "parameters": [
                     {
                         "type": "string",
@@ -3704,10 +3705,11 @@ const docTemplate = `{
         },
         "/files/serve/{filepath}": {
             "get": {
+                "description": "Public assets are readable anonymously; private assets require owner/course access or internal service authentication.",
                 "tags": [
                     "Files"
                 ],
-                "summary": "Serve a file for inline viewing",
+                "summary": "Serve an authorized file for inline viewing",
                 "parameters": [
                     {
                         "type": "string",
@@ -3776,6 +3778,12 @@ const docTemplate = `{
                         "default": "document",
                         "description": "File type (video, document, image)",
                         "name": "type",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "private or public; must precede file parts. Documents default private.",
+                        "name": "visibility",
                         "in": "formData"
                     }
                 ],

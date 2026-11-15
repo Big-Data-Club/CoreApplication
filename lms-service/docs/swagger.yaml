@@ -3908,6 +3908,8 @@ paths:
       - Files
   /files/download/{filepath}:
     get:
+      description: Private assets require owner/course access or internal service
+        authentication.
       parameters:
       - description: File path
         in: path
@@ -3933,7 +3935,7 @@ paths:
           description: File not found
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
-      summary: Download a file as attachment
+      summary: Download an authorized file as attachment
       tags:
       - Files
   /files/presigned/{filepath}:
@@ -3982,6 +3984,8 @@ paths:
       - Files
   /files/serve/{filepath}:
     get:
+      description: Public assets are readable anonymously; private assets require
+        owner/course access or internal service authentication.
       parameters:
       - description: File path
         in: path
@@ -4005,7 +4009,7 @@ paths:
           description: File not found
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
-      summary: Serve a file for inline viewing
+      summary: Serve an authorized file for inline viewing
       tags:
       - Files
   /files/upload:
@@ -4023,6 +4027,11 @@ paths:
         description: File type (video, document, image)
         in: formData
         name: type
+        type: string
+      - description: private or public; must precede file parts. Documents default
+          private.
+        in: formData
+        name: visibility
         type: string
       produces:
       - application/json

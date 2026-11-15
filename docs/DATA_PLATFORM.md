@@ -1,5 +1,44 @@
 # BDC Hub Data Platform: Lakehouse and Kafka
 
+## LMS reliable consumers and quiz effects (2026-11)
+
+LMS owns the existing consumer groups for `ai.document.processed.status`,
+`ai.graph.node_merged`, `ai.job.status`, and `lms.analytics.interactions`.
+Payloads, keys and group names are unchanged. Readers now fetch, apply, then
+commit, retaining the current message on dependency errors with capped backoff.
+AI result callbacks additionally use one bounded HTTP retry helper for transport/429/5xx errors. Result delivery failures propagate instead of being logged as successful generation; progress hints remain best-effort after bounded retries.
+
+Malformed schema events go to `<source-topic>.dlq` before offset advancement;
+DLQ publishing must be available or the partition intentionally remains blocked.
+A DLQ envelope contains source topic/partition/offset, the original payload as a
+base64 string and a fixed validation error. It is diagnostic learning data, not
+public telemetry: restrict access and retention like its source topic. No events
+are skipped over a failed message in the same partition. The LMS-owned
+`lms_processed_interactions` receipt and mastery update commit together using
+`interaction_id`, preventing replay from incrementing aggregation twice.
+Unchanged course-key ordering is preserved. Existing already-committed losses
+are not automatically recovered; coordinate any historic replay with the owner.
+
+Quiz submission commits an `lms_quiz_effects` row in the LMS database. Fixed
+workers claim work with `FOR UPDATE SKIP LOCKED`. Local completion/progress and
+per-question analytics commit before remote AI delivery; remote failure cannot
+undo them. The pending row retries with backoff, and manual grading reopens the
+same row for the current persisted answers. Reviews carry an additive optional
+`event_id` based on answer ID and persisted grading timestamp. AI owns
+`review_delivery_receipts` (V025); its receipt, SM-2 schedule and mastery update
+commit together, and duplicate deliveries return the saved result. A changed
+payload for the same ID is rejected. Calls omitting the field retain their
+original request contract, with atomic schedule/mastery writes.
+
+The receipts contain identifiers/hash/result metadata, not answer text. Retain
+AI receipts at least as long as LMS jobs can be replayed; do not independently
+expire them while replayable jobs remain. Completed LMS jobs and aggregation
+receipts also need an owner-approved retention/archive policy before pruning.
+LMS uses only the authenticated AI HTTP API and never reads AI's database.
+Install AI V025 and LMS V022, deploy AI's compatible receiver, then deploy LMS;
+old AI silently ignores an unknown event ID and is therefore not safe for the
+new retrying sender. See the deployment runbook for cache and rollback gates.
+
 ## Learning notification feed (2026-11)
 
 LMS owns `learning_notification_events` and `learning_notification_reads`.

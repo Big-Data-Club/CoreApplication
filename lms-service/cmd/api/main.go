@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -82,17 +84,13 @@ func main() {
 	}
 	cancelNoticeSchema()
 
-	// Read-path indexes are non-critical and idempotent.
-	// Build them in the background so a rollout remains available even on a large existing DB
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
-		if err := database.EnsureReadPathIndexes(ctx, db); err != nil {
-			logger.Warn(fmt.Sprintf("read-path indexes were not applied: %v", err))
-			return
-		}
-		logger.Info("read-path indexes are ready")
-	}()
+	safetyCtx, cancelSafety := context.WithTimeout(context.Background(), 5*time.Second)
+	var safetyReady bool
+	err = db.QueryRowContext(safetyCtx, `SELECT to_regclass('lms_file_assets') IS NOT NULL AND to_regclass('lms_quiz_effects') IS NOT NULL AND to_regclass('lms_processed_interactions') IS NOT NULL AND to_regclass('lms_callback_receipts') IS NOT NULL`).Scan(&safetyReady)
+	cancelSafety()
+	if err != nil || !safetyReady {
+		logger.Fatal("Apply LMS migration V022 before starting this image", err)
+	}
 
 	// Initialize Redis cache
 	redisClient, err := cache.NewRedisClient(cfg.Redis)
@@ -121,6 +119,10 @@ func main() {
 
 	aiClient := ai.NewClient()
 
+	workerCtx, stopWorkers := context.WithCancel(context.Background())
+	defer stopWorkers()
+	var workers sync.WaitGroup
+	startWorker := func(fn func(context.Context)) { workers.Add(1); go func() { defer workers.Done(); fn(workerCtx) }() }
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
 	courseRepo := repository.NewCourseRepository(db)
@@ -143,41 +145,45 @@ func main() {
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
 
-	go kafka.StartConsumer(context.Background(), func(ctx context.Context, event kafka.ProcessDocumentStatusEvent) error {
-		logger.Info(fmt.Sprintf("Received status update for content %d: %s", event.ContentID, event.Status))
-		if event.Status == "completed" || event.Status == "success" {
-			event.Status = "indexed"
-		}
-		return courseRepo.UpdateContentAIIndexStatus(ctx, event.ContentID, event.Status)
+	startWorker(func(ctx context.Context) {
+		kafka.StartConsumer(ctx, func(ctx context.Context, event kafka.ProcessDocumentStatusEvent) error {
+			logger.Info(fmt.Sprintf("Received status update for content %d: %s", event.ContentID, event.Status))
+			if event.Status == "completed" || event.Status == "success" {
+				event.Status = "indexed"
+			}
+			return courseRepo.UpdateContentAIIndexStatus(ctx, event.ContentID, event.Status)
+		})
 	})
 
-	go kafka.StartAIJobStatusConsumer(context.Background(), func(ctx context.Context, event kafka.AIJobStatusEvent) error {
-		logger.Info(fmt.Sprintf("Received AI job status for %s: %s", event.JobID, event.Status))
+	startWorker(func(ctx context.Context) {
+		kafka.StartAIJobStatusConsumer(ctx, func(ctx context.Context, event kafka.AIJobStatusEvent) error {
+			logger.Info(fmt.Sprintf("Received AI job status for %s: %s", event.JobID, event.Status))
 
-		// Enrich suggested documents if completed
-		if event.Status == "completed" && event.Result != nil {
-			if resultFields, ok := event.Result.(map[string]interface{}); ok {
-				if docs, ok := resultFields["suggested_documents"].([]interface{}); ok {
-					for _, docItem := range docs {
-						if docMap, ok := docItem.(map[string]interface{}); ok {
-							var contentID int64
-							if cidVal, ok := docMap["content_id"]; ok {
-								switch v := cidVal.(type) {
-								case float64:
-									contentID = int64(v)
-								case int64:
-									contentID = v
-								case int:
-									contentID = int64(v)
+			// Enrich suggested documents if completed
+			if event.Status == "completed" && event.Result != nil {
+				if resultFields, ok := event.Result.(map[string]interface{}); ok {
+					if docs, ok := resultFields["suggested_documents"].([]interface{}); ok {
+						for _, docItem := range docs {
+							if docMap, ok := docItem.(map[string]interface{}); ok {
+								var contentID int64
+								if cidVal, ok := docMap["content_id"]; ok {
+									switch v := cidVal.(type) {
+									case float64:
+										contentID = int64(v)
+									case int64:
+										contentID = v
+									case int:
+										contentID = int64(v)
+									}
 								}
-							}
 
-							if contentID > 0 {
-								content, err := courseRepo.GetContentByID(ctx, contentID)
-								if err == nil && content != nil {
-									docMap["title"] = content.Title
-									if content.FilePath.Valid && content.FilePath.String != "" {
-										docMap["file_url"] = fmt.Sprintf("/files/%s", content.FilePath.String)
+								if contentID > 0 {
+									content, err := courseRepo.GetContentByID(ctx, contentID)
+									if err == nil && content != nil {
+										docMap["title"] = content.Title
+										if content.FilePath.Valid && content.FilePath.String != "" {
+											docMap["file_url"] = fmt.Sprintf("/files/%s", content.FilePath.String)
+										}
 									}
 								}
 							}
@@ -185,48 +191,50 @@ func main() {
 					}
 				}
 			}
-		}
 
-		// Serialize and store into Redis
-		data, _ := json.Marshal(event)
-		redisKey := "ai_job:" + event.JobID
-		if err := redisClient.Set(ctx, redisKey, data, 24*time.Hour); err != nil {
-			return err
-		}
-		if err := redisClient.Publish(ctx, "ai_job_events:"+event.JobID, string(data)); err != nil {
-			// The saved Redis value keeps polling/status recovery possible; a
-			// transient Pub/Sub failure must not fail the Kafka consumer offset.
-			logger.Warn(fmt.Sprintf("Failed to publish live AI job event %s: %v", event.JobID, err))
-		}
-		return nil
+			// Serialize and store into Redis
+			data, _ := json.Marshal(event)
+			redisKey := "ai_job:" + event.JobID
+			if err := redisClient.Set(ctx, redisKey, data, 24*time.Hour); err != nil {
+				return err
+			}
+			if err := redisClient.Publish(ctx, "ai_job_events:"+event.JobID, string(data)); err != nil {
+				// The saved Redis value keeps polling/status recovery possible; a
+				// transient Pub/Sub failure must not fail the Kafka consumer offset.
+				logger.Warn(fmt.Sprintf("Failed to publish live AI job event %s: %v", event.JobID, err))
+			}
+			return nil
+		})
 	})
 
 	// "Compact Graph" cascade: when AI merges nodes, repoint our own node_id columns.
-	go kafka.StartNodeMergedConsumer(context.Background(), func(ctx context.Context, event kafka.NodeMergedEvent) error {
-		if len(event.AbsorbedIDs) == 0 {
-			return nil
-		}
-		logger.Info(fmt.Sprintf(
-			"Cascading node merge: survivor=%d absorbed=%d",
-			event.SurvivorID, len(event.AbsorbedIDs)))
+	startWorker(func(ctx context.Context) {
+		kafka.StartNodeMergedConsumer(ctx, func(ctx context.Context, event kafka.NodeMergedEvent) error {
+			if len(event.AbsorbedIDs) == 0 {
+				return nil
+			}
+			logger.Info(fmt.Sprintf(
+				"Cascading node merge: survivor=%d absorbed=%d",
+				event.SurvivorID, len(event.AbsorbedIDs)))
 
-		absorbed := pq.Array(event.AbsorbedIDs)
-		if _, err := db.ExecContext(ctx,
-			`UPDATE micro_lessons SET node_id = $1 WHERE node_id = ANY($2)`,
-			event.SurvivorID, absorbed); err != nil {
-			return fmt.Errorf("micro_lessons cascade: %w", err)
-		}
-		if _, err := db.ExecContext(ctx,
-			`UPDATE micro_quizzes SET node_id = $1 WHERE node_id = ANY($2)`,
-			event.SurvivorID, absorbed); err != nil {
-			return fmt.Errorf("micro_quizzes cascade: %w", err)
-		}
-		if _, err := db.ExecContext(ctx,
-			`UPDATE quiz_questions SET node_id = $1 WHERE node_id = ANY($2)`,
-			event.SurvivorID, absorbed); err != nil {
-			return fmt.Errorf("quiz_questions cascade: %w", err)
-		}
-		return nil
+			absorbed := pq.Array(event.AbsorbedIDs)
+			if _, err := db.ExecContext(ctx,
+				`UPDATE micro_lessons SET node_id = $1 WHERE node_id = ANY($2)`,
+				event.SurvivorID, absorbed); err != nil {
+				return fmt.Errorf("micro_lessons cascade: %w", err)
+			}
+			if _, err := db.ExecContext(ctx,
+				`UPDATE micro_quizzes SET node_id = $1 WHERE node_id = ANY($2)`,
+				event.SurvivorID, absorbed); err != nil {
+				return fmt.Errorf("micro_quizzes cascade: %w", err)
+			}
+			if _, err := db.ExecContext(ctx,
+				`UPDATE quiz_questions SET node_id = $1 WHERE node_id = ANY($2)`,
+				event.SurvivorID, absorbed); err != nil {
+				return fmt.Errorf("quiz_questions cascade: %w", err)
+			}
+			return nil
+		})
 	})
 
 	// Initialize services. Services that benefit from caching (read-heavy CRUD
@@ -235,11 +243,15 @@ func main() {
 	// only ever produce one DB query per process.
 	userService := service.NewUserService(userRepo, redisClient)
 	orgService := service.NewOrganizationService(orgRepo, userRepo, redisClient)
-	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient, aiClient)
+	fileAccess := service.NewFileAccessService(repository.NewFileRepository(db, cfg.Upload.MaxUserStorageBytes))
+	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient, aiClient, fileAccess)
 	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, orgRepo, redisClient)
 	bankRepo := repository.NewQuestionBankRepository(db)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient, bankRepo)
 	bankService := service.NewQuestionBankService(bankRepo, quizRepo, courseRepo, aiClient)
+	for i := 0; i < cfg.Limits.EffectWorkers; i++ {
+		startWorker(quizService.RunEffects)
+	}
 
 	userSyncService := service.NewUserSyncService(userRepo, redisClient)
 	forumService := service.NewForumService(forumRepo, courseRepo)
@@ -254,24 +266,28 @@ func main() {
 
 	// Heatmap analytics worker: consumes Quick Action Panel interactions
 	// off `lms.analytics.interactions` and updates knowledge_node_mastery.
-	go kafka.StartMicroInteractionConsumer(context.Background(), func(ctx context.Context, ev kafka.MicroInteractionEvent) error {
-		return microInteractionService.ApplyEvent(ctx, ev)
+	startWorker(func(ctx context.Context) {
+		kafka.StartMicroInteractionConsumer(ctx, func(ctx context.Context, ev kafka.MicroInteractionEvent) error {
+			return microInteractionService.ApplyEvent(ctx, ev)
+		})
 	})
 
 	// Initialize handlers
 	notificationService := service.NewNotificationService(db, redisClient)
 	notificationHandler := handler.NewNotificationHandler(notificationService, redisClient)
-	go notificationService.Run(context.Background())
-	go kafka.StartNotificationHintConsumer(context.Background(), func(ctx context.Context, userID int64) error {
-		hintCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		return redisClient.Publish(hintCtx, fmt.Sprintf("learning:user:%d", userID), "refresh")
+	startWorker(notificationService.Run)
+	startWorker(func(ctx context.Context) {
+		kafka.StartNotificationHintConsumer(ctx, func(ctx context.Context, userID int64) error {
+			hintCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			return redisClient.Publish(hintCtx, fmt.Sprintf("learning:user:%d", userID), "refresh")
+		})
 	})
 	userHandler := handler.NewUserHandler(userService)
 	courseHandler := handler.NewCourseHandler(courseService)
 	coTeacherHandler := handler.NewCoTeacherHandler(courseService)
 	enrollmentHandler := handler.NewEnrollmentHandler(enrollmentService)
-	fileHandler := handler.NewFileHandler(storageProvider, cfg.Upload)
+	fileHandler := handler.NewFileHandler(storageProvider, cfg.Upload, fileAccess)
 	syncHandler := handler.NewUserSyncHandler(userSyncService, syncSecret)
 	quizHandler := handler.NewQuizHandler(quizService, storageProvider)
 	questionBankHandler := handler.NewQuestionBankHandler(bankService)
@@ -298,19 +314,18 @@ func main() {
 	}
 
 	router := gin.New()
-	// Trust private network proxies to correctly resolve client IP (matching the Docker/Traefik network setup)
-	_ = router.SetTrustedProxies([]string{
-		"127.0.0.1",
-		"172.16.0.0/12",
-		"172.28.0.0/16",
-		"10.0.0.0/8",
-		"192.168.0.0/16",
-	})
+	// Only explicitly configured proxies may supply client-IP forwarding headers.
+	if err := router.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
+		logger.Fatal("Invalid trusted proxy configuration", err)
+	}
+
 	router.MaxMultipartMemory = 64 << 20 // 64 MB
 	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS(cfg.CORS))
-	router.Use(middleware.RateLimit(redisClient, cfg.AIConf.Secret))
+	router.Use(middleware.RateLimit(redisClient, cfg.Limits.IPPerMinute))
+	router.Use(middleware.RequestBudget(cfg.Upload.MaxSize, cfg.Limits))
 
 	// Health check
 	healthHandler := func(c *gin.Context) {
@@ -322,6 +337,15 @@ func main() {
 	}
 	router.GET("/health", healthHandler)
 	router.HEAD("/health", healthHandler)
+	router.GET("/ready", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), time.Second)
+		defer cancel()
+		if db.PingContext(ctx) != nil || redisClient.HealthCheck(ctx) != nil {
+			c.Status(http.StatusServiceUnavailable)
+			return
+		}
+		c.Status(http.StatusOK)
+	})
 
 	// Swagger documentation with dynamic URL configuration
 	// Development: http://localhost:3000/lmsapidocs/swagger/index.html
@@ -357,6 +381,9 @@ func main() {
 
 		// FILE SERVING - Public access (no auth needed for viewing)
 		files := v1.Group("/files")
+		files.Use(middleware.OptionalIdentity(cfg.JWT.Secret, cfg.AIConf.Secret))
+		files.Use(middleware.LoadLocalRoles(userRepo, redisClient))
+		files.Use(middleware.RateLimitByUser(redisClient, cfg.Limits.UserPerMinute, cfg.Limits.CostlyPerMinute, time.Minute))
 		{
 			// Public file serving endpoint
 			files.GET("/serve/*filepath", fileHandler.ServeFile)
@@ -367,16 +394,16 @@ func main() {
 			// Protected endpoints - require authentication
 			// 1. Flexible endpoints (Internal Service Secret OR JWT)
 			flexible := files.Group("")
-			flexible.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
-			flexible.Use(middleware.LoadLocalRoles(userRepo, redisClient))
+			flexible.Use(middleware.RequireIdentity(true))
+
 			{
 				flexible.GET("/presigned/*filepath", fileHandler.GetPresignedURL)
 			}
 
 			// 2. Strict protected endpoints (JWT ONLY)
 			protected := files.Group("")
-			protected.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
-			protected.Use(middleware.LoadLocalRoles(userRepo, redisClient))
+			protected.Use(middleware.RequireIdentity(false))
+
 			{
 				protected.POST("/upload", fileHandler.UploadFile)
 				protected.DELETE("/delete/*filepath", fileHandler.DeleteFile)
@@ -389,6 +416,7 @@ func main() {
 		flexCourses := v1.Group("/courses")
 		flexCourses.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 		flexCourses.Use(middleware.LoadLocalRoles(userRepo, redisClient))
+		flexCourses.Use(middleware.RateLimitByUser(redisClient, cfg.Limits.UserPerMinute, cfg.Limits.CostlyPerMinute, time.Minute))
 		{
 			// MCP creates the private course draft before it can create its
 			// sections and lessons. Keep this on the service-or-JWT boundary so
@@ -411,6 +439,7 @@ func main() {
 		flexSections := v1.Group("/sections")
 		flexSections.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 		flexSections.Use(middleware.LoadLocalRoles(userRepo, redisClient))
+		flexSections.Use(middleware.RateLimitByUser(redisClient, cfg.Limits.UserPerMinute, cfg.Limits.CostlyPerMinute, time.Minute))
 		{
 			flexSections.GET("/:sectionId", courseHandler.GetSection)
 			flexSections.PUT("/:sectionId", courseHandler.UpdateSection)
@@ -426,6 +455,7 @@ func main() {
 		flexContent := v1.Group("/content")
 		flexContent.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 		flexContent.Use(middleware.LoadLocalRoles(userRepo, redisClient))
+		flexContent.Use(middleware.RateLimitByUser(redisClient, cfg.Limits.UserPerMinute, cfg.Limits.CostlyPerMinute, time.Minute))
 		{
 			flexContent.PUT("/:contentId", courseHandler.UpdateContent)
 		}
@@ -433,6 +463,8 @@ func main() {
 		// Protected routes - require authentication
 		auth := v1.Group("")
 		auth.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
+		auth.Use(middleware.RateLimitByUser(redisClient, cfg.Limits.UserPerMinute, cfg.Limits.CostlyPerMinute, time.Minute))
+		auth.Use(middleware.LimitStreamsPerUser(cfg.Limits.StreamsPerUser))
 		auth.GET("/notifications", notificationHandler.List)
 		auth.POST("/notifications/read", notificationHandler.Read)
 		auth.GET("/notifications/stream", notificationHandler.Stream)
@@ -904,7 +936,7 @@ func main() {
 		// Authenticated via shared service secret only - never reachable
 		// with user JWTs because the path lives outside the auth group.
 		internalAI := v1.Group("/internal")
-		internalAI.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		internalAI.Use(middleware.ServiceOnlyMiddleware(cfg.AIConf.Secret))
 		{
 			internalAI.GET("/sections/:sectionId/contents", courseHandler.InternalGetSectionContents)
 			internalAI.GET("/contents/:contentId/hierarchy", courseHandler.InternalGetContentHierarchy)
@@ -914,14 +946,14 @@ func main() {
 		}
 
 		internal := v1.Group("/internal/micro-lessons")
-		internal.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		internal.Use(middleware.ServiceOnlyMiddleware(cfg.AIConf.Secret))
 		{
 			internal.POST("/status", microLessonHandler.CallbackStatus)
 			internal.POST("/lessons", microLessonHandler.CallbackLessons)
 		}
 
 		internalQuiz := v1.Group("/internal/micro-quizzes")
-		internalQuiz.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		internalQuiz.Use(middleware.ServiceOnlyMiddleware(cfg.AIConf.Secret))
 		{
 			internalQuiz.POST("/status", microQuizHandler.CallbackStatus)
 			internalQuiz.POST("/quizzes", microQuizHandler.CallbackQuizzes)
@@ -929,7 +961,7 @@ func main() {
 
 		// -- Section Overview internal callbacks (AI service -> LMS) -----
 		internalOverview := v1.Group("/internal/section-overview")
-		internalOverview.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
+		internalOverview.Use(middleware.ServiceOnlyMiddleware(cfg.AIConf.Secret))
 		{
 			internalOverview.POST("/status", sectionOverviewHandler.CallbackStatus)
 			internalOverview.POST("/results", sectionOverviewHandler.CallbackResults)
@@ -940,9 +972,10 @@ func main() {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.App.Port),
 		Handler:           router,
+		BaseContext:       func(net.Listener) context.Context { return workerCtx },
 		ReadHeaderTimeout: 20 * time.Second,
-		ReadTimeout:       cfg.Server.ReadTimeout,  // Sử dụng từ config (10 phút)
-		WriteTimeout:      cfg.Server.WriteTimeout, // Sử dụng từ config (10 phút)
+		ReadTimeout:       cfg.Server.ReadTimeout,
+		WriteTimeout:      cfg.Server.WriteTimeout,
 		IdleTimeout:       cfg.Server.IdleTimeout,
 	}
 
@@ -970,12 +1003,23 @@ func main() {
 	<-quit
 
 	logger.Info("Shutting down server...")
+	stopWorkers()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		logger.Fatal("Server forced to shutdown", err)
+		logger.Warn("HTTP drain timed out; closing active connections")
+		_ = srv.Close()
+	}
+
+	stopWorkers()
+	stopped := make(chan struct{})
+	go func() { workers.Wait(); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+		logger.Warn("Worker drain timed out")
 	}
 
 	logger.Info("Server exited")

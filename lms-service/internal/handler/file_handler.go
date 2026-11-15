@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,24 +16,31 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"example/hello/internal/config"
-	"example/hello/internal/dto"
-	"example/hello/pkg/logger"
-	"example/hello/pkg/storage"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"example/hello/internal/config"
+	"example/hello/internal/dto"
+	"example/hello/internal/service"
+	"example/hello/pkg/logger"
+	"example/hello/pkg/storage"
 )
 
 type FileHandler struct {
 	storage storage.Storage
 	config  config.UploadConfig
+	access  fileAccess
 }
 
-func NewFileHandler(storage storage.Storage, cfg config.UploadConfig) *FileHandler {
+func NewFileHandler(storage storage.Storage, cfg config.UploadConfig, access ...fileAccess) *FileHandler {
+	var policy fileAccess
+	if len(access) > 0 {
+		policy = access[0]
+	}
 	return &FileHandler{
 		storage: storage,
 		config:  cfg,
+		access:  policy,
 	}
 }
 
@@ -60,12 +69,22 @@ type FileUploadBatchResponse struct {
 // @Produce json
 // @Param file formData file true "File to upload"
 // @Param type formData string false "File type (video, document, image)" default(document)
+// @Param visibility formData string false "private or public; must precede file parts. Documents default private."
 // @Security BearerAuth
 // @Success 200 {object} dto.SuccessResponse{data=FileUploadResponse}
 // @Failure 400 {object} dto.ErrorResponse
 // @Failure 500 {object} dto.ErrorResponse
 // @Router /files/upload [post]
 func (h *FileHandler) UploadFile(c *gin.Context) {
+	if c.GetInt64("user_id") <= 0 || h.access == nil {
+		c.AbortWithStatus(http.StatusServiceUnavailable)
+		return
+	}
+	maxSize := h.config.MaxSize
+	if maxSize <= 0 {
+		maxSize = 100 << 20
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize+(1<<20))
 	reader, err := c.Request.MultipartReader()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", "Failed to process multipart form"))
@@ -73,6 +92,20 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	}
 
 	var fileType string = "document"
+	public := false
+	visibilitySet := false
+	committed := false
+	var createdPaths []string
+	defer func() {
+		if !committed {
+			for _, key := range createdPaths {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = h.storage.Delete(ctx, key)
+				_ = h.access.Forget(ctx, key)
+				cancel()
+			}
+		}
+	}()
 	var uploadedResponse *FileUploadResponse
 	uploadedFiles := make([]FileUploadResponse, 0)
 
@@ -82,11 +115,26 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 			if err == io.EOF {
 				break
 			}
-			c.JSON(http.StatusBadRequest, dto.NewErrorResponse("upload_error", "Error reading file stream"))
+			c.JSON(http.StatusBadRequest, dto.NewErrorResponse("upload_error", "Invalid or oversized multipart request"))
 			return
 		}
 
 		formName := part.FormName()
+		if formName == "visibility" {
+			if len(uploadedFiles) > 0 {
+				c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_visibility", "Visibility must precede files"))
+				return
+			}
+			value, err := io.ReadAll(io.LimitReader(part, 16))
+			part.Close()
+			if err != nil || (string(value) != "public" && string(value) != "private") {
+				c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_visibility", "Use public or private visibility before file parts"))
+				return
+			}
+			public = string(value) == "public"
+			visibilitySet = true
+			continue
+		}
 
 		if formName == "type" {
 			buf := make([]byte, 100)
@@ -101,6 +149,11 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 			continue
 		}
 
+		if len(uploadedFiles) >= 10 {
+			part.Close()
+			c.JSON(http.StatusRequestEntityTooLarge, dto.NewErrorResponse("too_many_files", "Maximum 10 files per request"))
+			return
+		}
 		filename := part.FileName()
 		if filename == "" {
 			part.Close()
@@ -109,20 +162,21 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 
 		// Auto-detect file type from extension if not explicitly provided or mismatched
 		ext := strings.ToLower(filepath.Ext(filename))
-		if fileType == "document" {
+		effectiveType := fileType
+		if effectiveType == "document" {
 			// Try to auto-detect from extension
 			detectedType := detectFileTypeFromExt(ext)
 			if detectedType != "document" {
-				fileType = detectedType
+				effectiveType = detectedType
 			}
 		}
 
 		// Validate extension
-		if !isValidFileType(fileType, filename) {
+		if !isValidFileType(effectiveType, filename) {
 			part.Close()
 			c.JSON(http.StatusBadRequest, dto.NewErrorResponse(
 				"invalid_file_type",
-				fmt.Sprintf("File type %s is not allowed for %s uploads.", ext, fileType),
+				fmt.Sprintf("File type %s is not allowed for %s uploads.", ext, effectiveType),
 			))
 			return
 		}
@@ -136,9 +190,8 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		}
 		tmpPath := tmpFile.Name()
 
-		fileSize, err := io.Copy(tmpFile, part)
+		fileSize, err := io.Copy(tmpFile, io.LimitReader(part, maxSize+1))
 		tmpFile.Close()
-		part.Close()
 
 		if err != nil {
 			os.Remove(tmpPath)
@@ -147,7 +200,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 			return
 		}
 
-		if h.config.MaxSize > 0 && fileSize > h.config.MaxSize {
+		if fileSize > maxSize {
 			os.Remove(tmpPath)
 			c.JSON(http.StatusRequestEntityTooLarge, dto.NewErrorResponse(
 				"file_too_large",
@@ -156,12 +209,14 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 			return
 		}
 
+		part.Close()
+
 		fileID := uuid.New().String()
 		timestamp := time.Now().Format("20060102150405")
 		ext = strings.ToLower(filepath.Ext(filename))
 		cleanName := cleanFilename(filename)
 		nameWithoutExt := strings.TrimSuffix(cleanName, ext)
-		storedFilename := fmt.Sprintf("%s/%s_%s_%s%s", fileType, timestamp, fileID[:8], nameWithoutExt, ext)
+		storedFilename := fmt.Sprintf("%s/%s_%s_%s%s", effectiveType, timestamp, fileID[:8], nameWithoutExt, ext)
 		contentType := getContentType(filename)
 
 		tmpReader, err := os.Open(tmpPath)
@@ -170,6 +225,30 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 			logger.Error("Failed to re-open temp file for upload", err)
 			c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("upload_failed", "Failed to process file"))
 			return
+		}
+
+		if (isImage(ext) && ext != ".svg") || ext == ".pdf" {
+			header := make([]byte, 512)
+			n, readErr := tmpReader.Read(header)
+			if readErr != nil && readErr != io.EOF {
+				tmpReader.Close()
+				os.Remove(tmpPath)
+				c.AbortWithStatus(http.StatusBadRequest)
+				return
+			}
+			detected := http.DetectContentType(header[:n])
+			if detected != contentType {
+				tmpReader.Close()
+				os.Remove(tmpPath)
+				c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_file_content", "File content does not match its extension"))
+				return
+			}
+			if _, err := tmpReader.Seek(0, io.SeekStart); err != nil {
+				tmpReader.Close()
+				os.Remove(tmpPath)
+				c.AbortWithStatus(http.StatusInternalServerError)
+				return
+			}
 		}
 
 		logger.Info(fmt.Sprintf("Uploading %s (%.1f MB) to MinIO as %s", filename, float64(fileSize)/1024/1024, storedFilename))
@@ -188,13 +267,23 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 			return
 		}
 
+		createdPaths = append(createdPaths, storedFilename)
+		if err := h.access.Register(c.Request.Context(), storedFilename, c.GetInt64("user_id"), fileSize, public || (!visibilitySet && effectiveType == "image")); err != nil {
+			if errors.Is(err, service.ErrFileQuota) {
+				c.JSON(http.StatusRequestEntityTooLarge, dto.NewErrorResponse("storage_quota", "File storage quota exceeded"))
+				return
+			}
+			logger.Error("File metadata registration failed", err)
+			c.AbortWithStatus(http.StatusServiceUnavailable)
+			return
+		}
 		uploadedResponse = &FileUploadResponse{
 			FileID:   fileID,
 			FileName: filename,
 			FileURL:  fmt.Sprintf("/files/%s", storedFilename),
 			FilePath: storedFilename,
 			FileSize: fileSize,
-			FileType: fileType,
+			FileType: effectiveType,
 		}
 		uploadedFiles = append(uploadedFiles, *uploadedResponse)
 	}
@@ -204,6 +293,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
+	committed = true
 	if len(uploadedFiles) == 1 {
 		c.JSON(http.StatusOK, dto.NewDataResponse(uploadedResponse))
 		return
@@ -212,7 +302,8 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 }
 
 // ServeFile godoc
-// @Summary Serve a file for inline viewing
+// @Summary Serve an authorized file for inline viewing
+// @Description Public assets are readable anonymously; private assets require owner/course access or internal service authentication.
 // @Tags Files
 // @Param filepath path string true "File path"
 // @Success 200 {file} binary "File content"
@@ -224,6 +315,10 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 	filename, ok := sanitizeFilePath(c.Param("filepath"))
 	if !ok {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
+		return
+	}
+
+	if !h.authorizeFile(c, filename, false) {
 		return
 	}
 	// Chat attachments are private to a channel/DM. They are fetched through
@@ -257,8 +352,6 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
 	c.Header("Accept-Ranges", "bytes")
 
 	ext := strings.ToLower(filepath.Ext(filename))
@@ -270,7 +363,8 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(filename)))
 	}
 
-	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
 	if result.ETag != "" {
 		c.Header("ETag", normalizeETag(result.ETag))
 	}
@@ -285,7 +379,8 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 }
 
 // DownloadFile godoc
-// @Summary Download a file as attachment
+// @Summary Download an authorized file as attachment
+// @Description Private assets require owner/course access or internal service authentication.
 // @Tags Files
 // @Produce application/octet-stream
 // @Param filepath path string true "File path"
@@ -300,6 +395,10 @@ func (h *FileHandler) DownloadFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
 		return
 	}
+
+	if !h.authorizeFile(c, filename, false) {
+		return
+	}
 	if strings.HasPrefix(filename, "chat/") {
 		c.JSON(http.StatusNotFound, dto.NewErrorResponse("file_not_found", "File not found"))
 		return
@@ -312,6 +411,8 @@ func (h *FileHandler) DownloadFile(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
 	baseName := filepath.Base(filename)
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, baseName))
 	http.ServeContent(c.Writer, c.Request, baseName, result.LastModified, result.Body)
@@ -334,12 +435,21 @@ func (h *FileHandler) DeleteFile(c *gin.Context) {
 		return
 	}
 
+	if !h.authorizeFile(c, filename, true) {
+		return
+	}
+
 	if err := h.storage.Delete(c.Request.Context(), filename); err != nil {
 		logger.Error(fmt.Sprintf("Failed to delete file %s", filename), err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("delete_failed", "Failed to delete file"))
 		return
 	}
 
+	if err := h.access.Forget(c.Request.Context(), filename); err != nil {
+		logger.Error("File metadata cleanup failed", err)
+		c.AbortWithStatus(http.StatusServiceUnavailable)
+		return
+	}
 	c.JSON(http.StatusOK, dto.NewMessageResponse("File deleted successfully"))
 }
 
@@ -360,6 +470,10 @@ func (h *FileHandler) GetPresignedURL(c *gin.Context) {
 	filename, ok := sanitizeFilePath(c.Param("filepath"))
 	if !ok {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_filename", "Invalid file path"))
+		return
+	}
+
+	if !h.authorizeFile(c, filename, false) {
 		return
 	}
 	if strings.HasPrefix(filename, "chat/") {

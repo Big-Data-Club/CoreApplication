@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -12,15 +13,27 @@ import (
 // GetStudentAttempts retrieves all attempts by a student for a specific quiz
 func (s *QuizService) GetStudentAttempts(ctx context.Context, quizID, studentID int64) ([]models.QuizAttemptWithDetails, error) {
 	// Verify quiz exists
-	_, err := s.quizRepo.GetQuiz(ctx, quizID)
+	quiz, err := s.quizRepo.GetQuiz(ctx, quizID)
 	if err != nil {
 		return nil, errors.New("quiz not found")
 	}
 
+	if _, err := s.authorizeQuizRead(ctx, quiz, studentID, "STUDENT"); err != nil {
+		return nil, err
+	}
 	// Get all attempts by this student for this quiz
 	attempts, err := s.quizRepo.GetStudentAttempts(ctx, quizID, studentID)
 	if err != nil {
 		return nil, err
+	}
+
+	for i := range attempts {
+		if !quiz.ShowResultsImmediately || attempts[i].Status == models.AttemptStatusInProgress {
+			attempts[i].EarnedPoints = sql.NullFloat64{}
+			attempts[i].Percentage = sql.NullFloat64{}
+			attempts[i].IsPassed = sql.NullBool{}
+			attempts[i].CorrectAnswers = 0
+		}
 	}
 
 	return attempts, nil
@@ -53,10 +66,10 @@ type QuestionResult struct {
 }
 
 type TimeBreakdown struct {
-	TotalSeconds      int    `json:"total_seconds"`
-	TotalMinutes      int    `json:"total_minutes"`
-	AveragePerQuestion int   `json:"average_per_question"`
-	FormattedDuration string `json:"formatted_duration"`
+	TotalSeconds       int    `json:"total_seconds"`
+	TotalMinutes       int    `json:"total_minutes"`
+	AveragePerQuestion int    `json:"average_per_question"`
+	FormattedDuration  string `json:"formatted_duration"`
 }
 
 type ScoreBreakdown struct {
@@ -74,58 +87,33 @@ type ScoreBreakdown struct {
 func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID int64) (*AttemptSummary, error) {
 	// Get attempt with details
 	attempt, err := s.quizRepo.GetAttemptWithDetails(ctx, attemptID)
-	if err != nil {
+	if err != nil || attempt == nil {
 		return nil, errors.New("attempt not found")
 	}
 
-	// Check authorization (student can only view their own attempts)
-	if attempt.StudentID != userID {
-		// Get quiz to get content_id
+	if attempt.StudentID == userID {
 		quiz, err := s.quizRepo.GetQuiz(ctx, attempt.QuizID)
 		if err != nil {
-			return nil, errors.New("not authorized to view this attempt")
+			return nil, err
 		}
-
-		// Get content to get section_id, then course_id
-		content, err := s.courseRepo.GetContentByID(ctx, quiz.ContentID)
+		if attempt.Status == models.AttemptStatusInProgress || !quiz.ShowResultsImmediately {
+			return nil, fmt.Errorf("results not available")
+		}
+	}
+	if attempt.StudentID != userID {
+		roles, err := s.userRepo.GetUserRoles(ctx, userID)
 		if err != nil {
-			return nil, errors.New("not authorized to view this attempt")
+			return nil, err
 		}
-
-		// Get section to get course_id
-		section, err := s.courseRepo.GetSectionByID(ctx, content.SectionID)
-		if err != nil {
-			return nil, errors.New("not authorized to view this attempt")
-		}
-
-		// Get course to check owner
-		course, err := s.courseRepo.GetByID(ctx, section.CourseID)
-		if err != nil {
-			return nil, errors.New("not authorized to view this attempt")
-		}
-
-		// Check if user is course owner or co-teacher
-		if course.CreatedBy != userID {
-			isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, course.ID, userID)
-			if err != nil || !isCoTeacher {
-				// Check if user is admin
-				roles, err := s.userRepo.GetUserRoles(ctx, userID)
-				if err != nil {
-					return nil, errors.New("not authorized to view this attempt")
-				}
-				
-				isAdmin := false
-				for _, role := range roles {
-					if role == "ADMIN" {
-						isAdmin = true
-						break
-					}
-				}
-				
-				if !isAdmin {
-					return nil, errors.New("not authorized to view this attempt")
-				}
+		role := ""
+		for _, value := range roles {
+			if value == "ADMIN" {
+				role = value
+				break
 			}
+		}
+		if err := s.verifyQuizOwnership(ctx, attempt.QuizID, userID, role); err != nil {
+			return nil, err
 		}
 	}
 
@@ -174,9 +162,9 @@ func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID i
 				} else {
 					ungradedCount++
 					// Check if this is a question type that requires manual grading
-					if q.QuestionType == models.QuestionTypeEssay || 
-					   q.QuestionType == models.QuestionTypeFileUpload || 
-					   q.QuestionType == models.QuestionTypeShortAnswer {
+					if q.QuestionType == models.QuestionTypeEssay ||
+						q.QuestionType == models.QuestionTypeFileUpload ||
+						q.QuestionType == models.QuestionTypeShortAnswer {
 						// Only count as pending if answer exists but not graded
 						if !ans.PointsEarned.Valid {
 							pendingGradingCount++
@@ -192,9 +180,9 @@ func (s *QuizService) GetAttemptSummary(ctx context.Context, attemptID, userID i
 		}
 
 		// If no answer found for required manual grading question, count as pending
-		if !answerFound && (q.QuestionType == models.QuestionTypeEssay || 
-		                     q.QuestionType == models.QuestionTypeFileUpload || 
-		                     q.QuestionType == models.QuestionTypeShortAnswer) {
+		if !answerFound && (q.QuestionType == models.QuestionTypeEssay ||
+			q.QuestionType == models.QuestionTypeFileUpload ||
+			q.QuestionType == models.QuestionTypeShortAnswer) {
 			pendingGradingCount++
 		}
 
@@ -287,11 +275,35 @@ func (s *QuizService) GetAttempt(ctx context.Context, attemptID int64) (*models.
 	return attempt, nil
 }
 
-// GetAttemptAnswers retrieves all answers for a quiz attempt  
-func (s *QuizService) GetAttemptAnswers(ctx context.Context, attemptID int64) ([]models.QuizStudentAnswer, error) {
+// GetAttemptAnswers retrieves all answers for a quiz attempt
+func (s *QuizService) GetAttemptAnswers(ctx context.Context, attemptID, userID int64) ([]models.QuizStudentAnswer, error) {
+	attempt, err := s.quizRepo.GetAttempt(ctx, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	if attempt == nil {
+		return nil, sql.ErrNoRows
+	}
+
+	if attempt.StudentID != userID {
+		return nil, ErrQuizAccess
+	}
+	quiz, err := s.quizRepo.GetQuiz(ctx, attempt.QuizID)
+	if err != nil {
+		return nil, err
+	}
 	answers, err := s.quizRepo.GetAttemptAnswers(ctx, attemptID)
 	if err != nil {
 		return nil, err
+	}
+	if attempt.Status == models.AttemptStatusInProgress || !quiz.ShowResultsImmediately {
+		for i := range answers {
+			answers[i].IsCorrect = sql.NullBool{}
+			answers[i].PointsEarned = sql.NullFloat64{}
+			answers[i].GraderFeedback = sql.NullString{}
+			answers[i].GradedBy = sql.NullInt64{}
+			answers[i].GradedAt = sql.NullTime{}
+		}
 	}
 	return answers, nil
 }

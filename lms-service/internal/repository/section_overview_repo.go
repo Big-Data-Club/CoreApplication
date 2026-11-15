@@ -14,7 +14,7 @@ import (
 
 // SectionOverviewRepository handles all DB operations for section_overview_*.
 type SectionOverviewRepository struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewSectionOverviewRepository creates a new SectionOverviewRepository.
@@ -71,7 +71,7 @@ func (r *SectionOverviewRepository) UpdateJobStatus(
 		    error_msg = $5,
 		    logs = CASE WHEN $6 <> '' THEN $6 ELSE logs END,
 		    updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND (status NOT IN ('completed','failed') OR status = $2)
 	`
 	_, err := r.db.ExecContext(ctx, query, jobID, status, progress, stage, errMsg, logs)
 	return err

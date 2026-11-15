@@ -88,6 +88,10 @@ func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.Cours
 
 // Update updates a course
 func (r *CourseRepository) Update(ctx context.Context, id int64, updates map[string]interface{}) error {
+	if err := validateUpdateFields(updates, "title", "description", "category", "level", "thumbnail_url", "org_id", "visibility"); err != nil {
+		return err
+	}
+
 	if len(updates) == 0 {
 		return fmt.Errorf("no fields to update")
 	}
@@ -539,6 +543,10 @@ func (r *CourseRepository) ListSectionsByCourse(ctx context.Context, courseID in
 
 // UpdateSection updates a section
 func (r *CourseRepository) UpdateSection(ctx context.Context, id int64, updates map[string]interface{}) error {
+	if err := validateUpdateFields(updates, "title", "description", "order_index", "is_published"); err != nil {
+		return err
+	}
+
 	if len(updates) == 0 {
 		return fmt.Errorf("no fields to update")
 	}
@@ -713,6 +721,10 @@ func (r *CourseRepository) ListContentBySection(ctx context.Context, sectionID i
 
 // UpdateContent updates section content
 func (r *CourseRepository) UpdateContent(ctx context.Context, id int64, updates map[string]interface{}) error {
+	if err := validateUpdateFields(updates, "title", "description", "order_index", "metadata", "is_published", "is_mandatory", "file_path", "file_size", "file_type"); err != nil {
+		return err
+	}
+
 	if len(updates) == 0 {
 		return fmt.Errorf("no fields to update")
 	}

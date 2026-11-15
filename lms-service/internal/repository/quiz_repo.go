@@ -14,7 +14,7 @@ import (
 )
 
 type QuizRepository struct {
-	db *sql.DB
+	db DBTX
 }
 
 func NewQuizRepository(db *sql.DB) *QuizRepository {
@@ -302,6 +302,10 @@ func (r *QuizRepository) ListQuizzesByCourse(ctx context.Context, courseID int64
 
 // CreateQuestion creates a new question
 func (r *QuizRepository) CreateQuestion(ctx context.Context, question *models.QuizQuestion) error {
+	return createQuestion(ctx, r.db, question)
+}
+
+func createQuestion(ctx context.Context, db questionUpdater, question *models.QuizQuestion) error {
 	query := `
 		INSERT INTO quiz_questions (
 			quiz_id, question_type, question_text, question_html,
@@ -316,7 +320,7 @@ func (r *QuizRepository) CreateQuestion(ctx context.Context, question *models.Qu
 		settingsStr = "{}"
 	}
 
-	err := r.db.QueryRowContext(
+	err := db.QueryRowContext(
 		ctx, query,
 		question.QuizID, question.QuestionType, question.QuestionText,
 		question.QuestionHTML, question.Explanation, question.Points,
@@ -426,7 +430,7 @@ func updateQuestion(ctx context.Context, db questionUpdater, question *models.Qu
 // UpdateQuestionWithAnswers saves the editor as one atomic change. Omitted lists
 // are preserved; explicit empty lists clear them. Existing option IDs stay stable.
 func (r *QuizRepository) UpdateQuestionWithAnswers(ctx context.Context, question *models.QuizQuestion, options *[]dto.UpdateAnswerOptionRequest, answers *[]dto.CreateCorrectAnswerRequest) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := beginTransaction(ctx, r.db)
 	if err != nil {
 		return err
 	}
@@ -568,23 +572,23 @@ func (r *QuizRepository) ListQuestionsWithOptions(ctx context.Context, quizID in
 	if len(questions) == 0 {
 		return []models.QuestionWithOptions{}, nil
 	}
- 
+
 	// Gom tất cả question IDs để batch fetch
 	questionIDs := make([]int64, len(questions))
 	for i, q := range questions {
 		questionIDs[i] = q.ID
 	}
- 
+
 	optionsByQID, err := r.ListAnswerOptionsByQuestionIDs(ctx, questionIDs)
 	if err != nil {
 		return nil, err
 	}
- 
+
 	correctByQID, err := r.ListCorrectAnswersByQuestionIDs(ctx, questionIDs)
 	if err != nil {
 		return nil, err
 	}
- 
+
 	result := make([]models.QuestionWithOptions, len(questions))
 	for i, q := range questions {
 		opts := optionsByQID[q.ID]
@@ -610,6 +614,10 @@ func (r *QuizRepository) ListQuestionsWithOptions(ctx context.Context, quizID in
 
 // CreateAnswerOption creates a new answer option
 func (r *QuizRepository) CreateAnswerOption(ctx context.Context, option *models.QuizAnswerOption) error {
+	return createAnswerOption(ctx, r.db, option)
+}
+
+func createAnswerOption(ctx context.Context, db questionUpdater, option *models.QuizAnswerOption) error {
 	query := `
 		INSERT INTO quiz_answer_options (
 			question_id, option_text, option_html, is_correct, order_index, blank_id
@@ -617,7 +625,7 @@ func (r *QuizRepository) CreateAnswerOption(ctx context.Context, option *models.
 		RETURNING id, created_at
 	`
 
-	err := r.db.QueryRowContext(
+	err := db.QueryRowContext(
 		ctx, query,
 		option.QuestionID, option.OptionText, option.OptionHTML,
 		option.IsCorrect, option.OrderIndex, option.BlankID,
@@ -689,6 +697,10 @@ func (r *QuizRepository) DeleteAnswerOptionsByQuestion(ctx context.Context, ques
 
 // CreateCorrectAnswer creates a correct answer entry
 func (r *QuizRepository) CreateCorrectAnswer(ctx context.Context, answer *models.QuizCorrectAnswer) error {
+	return createCorrectAnswer(ctx, r.db, answer)
+}
+
+func createCorrectAnswer(ctx context.Context, db questionUpdater, answer *models.QuizCorrectAnswer) error {
 	query := `
 		INSERT INTO quiz_correct_answers (
 			question_id, answer_text, blank_id, blank_position, case_sensitive, exact_match
@@ -696,7 +708,7 @@ func (r *QuizRepository) CreateCorrectAnswer(ctx context.Context, answer *models
 		RETURNING id, created_at
 	`
 
-	err := r.db.QueryRowContext(
+	err := db.QueryRowContext(
 		ctx, query,
 		answer.QuestionID, answer.AnswerText, answer.BlankID,
 		answer.BlankPosition, answer.CaseSensitive, answer.ExactMatch,
@@ -798,7 +810,7 @@ func (r *QuizRepository) GetStudentLatestAttempt(ctx context.Context, quizID, st
 	`
 
 	var attempt models.QuizAttempt
-        var focusSummary []byte
+	var focusSummary []byte
 	err := r.db.QueryRowContext(ctx, query, quizID, studentID).Scan(
 		&attempt.ID,
 		&attempt.QuizID,
@@ -828,7 +840,7 @@ func (r *QuizRepository) GetStudentLatestAttempt(ctx context.Context, quizID, st
 	}
 
 	attempt.FocusSummary = focusSummary
-    return &attempt, nil
+	return &attempt, nil
 }
 
 // UpdateAttempt updates attempt details
@@ -875,7 +887,7 @@ func (r *QuizRepository) ListStudentAttempts(ctx context.Context, quizID, studen
 	var attempts []models.QuizAttempt
 	for rows.Next() {
 		var attempt models.QuizAttempt
-        var focusSummary []byte
+		var focusSummary []byte
 
 		err = rows.Scan(
 			&attempt.ID,
@@ -903,7 +915,7 @@ func (r *QuizRepository) ListStudentAttempts(ctx context.Context, quizID, studen
 		}
 
 		attempt.FocusSummary = focusSummary
-        attempts = append(attempts, attempt)
+		attempts = append(attempts, attempt)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -1148,27 +1160,11 @@ func (r *QuizRepository) CountAnsweredQuestions(ctx context.Context, attemptID i
 
 // UpdateQuizAnalytics updates analytics for a quiz
 func (r *QuizRepository) UpdateQuizAnalytics(ctx context.Context, quizID int64) error {
-	// This would be called after each submission to update analytics
-	query := `
-		INSERT INTO quiz_analytics (quiz_id, total_attempts, correct_count, incorrect_count, average_score)
-		SELECT 
-			$1,
-			COUNT(*) as total_attempts,
-			COUNT(*) FILTER (WHERE is_correct = true) as correct_count,
-			COUNT(*) FILTER (WHERE is_correct = false) as incorrect_count,
-			AVG(COALESCE(points_earned, 0)) as average_score
-		FROM quiz_student_answers qsa
-		JOIN quiz_attempts qa ON qsa.attempt_id = qa.id
-		WHERE qa.quiz_id = $1
-		ON CONFLICT (quiz_id, question_id) DO UPDATE SET
-			total_attempts = EXCLUDED.total_attempts,
-			correct_count = EXCLUDED.correct_count,
-			incorrect_count = EXCLUDED.incorrect_count,
-			average_score = EXCLUDED.average_score,
-			updated_at = CURRENT_TIMESTAMP
-	`
-
-	_, err := r.db.ExecContext(ctx, query, quizID)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO quiz_analytics(quiz_id,question_id,total_attempts,correct_count,incorrect_count,average_score)
+ SELECT $1,qsa.question_id,COUNT(*),COUNT(*) FILTER(WHERE qsa.is_correct=true),COUNT(*) FILTER(WHERE qsa.is_correct=false),AVG(COALESCE(qsa.points_earned,0))
+ FROM quiz_student_answers qsa JOIN quiz_attempts qa ON qa.id=qsa.attempt_id
+ WHERE qa.quiz_id=$1 AND qa.status IN ('SUBMITTED','GRADED') GROUP BY qsa.question_id
+ ON CONFLICT(quiz_id,question_id) DO UPDATE SET total_attempts=EXCLUDED.total_attempts,correct_count=EXCLUDED.correct_count,incorrect_count=EXCLUDED.incorrect_count,average_score=EXCLUDED.average_score,updated_at=now()`, quizID)
 	return err
 }
 
@@ -1222,7 +1218,7 @@ func (r *QuizRepository) GetQuizAnalytics(ctx context.Context, quizID int64) ([]
 
 // BeginTx starts a transaction
 func (r *QuizRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
-	return r.db.BeginTx(ctx, nil)
+	return beginTransaction(ctx, r.db)
 }
 
 // CheckQuizOwnership verifies if a user owns a quiz
@@ -1413,7 +1409,7 @@ func (r *QuizRepository) ListAnswerOptionsByQuestionIDs(
 	if len(questionIDs) == 0 {
 		return result, nil
 	}
- 
+
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, question_id, option_text, option_html, is_correct,
 		       order_index, blank_id, created_at, settings
@@ -1425,7 +1421,7 @@ func (r *QuizRepository) ListAnswerOptionsByQuestionIDs(
 		return nil, err
 	}
 	defer rows.Close()
- 
+
 	for rows.Next() {
 		var opt models.QuizAnswerOption
 		if err := rows.Scan(
@@ -1438,7 +1434,7 @@ func (r *QuizRepository) ListAnswerOptionsByQuestionIDs(
 	}
 	return result, rows.Err()
 }
- 
+
 func (r *QuizRepository) ListCorrectAnswersByQuestionIDs(
 	ctx context.Context,
 	questionIDs []int64,
@@ -1447,7 +1443,7 @@ func (r *QuizRepository) ListCorrectAnswersByQuestionIDs(
 	if len(questionIDs) == 0 {
 		return result, nil
 	}
- 
+
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, question_id, answer_text, blank_id, blank_position,
 		       case_sensitive, exact_match, created_at
@@ -1459,7 +1455,7 @@ func (r *QuizRepository) ListCorrectAnswersByQuestionIDs(
 		return nil, err
 	}
 	defer rows.Close()
- 
+
 	for rows.Next() {
 		var ca models.QuizCorrectAnswer
 		if err := rows.Scan(

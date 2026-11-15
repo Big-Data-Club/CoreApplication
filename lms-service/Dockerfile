@@ -3,7 +3,7 @@ FROM golang:1.25-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make gcc musl-dev && \
-    go install github.com/swaggo/swag/cmd/swag@latest
+    go install github.com/swaggo/swag/cmd/swag@v1.16.6
 
 # Set working directory
 WORKDIR /build

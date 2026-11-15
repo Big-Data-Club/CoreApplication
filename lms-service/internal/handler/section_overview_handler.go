@@ -2,18 +2,20 @@
 // HTTP handlers for the Section Overview feature.
 //
 // Public flow (teacher):
-//   POST   /api/v1/courses/:courseId/sections/:sectionId/overview/generate  -> GenerateOverview
-//   GET    /api/v1/courses/:courseId/sections/:sectionId/overview/jobs       -> ListJobs
-//   GET    /api/v1/section-overview/jobs/:jobId                              -> GetJob
-//   PUT    /api/v1/section-overview/lessons/:lessonId                        -> UpdateLesson
-//   POST   /api/v1/section-overview/lessons/:lessonId/publish                -> PublishLesson
-//   PUT    /api/v1/section-overview/quizzes/:quizId                          -> UpdateQuiz
-//   POST   /api/v1/section-overview/quizzes/:quizId/publish                  -> PublishQuiz
-//   DELETE /api/v1/section-overview/jobs/:jobId                              -> DeleteJob
+//
+//	POST   /api/v1/courses/:courseId/sections/:sectionId/overview/generate  -> GenerateOverview
+//	GET    /api/v1/courses/:courseId/sections/:sectionId/overview/jobs       -> ListJobs
+//	GET    /api/v1/section-overview/jobs/:jobId                              -> GetJob
+//	PUT    /api/v1/section-overview/lessons/:lessonId                        -> UpdateLesson
+//	POST   /api/v1/section-overview/lessons/:lessonId/publish                -> PublishLesson
+//	PUT    /api/v1/section-overview/quizzes/:quizId                          -> UpdateQuiz
+//	POST   /api/v1/section-overview/quizzes/:quizId/publish                  -> PublishQuiz
+//	DELETE /api/v1/section-overview/jobs/:jobId                              -> DeleteJob
 //
 // Internal callbacks (AI service -> LMS):
-//   POST /api/v1/internal/section-overview/status   ← progress / status updates
-//   POST /api/v1/internal/section-overview/results  ← completed lesson + quiz data
+//
+//	POST /api/v1/internal/section-overview/status   ← progress / status updates
+//	POST /api/v1/internal/section-overview/results  ← completed lesson + quiz data
 package handler
 
 import (
@@ -25,14 +27,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
 	"example/hello/pkg/ai"
 	"example/hello/pkg/cache"
 	"example/hello/pkg/logger"
-
-	"github.com/gin-gonic/gin"
 )
 
 // SectionOverviewHandler handles all Section Overview HTTP requests.
@@ -302,9 +304,9 @@ func (h *SectionOverviewHandler) PublishLesson(c *gin.Context) {
 	}
 
 	metadata := map[string]interface{}{
-		"content":              lesson.MarkdownContent,
-		"overview_lesson_id":   lessonID,
-		"overview_job_id":      lesson.JobID,
+		"content":            lesson.MarkdownContent,
+		"overview_lesson_id": lessonID,
+		"overview_job_id":    lesson.JobID,
 	}
 	metaBytes, _ := json.Marshal(metadata)
 
@@ -359,7 +361,7 @@ func (h *SectionOverviewHandler) PublishLesson(c *gin.Context) {
 	}()
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{
-		"overview_lesson_id":  lessonID,
+		"overview_lesson_id": lessonID,
 		"section_content_id": saved.ID,
 		"status":             "published",
 	}))
@@ -545,7 +547,7 @@ func (h *SectionOverviewHandler) PublishQuiz(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{
-		"overview_quiz_id":    oq.ID,
+		"overview_quiz_id":   oq.ID,
 		"section_content_id": saved.ID,
 		"quiz_id":            quizRecord.ID,
 		"questions_created":  len(questions),
@@ -590,6 +592,11 @@ func (h *SectionOverviewHandler) CallbackStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
 		return
 	}
+	if !validCallbackStatus(body.Status, body.Progress) {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_status", "Invalid callback status or progress"))
+		return
+	}
+
 	if err := h.repo.UpdateJobStatus(
 		c.Request.Context(),
 		body.JobID, body.Status, body.Progress, body.Stage, body.Error, body.Logs,
@@ -608,39 +615,9 @@ func (h *SectionOverviewHandler) CallbackResults(c *gin.Context) {
 		return
 	}
 
-	// Look up the job to get created_by.
-	job, err := h.repo.GetJob(c.Request.Context(), body.JobID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Job not found"))
+	if err := h.repo.SaveGeneratedResults(c.Request.Context(), &body); err != nil {
+		writeCallbackError(c, err)
 		return
 	}
-
-	// Mark job as completed.
-	if err := h.repo.UpdateJobStatus(c.Request.Context(), body.JobID, "completed", 100, "done", "", ""); err != nil {
-		logger.Error(fmt.Sprintf("SectionOverview.CallbackResults UpdateJobStatus failed job=%d", body.JobID), err)
-	}
-
-	// Persist lesson.
-	if _, err := h.repo.CreateLesson(
-		c.Request.Context(),
-		body.JobID, body.SectionID, body.CourseID, job.CreatedBy,
-		body.Lesson.Title, body.Lesson.Summary, body.Lesson.MarkdownContent,
-		body.Lesson.References,
-	); err != nil {
-		logger.Error(fmt.Sprintf("SectionOverview.CallbackResults CreateLesson failed job=%d", body.JobID), err)
-	}
-
-	// Persist quiz.
-	if _, err := h.repo.CreateQuiz(
-		c.Request.Context(),
-		body.JobID, body.SectionID, body.CourseID, job.CreatedBy,
-		body.Quiz.Title, body.Quiz.Summary,
-		body.Quiz.QuestionCount,
-		body.Quiz.Questions,
-		body.Quiz.References,
-	); err != nil {
-		logger.Error(fmt.Sprintf("SectionOverview.CallbackResults CreateQuiz failed job=%d", body.JobID), err)
-	}
-
 	c.JSON(http.StatusOK, dto.NewMessageResponse("ok"))
 }

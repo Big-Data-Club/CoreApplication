@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
@@ -172,35 +171,7 @@ func isValidRole(role string) bool {
 
 // SyncOrganization replicates organization edits from auth service.
 func (s *UserSyncService) SyncOrganization(ctx context.Context, req *dto.OrgSyncRequest) error {
-	query := `
-		INSERT INTO organizations (id, name, slug, description, logo_url, is_active, settings)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-		ON CONFLICT (id) DO UPDATE SET
-			name = EXCLUDED.name,
-			slug = EXCLUDED.slug,
-			description = EXCLUDED.description,
-			logo_url = EXCLUDED.logo_url,
-			is_active = EXCLUDED.is_active,
-			settings = EXCLUDED.settings,
-			updated_at = CURRENT_TIMESTAMP
-	`
-	var desc, logo sql.NullString
-	if req.Description != "" {
-		desc = sql.NullString{String: req.Description, Valid: true}
-	}
-	if req.LogoURL != "" {
-		logo = sql.NullString{String: req.LogoURL, Valid: true}
-	}
-
-	_, err := s.userRepo.GetDB().ExecContext(ctx, query,
-		req.ID,
-		req.Name,
-		req.Slug,
-		desc,
-		logo,
-		req.IsActive,
-		req.Settings,
-	)
+	err := s.userRepo.SyncOrganization(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to sync organization: %w", err)
 	}
@@ -215,8 +186,7 @@ func (s *UserSyncService) SyncOrganization(ctx context.Context, req *dto.OrgSync
 
 // DeleteOrganization removes organization.
 func (s *UserSyncService) DeleteOrganization(ctx context.Context, orgID int64) error {
-	query := `DELETE FROM organizations WHERE id = $1`
-	_, err := s.userRepo.GetDB().ExecContext(ctx, query, orgID)
+	err := s.userRepo.DeleteOrganization(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("failed to delete organization: %w", err)
 	}
@@ -231,13 +201,7 @@ func (s *UserSyncService) DeleteOrganization(ctx context.Context, orgID int64) e
 
 // SyncOrganizationMember replicates membership.
 func (s *UserSyncService) SyncOrganizationMember(ctx context.Context, req *dto.OrgMemberSyncRequest) error {
-	query := `
-		INSERT INTO organization_members (org_id, user_id, org_role)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (org_id, user_id) DO UPDATE SET
-			org_role = EXCLUDED.org_role
-	`
-	_, err := s.userRepo.GetDB().ExecContext(ctx, query, req.OrgID, req.UserID, req.OrgRole)
+	err := s.userRepo.SyncOrganizationMember(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to sync organization membership: %w", err)
 	}
@@ -248,8 +212,7 @@ func (s *UserSyncService) SyncOrganizationMember(ctx context.Context, req *dto.O
 
 // RemoveOrganizationMember removes membership.
 func (s *UserSyncService) RemoveOrganizationMember(ctx context.Context, orgID, userID int64) error {
-	query := `DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2`
-	_, err := s.userRepo.GetDB().ExecContext(ctx, query, orgID, userID)
+	err := s.userRepo.RemoveOrganizationMember(ctx, orgID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to remove organization membership: %w", err)
 	}

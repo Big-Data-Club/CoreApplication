@@ -7,18 +7,18 @@
 //
 // Why single-flight?
 //
-//   When a popular cache entry expires under load (the "thundering herd"
-//   problem), every in-flight Goroutine simultaneously misses the cache and
-//   races to reload the same row from Postgres. golang.org/x/sync/singleflight
-//   collapses concurrent loads of the same key into a single DB round-trip;
-//   the followers wait for the result and then proceed in lockstep.
+//	When a popular cache entry expires under load (the "thundering herd"
+//	problem), every in-flight Goroutine simultaneously misses the cache and
+//	races to reload the same row from Postgres. golang.org/x/sync/singleflight
+//	collapses concurrent loads of the same key into a single DB round-trip;
+//	the followers wait for the result and then proceed in lockstep.
 //
 // Why JSON encoding?
 //
-//   Most cached payloads are response DTOs that are already serialised as JSON
-//   downstream. Storing the JSON form in Redis means the hot read path skips
-//   re-encoding, and the same blob can be reused across handlers. JSON is also
-//   debuggable from `redis-cli`.
+//	Most cached payloads are response DTOs that are already serialised as JSON
+//	downstream. Storing the JSON form in Redis means the hot read path skips
+//	re-encoding, and the same blob can be reused across handlers. JSON is also
+//	debuggable from `redis-cli`.
 //
 // Negative caching is intentionally NOT done here. A "not found" should not
 // be cached because in this domain rows are commonly created shortly after
@@ -29,6 +29,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -62,6 +64,9 @@ func (l *Loader) Cache() *RedisCache {
 // the key does not exist. Any other error (network, decode) is returned as-is
 // so the caller can decide whether to fall back.
 func GetJSON[T any](ctx context.Context, c *RedisCache, key string, out *T) error {
+	if c == nil {
+		return ErrCacheMiss
+	}
 	raw, err := c.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -79,20 +84,26 @@ func GetJSON[T any](ctx context.Context, c *RedisCache, key string, out *T) erro
 // here is logged by the caller (cache writes are non-fatal) but propagated so
 // tests can assert behaviour.
 func SetJSON(ctx context.Context, c *RedisCache, key string, value any, ttl time.Duration) error {
+	if c == nil {
+		return nil
+	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
+	}
+	if ttl > 0 {
+		ttl += time.Duration(rand.Int64N(int64(ttl)/5+1)) - ttl/10
 	}
 	return c.Set(ctx, key, data, ttl)
 }
 
 // GetOrLoad implements cache-aside with single-flight protection.
 //
-//   1. Try the cache. On hit, decode and return.
-//   2. On miss, exactly one Goroutine per (process, key) calls loader().
-//      Concurrent callers wait for the same result.
-//   3. Store the loader's result in the cache with TTL (best-effort) and
-//      return it.
+//  1. Try the cache. On hit, decode and return.
+//  2. On miss, exactly one Goroutine per (process, key) calls loader().
+//     Concurrent callers wait for the same result.
+//  3. Store the loader's result in the cache with TTL (best-effort) and
+//     return it.
 //
 // `loader` is responsible for fetching from the source of truth (DB).
 // If `loader` returns an error, neither the result nor a tombstone is cached.
@@ -115,7 +126,10 @@ func GetOrLoad[T any](
 	}
 
 	// Slow path: collapse concurrent misses into one DB round-trip.
-	v, err, _ := l.group.Do(key, func() (any, error) {
+	result := l.group.DoChan(key, func() (any, error) {
+		sharedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		ctx := sharedCtx
 		// Re-check cache inside the singleflight to avoid a redundant DB hit
 		// when an earlier waiter already populated the entry.
 		var doubleCheck T
@@ -133,15 +147,19 @@ func GetOrLoad[T any](
 		return loaded, nil
 	})
 
-	if err != nil {
-		return zero, err
+	select {
+	case <-ctx.Done():
+		return zero, ctx.Err()
+	case outcome := <-result:
+		if outcome.Err != nil {
+			return zero, outcome.Err
+		}
+		if typed, ok := outcome.Val.(T); ok {
+			return typed, nil
+		}
+		return zero, fmt.Errorf("cache loader result has unexpected type")
 	}
-	// singleflight returns `any`; cast is safe because every branch above
-	// produces a T (or an error).
-	if typed, ok := v.(T); ok {
-		return typed, nil
-	}
-	return zero, nil
+
 }
 
 // Invalidate is a thin convenience wrapper for the common write-path call

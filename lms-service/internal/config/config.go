@@ -12,6 +12,7 @@ import (
 
 // Config holds all configuration for the application
 type Config struct {
+	Limits   RequestLimits
 	App      AppConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
@@ -21,18 +22,18 @@ type Config struct {
 	CORS     CORSConfig
 	Server   ServerConfig
 	Email    EmailConfig
-	AIConf	 AIConfig
+	AIConf   AIConfig
 }
 
 // AppConfig holds application-specific configuration
 type AppConfig struct {
-	Name        string
-	Env         string // development, staging, production
-	Port        string
-	Version     string
-	BuildDate   string
-	LogLevel    string
-	LogFormat   string // json, text
+	Name      string
+	Env       string // development, staging, production
+	Port      string
+	Version   string
+	BuildDate string
+	LogLevel  string
+	LogFormat string // json, text
 }
 
 // DatabaseConfig holds database connection configuration
@@ -74,11 +75,12 @@ type JWTConfig struct {
 
 // UploadConfig holds file upload configuration
 type UploadConfig struct {
-	MaxSize              int64
-	UploadDir            string
-	AllowedVideoFormats  []string
-	AllowedDocFormats    []string
-	AllowedImageFormats  []string
+	MaxUserStorageBytes int64
+	MaxSize             int64
+	UploadDir           string
+	AllowedVideoFormats []string
+	AllowedDocFormats   []string
+	AllowedImageFormats []string
 }
 
 // StorageConfig holds storage configuration
@@ -102,9 +104,10 @@ type CORSConfig struct {
 
 // ServerConfig holds server configuration
 type ServerConfig struct {
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	IdleTimeout  time.Duration
+	TrustedProxies []string
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
+	IdleTimeout    time.Duration
 }
 
 // EmailConfig holds email configuration
@@ -118,13 +121,13 @@ type EmailConfig struct {
 }
 
 type AIConfig struct {
-	BaseURL		string
-	Secret		string
+	BaseURL string
+	Secret  string
 }
 
 func LoadStorageConfig() StorageConfig {
 	storageType := getEnv("STORAGE_TYPE", "local")
-	
+
 	return StorageConfig{
 		Type:           storageType,
 		LocalBasePath:  getEnv("STORAGE_LOCAL_PATH", "./uploads"),
@@ -142,6 +145,7 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
+		Limits: loadRequestLimits(),
 		App: AppConfig{
 			Name:      getEnv("APP_NAME", "LMS Service"),
 			Env:       getEnv("APP_ENV", "development"),
@@ -153,12 +157,12 @@ func Load() (*Config, error) {
 		},
 
 		Database: DatabaseConfig{
-			Host:            getEnv("DB_HOST", "localhost"),
-			Port:            getEnv("DB_PORT", "5434"),
-			User:            getEnv("DB_USER", "lms_user"),
-			Password:        getEnv("DB_PASSWORD", "lms_password"),
-			Name:            getEnv("DB_NAME", "lms_db"),
-			SSLMode:         getEnv("DB_SSL_MODE", "disable"),
+			Host:     getEnv("DB_HOST", "localhost"),
+			Port:     getEnv("DB_PORT", "5434"),
+			User:     getEnv("DB_USER", "lms_user"),
+			Password: getEnv("DB_PASSWORD", "lms_password"),
+			Name:     getEnv("DB_NAME", "lms_db"),
+			SSLMode:  getEnv("DB_SSL_MODE", "disable"),
 			// Default pool sizing assumes a single LMS replica behind ~200 RPS.
 			// MaxOpenConns is bounded so we do not exhaust Postgres' max_connections
 			// when scaled horizontally (replicas * MaxOpenConns ≤ pg max_connections).
@@ -184,7 +188,7 @@ func Load() (*Config, error) {
 			// PoolTimeout caps how long a goroutine waits for a free conn before
 			// giving up - short timeout fails fast and lets the caller fall back
 			// to the database instead of stalling all handlers.
-			PoolTimeout:  getEnvAsDuration("REDIS_POOL_TIMEOUT", 1*time.Second),
+			PoolTimeout: getEnvAsDuration("REDIS_POOL_TIMEOUT", 1*time.Second),
 		},
 
 		JWT: JWTConfig{
@@ -193,9 +197,10 @@ func Load() (*Config, error) {
 		},
 
 		Upload: UploadConfig{
-			MaxSize:   getEnvAsInt64("UPLOAD_MAX_SIZE", 104857600), // 100MB
-			UploadDir: getEnv("UPLOAD_DIR", "/app/uploads"),
-			AllowedVideoFormats: getEnvAsSlice("ALLOWED_VIDEO_FORMATS", 
+			MaxUserStorageBytes: getEnvAsInt64("UPLOAD_MAX_USER_STORAGE_BYTES", 1<<30),
+			MaxSize:             getEnvAsInt64("UPLOAD_MAX_SIZE", 104857600), // 100MB
+			UploadDir:           getEnv("UPLOAD_DIR", "/app/uploads"),
+			AllowedVideoFormats: getEnvAsSlice("ALLOWED_VIDEO_FORMATS",
 				[]string{"mp4", "avi", "mov", "mkv", "webm"}),
 			AllowedDocFormats: getEnvAsSlice("ALLOWED_DOCUMENT_FORMATS",
 				[]string{"pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"}),
@@ -223,9 +228,10 @@ func Load() (*Config, error) {
 		},
 
 		Server: ServerConfig{
-			ReadTimeout:  getEnvAsDuration("SERVER_READ_TIMEOUT", 10*time.Minute), // Tăng từ 15s lên 10p cho file lớn
-			WriteTimeout: getEnvAsDuration("SERVER_WRITE_TIMEOUT", 10*time.Minute), // Tăng từ 15s lên 10p
-			IdleTimeout:  getEnvAsDuration("SERVER_IDLE_TIMEOUT", 600*time.Second),
+			TrustedProxies: getEnvAsSlice("LMS_TRUSTED_PROXY_CIDRS", []string{"127.0.0.1", "::1"}),
+			ReadTimeout:    getEnvAsDuration("SERVER_READ_TIMEOUT", 2*time.Minute),  // Upload read budget; handlers have route-specific context deadlines
+			WriteTimeout:   getEnvAsDuration("SERVER_WRITE_TIMEOUT", 5*time.Minute), // Allows bounded SSE/file streaming
+			IdleTimeout:    getEnvAsDuration("SERVER_IDLE_TIMEOUT", 600*time.Second),
 		},
 
 		Email: EmailConfig{
@@ -238,8 +244,8 @@ func Load() (*Config, error) {
 		},
 
 		AIConf: AIConfig{
-			BaseURL: 	getEnv("AI_SERVICE_URL", "http://ai-service:8000"),
-			Secret: 	getEnv("AI_SERVICE_SECRET", "None"),
+			BaseURL: getEnv("AI_SERVICE_URL", "http://ai-service:8000"),
+			Secret:  getEnv("AI_SERVICE_SECRET", "None"),
 		},
 
 		Storage: LoadStorageConfig(),
@@ -272,6 +278,29 @@ func (c *Config) Validate() error {
 	if len(c.JWT.Secret) < 32 {
 		return fmt.Errorf("JWT secret must be at least 32 characters")
 	}
+	if c.Database.MaxOpenConns <= 0 || c.Database.MaxIdleConns < 0 || c.Database.MaxIdleConns > c.Database.MaxOpenConns {
+		return fmt.Errorf("invalid database connection budget")
+	}
+	if c.Upload.MaxSize <= 0 || c.Upload.MaxSize > 1<<30 {
+		return fmt.Errorf("upload limit must be between 1 byte and 1 GiB")
+	}
+	if c.App.Env == "production" && (len(c.AIConf.Secret) < 32 || c.AIConf.Secret == "ai-service-secret-change-me") {
+		return fmt.Errorf("AI service secret must be configured in production")
+	}
+
+	if c.Upload.MaxUserStorageBytes <= 0 {
+		return fmt.Errorf("user storage quota must be positive")
+	}
+
+	for _, value := range []int{c.Limits.Callbacks, c.Limits.Requests, c.Limits.Uploads, c.Limits.Streams, c.Limits.Costly, c.Limits.StreamsPerUser, c.Limits.EffectWorkers} {
+		if value < 1 || value > 1024 {
+			return fmt.Errorf("request capacities must be between 1 and 1024")
+		}
+	}
+	if c.Limits.IPPerMinute <= 0 || c.Limits.UserPerMinute <= 0 || c.Limits.CostlyPerMinute <= 0 {
+		return fmt.Errorf("request rate limits must be positive")
+	}
+
 	return nil
 }
 

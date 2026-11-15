@@ -257,6 +257,7 @@ func (c *Client) ParseQuizText(ctx context.Context, req ParseQuizTextRequest) (*
 // ── Spaced Repetition (Phase 2) ────────────────────────────────────────────────
 
 type RecordReviewRequest struct {
+	EventID    string `json:"event_id,omitempty"`
 	StudentID  int64  `json:"student_id"`
 	QuestionID int64  `json:"question_id"`
 	CourseID   int64  `json:"course_id"`

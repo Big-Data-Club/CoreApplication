@@ -9,7 +9,7 @@ import (
 )
 
 type MicroLessonRepository struct {
-	db *sql.DB
+	db DBTX
 }
 
 func NewMicroLessonRepository(db *sql.DB) *MicroLessonRepository {
@@ -112,7 +112,7 @@ func (r *MicroLessonRepository) UpdateJobStatus(
 		SET status = $2, progress = $3, stage = $4, lessons_count = $5,
 		    error = $6, updated_at = NOW(),
 		    completed_at = CASE WHEN $2::varchar IN ('completed','failed') THEN NOW() ELSE completed_at END
-		WHERE id = $1
+		WHERE id = $1 AND (status NOT IN ('completed','failed') OR status = $2)
 	`
 	_, err := r.db.ExecContext(ctx, query, jobID, status, progress, stage, lessonsCount, nullErr)
 	return err

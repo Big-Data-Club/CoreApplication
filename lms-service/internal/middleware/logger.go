@@ -1,10 +1,11 @@
 package middleware
 
 import (
-	"time"
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"example/hello/pkg/logger"
 )
 
@@ -26,25 +27,26 @@ func Logger() gin.HandlerFunc {
 
 		// Calculate latency
 		latency := time.Since(start)
-		
+
 		// Get status code
 		status := c.Writer.Status()
-		
+
 		// Get client IP
 		clientIP := c.ClientIP()
-		
+
 		// Get method
 		method := c.Request.Method
-		
+
 		// Get user agent
 		userAgent := c.Request.UserAgent()
-		
+
 		// Get error if any
 		errorMessage := c.Errors.ByType(gin.ErrorTypePrivate).String()
 
 		// Build log message
 		logData := map[string]interface{}{
 			"status":     status,
+			"request_id": c.GetString("request_id"),
 			"method":     method,
 			"path":       path,
 			"query":      query,
@@ -79,7 +81,7 @@ func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get request ID from header or generate new one
 		requestID := c.GetHeader("X-Request-ID")
-		if requestID == "" {
+		if requestID == "" || len(requestID) > 128 {
 			requestID = generateRequestID()
 		}
 

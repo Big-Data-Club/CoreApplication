@@ -72,10 +72,11 @@ class RejectRequest(BaseModel):
 
 
 class RecordResponseRequest(BaseModel):
-    student_id: int
-    question_id: int
-    course_id: int
-    node_id: Optional[int] = None
+    event_id: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    student_id: int = Field(..., gt=0)
+    question_id: int = Field(..., gt=0)
+    course_id: int = Field(..., gt=0)
+    node_id: Optional[int] = Field(default=None, gt=0)
     quality: int = Field(..., ge=0, le=5, description="SM-2 quality rating 0–5")
 
 
@@ -463,13 +464,17 @@ async def record_review_response(body: RecordResponseRequest, request: Request):
     Call this after student answers a spaced repetition question.
     """
     _verify_internal(request)
-    result = await sr_service.record_response(
-        student_id=body.student_id,
-        question_id=body.question_id,
-        course_id=body.course_id,
-        node_id=body.node_id,
-        quality=body.quality,
-    )
+    try:
+        result = await sr_service.record_response(
+            student_id=body.student_id,
+            question_id=body.question_id,
+            course_id=body.course_id,
+            node_id=body.node_id,
+            quality=body.quality,
+            event_id=body.event_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="Review event conflicts with a saved delivery") from exc
     return result
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -566,66 +568,93 @@ class SpacedRepetitionService:
         return new_ef, new_interval, new_reps
 
     async def record_response(
-        self, student_id, question_id, course_id, node_id, quality,
+        self, student_id, question_id, course_id, node_id, quality, event_id=None,
     ) -> dict:
         async with get_ai_conn() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT easiness_factor, interval_days, repetitions
-                FROM spaced_repetitions WHERE student_id=$1 AND question_id=$2
-                """,
-                student_id, question_id,
-            )
-            ef       = float(row["easiness_factor"]) if row else 2.5
-            interval = int(row["interval_days"])      if row else 1
-            reps     = int(row["repetitions"])         if row else 0
+            async with conn.transaction():
+                # Serialize distinct review events for the same learner/question too.
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+                    f"review:{student_id}:{question_id}",
+                )
+                payload_hash = hashlib.sha256(json.dumps(
+                    [student_id, question_id, course_id, node_id, quality],
+                    separators=(",", ":"),
+                ).encode()).hexdigest()
+                if event_id:
+                    receipt = await conn.fetchrow(
+                        "SELECT payload_hash,result FROM review_delivery_receipts WHERE event_id=$1",
+                        event_id,
+                    )
+                    if receipt:
+                        if receipt["payload_hash"] != payload_hash:
+                            raise ValueError("Review event does not match its saved payload")
+                        saved = receipt["result"]
+                        return json.loads(saved) if isinstance(saved, str) else dict(saved)
+                row = await conn.fetchrow(
+                    """
+                    SELECT easiness_factor, interval_days, repetitions
+                    FROM spaced_repetitions WHERE student_id=$1 AND question_id=$2
+                    """,
+                    student_id, question_id,
+                )
+                ef       = float(row["easiness_factor"]) if row else 2.5
+                interval = int(row["interval_days"])      if row else 1
+                reps     = int(row["repetitions"])         if row else 0
 
-            new_ef, new_interval, new_reps = self.update(ef, interval, reps, quality)
-            next_date  = date.today() + timedelta(days=new_interval)
-            is_correct = 1 if quality >= 3 else 0
-            is_wrong   = 1 if quality < 3  else 0
+                new_ef, new_interval, new_reps = self.update(ef, interval, reps, quality)
+                next_date  = date.today() + timedelta(days=new_interval)
+                is_correct = 1 if quality >= 3 else 0
+                is_wrong   = 1 if quality < 3  else 0
 
-            await conn.execute(
-                """
-                INSERT INTO spaced_repetitions
-                       (student_id, question_id, node_id, course_id,
-                        easiness_factor, interval_days, repetitions,
-                        quality_last, next_review_date, last_reviewed_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
-                ON CONFLICT (student_id, question_id) DO UPDATE SET
-                    easiness_factor  = $5, interval_days    = $6,
-                    repetitions      = $7, quality_last     = $8,
-                    next_review_date = $9, last_reviewed_at = NOW(),
-                    updated_at       = NOW()
-                """,
-                student_id, question_id, node_id, course_id,
-                new_ef, new_interval, new_reps, quality, next_date,
-            )
+                await conn.execute(
+                    """
+                    INSERT INTO spaced_repetitions
+                           (student_id, question_id, node_id, course_id,
+                            easiness_factor, interval_days, repetitions,
+                            quality_last, next_review_date, last_reviewed_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+                    ON CONFLICT (student_id, question_id) DO UPDATE SET
+                        easiness_factor  = $5, interval_days    = $6,
+                        repetitions      = $7, quality_last     = $8,
+                        next_review_date = $9, last_reviewed_at = NOW(),
+                        updated_at       = NOW()
+                    """,
+                    student_id, question_id, node_id, course_id,
+                    new_ef, new_interval, new_reps, quality, next_date,
+                )
 
-            await conn.execute(
-                """
-                INSERT INTO student_knowledge_progress
-                       (student_id, node_id, course_id, total_attempts, correct_count,
-                        wrong_count, mastery_level, last_tested_at)
-                VALUES ($1, $2, $3, 1, $4, $5, $6, NOW())
-                ON CONFLICT (student_id, node_id) DO UPDATE SET
-                    total_attempts = student_knowledge_progress.total_attempts + 1,
-                    correct_count  = student_knowledge_progress.correct_count + $4,
-                    wrong_count    = student_knowledge_progress.wrong_count + $5,
-                    mastery_level  = (student_knowledge_progress.correct_count + $4)::FLOAT
-                                     / (student_knowledge_progress.total_attempts + 1),
-                    last_tested_at = NOW(),
-                    updated_at     = NOW()
-                """,
-                student_id, node_id, course_id, is_correct, is_wrong, float(is_correct),
-            )
+                if node_id is not None:
+                    await conn.execute(
+                        """
+                        INSERT INTO student_knowledge_progress
+                               (student_id, node_id, course_id, total_attempts, correct_count,
+                                wrong_count, mastery_level, last_tested_at)
+                        VALUES ($1, $2, $3, 1, $4, $5, $6, NOW())
+                        ON CONFLICT (student_id, node_id) DO UPDATE SET
+                            total_attempts = student_knowledge_progress.total_attempts + 1,
+                            correct_count  = student_knowledge_progress.correct_count + $4,
+                            wrong_count    = student_knowledge_progress.wrong_count + $5,
+                            mastery_level  = (student_knowledge_progress.correct_count + $4)::FLOAT
+                                             / (student_knowledge_progress.total_attempts + 1),
+                            last_tested_at = NOW(),
+                            updated_at     = NOW()
+                        """,
+                        student_id, node_id, course_id, is_correct, is_wrong, float(is_correct),
+                    )
 
-        return {
-            "next_review_date": next_date.isoformat(),
-            "interval_days":    new_interval,
-            "easiness_factor":  round(new_ef, 2),
-            "repetitions":      new_reps,
-        }
+                result = {
+                    "next_review_date": next_date.isoformat(),
+                    "interval_days": new_interval,
+                    "easiness_factor": round(new_ef, 2),
+                    "repetitions": new_reps,
+                }
+                if event_id:
+                    await conn.execute(
+                        "INSERT INTO review_delivery_receipts(event_id,payload_hash,result) VALUES($1,$2,$3::jsonb)",
+                        event_id, payload_hash, json.dumps(result),
+                    )
+                return result
 
     async def get_due_reviews(self, student_id, course_id, limit=20) -> list[dict]:
         async with get_ai_conn() as conn:

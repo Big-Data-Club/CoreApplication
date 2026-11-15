@@ -67,7 +67,15 @@ type MasteryComponentDelta struct {
 //
 // We use Postgres CTEs to compute the new running averages atomically.
 func (r *MicroInteractionRepository) ApplyDelta(ctx context.Context, d MasteryComponentDelta) error {
-	return applyDelta(ctx, r.db, d)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := applyDelta(ctx, tx, d); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ApplyDeltaTx lets internal, idempotent producers commit the raw attempt and
@@ -237,4 +245,27 @@ func (r *MicroInteractionRepository) StudentHeatmap(ctx context.Context, courseI
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+// ApplyEventDelta deduplicates the event and commits all mastery components atomically.
+func (r *MicroInteractionRepository) ApplyEventDelta(ctx context.Context, interactionID int64, d MasteryComponentDelta) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `INSERT INTO lms_processed_interactions(interaction_id) VALUES($1) ON CONFLICT DO NOTHING`, interactionID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		if err := applyDelta(ctx, tx, d); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

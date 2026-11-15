@@ -22,14 +22,14 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gin-gonic/gin"
+
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
 	"example/hello/pkg/ai"
 	"example/hello/pkg/cache"
 	"example/hello/pkg/logger"
-
-	"github.com/gin-gonic/gin"
 )
 
 type MicroQuizHandler struct {
@@ -293,10 +293,10 @@ func (h *MicroQuizHandler) PublishQuiz(c *gin.Context) {
 
 	// Step 1: Create SectionContent (type=QUIZ)
 	metadata := map[string]interface{}{
-		"micro_quiz_id":       mq.ID,
-		"micro_quiz_job":      mq.JobID,
-		"ai_generated":        true,
-		"questions_count":     len(questions),
+		"micro_quiz_id":   mq.ID,
+		"micro_quiz_job":  mq.JobID,
+		"ai_generated":    true,
+		"questions_count": len(questions),
 	}
 	metaBytes, _ := json.Marshal(metadata)
 
@@ -430,6 +430,11 @@ func (h *MicroQuizHandler) CallbackStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
 		return
 	}
+	if !validCallbackStatus(body.Status, body.Progress) {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_status", "Invalid callback status or progress"))
+		return
+	}
+
 	if err := h.microQuizRepo.UpdateJobStatus(
 		c.Request.Context(), body.JobID, body.Status,
 		body.Progress, body.Stage, body.QuizzesCount, body.Error,
@@ -449,42 +454,13 @@ func (h *MicroQuizHandler) CallbackQuizzes(c *gin.Context) {
 		return
 	}
 
-	job, err := h.microQuizRepo.GetJob(c.Request.Context(), body.JobID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, dto.NewErrorResponse("not_found", "Job not found"))
+	if len(body.Quizzes) == 0 || len(body.Quizzes) > 100 {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", "Callback batch must contain 1 to 100 items"))
 		return
 	}
-
-	for i, item := range body.Quizzes {
-		questionsBytes := []byte(item.QuestionsJSON)
-		if len(questionsBytes) == 0 {
-			questionsBytes = []byte("[]")
-		}
-		quiz := &models.MicroQuiz{
-			JobID:     body.JobID,
-			CourseID:  body.CourseID,
-			SectionID: job.SectionID,
-			Title:     item.Title,
-			Summary:   sql.NullString{String: item.Summary, Valid: item.Summary != ""},
-			QuestionsJSON:  questionsBytes,
-			QuestionsCount: item.QuestionsCount,
-			OrderIndex:     item.OrderIndex,
-			Language:       body.Language,
-			CreatedBy:      job.CreatedBy,
-		}
-		if body.SourceContentID != nil {
-			quiz.SourceContentID = sql.NullInt64{Int64: *body.SourceContentID, Valid: true}
-		}
-		if item.NodeID != nil {
-			quiz.NodeID = sql.NullInt64{Int64: *item.NodeID, Valid: true}
-		}
-
-		if _, err := h.microQuizRepo.CreateQuiz(c.Request.Context(), quiz); err != nil {
-			logger.Error(fmt.Sprintf("CreateQuiz (callback) failed for job %d (idx %d)", body.JobID, i), err)
-		}
+	if err := h.microQuizRepo.SaveGeneratedQuizzes(c.Request.Context(), &body); err != nil {
+		writeCallbackError(c, err)
+		return
 	}
-	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{
-		"job_id":  body.JobID,
-		"created": len(body.Quizzes),
-	}))
+	c.JSON(http.StatusOK, dto.NewDataResponse(map[string]interface{}{"job_id": body.JobID, "created": len(body.Quizzes)}))
 }

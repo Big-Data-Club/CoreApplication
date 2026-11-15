@@ -1,3 +1,68 @@
+## LMS request safety and quiz transactions (2026-11)
+
+LMS owns the policy and storage boundary. `QuizPolicy` checks quiz-to-course
+ownership, co-teaching and accepted enrollment; a global teacher/custom role does
+not grant another course's answer key. Current published course/chapter/content
+scope is required for learner reads. Callback and internal hierarchy/profile
+routes require `X-API-Secret`; browser JWTs cannot invoke them. Delegated authoring
+routes keep their existing service-or-user contract. JWT parsing is shared and
+requires expiry. Local role lookup failures return 503; a revoked empty role set
+returns 403 rather than retaining the token's old role.
+
+Quiz code is organized by authoring, attempt workflow, grading, response mapping,
+and policy. Question/options/answers use one transaction. Start/resume serializes
+per learner/quiz; answer/finalize/manual grade serialize on the attempt row.
+Repeated finalize returns the saved result and does not enqueue another job.
+The final allowed attempt can still resume. Objective answers are batch-loaded
+for finalize; no goroutine is created per answer. Learning progress/analytics are
+transactional local outbox effects; AI review delivery runs separately in the same
+bounded worker loop and cannot delay their commit. `ShowResultsImmediately`,
+`ShowCorrectAnswers` and `ShowFeedback` apply to server responses, including
+resume/history/review routes, rather than relying on frontend hiding.
+
+Uploads keep the existing response shapes. `visibility=private|public` is an
+optional multipart field **before** file parts. Documents/video default private;
+passive images default public for existing thumbnail/import callers. Explicit
+private images remain private. Readers resolve file owner or authorized published
+course context; mutation/presign paths enforce object authorization. Linking an
+existing file requires management rights to that file first. Unknown legacy
+non-image objects require administrative reconciliation; old `image/` assets retain
+public read compatibility. Existing private course attachments are resolved from
+course ownership/enrollment. Do not infer confidentiality for an image explicitly
+uploaded as public.
+
+The body/file/batch limit is enforced while reading; at most ten files share one
+`UPLOAD_MAX_SIZE` request budget (plus bounded multipart overhead). Passive inline
+image/PDF content must match its extension. New file metadata owns a per-user byte
+quota, serialized during registration; the default is 1 GiB via
+`UPLOAD_MAX_USER_STORAGE_BYTES`. Existing unregistered objects do not count until
+reconciled. HTTP file caches are private/no-store; storage buckets must also be
+private. Database and object-store mutation are not a distributed transaction:
+monitor failed cleanup/orphaned objects during storage outages.
+
+Request limits are configurable: `LMS_IP_RATE_PER_MINUTE=6000`,
+`LMS_USER_RATE_PER_MINUTE=300`, `LMS_COSTLY_RATE_PER_MINUTE=20`,
+`LMS_MAX_REQUESTS=128`, `LMS_MAX_UPLOADS=4`, `LMS_MAX_STREAMS=128`,
+`LMS_MAX_COSTLY_REQUESTS=8`, `LMS_MAX_CALLBACKS=8`, `LMS_MAX_STREAMS_PER_USER=2`,
+`LMS_QUIZ_EFFECT_WORKERS=2`. Capacities are per replica; Redis rate counters are
+shared. Redis failure uses a bounded local fallback, not unlimited admission.
+Set `LMS_TRUSTED_PROXY_CIDRS` to the actual ingress/BFF proxy ranges; only loopback is trusted by default, rather than every private address. These are initial guardrails, not a measured capacity claim. Ordinary handlers
+have a 15-second context budget; uploads/AI have two minutes; internal callbacks
+30 seconds; SSE/download streams at most five minutes. Database pool sizing must
+include HTTP, fixed workers, consumers and every replica. `/health` remains a
+light liveness endpoint; `/ready` checks DB and Redis with a bounded deadline.
+No read-path index DDL runs automatically at startup; install indexes through
+forward migrations under the database owner's rollout procedure.
+
+Validation: `go test ./...`, `go test -race ./...`, `go vet ./...` in `lms-service`.
+Set `LMS_TEST_DATABASE_URL` only to disposable PostgreSQL for integration tests;
+new tests create/drop unique databases, so the test role needs database-creation
+permission. They cover real forward migrations, concurrent start/submit/answer,
+rollback, file ACL/attachment claims, quotas, callbacks and retryable outbox work.
+AI regression: `pytest tests/test_review_delivery.py`; set
+`AI_TEST_DATABASE_URL` to disposable PostgreSQL for its concurrent-delivery test.
+No provider calls or production data are used.
+
 
 ### Quiz XML and browser visibility
 

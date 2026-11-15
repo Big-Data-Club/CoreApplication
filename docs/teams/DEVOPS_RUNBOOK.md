@@ -14,6 +14,47 @@
 
 ## 1. Purpose and operating principles
 
+LMS safety rollout (2026-11): apply
+[`AI V025`](../../ai-service/migrations/V025__review_delivery_receipts.sql) and
+[`LMS V022`](../../lms-service/migrations/V022__lms_request_safety.sql) to their
+respective owner databases before releasing the images. New LMS fails startup
+when its required safety tables are absent. Deploy the AI receiver first, then
+LMS: review delivery retries require the new receiver's idempotency receipts.
+Both migrations are additive; retain their tables on rollback. Do not roll AI
+back behind the compatible receiver while new LMS workers are still delivering.
+A rollback to old LMS reopens corrected authorization paths; use a forward fix
+or an explicitly reviewed front-door restriction rather than a blind rollback.
+
+Apply the matching ingress/deployment manifest: `/ready` replaces `/health` for
+readiness only, media responses must not receive public immutable cache headers,
+and the LMS/media ingress uses the coarse edge rate limiter. Purge existing
+public CDN/proxy cache entries for protected media as part of rollout; changing
+origin headers cannot revoke copies already cached with the old one-year TTL.
+Verify that the object bucket has no anonymous read policy or public custom
+endpoint; API ACLs cannot protect a directly public bucket. No bucket policy or
+live CDN setting is changed by this source patch.
+
+New document/video uploads are private by default; legacy unregistered non-image
+objects require audited reconciliation to an owner/course before access. Inventory
+those objects and course thumbnails before rollout; do not guess an owner from a
+UUID or silently make them public. Preserve explicitly public passive images used
+by current import/thumbnail callers. Confirm `AI_SERVICE_SECRET` is a configured
+strong secret shared by the internal callers; placeholder service secrets are
+rejected. Verify that local LMS role synchronization has caught up before rollout;
+a valid JWT no longer substitutes for missing/revoked local role assignments. Cookie-authenticated writes now reject untrusted browser origins; keep
+`CORS_ALLOWED_ORIGINS` aligned with approved frontend origins.
+
+Configure `LMS_TRUSTED_PROXY_CIDRS` for the actual ingress/BFF proxies and verify the resolved client IP before enabling traffic; unconfigured proxy clients share one coarse IP budget. Do not trust every RFC1918 address.
+
+Start with the documented request budgets in the developer guide. Monitor 429/503,
+DB connection waits/lock latency, pending quiz effects (including local vs remote
+completion), retry age, Kafka lag/DLQ and temp-disk/storage usage. Redis outages
+retain local rate limits; AI outages retain local learning progress. Do not raise
+replicas or pool sizes without a total database connection budget. These changes
+are not a load-test result; follow the existing approved performance procedure on
+staging before claiming capacity. Application limits cannot absorb volumetric
+DDoS once upstream bandwidth is exhausted.
+
 Studio/MCP rollout (2026-10-21): apply AI migration V022 before deploying the
 matching HTTP, worker and frontend images. New Studio artifacts require a
 separate private unversioned MinIO bucket (default `<MINIO_BUCKET>-studio-temporary`),

@@ -25,9 +25,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
-import httpx
-
 from app.core.config import get_settings
+from app.services.lms_callbacks import post_lms_callback
 from app.core.llm import chat_complete_json
 from app.core.llm_gateway import TASK_SECTION_OVERVIEW_GEN
 from app.core.llm_gateway.evidence_budget import make_evidence_packer
@@ -1404,21 +1403,10 @@ class SectionOverviewService:
         })
 
     async def _lms_post(self, path: str, body: dict) -> None:
-        url = settings.lms_service_url.rstrip("/") + path
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    url,
-                    json=body,
-                    headers={"X-API-Secret": settings.ai_service_secret},
-                )
-                if resp.status_code >= 400:
-                    logger.warning(
-                        "LMS callback %s -> %d: %s",
-                        path, resp.status_code, resp.text[:200],
-                    )
-        except Exception as exc:
-            logger.error("LMS callback %s failed: %s", path, exc)
+        await post_lms_callback(
+            settings.lms_service_url, settings.ai_service_secret, path, body,
+            required=not path.endswith("/status"),
+        )
 
 
 # Singleton

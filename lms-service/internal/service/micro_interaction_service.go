@@ -3,12 +3,12 @@
 // Owns the business logic for the Quick Action Panel analytics
 // pipeline:
 //
-//   * RecordInteraction  - synchronous: validate, persist raw row,
-//                           publish Kafka event for the worker.
-//   * ApplyEvent         - asynchronous worker: convert an event into
-//                           a MasteryComponentDelta and upsert it.
-//   * Heatmap / StudentHeatmap - read-side helpers for the analytics
-//                                 endpoint.
+//   - RecordInteraction  - synchronous: validate, persist raw row,
+//     publish Kafka event for the worker.
+//   - ApplyEvent         - asynchronous worker: convert an event into
+//     a MasteryComponentDelta and upsert it.
+//   - Heatmap / StudentHeatmap - read-side helpers for the analytics
+//     endpoint.
 package service
 
 import (
@@ -153,6 +153,9 @@ func (s *MicroInteractionService) RecordInteraction(
 // Events without a node_id are dropped - heatmap is grouped by node,
 // and we don't want global noise polluting the table.
 func (s *MicroInteractionService) ApplyEvent(ctx context.Context, ev kafka.MicroInteractionEvent) error {
+	if ev.InteractionID <= 0 {
+		return kafka.ErrInvalidEvent
+	}
 	if ev.NodeID == nil {
 		return nil
 	}
@@ -206,7 +209,7 @@ func (s *MicroInteractionService) ApplyEvent(ctx context.Context, ev kafka.Micro
 		return nil
 	}
 
-	return s.repo.ApplyDelta(ctx, delta)
+	return s.repo.ApplyEventDelta(ctx, ev.InteractionID, delta)
 }
 
 // RecordFormalQuizSample is called by the quiz-grading flow whenever a

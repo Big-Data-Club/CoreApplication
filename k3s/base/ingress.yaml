@@ -51,6 +51,7 @@ metadata:
   namespace: default
   annotations:
     traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-lms-ratelimit@kubernetescrd,
       default-compress@kubernetescrd,
       default-rewrite-lms@kubernetescrd
 spec:
@@ -74,6 +75,7 @@ metadata:
   namespace: default
   annotations:
     traefik.ingress.kubernetes.io/router.middlewares: >-
+      default-lms-ratelimit@kubernetescrd,
       default-compress@kubernetescrd,
       default-rewrite-files@kubernetescrd,
       default-files-cache@kubernetescrd
@@ -399,7 +401,7 @@ metadata:
 spec:
   headers:
     customResponseHeaders:
-      Cache-Control: "public, max-age=31536000, immutable"
+      Cache-Control: "private, no-store"
 ---
 # ── Traefik Middleware: Strip /aimodels prefix for the AI Gateway ────────────
 apiVersion: traefik.io/v1alpha1
@@ -445,3 +447,16 @@ spec:
   headers:
     customResponseHeaders:
       Cache-Control: "public, max-age=600, must-revalidate"
+
+---
+# Coarse per-client edge budget; authenticated per-user limits remain in LMS.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: lms-ratelimit
+  namespace: default
+spec:
+  rateLimit:
+    average: 100
+    burst: 200
+    period: 1s

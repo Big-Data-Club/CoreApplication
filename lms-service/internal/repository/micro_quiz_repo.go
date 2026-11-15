@@ -11,7 +11,7 @@ import (
 
 // MicroQuizRepository handles CRUD for micro_quiz_jobs and micro_quizzes.
 type MicroQuizRepository struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewMicroQuizRepository creates a new MicroQuizRepository.
@@ -104,7 +104,7 @@ func (r *MicroQuizRepository) UpdateJobStatus(
 	SET status = $2, progress = $3, stage = $4, quizzes_count = $5,
 	    error = CASE WHEN $6 = '' THEN error ELSE $6 END,
 	    completed_at = $7
-	WHERE id = $1`
+	WHERE id = $1 AND (status NOT IN ('completed','failed') OR status = $2)`
 
 	_, err := r.db.ExecContext(ctx, q,
 		jobID, status, progress, stage, quizzesCount, errMsg, completedAt,

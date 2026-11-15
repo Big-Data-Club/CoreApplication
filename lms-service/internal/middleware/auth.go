@@ -2,19 +2,19 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"example/hello/internal/dto"
-	"example/hello/internal/repository"
-	"example/hello/pkg/cache"
-	"example/hello/pkg/logger"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+
+	"example/hello/internal/dto"
+	"example/hello/pkg/cache"
+	"example/hello/pkg/logger"
 )
 
 // Claims represents JWT claims
@@ -25,210 +25,101 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// AuthMiddleware validates JWT token and sets user info in context
-func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
+// tokenFromRequest centralizes the existing Bearer/cookie compatibility contract.
+func tokenFromRequest(c *gin.Context) string {
+	parts := strings.Fields(c.GetHeader("Authorization"))
+	if len(parts) == 2 && parts[0] == "Bearer" {
+		return parts[1]
+	}
+	cookie, _ := c.Cookie("authToken")
+	return cookie
+}
+
+func parseClaims(raw, secret string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(raw, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(secret), nil
+	}, jwt.WithExpirationRequired())
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid || claims.UserID <= 0 || len(claims.Roles) == 0 {
+		return nil, jwt.ErrTokenInvalidClaims
+	}
+	return claims, nil
+}
+
+func setClaims(c *gin.Context, claims *Claims) {
+	roles := make([]string, len(claims.Roles))
+	for i, role := range claims.Roles {
+		roles[i] = normalizeRole(role)
+	}
+	primary := roles[0]
+	for _, role := range roles {
+		if role == "ADMIN" {
+			primary = role
+			break
+		}
+	}
+	c.Set("user_authenticated", true)
+	c.Set("user_id", claims.UserID)
+	c.Set("user_email", claims.Email)
+	c.Set("user_roles", roles)
+	c.Set("user_role", primary)
+}
+
+func validServiceSecret(actual, expected string) bool {
+	if expected == "" || expected == "None" || expected == "ai-service-secret-change-me" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) == 1
+}
+
+// ServiceOnlyMiddleware never accepts a browser JWT as service authentication.
+func ServiceOnlyMiddleware(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get token from Authorization header or Cookie
-		var tokenString string
-		authHeader := c.GetHeader("Authorization")
-		
-		if authHeader != "" {
-			// Check if it's a Bearer token
-			parts := strings.Split(authHeader, " ")
-			if len(parts) == 2 && parts[0] == "Bearer" {
-				tokenString = parts[1]
-			}
-		}
-
-		// Fallback to Cookie if header is missing or invalid
-		if tokenString == "" {
-			cookie, err := c.Cookie("authToken")
-			if err == nil {
-				tokenString = cookie
-			}
-		}
-
-		if tokenString == "" {
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Missing authorization header or cookie"))
-			c.Abort()
+		if !validServiceSecret(c.GetHeader("X-API-Secret"), secret) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Service authentication required"))
 			return
 		}
-
-		// Parse and validate token
-		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-			// Validate signing method
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(jwtSecret), nil
-		})
-
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Invalid or expired token"))
-			c.Abort()
-			return
-		}
-
-		// Extract claims
-		claims, ok := token.Claims.(*Claims)
-		if !ok || !token.Valid {
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Invalid token claims"))
-			c.Abort()
-			return
-		}
-
-		// Validate user_id is not empty
-		if claims.UserID <= 0 {
-			logger.Warn(fmt.Sprintf("JWT token has invalid or missing user_id: %d", claims.UserID))
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "User ID not found in token"))
-			c.Abort()
-			return
-		}
-
-		// Validate roles is not empty
-		if len(claims.Roles) == 0 {
-			logger.Warn("JWT token has no roles")
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "No roles found in token"))
-			c.Abort()
-			return
-		}
-		
-		// Normalize all roles
-		normalizedRoles := make([]string, len(claims.Roles))
-		for i, r := range claims.Roles {
-			normalizedRoles[i] = normalizeRole(r)
-		}
-
-		// Set user info in context
-		c.Set("user_id", claims.UserID)
-		c.Set("user_email", claims.Email)
-		c.Set("user_roles", normalizedRoles)
-
-		primaryRole := normalizedRoles[0]
-		for _, r := range normalizedRoles {
-			if r == "ADMIN" {
-				primaryRole = "ADMIN"
-				break
-			}
-		}
-		c.Set("user_role", primaryRole)
-
+		c.Set("service_authenticated", true)
 		c.Next()
 	}
 }
 
-// ServiceOrAuthMiddleware allows access via either a valid JWT OR a shared service secret
-func ServiceOrAuthMiddleware(jwtSecret string, serviceSecret string) gin.HandlerFunc {
+func AuthMiddleware(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. First check for Service Secret (used by AI service and other internal services)
-		apiSecret := c.GetHeader("X-API-Secret")
-		if apiSecret == "" {
-			apiSecret = c.GetHeader("X-Sync-Secret")
-		}
-
-		if apiSecret != "" && apiSecret == serviceSecret {
-			// Authorized as internal service
-			userID := int64(0)
-			if userIDStr := c.GetHeader("X-User-Id"); userIDStr != "" {
-				if id, err := strconv.ParseInt(userIDStr, 10, 64); err == nil {
-					userID = id
-				}
-			}
-			
-			c.Set("user_id", userID) 
-			c.Set("user_email", "system@bdc.internal")
-			c.Set("user_roles", []string{"ADMIN", "TEACHER"})
-			c.Set("user_role", "ADMIN")
-			c.Next()
-			return
-		}
-
-		// 2. Fallback to standard JWT Auth
-		// Get token from Authorization header or Cookie
-		var tokenString string
-		authHeader := c.GetHeader("Authorization")
-
-		if authHeader != "" {
-			// Check if it's a Bearer token
-			parts := strings.Split(authHeader, " ")
-			if len(parts) == 2 && parts[0] == "Bearer" {
-				tokenString = parts[1]
-			}
-		}
-
-		// Fallback to Cookie if header is missing or invalid
-		if tokenString == "" {
-			cookie, err := c.Cookie("authToken")
-			if err == nil {
-				tokenString = cookie
-			}
-		}
-
-		if tokenString == "" {
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Missing authorization header, cookie, or valid service secret"))
-			c.Abort()
-			return
-		}
-
-		// Parse and validate token
-		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-			// Validate signing method
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(jwtSecret), nil
-		})
-
+		claims, err := parseClaims(tokenFromRequest(c), secret)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Invalid or expired token"))
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Invalid or expired token"))
 			return
 		}
+		setClaims(c, claims)
+		c.Next()
+	}
+}
 
-		// Extract claims
-		claims, ok := token.Claims.(*Claims)
-		if !ok || !token.Valid {
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "Invalid token claims"))
-			c.Abort()
+// ServiceOrAuthMiddleware is reserved for explicitly delegated authoring routes.
+func ServiceOrAuthMiddleware(jwtSecret, serviceSecret string) gin.HandlerFunc {
+	auth := AuthMiddleware(jwtSecret)
+	return func(c *gin.Context) {
+		secret := c.GetHeader("X-API-Secret")
+		if secret == "" {
+			secret = c.GetHeader("X-Sync-Secret")
+		}
+		if !validServiceSecret(secret, serviceSecret) {
+			auth(c)
 			return
 		}
-
-		// Validate user_id is not empty
-		if claims.UserID <= 0 {
-			logger.Warn(fmt.Sprintf("JWT token has invalid or missing user_id: %d", claims.UserID))
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "User ID not found in token"))
-			c.Abort()
-			return
-		}
-
-		// Validate roles is not empty
-		if len(claims.Roles) == 0 {
-			logger.Warn("JWT token has no roles")
-			c.JSON(http.StatusUnauthorized, dto.NewErrorResponse("unauthorized", "No roles found in token"))
-			c.Abort()
-			return
-		}
-
-		// Normalize all roles
-		normalizedRoles := make([]string, len(claims.Roles))
-		for i, r := range claims.Roles {
-			normalizedRoles[i] = normalizeRole(r)
-		}
-
-		// Set user info in context
-		c.Set("user_id", claims.UserID)
-		c.Set("user_email", claims.Email)
-		c.Set("user_roles", normalizedRoles)
-
-		primaryRole := normalizedRoles[0]
-		for _, r := range normalizedRoles {
-			if r == "ADMIN" {
-				primaryRole = "ADMIN"
-				break
-			}
-		}
-		c.Set("user_role", primaryRole)
-
+		userID, _ := strconv.ParseInt(c.GetHeader("X-User-Id"), 10, 64)
+		c.Set("service_authenticated", true)
+		c.Set("user_id", userID)
+		c.Set("user_email", "system@bdc.internal")
+		c.Set("user_roles", []string{"ADMIN", "TEACHER"})
+		c.Set("user_role", "ADMIN")
 		c.Next()
 	}
 }
@@ -324,55 +215,21 @@ func RequireRoles(roles ...string) gin.HandlerFunc {
 }
 
 // OptionalAuth is similar to AuthMiddleware but doesn't abort if token is missing
-func OptionalAuth(jwtSecret string) gin.HandlerFunc {
+func OptionalAuth(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.Next()
-			return
+		if claims, err := parseClaims(tokenFromRequest(c), secret); err == nil {
+			setClaims(c, claims)
 		}
-
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.Next()
-			return
-		}
-
-		tokenString := parts[1]
-		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(jwtSecret), nil
-		})
-
-		if err != nil {
-			c.Next()
-			return
-		}
-
-		if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-			// Normalize roles
-			normalizedRoles := make([]string, len(claims.Roles))
-			for i, r := range claims.Roles {
-				normalizedRoles[i] = normalizeRole(r)
-			}
-
-			c.Set("user_id", claims.UserID)
-			c.Set("user_email", claims.Email)
-			c.Set("user_roles", normalizedRoles)
-			// Set first role for backward compatibility
-			if len(normalizedRoles) > 0 {
-				c.Set("user_role", normalizedRoles[0])
-			}
-		}
-
 		c.Next()
 	}
 }
 
+type roleReader interface {
+	GetUserRoles(context.Context, int64) ([]string, error)
+}
+
 // LoadLocalRoles loads user roles from the local database/cache and overrides the context roles.
-func LoadLocalRoles(userRepo *repository.UserRepository, redisCache *cache.RedisCache) gin.HandlerFunc {
+func LoadLocalRoles(userRepo roleReader, redisCache *cache.RedisCache) gin.HandlerFunc {
 	loader := cache.NewLoader(redisCache)
 	return func(c *gin.Context) {
 		userIDVal, exists := c.Get("user_id")
@@ -388,25 +245,33 @@ func LoadLocalRoles(userRepo *repository.UserRepository, redisCache *cache.Redis
 		}
 
 		// Don't override for system/internal calls if already ADMIN
-		if c.GetString("user_email") == "system@bdc.internal" {
+		if c.GetBool("service_authenticated") {
 			c.Next()
 			return
 		}
 
 		// Fetch roles using cache
-		roles, err := cache.GetOrLoad(c.Request.Context(), loader, cache.KeyUserRoles(userID), 5*time.Minute,
-			func(ctx context.Context) ([]string, error) {
-				return userRepo.GetUserRoles(ctx, userID)
-			})
+		var roles []string
+		var err error
+		if redisCache == nil {
+			roles, err = userRepo.GetUserRoles(c.Request.Context(), userID)
+		} else {
+			roles, err = cache.GetOrLoad(c.Request.Context(), loader, cache.KeyUserRoles(userID), 5*time.Minute, func(ctx context.Context) ([]string, error) { return userRepo.GetUserRoles(ctx, userID) })
+		}
+
 		if err != nil {
 			logger.Warn(fmt.Sprintf("Failed to load local roles for user %d: %v", userID, err))
-			c.Next()
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, dto.NewErrorResponse("roles_unavailable", "Authorization temporarily unavailable"))
 			return
 		}
 
+		if len(roles) == 0 {
+			c.AbortWithStatusJSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", "No active LMS roles"))
+			return
+		}
 		if len(roles) > 0 {
 			c.Set("user_roles", roles)
-			
+
 			// Determine primary role (prefer ADMIN first, then TEACHER, then STUDENT, or first in list)
 			primaryRole := roles[0]
 			for _, r := range roles {
@@ -427,6 +292,31 @@ func LoadLocalRoles(userRepo *repository.UserRepository, redisCache *cache.Redis
 			c.Set("user_role", primaryRole)
 		}
 
+		c.Next()
+	}
+}
+
+// OptionalIdentity permits public reads while enriching valid user/service identity.
+func OptionalIdentity(jwtSecret, serviceSecret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if validServiceSecret(c.GetHeader("X-API-Secret"), serviceSecret) {
+			c.Set("service_authenticated", true)
+		}
+		if claims, err := parseClaims(tokenFromRequest(c), jwtSecret); err == nil {
+			setClaims(c, claims)
+		}
+		c.Next()
+	}
+}
+
+// RequireIdentity consumes identity established by OptionalIdentity without
+// reparsing JWTs and overwriting the authoritative local roles loaded afterward.
+func RequireIdentity(allowService bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !c.GetBool("user_authenticated") && !(allowService && c.GetBool("service_authenticated")) {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
 		c.Next()
 	}
 }
