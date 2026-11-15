@@ -2,9 +2,10 @@
 
 
 def next_actions(profile: dict, minutes: int = 20, prefer_format: str = "mixed") -> list[dict]:
-    states = {s["skill_id"]: s for s in profile.get("skill_states", [])}
+    # LMS can serialize empty Go slices as null, especially for new learners.
+    states = {s["skill_id"]: s for s in (profile.get("skill_states") or [])}
     grouped: dict[int, list[dict]] = {}
-    for content in profile.get("available_content", []):
+    for content in profile.get("available_content") or []:
         practice = content.get("content_type", "").upper() in {"QUIZ", "EXERCISE", "FLASHCARD", "MICRO_QUIZ"}
         if (prefer_format == "practice" and not practice) or (prefer_format == "theory" and practice):
             continue

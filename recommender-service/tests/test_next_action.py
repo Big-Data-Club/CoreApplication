@@ -1,6 +1,22 @@
 from app.next_action import next_actions
 
 
+def test_null_skill_states_still_recommends_actual_curriculum_content():
+    result = next_actions({
+        "skill_states": None,
+        "available_content": [{"content_id": 12, "content_title": "Start", "skill_id": 9}],
+    })
+    assert [(item["content_id"], item["action"]) for item in result] == [(12, "learn_new")]
+
+
+def test_null_available_content_returns_no_invented_actions():
+    assert next_actions({"skill_states": None, "available_content": None}) == []
+    assert next_actions({
+        "skill_states": [{"skill_id": 9, "mastery_score": 0.2, "attempt_count": 3}],
+        "available_content": None,
+    }) == []
+
+
 def test_progress_prerequisites_deduplication_and_budget():
     profile = {"available_content": [
         {"content_id": 1, "content_title": "Done", "completed": True},

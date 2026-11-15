@@ -43,6 +43,21 @@ class RecommendationServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.fallback)
         self.assertEqual(response.items, [])
 
+    async def test_nullable_lms_profile_collections_are_safe_on_both_surfaces(self):
+        service = RecommendationService()
+        for content in [None, [{"content_id": 12, "content_title": "Start", "skill_id": 9}]]:
+            with self.subTest(available_content=content):
+                profile = {"skill_states": None, "available_content": content}
+                service.course_skill_profile = AsyncMock(return_value=profile)
+                response = await service.recommend(RecommendationRequest(user_id=42, context={"course_id": 38}))
+                lessons = service.next_best_lessons(42, 38, profile, 20)
+                expected_ids = [12] if content else []
+                self.assertEqual([item.entity["content_id"] for item in response.items], expected_ids)
+                self.assertEqual([item["content_id"] for item in lessons], expected_ids)
+                if content:
+                    self.assertEqual(response.items[0].action, "learn_new")
+                    self.assertEqual(response.items[0].href, "/lms/student/courses/38/learn?contentId=12")
+
     async def test_missing_course_requests_clarification(self):
         response = await RecommendationService().recommend(RecommendationRequest(user_id=42))
         self.assertTrue(response.clarification_needed)
