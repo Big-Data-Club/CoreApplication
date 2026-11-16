@@ -39,6 +39,7 @@ from app.agents.tools.teacher.mcp_course_knowledge import (
     McpSaveCourseKnowledgeTool,
 )
 from app.agents.tools.shared.list_accessible_courses import ListAccessibleCoursesTool
+from app.agents.tools.shared.recall_conversation import RecallConversationTool
 
 # ── Mentor Tools ──────────────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ from app.agents.tools.mentor.save_to_notebook import SaveToNotebookTool
 from app.agents.tools.teacher.list_my_courses import ListMyCoursesTool
 
 _SHARED_TOOLS: list[BaseTool] = [
+    RecallConversationTool(),
     ListAccessibleCoursesTool(),
     ListKnowledgeNodesTool(),
     SearchMaterialsTool(),
@@ -166,8 +168,7 @@ async def execute_tool(
         arguments["_course_id"] = course_id
     if course_name:
         arguments["_course_name"] = course_name
-    if session_id is not None:
-        arguments["_session_id"] = session_id
+    arguments["_session_id"] = session_id
     if content_id is not None:
         arguments["_content_id"] = content_id
     if node_id is not None:

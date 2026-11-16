@@ -26,6 +26,23 @@ def _custom_json_serializer(obj):
 
 
 class MessageStore:
+    async def search_history(self, session_id: str, user_id: int, query: str = "", limit: int = 10, role: str = "user") -> list[dict]:
+        """Literal, bounded archive lookup; ownership remains in the SQL query."""
+        needle = query[:160].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """SELECT id,role,content FROM (
+                     SELECT m.id,m.role,m.content FROM agent_messages m
+                     JOIN agent_sessions s ON s.id=m.session_id
+                     WHERE m.session_id=$1 AND s.user_id=$2
+                       AND m.role IN ('user','assistant') AND ($3='all' OR m.role=$3)
+                       AND ($4='' OR m.content ILIKE $5 ESCAPE E'\\\\')
+                     ORDER BY m.id DESC LIMIT $6
+                   ) history ORDER BY id""",
+                session_id, user_id, role, query[:160], f"%{needle}%", min(max(limit, 1), 20),
+            )
+        return [dict(row) for row in rows]
+
     async def get_recent_context(self, session_id: str, user_id: int, limit: int = 30) -> list[dict]:
         """Return the latest dialogue, chronologically; failures must not look empty."""
         async with get_ai_conn() as conn:

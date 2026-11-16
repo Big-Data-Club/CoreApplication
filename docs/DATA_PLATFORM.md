@@ -1,5 +1,31 @@
 # BDC Hub Data Platform: Lakehouse and Kafka
 
+## Agent memory consolidation (2026-11)
+
+AI HTTP produces the existing `CONSOLIDATE_SESSION` command on `lms.ai.command`;
+AI worker owns the consumer and AI's PostgreSQL/Redis/Qdrant memory data. Payloads
+continue to carry session/user IDs and small context hints, without raw dialogue.
+The purpose is bounded conversation continuity and sourced preference recall.
+The worker verifies the persisted session owner and agent role before loading
+messages; persisted session course scope overrides queued course hints.
+
+The existing message-ID cursor bounds each batch. Its compare-and-set update
+prevents competing workers from overwriting newer summaries. Episodes use a UUID
+derived from session and cursor range; replay preserves the canonical PostgreSQL
+summary. Durable storage failures and cursor conflicts propagate to the existing
+retry path before Redis trimming. Optional embedding/vector failures leave the
+PostgreSQL episode intact and permit recency fallback; they do not claim semantic
+relevance or automatic index repair. Deleted/foreign vector hits are filtered by
+PostgreSQL hydration. Source-session deletion cascades its messages and episodes;
+vector payloads may remain until separately cleaned, but are not recall authority.
+
+No wire schema, topic, group, or migration changes. Deploy the shared AI image to
+HTTP and worker; rollback remains payload-compatible but restores the older, weaker
+memory guards. Access/retention restrictions for learner conversations also apply
+to compressed preferences, episodes and their indexes. See the
+[developer guide](DEVELOPER_GUIDE.md#layered-memory-and-recall) for tier limits and
+the distinction between session deletion and account-wide erasure.
+
 ## LMS reliable consumers and quiz effects (2026-11)
 
 LMS owns the existing consumer groups for `ai.document.processed.status`,

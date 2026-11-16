@@ -111,24 +111,31 @@ class ContextBuilder:
         # reaches the prompt.  This prevents a completed action or an old
         # course-specific preference from silently steering a new task.
         from app.agents.memory.memory_policy import (
-            format_memory_items, migrate_legacy_memory, select_memory_for_prompt,
+            format_memory_items, migrate_legacy_memory, select_memory_for_prompt, merge_memory_items,
         )
+        preferences = []
+        if session_context is not None and durable_budget >= 80:
+            try:
+                preferences = await mtm.get_user_preferences(user_id, agent_type, session_id)
+            except Exception as exc:
+                logger.warning("Global preferences unavailable error_type=%s", type(exc).__name__)
         selected_memory = select_memory_for_prompt(
-            mtm_ctx.get("memory_items") or migrate_legacy_memory(mtm_ctx), course_id=course_id,
+            merge_memory_items(preferences, mtm_ctx.get("memory_items") or migrate_legacy_memory(mtm_ctx)),
+            course_id=course_id,
         )
+        kept_memory = []
         if selected_memory:
-            kept_memory = []
             for item in selected_memory:
                 candidate = kept_memory + [item]
                 rendered = "DURABLE MEMORY (scoped, attributable):\n" + format_memory_items(candidate)
                 if estimate_tokens(rendered) > durable_budget:
-                    break
+                    continue
                 kept_memory = candidate
             if kept_memory:
                 memory_section = "DURABLE MEMORY (scoped, attributable):\n" + format_memory_items(kept_memory)
                 sections.append(memory_section)
                 total_tokens += estimate_tokens(memory_section)
-        raw["durable_memory"] = selected_memory
+        raw["durable_memory"] = kept_memory
 
         # ── 1. STM: Recent conversation history ──────────────────────────────
         stm_messages: list[dict] = []
@@ -281,7 +288,7 @@ class ContextBuilder:
                 if estimate_tokens(candidate) + estimate_messages_tokens(stm_messages) <= budget:
                     prompt_section = candidate
                     break
-        total_tokens = estimate_tokens(prompt_section) + estimate_messages_tokens(stm_messages)
+        total_tokens = (estimate_tokens(prompt_section) if prompt_section else 0) + estimate_messages_tokens(stm_messages)
 
         return {
             "prompt_section": prompt_section,
@@ -486,7 +493,9 @@ class ContextBuilder:
             summary = ep.get("summary", "")
             if len(summary) > 200:
                 summary = summary[:200] + "..."
-            line = f"  - {summary} (relevance: {ep.get('score', 0):.2f})"
+            score = ep.get("score")
+            label = f"semantic match: {score:.2f}" if type(score) in (int, float) and math.isfinite(score) else "recent summary; relevance unverified"
+            line = f"  - {summary} ({label})"
             
             if current_chars + len(line) + 1 > max_chars:
                 break

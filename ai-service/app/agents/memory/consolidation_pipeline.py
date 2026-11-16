@@ -8,16 +8,25 @@ from app.agents.memory.mtm import mtm
 from app.agents.memory.stm import stm
 
 
+class ConsolidationRejected(ValueError):
+    """A malformed or unauthorized job is terminal, not a dependency retry."""
+
+
 async def consolidate_session_job(job_payload: dict) -> dict:
     session_id = job_payload.get("session_id")
     user_id = job_payload.get("user_id")
     context = job_payload.get("context") or {}
-    course_id = context.get("course_id")
+    if (not isinstance(session_id, str) or not session_id
+            or type(user_id) is not int or user_id <= 0 or not isinstance(context, dict)):
+        raise ConsolidationRejected("Consolidation requires session/user identity and context")
     agent_type = context.get("agent_type", "mentor")
-    if not session_id or not user_id:
-        raise ValueError("Consolidation requires session_id and user_id")
 
-    existing_ctx = await mtm.get_context(session_id)
+    session = await mtm.get_session(session_id)
+    if not session or session["user_id"] != int(user_id) or session["agent_type"] != agent_type:
+        raise ConsolidationRejected("Consolidation session is not owned by this user/agent")
+    # Queue hints cannot relabel a global/multi-course session as one course.
+    course_id = session.get("course_id")
+    existing_ctx = session["context"]
     cursor = int(existing_ctx.get("_last_consolidated_message_id") or 0)
     # Owner check and ID cursor both live in the database query. Raw chat is
     # never placed in Kafka and transient read failures must propagate.
@@ -28,7 +37,7 @@ async def consolidate_session_job(job_payload: dict) -> dict:
         return {"messages": 0, "cursor": cursor}
 
     new_ctx = await compress_conversation(
-        messages, agent_type, existing_ctx, strict=True,
+        messages, agent_type, existing_ctx, strict=True, course_id=course_id,
     )
     new_cursor = int(messages[-1]["id"])
     new_ctx["_last_consolidated_message_id"] = new_cursor
@@ -54,10 +63,14 @@ async def consolidate_session_job(job_payload: dict) -> dict:
             course_id=int(course_id) if course_id is not None else None,
             idempotency_key=f"{session_id}:{cursor}:{new_cursor}",
         )
+        if not result["episode_id"]:
+            raise RuntimeError("Episode was not durably stored; consolidation must retry")
 
-    await mtm.save_compressed(
-        session_id, new_ctx, int(context.get("turn_count") or 0),
+    applied = await mtm.save_compressed(
+        session_id, new_ctx, int(context.get("turn_count") or 0), expected_cursor=cursor,
     )
+    if not applied:
+        raise RuntimeError("Concurrent consolidation advanced the cursor; retry from the new cursor")
     # Redis is only a small hot window. The durable transcript and MTM state
     # retain continuity if the chat resumes after TTL expiry.
     await stm.trim_to_recent(session_id, keep_last=6)

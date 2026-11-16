@@ -57,7 +57,7 @@ class MTMemory:
                    FROM agent_sessions
                    WHERE user_id = $1
                      AND agent_type = $2
-                     AND ($3::BIGINT IS NULL OR course_id = $3)
+                     AND course_id IS NOT DISTINCT FROM $3::BIGINT
                    ORDER BY last_active_at DESC
                    LIMIT 1""",
                 user_id, agent_type, course_id,
@@ -78,32 +78,7 @@ class MTMemory:
                     "turn_count": row["turn_count"] or 0,
                 }
 
-            # Pre-load working state from the most recent session
             preload_ctx = {}
-            last_session = await conn.fetchrow(
-                """SELECT compressed_ctx FROM agent_sessions
-                   WHERE user_id = $1 AND agent_type = $2
-                   ORDER BY last_active_at DESC LIMIT 1""",
-                user_id, agent_type
-            )
-            if last_session and last_session["compressed_ctx"]:
-                old_ctx = last_session["compressed_ctx"]
-                if isinstance(old_ctx, str):
-                    old_ctx = json.loads(old_ctx)
-                
-                # Extract anchors from the new unified working_state or legacy key_facts
-                ws = old_ctx.get("working_state", {})
-                kf = old_ctx.get("key_facts", {})
-                
-                current_course_id = ws.get("current_course_id") or kf.get("current_course_id")
-                current_topic = ws.get("current_topic") or kf.get("current_topic")
-                
-                if current_course_id or current_topic:
-                    preload_ctx["working_state"] = {}
-                    if current_course_id:
-                        preload_ctx["working_state"]["current_course_id"] = current_course_id
-                    if current_topic:
-                        preload_ctx["working_state"]["current_topic"] = current_topic
 
             # Create new session
             new_row = await conn.fetchrow(
@@ -138,7 +113,7 @@ class MTMemory:
                    FROM agent_sessions
                    WHERE user_id = $1
                      AND agent_type = $2
-                     AND ($3::BIGINT IS NULL OR course_id = $3)
+                     AND course_id IS NOT DISTINCT FROM $3::BIGINT
                      AND turn_count = 0
                    ORDER BY last_active_at DESC
                    LIMIT 1""",
@@ -159,31 +134,7 @@ class MTMemory:
                     "reused": True,
                 }
  
-            # Pre-load working state from the most recent session
             preload_ctx = {}
-            last_session = await conn.fetchrow(
-                """SELECT compressed_ctx FROM agent_sessions
-                   WHERE user_id = $1 AND agent_type = $2
-                   ORDER BY last_active_at DESC LIMIT 1""",
-                user_id, agent_type
-            )
-            if last_session and last_session["compressed_ctx"]:
-                old_ctx = last_session["compressed_ctx"]
-                if isinstance(old_ctx, str):
-                    old_ctx = json.loads(old_ctx)
-                
-                ws = old_ctx.get("working_state", {})
-                kf = old_ctx.get("key_facts", {})
-                
-                current_course_id = ws.get("current_course_id") or kf.get("current_course_id")
-                current_topic = ws.get("current_topic") or kf.get("current_topic")
-                
-                if current_course_id or current_topic:
-                    preload_ctx["working_state"] = {}
-                    if current_course_id:
-                        preload_ctx["working_state"]["current_course_id"] = current_course_id
-                    if current_topic:
-                        preload_ctx["working_state"]["current_topic"] = current_topic
 
             new_row = await conn.fetchrow(
                 """INSERT INTO agent_sessions
@@ -226,7 +177,7 @@ class MTMemory:
         """Get the compressed context and turn count for a session."""
         async with get_ai_conn() as conn:
             row = await conn.fetchrow(
-                "SELECT compressed_ctx, turn_count, user_id, agent_type FROM agent_sessions WHERE id = $1",
+                "SELECT compressed_ctx, turn_count, user_id, agent_type, course_id FROM agent_sessions WHERE id = $1",
                 session_id,
             )
             if not row:
@@ -239,6 +190,7 @@ class MTMemory:
                 "turn_count": row["turn_count"] or 0,
                 "user_id": row["user_id"],
                 "agent_type": row["agent_type"],
+                "course_id": row["course_id"],
             }
 
     async def save_conversation_state(self, session_id: str, user_id: int, state: dict, message_id: int) -> None:
@@ -261,6 +213,30 @@ class MTMemory:
         """Get the unified working state for a session."""
         ctx = await self.get_context(session_id)
         return ctx.get("working_state", {})
+
+    async def get_user_preferences(self, user_id: int, agent_type: str, session_id: str) -> list[dict]:
+        """Only sourced global preferences cross sessions; tasks never do."""
+        from app.agents.memory.memory_policy import PREFERENCE_KEYS, normalize_memory_items
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """SELECT compressed_ctx->'memory_items' AS items
+                   FROM agent_sessions WHERE user_id=$1 AND agent_type=$2 AND id<>$3
+                     AND jsonb_typeof(compressed_ctx->'memory_items')='array'
+                   ORDER BY last_active_at DESC LIMIT 20""", user_id, agent_type, session_id,
+            )
+        newest = {}
+        for row in rows:
+            items = row["items"]
+            if isinstance(items, str):
+                items = json.loads(items)
+            for item in reversed(normalize_memory_items(items)):
+                if (item["scope"] == "user" and item["kind"] == "preference"
+                        and item["key"] in PREFERENCE_KEYS and item["source"] == "user_statement"
+                        and item["source_message_id"] and item["source_quote"]):
+                    if item["source_message_id"] > newest.get(item["key"], {}).get("source_message_id", 0):
+                        newest[item["key"]] = item
+        # Keep tombstones here: callers merge them before selecting active items.
+        return list(newest.values())
 
     async def update_working_state(self, session_id: str, updates: dict) -> None:
         """Merge a dictionary into the session's working_state."""
@@ -288,7 +264,8 @@ class MTMemory:
         session_id: str,
         compressed_ctx: dict,
         turn_count: int,
-    ) -> None:
+        expected_cursor: int | None = None,
+    ) -> bool:
         """
         Update the session with new compressed context.
 
@@ -296,21 +273,23 @@ class MTMemory:
         (the compressor's output replaces the old context).
         """
         async with get_ai_conn() as conn:
-            await conn.execute(
+            status = await conn.execute(
                 """UPDATE agent_sessions
                    SET compressed_ctx = COALESCE(compressed_ctx, '{}'::jsonb)
                            || $1::jsonb,
                        turn_count = GREATEST(turn_count, $2),
                        last_active_at = NOW()
-                   WHERE id = $3""",
+                   WHERE id = $3 AND ($4::bigint IS NULL
+                     OR COALESCE((compressed_ctx->>'_last_consolidated_message_id')::bigint,0) = $4)""",
                 json.dumps(compressed_ctx, ensure_ascii=False),
                 turn_count,
-                session_id,
+                session_id, expected_cursor,
             )
         logger.debug(
             "MTM updated: session=%s, turn_count=%d, keys=%s",
             session_id, turn_count, list(compressed_ctx.keys()),
         )
+        return status == "UPDATE 1"
 
     async def push_recent_course(
         self,

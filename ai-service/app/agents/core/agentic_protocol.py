@@ -32,6 +32,9 @@ class MemoryItem:
     status: str = "active"  # active | completed | superseded
     source: str = "conversation_summary"
     course_id: int | None = None
+    key: str = ""
+    source_message_id: int | None = None
+    source_quote: str = ""
 
 
 @dataclass(frozen=True)

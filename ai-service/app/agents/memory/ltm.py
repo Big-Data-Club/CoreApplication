@@ -19,6 +19,7 @@ Collection: agent_episodes
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from typing import Optional
@@ -145,87 +146,56 @@ class LTMemory:
         """
         Create a new episodic memory entry.
 
-        1. Embed the summary text
-        2. Upsert to Qdrant (payload includes optional course_id)
-        3. Save metadata to PostgreSQL
+        1. Persist the canonical summary to PostgreSQL (owner checked, idempotent).
+        2. Optionally index it in Qdrant; index failure leaves durable recall available.
 
-        `course_id` is the dominant course of the session (e.g. the most
-        recent CURRENT ANCHOR at compression time). It is OPTIONAL - pass
-        None for cross-course episodes. Stored both in the Qdrant payload
-        and the PG row so recall can filter or union by course.
+        `course_id` is the server-owned session scope; None denotes a global
+        session, never a model-selected dominant course.
 
-        Returns the episode UUID, or None if storage failed.
+        Returns the episode UUID, or None for an empty summary. Durable storage
+        failures propagate so consolidation cannot acknowledge lost memory.
         """
         if not summary_text.strip():
             return None
 
+        episode_uuid = uuid.uuid5(uuid.NAMESPACE_URL, idempotency_key) if idempotency_key else uuid.uuid4()
+        point_id = episode_uuid.int & ((1 << 63) - 1)
+        # PostgreSQL is the durable authority. The optional vector index may fail.
+        async with get_ai_conn() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO agent_episodes(id,session_id,user_id,agent_type,summary,course_id)
+                   SELECT $1,s.id,$3,$4,$5,$6 FROM agent_sessions s
+                   WHERE s.id=$2 AND s.user_id=$3 AND s.agent_type=$4
+                     AND s.course_id IS NOT DISTINCT FROM $6::bigint
+                   ON CONFLICT(id) DO UPDATE SET summary=agent_episodes.summary
+                   WHERE agent_episodes.user_id=$3 AND agent_episodes.agent_type=$4
+                     AND agent_episodes.session_id=$2
+                     AND agent_episodes.course_id IS NOT DISTINCT FROM $6::bigint
+                   RETURNING id,summary,qdrant_point_id""",
+                episode_uuid, session_id, user_id, agent_type, summary_text[:2000], course_id,
+            )
+        if row is None:
+            raise ValueError("Episode session is not owned by this user/agent")
+        if not settings.use_qdrant or row["qdrant_point_id"] is not None:
+            return str(row["id"])
         try:
             from app.core.embeddings import create_passage_embedding
-
-            episode_uuid = uuid.uuid5(uuid.NAMESPACE_URL, idempotency_key) if idempotency_key else uuid.uuid4()
-            if idempotency_key:
-                async with get_ai_conn() as conn:
-                    existing = await conn.fetchval(
-                        "SELECT id FROM agent_episodes WHERE id = $1", episode_uuid,
-                    )
-                if existing:
-                    return str(existing)
-
-            # 1. Create embedding
-            embedding = await create_passage_embedding(summary_text)
-
-            # 2. Generate a positive int64 point ID for Qdrant
-            point_id = episode_uuid.int & ((1 << 63) - 1)
-
-            # 3. Upsert to Qdrant
-            if settings.use_qdrant:
-                from app.services.qdrant_service import qdrant_service
-                from qdrant_client.http.models import PointStruct
-
-                client = qdrant_service._get_client()
-                payload: dict = {
-                    "user_id": user_id,
-                    "agent_type": agent_type,
-                    "session_id": session_id,
-                    "summary": summary_text,
-                    "created_at": int(time.time()),
-                }
-                if course_id is not None:
-                    payload["course_id"] = course_id
-                await client.upsert(
-                    collection_name=EPISODE_COLLECTION,
-                    points=[PointStruct(
-                        id=point_id,
-                        vector=embedding,
-                        payload=payload,
-                    )],
-                    wait=True,
-                )
-
-            # 4. Save metadata to PostgreSQL
-            async with get_ai_conn() as conn:
-                row = await conn.fetchrow(
-                    """INSERT INTO agent_episodes
-                           (id, session_id, user_id, agent_type, summary,
-                            course_id, qdrant_point_id)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7)
-                       ON CONFLICT (id) DO UPDATE SET summary = EXCLUDED.summary,
-                           qdrant_point_id = EXCLUDED.qdrant_point_id
-                       RETURNING id""",
-                    episode_uuid, session_id, user_id, agent_type, summary_text,
-                    course_id, point_id,
-                )
-
-            episode_id = str(row["id"]) if row else None
-            logger.info(
-                "LTM episode stored: user=%d agent=%s course=%s episode=%s point=%d",
-                user_id, agent_type, course_id, episode_id, point_id,
+            from app.services.qdrant_service import qdrant_service
+            from qdrant_client.http.models import PointStruct
+            embedding = await create_passage_embedding(row["summary"])
+            await qdrant_service._get_client().upsert(
+                collection_name=EPISODE_COLLECTION,
+                points=[PointStruct(id=point_id, vector=embedding, payload={
+                    "user_id": user_id, "agent_type": agent_type, "session_id": str(session_id),
+                    "course_id": course_id, "summary": row["summary"], "created_at": int(time.time()),
+                })], wait=True,
             )
-            return episode_id
-
+            async with get_ai_conn() as conn:
+                await conn.execute("UPDATE agent_episodes SET qdrant_point_id=$1 WHERE id=$2 AND user_id=$3",
+                                   point_id, episode_uuid, user_id)
         except Exception as exc:
-            logger.error("Failed to store LTM episode: %s", exc)
-            return None
+            logger.warning("Episode stored; vector indexing unavailable error_type=%s", type(exc).__name__)
+        return str(row["id"])
 
     # ── Recall episodes ───────────────────────────────────────────────────────
 
@@ -245,10 +215,11 @@ class LTMemory:
             course_ids: Optional course filter. When supplied, recall is
                 restricted to episodes tagged with one of these course_ids
                 PLUS episodes with no course tag (cross-course episodes
-                are always relevant). When None, all episodes are eligible.
+                are candidates, not necessarily relevant). When None, only global episodes are eligible.
 
         Returns a list of episode summaries sorted by relevance.
         """
+        top_k = min(max(top_k, 1), 10)
         if not settings.use_qdrant:
             # Fallback: return recent episodes from PostgreSQL
             return await self._recall_from_pg(
@@ -293,7 +264,7 @@ class LTMemory:
                     ],
                 )
             else:
-                qfilter = Filter(must=must)
+                qfilter = Filter(must=must + [IsNullCondition(is_null=PayloadField(key="course_id"))])
 
             results = await client.search(
                 collection_name=EPISODE_COLLECTION,
@@ -305,15 +276,25 @@ class LTMemory:
                 with_vectors=False,
             )
 
-            return [
-                {
-                    "summary": r.payload.get("summary", ""),
-                    "session_id": r.payload.get("session_id", ""),
-                    "course_id": r.payload.get("course_id"),
-                    "created_at": r.payload.get("created_at", 0),
-                }
-                for r in results
-            ]
+            # Hydrate matches from PostgreSQL: stale/deleted/wrong-owner vector
+            # payloads must never become recalled conversation data.
+            scores = {int(r.id): float(r.score) for r in results if math.isfinite(float(r.score))}
+            if not scores:
+                return await self._recall_from_pg(user_id, agent_type, top_k, course_ids=course_ids)
+            async with get_ai_conn() as conn:
+                rows = await conn.fetch(
+                    """SELECT e.summary,e.session_id::text,e.course_id,e.created_at,e.qdrant_point_id
+                       FROM agent_episodes e JOIN agent_sessions s ON s.id=e.session_id
+                       WHERE e.user_id=$1 AND s.user_id=$1 AND e.agent_type=$2 AND s.agent_type=$2
+                         AND (e.course_id IS NULL OR e.course_id=ANY($3::bigint[]))
+                         AND e.qdrant_point_id=ANY($4::bigint[])""",
+                    user_id, agent_type, list(course_ids or []), list(scores),
+                )
+            recalled = [{"summary": row["summary"], "session_id": row["session_id"],
+                         "course_id": row["course_id"], "created_at": row["created_at"].isoformat(),
+                         "score": scores[row["qdrant_point_id"]], "retrieval": "semantic"} for row in rows]
+            recalled.sort(key=lambda item: item["score"], reverse=True)
+            return recalled[:top_k] if recalled else await self._recall_from_pg(user_id, agent_type, top_k, course_ids=course_ids)
 
 
         except Exception as exc:
@@ -332,31 +313,20 @@ class LTMemory:
         """Fallback: return the most recent episodes from PostgreSQL."""
         try:
             async with get_ai_conn() as conn:
-                if course_ids:
-                    rows = await conn.fetch(
-                        """SELECT summary, session_id::TEXT, course_id, created_at
-                           FROM agent_episodes
-                           WHERE user_id = $1 AND agent_type = $2
-                             AND (course_id IS NULL OR course_id = ANY($3::BIGINT[]))
-                           ORDER BY created_at DESC
-                           LIMIT $4""",
-                        user_id, agent_type, list(course_ids), limit,
-                    )
-                else:
-                    rows = await conn.fetch(
-                        """SELECT summary, session_id::TEXT, course_id, created_at
-                           FROM agent_episodes
-                           WHERE user_id = $1 AND agent_type = $2
-                           ORDER BY created_at DESC
-                           LIMIT $3""",
-                        user_id, agent_type, limit,
-                    )
+                rows = await conn.fetch(
+                    """SELECT e.summary,e.session_id::text,e.course_id,e.created_at
+                       FROM agent_episodes e JOIN agent_sessions s ON s.id=e.session_id
+                       WHERE e.user_id=$1 AND s.user_id=$1 AND e.agent_type=$2 AND s.agent_type=$2
+                         AND (e.course_id IS NULL OR e.course_id=ANY($3::bigint[]))
+                       ORDER BY e.created_at DESC LIMIT $4""",
+                    user_id, agent_type, list(course_ids or []), min(max(limit, 1), 10),
+                )
             return [
                 {
                     "summary": r["summary"],
                     "session_id": r["session_id"],
                     "course_id": r["course_id"],
-                    "score": 1.0,  # no relevance score from PG
+                    "score": None, "retrieval": "recent",  # recency is not semantic confidence
                     "created_at": r["created_at"].isoformat()
                         if r["created_at"] else "",
                 }

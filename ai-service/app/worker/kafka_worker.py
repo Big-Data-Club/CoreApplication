@@ -337,6 +337,12 @@ async def process_ai_command(payload: dict):
                      extra={"job_id": job_id, "command_type": command_type,
                             "error": str(exc)})
         await publish_ai_job_status(job_id=job_id, status="failed", error=str(exc))
+        if command_type == "CONSOLIDATE_SESSION":
+            from app.agents.memory.consolidation_pipeline import ConsolidationRejected
+            if not isinstance(exc, ConsolidationRejected):
+                # Batch consumer must not commit lost memory on transient storage,
+                # compression or cursor-conflict failures. Kafka replays the range.
+                raise
 
 
 async def process_personalize_profile_update(payload: dict):

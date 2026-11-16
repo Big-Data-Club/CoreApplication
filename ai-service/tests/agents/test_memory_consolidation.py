@@ -57,11 +57,11 @@ class MemoryConsolidationTests(unittest.IsolatedAsyncioTestCase):
         ]
         new_ctx = {"key_facts": {"current_topic": "Strassen"}}
         with (
-            patch("app.agents.memory.consolidation_pipeline.mtm.get_context", new=AsyncMock(return_value={"_last_consolidated_message_id": 10})),
+            patch("app.agents.memory.consolidation_pipeline.mtm.get_session", new=AsyncMock(return_value={"user_id": 42, "agent_type": "mentor", "context": {"_last_consolidated_message_id": 10}, "course_id": None})),
             patch("app.agents.memory.consolidation_pipeline.message_store.get_unconsolidated", new=AsyncMock(return_value=messages)) as fetch,
             patch("app.agents.memory.consolidation_pipeline.compress_conversation", new=AsyncMock(return_value=new_ctx)) as compress,
             patch("app.agents.memory.consolidation_pipeline.ltm.store_episode", new=AsyncMock(return_value="episode-1")) as episode,
-            patch("app.agents.memory.consolidation_pipeline.mtm.save_compressed", new=AsyncMock()) as save,
+            patch("app.agents.memory.consolidation_pipeline.mtm.save_compressed", new=AsyncMock(return_value=True)) as save,
             patch("app.agents.memory.consolidation_pipeline.stm.trim_to_recent", new=AsyncMock()) as trim,
         ):
             result = await consolidate_session_job({
@@ -77,10 +77,10 @@ class MemoryConsolidationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_worker_does_not_trim_when_compression_fails(self) -> None:
         with (
-            patch("app.agents.memory.consolidation_pipeline.mtm.get_context", new=AsyncMock(return_value={})),
+            patch("app.agents.memory.consolidation_pipeline.mtm.get_session", new=AsyncMock(return_value={"user_id": 42, "agent_type": "mentor", "context": {}, "course_id": None})),
             patch("app.agents.memory.consolidation_pipeline.message_store.get_unconsolidated", new=AsyncMock(return_value=[{"id": 1, "role": "user", "content": "x"}])),
             patch("app.agents.memory.consolidation_pipeline.compress_conversation", new=AsyncMock(side_effect=RuntimeError("gateway down"))),
-            patch("app.agents.memory.consolidation_pipeline.mtm.save_compressed", new=AsyncMock()) as save,
+            patch("app.agents.memory.consolidation_pipeline.mtm.save_compressed", new=AsyncMock(return_value=True)) as save,
             patch("app.agents.memory.consolidation_pipeline.stm.trim_to_recent", new=AsyncMock()) as trim,
         ):
             with self.assertRaises(RuntimeError):

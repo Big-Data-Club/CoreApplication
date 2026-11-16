@@ -159,6 +159,47 @@ and optional schemas yield before dialogue; planned/called tool schemas and the
 current request stay intact. History omissions are disclosed. Flash keeps a
 token-bounded dialogue window, no enrichment/tools and one initial answer call.
 
+#### Layered memory and recall
+
+The existing stores serve different purposes; none is an authorization source:
+
+| Layer | Authority and purpose | Recall/lifecycle |
+| --- | --- | --- |
+| Transcript | PostgreSQL `agent_messages`: original dialogue | Owner-scoped recent window; Standard/Deep may call `recall_conversation` for older exact messages. Deleting the session cascades its transcript. |
+| Hot window | Redis STM: recent dialogue cache | May expire or be trimmed after durable consolidation; PostgreSQL remains the fallback. |
+| Working state | Session JSONB `conversation_state` and working anchors | Bounded original user sources and task interpretation; fresh sessions start empty instead of inheriting old topics/actions. |
+| Session summary | Session JSONB `memory_items`, legacy summary fields | Select by scope, confidence and active status. Completed/superseded items remain stored, excluded from prompts. Course items require an exact known course. |
+| Persistent preferences | Verified `user`-scoped preferences in owned session JSONB | Standard/Deep inspect at most 20 recent sessions for the same agent role. Only the five allowlisted preference keys with an original user message ID and exact quote cross sessions. |
+| Episodes | PostgreSQL `agent_episodes`, optional Qdrant index | Standard/Deep retrieve compact historical summaries only when intent and remaining budget justify recall. No course scope means global episodes only; explicit courses add those course episodes. |
+
+Cross-session preference selection uses source message order, so reopening an old
+chat cannot overwrite a later correction. Explicit supersession keeps a tombstone;
+the bounded 20-item merge retains the five preference keys while session facts
+roll off. Preferences are asynchronous compressor output, not a synchronous
+profile editor. Exact source matching verifies attribution, not the truth of a
+user claim or perfect model interpretation. Legacy unsourced preferences stay
+session-local. Deleting a source session removes its preference records; another
+remaining session can still hold an older preference, so this is not account-wide
+erasure. These bounded snapshots do not guarantee indefinite preference retention.
+
+`recall_conversation` reads only the server-injected user/session, with parameterized
+literal search (wildcards escaped), user messages by default, at most 20 results
+and explicit 1,600-character excerpts. It reports a bounded window, not a complete
+history. Assistant text remains unverified evidence. No archive read grants write
+permissions or runs remembered actions. Flash has no archive tool or cross-session
+preference lookup; its current-session dialogue anchors remain available.
+
+Consolidation validates the session owner/agent before reading the transcript and
+takes course scope from the persisted session, not queue hints. Episode persistence
+must succeed before advancing the cursor. A compare-and-set cursor rejects stale
+workers before Redis trimming. PostgreSQL stores episodes before optional vector
+indexing; replay of a range preserves the canonical summary and UUID. Vector hits
+are hydrated from owned PostgreSQL rows, so stale/deleted vector payloads are not
+returned. Index outages use bounded recent PostgreSQL episodes, labelled as recency
+with no semantic score. Missing vector entries are not automatically backfilled;
+replaying an unindexed episode can retry indexing. No migration, new store or new
+model call on every turn is introduced. Deploy the shared HTTP/worker image together.
+
 Parameter clarification reads the same dialogue and planned task. Worked solutions
 destined for course chapters use the editable content-draft workflow; a source exam
 question alone does not imply quiz creation. A clear teacher draft request that

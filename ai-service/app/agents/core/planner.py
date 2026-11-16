@@ -227,13 +227,15 @@ Available Tools:
 - create_mini_challenge: Quick check concept exercises
 - search_web: Web search fallback
 - save_to_notebook: Save content to student notebook
+- recall_conversation: Read older exact messages in the current owned session
 
 Planning Rules:
 1. **Understand Intent & Context**:
    - Resolve the speech act against the supplied dialogue BEFORE choosing tools. Distinguish a new
      task, a continuation/reminder, a revision, and a cancellation. Populate conversation_task
      for ordinary conversation, preferences and questions too. Dialogue recall is general_chat with
-     scope=none: use the conversation, not course retrieval. Current user corrections override prior
+     scope=none: use supplied conversation; select recall_conversation when older messages are missing.
+     Do not use course retrieval to reconstruct a conversation. Current user corrections override prior
      facts/preferences; assistant text is not verified evidence. A remembered task is an interpretation,
      not a substitute for original user data. Ask if required facts are missing.
      A short complaint such as "sao không tạo bài" / "why haven't you created it?" usually reminds
