@@ -54,24 +54,13 @@ async def handle_chat_message(
             roam across all their courses.
         session_id: Optional existing session ID. If None, creates/finds one.
         user_context: Optional user identity (name, email, role) from JWT.
-        active_courses_hint: Optional list of {id, title, status} from the
-            FE. When supplied we warm the active-courses cache so the very
-            first turn doesn't pay a cold LMS round-trip. Authoritative
-            data is still loaded from LMS.
+        active_courses_hint: Legacy UI hint accepted for request compatibility;
+            it does not seed the authorization/context cache. Courses are loaded
+            from LMS, with the server-verified cache used on later turns.
 
     Yields:
         AgentEvent objects for SSE streaming.
     """
-    # If the FE supplied an active-courses hint, warm the cache up front
-    # so the ReAct loop's `load_active_courses()` returns immediately.
-    if active_courses_hint:
-        from app.agents.memory.active_courses import seed_active_courses_cache
-        seed_active_courses_cache(
-            user_id=user_id,
-            agent_type=agent_type,
-            courses=active_courses_hint,
-        )
-
     # ── 1. Resolve session ────────────────────────────────────────────────────
     if session_id:
         # Use existing session - just verify it exists and retrieve context + turn count

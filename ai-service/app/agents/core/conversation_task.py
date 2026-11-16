@@ -11,6 +11,36 @@ from typing import Literal
 from pydantic import BaseModel, Field, StrictInt
 
 
+class DataIssue(BaseModel):
+    """A planner-reported decisive gap/conflict, never a verified fact."""
+    kind: Literal["missing", "conflict"]
+    detail: str = Field(min_length=1, max_length=300)
+    question: str = Field(min_length=1, max_length=500)
+    source_message_ids: list[StrictInt] = Field(default_factory=list, max_length=4)
+
+
+def data_clarification(issues: list[DataIssue], history: list[dict] | None = None) -> dict | None:
+    if not issues:
+        return None
+    history = history or []
+    attributed = []
+    for issue in issues:
+        sources = []
+        for index in dict.fromkeys(issue.source_message_ids):
+            if not 0 <= index < len(history):
+                continue
+            source = history[index]
+            if source.get("role") in {"user", "assistant", "clarification"} and isinstance(source.get("content"), str):
+                sources.append({"history_index": index, "role": source["role"],
+                                "quote": excerpt_dialogue(source["content"], 800),
+                                "excerpted": len(source["content"]) > 800})
+        attributed.append({**issue.model_dump(), "sources": sources})
+    return {"needs_clarification": True, "kind": "data",
+            "clarification_question": "\n".join(dict.fromkeys(issue.question for issue in issues)),
+            "clarification_options": [], "missing_fields": [issue.detail for issue in issues],
+            "issues": attributed}
+
+
 class ConversationTask(BaseModel):
     relation: Literal["new_task", "continuation", "revision", "cancellation"] = "new_task"
     goal: str = Field(default="", max_length=1600)

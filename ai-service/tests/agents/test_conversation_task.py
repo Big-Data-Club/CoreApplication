@@ -194,6 +194,7 @@ async def test_react_reminder_restores_source_and_recovers_prose_only_response_o
         mock("app.agents.core.react_loop.stm.append", new=AsyncMock())
         mock("app.agents.core.react_loop.message_store.save_message", new=AsyncMock(return_value=1))
         mock("app.agents.core.react_loop.get_tool_schemas", return_value=SCHEMA)
+        mock("app.agents.tools.execution_policy.authorize_course", new=AsyncMock(return_value=True))
         execute = mock("app.agents.core.react_loop.execute_tool", new=AsyncMock(return_value=ToolResult(
             status="pending_human_approval", data={"draft": "Bài giải"}, message="Bản nháp chờ duyệt")))
         mock("app.agents.core.react_loop._update_anchor_from_tool", new=AsyncMock())

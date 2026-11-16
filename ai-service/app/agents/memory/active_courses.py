@@ -101,7 +101,7 @@ async def load_active_courses(
     now = time.monotonic()
     if not refresh:
         cached = _CACHE.get(cache_key)
-        if cached and cached[0] > now:
+        if cached and cached[0] > now and cached[1].get("verified") is True:
             # If caller wants nodes but cache was built without them, refetch.
             if include_nodes and not _has_nodes(cached[1]):
                 pass
@@ -136,6 +136,7 @@ async def load_active_courses(
         "user_id": user_id,
         "agent_type": agent_type,
         "courses": courses,
+        "verified": True,
     }
     _CACHE[cache_key] = (now + _TTL_SECONDS, data)
     return data
@@ -148,10 +149,9 @@ def seed_active_courses_cache(
     ttl_seconds: float = 5.0,
 ) -> None:
     """
-    Warm the cache with a hint from the frontend (e.g. the list of
-    courses the FE already loaded for the sidebar). Keeps a short TTL so
-    the next genuine `load_active_courses` call refreshes from the
-    authoritative source. Silently no-ops on bad input.
+    Store a legacy UI hint without marking it verified. The loader must
+    fetch LMS before returning this data. Chat no longer calls this helper;
+    hints must never overwrite the authoritative cache on each request.
     """
     if not user_id or agent_type not in ("teacher", "mentor"):
         return

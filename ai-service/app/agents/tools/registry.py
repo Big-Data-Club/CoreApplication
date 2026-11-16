@@ -13,6 +13,9 @@ import logging
 from typing import Any, Optional
 
 from app.agents.tools.base_tool import BaseTool, ToolResult
+from app.agents.tools.execution_policy import (
+    COURSE_REQUIRED_TOOLS, DIRECT_WRITE_TOOLS, READ_ONLY_COURSE_TOOLS, authorize_course, deny,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +130,8 @@ def get_tool_schemas(agent_type: str) -> list[dict]:
 
     This is passed directly to the LLM in the `tools` parameter.
     """
-    return [tool.to_function_schema() for tool in get_tools(agent_type)]
+    return [tool.to_function_schema() for tool in get_tools(agent_type)
+            if tool.name not in DIRECT_WRITE_TOOLS]
 
 
 def get_tool_by_name(name: str) -> Optional[BaseTool]:
@@ -146,6 +150,10 @@ async def execute_tool(
     node_id: int | None = None,
     execution_plan: Any | None = None,
     course_name: str | None = None,
+    agent_type: str = "mentor",
+    allowed_tools: frozenset[str] | None = None,
+    mcp_write_authorized: bool = False,
+    source_evidence: tuple[str, ...] | None = None,
 ) -> ToolResult:
     """
     Execute a tool by name with the given arguments.
@@ -162,29 +170,71 @@ async def execute_tool(
             message=f"Tool '{name}' not found in registry.",
         )
 
-    # Inject user and course context
+    if type(user_id) is not int or user_id <= 0:
+        return deny("missing_identity", "A verified user identity is required.")
+    if tool not in get_tools(agent_type):
+        return deny("tool_forbidden", "This tool is not available to this agent role.")
+    if allowed_tools is not None and name not in allowed_tools:
+        return deny("tool_not_disclosed", "This tool was not available in the current request.")
+    if not isinstance(arguments, dict) or any(
+        not isinstance(key, str) or key.startswith("_") or key == "execution_plan"
+        for key in arguments
+    ):
+        return deny("reserved_argument", "Internal execution context cannot be supplied as tool arguments.")
+    properties = tool.parameters.get("properties", {})
+    arguments = dict(arguments)
+    if course_id is not None and "course_id" in properties:
+        arguments.setdefault("course_id", course_id)
+    if set(arguments) - properties.keys():
+        return deny("invalid_arguments", "Tool arguments contain unsupported fields.")
+    if any(key not in arguments for key in tool.parameters.get("required", [])):
+        return deny("missing_arguments", "Required tool arguments are missing; do not invent their values.")
+    if name in DIRECT_WRITE_TOOLS and not mcp_write_authorized:
+        return deny("human_review_required", "Use the editable draft or the application's review/save controls. Chat cannot commit this change.")
+    if execution_plan is not None and (
+        execution_plan.is_ambiguous or getattr(execution_plan, "data_issues", [])
+    ):
+        return deny("unresolved_data", "Resolve decisive missing or conflicting data before running tools.")
+    if source_evidence is not None and name in {
+        "generate_content_draft", "generate_quiz_from_source", "parse_quiz_questions",
+    }:
+        for field in ("source_text", "raw_text"):
+            source = arguments.get(field)
+            if source and (not isinstance(source, str) or not any(source in text for text in source_evidence)):
+                return deny("source_mismatch", "Use an exact excerpt of the supplied source or retrieved evidence; do not reconstruct or invent problem data.")
+
+    supplied_course = arguments.get("course_id")
+    if supplied_course is not None and (type(supplied_course) is not int or supplied_course <= 0):
+        return deny("invalid_course_id", "A positive integer course_id is required.")
+    if course_id is not None and supplied_course is not None and course_id != supplied_course:
+        return deny("course_scope_mismatch", "The requested course differs from the verified execution context.")
+    resolved_course = course_id if course_id is not None else supplied_course
+    requires_course = name in COURSE_REQUIRED_TOOLS or (
+        name == "generate_content_draft" and not arguments.get("source_text")
+    )
+    if requires_course and resolved_course is None:
+        return deny("course_id_required", "Select a readable course before retrieving its data; unscoped course search is not permitted.")
+    if resolved_course is not None:
+        if type(resolved_course) is not int or resolved_course <= 0:
+            return deny("invalid_course_id", "A positive integer course_id is required.")
+        owner_required = tool in _TEACHER_ONLY_TOOLS and name not in READ_ONLY_COURSE_TOOLS
+        if not await authorize_course(user_id, resolved_course, owner_required=owner_required):
+            return deny("course_forbidden", "Course access could not be verified for this operation.")
+
+    # Inject every internal field, including absent context, into the private copy.
     arguments["_user_id"] = user_id
-    if course_id is not None:
-        arguments["_course_id"] = course_id
-    if course_name:
-        arguments["_course_name"] = course_name
+    arguments["_course_id"] = resolved_course
+    arguments["_course_name"] = course_name
     arguments["_session_id"] = session_id
-    if content_id is not None:
-        arguments["_content_id"] = content_id
-    if node_id is not None:
-        arguments["_node_id"] = node_id
-    if execution_plan is not None:
-        arguments["execution_plan"] = execution_plan
+    arguments["_content_id"] = content_id
+    arguments["_node_id"] = node_id
+    arguments["execution_plan"] = execution_plan
 
     try:
         return await tool.execute(**arguments)
     except Exception as exc:
-        logger.error("Tool '%s' execution failed: %s", name, exc)
-        return ToolResult(
-            status="error",
-            data={"error": str(exc)},
-            message=f"Tool execution error: {exc}",
-        )
+        logger.warning("Tool execution failed tool=%s error_type=%s", name, type(exc).__name__)
+        return deny("tool_execution_failed", "The tool could not complete. Do not claim success; verify status before retrying a change.")
 
 
 def list_all_tools() -> dict[str, list[str]]:

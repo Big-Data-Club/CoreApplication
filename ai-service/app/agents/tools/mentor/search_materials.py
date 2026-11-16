@@ -55,7 +55,7 @@ class SearchMaterialsTool(BaseTool):
             },
             "course_id": {
                 "type": ["integer", "null"],
-                "description": "Optional: filter search to a specific course ID. Omit to search across all courses.",
+                "description": "A readable course ID. Omit only if the server supplies course context. For several courses, make separate authorized calls.",
             },
             "top_k": {
                 "type": "integer",

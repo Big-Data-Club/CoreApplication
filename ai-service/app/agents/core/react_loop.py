@@ -841,6 +841,14 @@ async def run_react_loop(
         needs_clarification=False,
     )
     effective_course_id = apply_scope_to_course_id(scope, fallback_course_id=None)
+    if mode != "flash" and focus_course_id is not None:
+        from app.agents.tools.execution_policy import authorize_course
+        if not await authorize_course(user_id, focus_course_id, owner_required=agent_type == "teacher"):
+            yield AgentEvent(type=AgentEventType.ERROR, session_id=session_id, turn_id=turn_id,
+                data={"code": "course_forbidden", "error": "Course access could not be verified. Reopen a course you can access."})
+            yield AgentEvent(type=AgentEventType.DONE, session_id=session_id, turn_id=turn_id,
+                data={"reason": "course_forbidden"})
+            return
 
     yield AgentEvent(
         type=AgentEventType.SCOPE,
@@ -971,9 +979,11 @@ async def run_react_loop(
         1 for m in stm_history if m.get("role") == "clarification"
     )
 
-    if mode != "flash" and clarify_count < MAX_CLARIFICATIONS_PER_SESSION:
+    from app.agents.core.conversation_task import data_clarification
+    decisive_data = data_clarification(execution_plan.data_issues, history_turns)
+    if mode != "flash" and (decisive_data or clarify_count < MAX_CLARIFICATIONS_PER_SESSION):
         # (a) Scope clarification - runs first, no LLM call.
-        scope_clarify = build_scope_clarification(scope)
+        scope_clarify = decisive_data or build_scope_clarification(scope)
 
         # (b) Router clarification - runs if router flagged ambiguity (e.g., vague request, missing params)
         router_clarify: dict | None = None
@@ -1024,6 +1034,10 @@ async def run_react_loop(
 
             await stm.append(session_id, "user", user_message)
             await stm.append(session_id, "clarification", question)
+            await message_store.save_message(session_id, "user", user_message)
+            await message_store.save_message(session_id, "assistant", question,
+                metadata={"context": {"status": "needs_data" if decisive_data else "needs_clarification"},
+                          "data_issues": clarify_result.get("issues", [])})
 
             yield AgentEvent(
                 type=AgentEventType.CLARIFICATION,
@@ -1032,6 +1046,7 @@ async def run_react_loop(
                     "question": question,
                     "options": options,
                     "missing": clarify_result.get("missing_fields", []),
+                    "issues": clarify_result.get("issues", []),
                 },
                 session_id=session_id,
                 turn_id=turn_id,
@@ -1388,6 +1403,15 @@ async def run_react_loop(
 
     # Start with system prompt
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    source_evidence = [user_message] + [
+        item["content"] for item in history_turns
+        if item.get("role") == "user" and isinstance(item.get("content"), str)
+    ]
+    for context in (ctx_decision.effective_page_context, ctx_decision.effective_system_context):
+        if isinstance(context, dict):
+            source_evidence.extend(value for key, value in context.items()
+                                   if key in {"lesson_text", "text", "content", "contentText"}
+                                   and isinstance(value, str))
 
     # Add STM history (filtered - only user/assistant/tool/clarification roles)
     for m in stm_history:
@@ -1534,6 +1558,15 @@ async def run_react_loop(
         # history. Some providers validate the entire transcript against the
         # current request.tools and reject a prior search if it disappears.
         active_tool_schemas = schemas_for_iteration
+        disclosed_tools = {schema["function"]["name"] for schema in active_tool_schemas}
+
+        def pack_execution_request(request_messages, extra, limit):
+            packed = agent_message_packer(request_messages, extra, limit)
+            # The gateway may drop optional schemas to fit this model/key.
+            # Enforce the tools actually disclosed on the successful attempt.
+            disclosed_tools.clear()
+            disclosed_tools.update(schema["function"]["name"] for schema in extra.get("tools", []))
+            return packed
 
         gateway = get_gateway()
         req = ChatRequest(
@@ -1547,7 +1580,7 @@ async def run_react_loop(
                 "tools": active_tool_schemas,
                 "tool_choice": "auto",
             } if active_tool_schemas else {},
-            message_packer=agent_message_packer,
+            message_packer=pack_execution_request,
         )
 
         collected_text = ""
@@ -1948,9 +1981,20 @@ async def run_react_loop(
                 node_id=effective_node_id,
                 execution_plan=execution_plan,
                 course_name=effective_course_name,
+                agent_type=agent_type,
+                allowed_tools=frozenset(disclosed_tools),
+                source_evidence=tuple(source_evidence),
             )
 
             if tool_result.status == "success" and tool_result.data:
+                if tool_name in {"search_course_materials", "explain_concept", "search_web", "fetch_page", "recall_conversation"}:
+                    evidence_data = tool_result.data
+                    if isinstance(evidence_data, dict):
+                        rows = evidence_data.get("chunks") or evidence_data.get("results") or [evidence_data]
+                        for row in rows:
+                            if isinstance(row, dict) and row.get("role") != "assistant":
+                                source_evidence.extend(value for key, value in row.items()
+                                    if key in {"text", "chunk_text", "content", "snippet"} and isinstance(value, str))
                 # Harvest citations into a per-turn ledger with stable [n]
                 # indices, then stamp those indices back onto the chunk dicts
                 # BEFORE serialisation so the model can cite them precisely.
@@ -2097,6 +2141,7 @@ async def run_react_loop(
                 "status": tool_result.status,
                 "message": tool_result.message,
                 "data": tool_result.data,
+                "evidence": {"source": tool_name, "trust": "untrusted_source_data"},
             }
             result_content = json.dumps(
                 result_summary, ensure_ascii=False, default=str,

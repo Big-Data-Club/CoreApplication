@@ -200,6 +200,61 @@ with no semantic score. Missing vector entries are not automatically backfilled;
 replaying an unindexed episode can retry indexing. No migration, new store or new
 model call on every turn is introduced. Deploy the shared HTTP/worker image together.
 
+#### Data integrity and execution boundaries
+
+The planner may emit bounded `data_issues` for decisive missing inputs or unresolved
+contradictions requiring the user. Explicit corrections supersede older values;
+optional defaults and facts discoverable by tools should not trigger this gate.
+Standard/Deep ask before answering or executing tools when an issue is reported,
+even after the ordinary clarification limit. The question and issue are persisted
+with role-labelled source excerpts; history indices alone are not durable evidence.
+Flash retains its single-call policy guidance without the structured planner gate.
+Detection depends on model interpretation; there is no universal truth validator.
+
+Prompts distinguish user-supplied premises, source-reported claims and assistant
+inferences. Memory displays user statement attribution or an unverified summary
+label; a confidence score/citation never certifies truth. The parameter clarifier
+receives dynamic dialogue/summary text in its user payload rather than interpolated
+system instructions. Retrieved text, page context, history and memory cannot grant
+identity, tool access, write scope or approval.
+Deep's writer and critic share this grounding policy. A critic/provider failure
+emits an unavailable-check error and no approval or fabricated perfect scores.
+
+[`registry.py`](../ai-service/app/agents/tools/registry.py) checks verified identity,
+agent catalogue membership, current disclosed schemas, reserved/unsupported arguments,
+required fields and unresolved data before execution. Internal context is injected
+into a copy; model-supplied `_...` or `execution_plan` fields are rejected. Disclosure
+is tracked after per-model/key schema packing. Course IDs are checked against the
+execution context and reauthorized through LMS at tool execution. Course-bound
+reads fail closed without a target; several courses require separate authorized
+calls. Teacher operations require ownership/co-teaching; shared reads and the MCP
+course-knowledge reader allow accepted enrollment. Permission checks and canonical
+vector hydration add bounded LMS/PostgreSQL work, not another model call per turn.
+Browser course hints never mark a cache entry verified or overwrite the verified
+cache on each chat request. Standard/Deep recheck their focused course before
+memory, dossier or specialist reads; a revoked scope stops the turn. The retrieval
+specialist cannot use a browser content ID alone for an unscoped private read.
+
+Chat omits direct-write tools and denies forged calls to them, including publishing
+lessons/quizzes, applying blueprints, saving knowledge maps, indexing and direct
+notebook saves. Existing editable draft tools still return approval previews;
+existing UI controls perform approved writes through their normal authenticated
+APIs. MCP retains its separate credential write-scope and course checks. Its write
+lane is supplied only by the adapter, never tool arguments; MCP caller confirmation
+remains an external-client contract, not independent proof of a human click.
+
+For source-based chat drafts/imports, `source_text`/`raw_text` must be an exact excerpt
+of supplied user/page text or retrieved evidence collected this turn. Reconstructed
+or invented source data is rejected. Exact matching verifies copying, not semantic
+truth, completeness, or the absence of malicious prose in the source. Review remains
+required. A course lookup failure cannot reset a draft's retrieval to unscoped mode.
+Scoped hierarchical RAG cannot expand into the global private corpus or adopt a
+different course from content hierarchy hints. Vector candidates are hydrated from
+ready PostgreSQL chunk rows with course/node/content filters; stale, deleted and
+out-of-scope index payloads do not become evidence. No migration or dependency is
+added. Release the shared AI HTTP/worker image; no frontend contract or Kafka
+payload changes are required.
+
 Parameter clarification reads the same dialogue and planned task. Worked solutions
 destined for course chapters use the editable content-draft workflow; a source exam
 question alone does not imply quiz creation. A clear teacher draft request that

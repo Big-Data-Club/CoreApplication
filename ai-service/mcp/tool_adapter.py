@@ -329,6 +329,8 @@ async def call_mcp_tool(
                 name=tool_name,
                 arguments=dict(arguments),
                 user_id=user_id,
+                agent_type="teacher",
+                mcp_write_authorized=tool_name in WRITE_TOOLS and "write" in get_current_scopes(),
             ),
             timeout=settings.mcp_tool_timeout_seconds,
         )

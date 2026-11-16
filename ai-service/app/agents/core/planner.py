@@ -25,7 +25,7 @@ import logging
 from typing import Optional, List
 from pydantic import BaseModel, Field, field_validator
 from app.agents.core.intents import RouterIntent, normalize_router_intent
-from app.agents.core.conversation_task import ConversationTask, planning_dialogue
+from app.agents.core.conversation_task import ConversationTask, DataIssue, planning_dialogue
 
 from app.agents.core.planner_budget import pack_planner_messages
 from app.core.config import get_settings
@@ -60,6 +60,9 @@ class RetrievalStrategy(BaseModel):
 
 
 class ExecutionPlan(BaseModel):
+    data_issues: list[DataIssue] = Field(default_factory=list, max_length=4,
+        description="Only decisive missing inputs or unresolved contradictions requiring user clarification. "
+                    "Do not flag optional defaults, facts discoverable with tools, or explicit user corrections.")
     conversation_task: ConversationTask | None = Field(
         default=None,
         description="Resolve the user's actual task across dialogue: goal, artifact, destination, constraints and source references. "
@@ -226,11 +229,15 @@ Available Tools:
 - diagnose_knowledge_gap: Check student weaknesses / wrong answers
 - create_mini_challenge: Quick check concept exercises
 - search_web: Web search fallback
-- save_to_notebook: Save content to student notebook
+- Notes are saved through the application's review/save controls, not a direct chat write
 - recall_conversation: Read older exact messages in the current owned session
 
 Planning Rules:
 1. **Understand Intent & Context**:
+   - Distinguish user-provided problem data, tool-reported evidence and assistant inference.
+     Assistant answers/summaries are not verified facts. Never fill missing decisive numbers.
+     Emit data_issues for decisive gaps or unresolved contradictions; keep source references and
+     ask a precise question. An explicit user correction supersedes its earlier value.
    - Resolve the speech act against the supplied dialogue BEFORE choosing tools. Distinguish a new
      task, a continuation/reminder, a revision, and a cancellation. Populate conversation_task
      for ordinary conversation, preferences and questions too. Dialogue recall is general_chat with
@@ -416,6 +423,8 @@ async def generate_plan(
             plan.conversation_task.source_message_ids = [
                 index for index in plan.conversation_task.source_message_ids if index in shown_ids
             ]
+        for issue in plan.data_issues:
+            issue.source_message_ids = [index for index in issue.source_message_ids if index in shown_ids]
         logger.info(
             "AgentPlan v2: intent=%s op_intent=%s page_rel=%s operation=%s scope=%s "
             "tools=%s graph=%s weakness=%s node='%s' ambiguous=%s",

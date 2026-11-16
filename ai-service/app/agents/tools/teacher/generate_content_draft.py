@@ -42,7 +42,7 @@ class GenerateContentDraftTool(BaseTool):
         "properties": {
             "course_id": {
                 "type": "integer",
-                "description": "Optional. The course ID. If not provided, AI will recommend one based on the topic.",
+                "description": "A course you own/co-teach. Required for retrieval; optional when source_text is supplied verbatim.",
             },
         "topic": {
                 "type": "string",
@@ -158,10 +158,14 @@ class GenerateContentDraftTool(BaseTool):
                                     "sections": [{"id": s.get("id"), "title": s.get("title")} for s in sections]
                                 })
 
-            # Validate provided course_id or reset to None if hallucinated
+            # A failed/partial course listing must never widen a scoped read.
             valid_course_ids = [c["id"] for c in courses_info]
             if course_id and course_id not in valid_course_ids:
-                course_id = None
+                return ToolResult(status="error", data={"error": "course_unavailable"},
+                                  message="The target course could not be verified; no unscoped retrieval was performed.")
+            if not source_text and course_id is None:
+                return ToolResult(status="error", data={"error": "source_required"},
+                                  message="Provide source text or a verified course; do not invent missing material.")
 
             # 2. Retrieve materials. Source is never character-truncated: a
             # generic map/reduce service creates coverage-preserving evidence

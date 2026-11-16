@@ -20,6 +20,8 @@ Use conversation_task.source_message_ids to reference original USER statements s
 constraints or preferences. Distinguish new_task, continuation, revision and cancellation. Retain
 language, output artifact, destination and constraints unless changed. If necessary facts are
 missing/omitted/conflicting, set is_ambiguous and describe missing_context instead of guessing.
+Use data_issues=[{kind:missing|conflict,detail,question,source_message_ids:[]}] only for decisive
+gaps/conflicts requiring the user; explicit corrections replace older values. Tool-discoverable facts need no question.
 Dialogue recall: general_chat, scope none; use history or recall_conversation if incomplete.
 Casual chat needs no tools. Follow-ups retain their subject despite similarly named course text.
 Explain/solve in chat is knowledge_question. A worked solution requested as a lesson/draft is
@@ -109,6 +111,12 @@ def pack_planner_messages(messages: list[dict], extra: dict, limit: int) -> list
             minimum = 300 if longest.get("role") == "user" else 160
             longest["content"] = excerpt_dialogue(longest["content"], max(minimum, len(longest["content"]) // 2))
             longest["excerpted"] = True
+            continue
+        long_title = next((course for course in payload.get("courses", [])
+                           if len(course.get("title", "")) > 80), None)
+        if long_title is not None:
+            long_title["title"] = excerpt_dialogue(long_title["title"], 80)
+            long_title["title_excerpted"] = True
             continue
         if "conversation_state" in payload:
             payload.pop("conversation_state")

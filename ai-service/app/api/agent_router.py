@@ -47,10 +47,8 @@ class ActiveCourseHint(BaseModel):
     """
     Hint from the frontend about a course the user has access to.
 
-    Optional - the agent loads its own authoritative list, but supplying
-    this seeds the cache and avoids a cold LMS round-trip on the first
-    turn. Pass the full list of courses currently visible in the sidebar
-    (teacher: created courses; student: ACCEPTED enrolments).
+    Accepted for client compatibility. Browser hints cannot seed the
+    authorization/context cache; the agent loads courses through LMS.
     """
     id: int
     title: Optional[str] = None

@@ -103,10 +103,13 @@ def migrate_legacy_memory(context: dict[str, Any]) -> list[dict[str, Any]]:
 def format_memory_items(items: list[dict[str, Any]]) -> str:
     if not items:
         return ""
-    return "\n".join(
-        f"- [{item['kind']} | {item['scope']} | confidence={item['confidence']:.1f}] {item['source_quote'] if item['source'] == 'user_statement' else item['value']}"
-        for item in items
-    )
+    lines = []
+    for item in items:
+        attributed = item["source"] == "user_statement" and item["source_message_id"] and item["source_quote"]
+        source = f"user statement #{item['source_message_id']} (unverified claim)" if attributed else "unverified summary/inference"
+        value = item["source_quote"] if attributed else item["value"]
+        lines.append(f"- [{item['kind']} | {item['scope']} | {source}] {value}")
+    return "\n".join(lines)
 
 
 def bind_memory_sources(items: Any, messages: list[dict], course_id: int | None) -> list[dict]:

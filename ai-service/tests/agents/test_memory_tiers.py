@@ -102,7 +102,10 @@ async def test_archive_tool_cannot_forge_session_or_owner_and_bounds_results():
         denied = await execute_tool("recall_conversation", {"_user_id": 7, "_session_id": "foreign"}, user_id=42)
         assert denied.status == "error"
         read.assert_not_awaited()
-        result = await execute_tool("recall_conversation", {"_user_id": 7, "_session_id": "foreign"}, user_id=42, session_id="own")
+        denied = await execute_tool("recall_conversation", {"_user_id": 7, "_session_id": "foreign"}, user_id=42, session_id="own")
+        assert denied.data["error"] == "reserved_argument"
+        read.assert_not_awaited()
+        result = await execute_tool("recall_conversation", {}, user_id=42, session_id="own")
         assert result.status == "success"
         read.assert_awaited_once_with("own", 42, "", 10, "user")
     with patch("app.agents.tools.shared.recall_conversation.message_store.search_history", new=AsyncMock(return_value=[{"id": 1, "role": "user", "content": "x" * 5000}])):

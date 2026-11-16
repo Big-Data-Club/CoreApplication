@@ -284,7 +284,7 @@ class TestMentorEnhancements(unittest.IsolatedAsyncioTestCase):
              patch.object(sub_agents_module.rag_service, "search_multilingual", AsyncMock(return_value=[])), \
              patch.object(sub_agents_module.SearchWebTool, "execute", AsyncMock(return_value=MagicMock(status="success", data={"results": []}))):
             items = []
-            async for item in specialist.execute(query="Explain this lesson", page_context=page_context):
+            async for item in specialist.execute(query="Explain this lesson", course_id=7, page_context=page_context):
                 items.append(item)
 
         self.assertTrue(any(isinstance(item, AgentEvent) and item.data.get("status") == "not_indexed" for item in items))

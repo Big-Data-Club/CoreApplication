@@ -454,7 +454,8 @@ class RAGService:
                     score_threshold=effective_score_threshold,
                     content_ids=content_ids,
                 )
-                return [self._scored_point_to_chunk(p) for p in scored]
+                return await self._verified_vector_chunks(scored[:fetch_k], course_id=course_id,
+                    node_id=node_id, content_id=content_id, content_ids=content_ids)
             else:
                 return await self._pgvector_search(
                     query_vector=query_vector,
@@ -511,6 +512,33 @@ class RAGService:
             node_id=p.get("node_id"),
             language=p.get("language", "vi"),
         )
+
+    async def _verified_vector_chunks(self, points, *, course_id=None, node_id=None,
+                                      content_id=None, content_ids=None) -> list[RetrievedChunk]:
+        """Vector payloads are candidates; PostgreSQL owns text, status and scope."""
+        import math
+        scores = {int(point.id): float(point.score) for point in points
+                  if math.isfinite(float(point.score))}
+        if not scores:
+            return []
+        async with get_ai_conn() as conn:
+            rows = await conn.fetch(
+                """SELECT id,chunk_text,source_type,page_number,start_time_sec,end_time_sec,
+                          content_id,node_id,language
+                   FROM document_chunks WHERE id=ANY($1::bigint[]) AND status='ready'
+                     AND ($2::bigint IS NULL OR course_id=$2)
+                     AND ($3::bigint IS NULL OR node_id=$3)
+                     AND ($4::bigint IS NULL OR content_id=$4)
+                     AND ($5::bigint[] IS NULL OR content_id=ANY($5))""",
+                list(scores), course_id, node_id, content_id, content_ids,
+            )
+        chunks = [RetrievedChunk(
+            chunk_id=row["id"], chunk_text=row["chunk_text"], similarity=scores[row["id"]],
+            source_type=row["source_type"], page_number=row["page_number"],
+            start_time_sec=row["start_time_sec"], end_time_sec=row["end_time_sec"],
+            content_id=row["content_id"], node_id=row["node_id"], language=row["language"],
+        ) for row in rows]
+        return sorted(chunks, key=lambda chunk: chunk.similarity, reverse=True)
 
     async def _pgvector_search(
         self,
@@ -1327,6 +1355,8 @@ class RAGService:
                     )
                     if resp.status_code == 200:
                         data = resp.json()
+                        if course_id is not None and data.get("course_id") != course_id:
+                            return [], "scope_mismatch"
                         lms_section_id = data.get("section_id") or lms_section_id
                         lms_course_id = data.get("course_id") or lms_course_id
                         sibling_content_ids = data.get("sibling_content_ids") or []
@@ -1376,7 +1406,7 @@ class RAGService:
                 return chunks, "course"
 
         # 4. Global KB level
-        if max_expansion_level == "global":
+        if max_expansion_level == "global" and course_id is None:
             logger.info("Hierarchical RAG: Level 4 (Global KB)")
             chunks = await self.search_multilingual(
                 query=query,

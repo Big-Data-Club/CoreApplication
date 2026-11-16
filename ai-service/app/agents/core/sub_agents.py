@@ -14,6 +14,7 @@ from typing import AsyncIterator, Optional
 from pydantic import BaseModel, Field
 
 from app.agents.events import AgentEvent, AgentEventType
+from app.agents.core.prompts import DIALOGUE_GROUNDING
 from app.agents.core.answer_completion import (
     AnswerCompletion, ThoughtStreamParser, _stream_finish_reason,
     answer_limits, continue_answer, is_retryable_stream_error,
@@ -107,12 +108,12 @@ class RetrievalSpecialist:
             node_id = page_context.get("nodeId") or page_context.get("node_id")
             course_id_from_ctx = page_context.get("courseId") or page_context.get("course_id")
 
-            if node_id and course_id_from_ctx:
+            if node_id and course_id is not None and course_id_from_ctx == course_id:
                 try:
                     async with get_ai_conn() as conn:
                         row = await conn.fetchrow(
-                            "SELECT status FROM content_index_status WHERE content_id = $1",
-                            node_id,
+                            "SELECT status FROM content_index_status WHERE content_id = $1 AND course_id = $2",
+                            node_id, course_id,
                         )
                     status = row["status"] if row else "unindexed"
                 except Exception as exc:
@@ -142,7 +143,7 @@ class RetrievalSpecialist:
         content_id = page_context.get("contentId") or page_context.get("content_id") if page_context else None
         section_id = page_context.get("sectionId") or page_context.get("section_id") if page_context else None
 
-        if course_id or content_id:
+        if course_id is not None:
             try:
                 chunks, resolved_scope = await rag_service.search_hierarchical(
                     query=search_query,
@@ -371,6 +372,7 @@ class DraftingSpecialist:
             "in the context. General study advice needs no marker."
         )
 
+        system_instruction += "\n" + DIALOGUE_GROUNDING
         user_content = f"Consolidated Context:\n{context}\n\nQuery: {query}"
         if memory_context:
             user_content += (
@@ -512,23 +514,23 @@ class CritiqueSpecialist:
         # We call chat_complete_structured to get the final report, using the 70B model.
         try:
             report = await chat_complete_structured(
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{"role": "system", "content": DIALOGUE_GROUNDING},
+                          {"role": "user", "content": prompt}],
                 response_model=CritiqueReport,
                 model=settings.quiz_model, # 70B model
                 temperature=0.1,
                 max_tokens=1000,
                 task=TASK_QUIZ_GEN
             )
-        except Exception as e:
-            logger.error("Critique analysis failed: %s", e)
-            # Safe approval fallback to prevent infinite/dead ends on syntax errors
-            report = CritiqueReport(
-                factuality_score=1.0,
-                pedagogy_score=1.0,
-                format_score=1.0,
-                verdict="approve",
-                critique_report="Critic evaluation skipped due to parser exception."
+        except Exception as exc:
+            logger.warning("Critique unavailable error_type=%s", type(exc).__name__)
+            yield AgentEvent(
+                type=AgentEventType.SUBAGENT_ERROR,
+                data={"subagent_id": self.subagent_id, "stage": "quality_critique",
+                      "error": "Quality evaluation unavailable; this draft has not been verified."},
+                session_id=self.session_id, turn_id=self.turn_id,
             )
+            return
 
         yield AgentEvent(
             type=AgentEventType.CRITIQUE_PHASE,

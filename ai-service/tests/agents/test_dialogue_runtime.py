@@ -43,6 +43,7 @@ async def test_resumed_dialogue_keeps_original_facts_with_one_answer_call(mode, 
         def mock(name, **kwargs):
             return stack.enter_context(patch(name, **kwargs))
         mock("app.agents.core.react_loop.load_active_courses", new=AsyncMock(return_value={"courses": [{"id": 27, "title": "MPI", "nodes": []}]}))
+        mock("app.agents.tools.execution_policy.authorize_course", new=AsyncMock(return_value=True))
         mock("app.agents.memory.history.load_history", new=AsyncMock(return_value={
             "messages": [{"role": "assistant", "content": "Recent answer without the original problem."}],
             "source": "persistent", "status": "available"}))

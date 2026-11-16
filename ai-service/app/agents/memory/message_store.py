@@ -61,7 +61,9 @@ class MessageStore:
             if isinstance(meta, str):
                 meta = json.loads(meta)
             role = row["role"]
-            if (meta.get("context") or {}).get("status") == "needs_course_choice" and role == "assistant":
+            if ((meta.get("context") or {}).get("status") in {
+                    "needs_course_choice", "needs_data", "needs_clarification"
+                } and role == "assistant"):
                 role = "clarification"
             content = row["content"] or ""
             if meta.get("incomplete") and role == "assistant":
