@@ -58,8 +58,12 @@ jobs:
           python3 scripts/db-operation-lock.py claim "$owner"
           echo "BDC_OPERATION_OWNER=$owner" >> "$GITHUB_ENV"
 
+      - name: Check K3s disk headroom before restart
+        run: ./scripts/k3s-maintenance.sh --namespace default --phase pre
+
       - name: Selective Kubernetes Rollout
         run: |
+          set -euo pipefail
           echo "🚀 Executing Kubernetes Rollout Restart on Self-Hosted Runner..."
           
           # Detect kubectl / k3s command wrapper
@@ -76,9 +80,9 @@ jobs:
           restart_deployment() {
             local DEP=$1
             echo "🔄 Triggering rollout restart for deployment/${DEP}..."
-            ${KUBECTL} rollout restart deployment/${DEP} || echo "⚠️ Warning: Failed to restart ${DEP}"
+            ${KUBECTL} rollout restart deployment/${DEP}
             echo "⏳ Waiting for deployment/${DEP} status..."
-            ${KUBECTL} rollout status deployment/${DEP} --timeout=180s || echo "⚠️ Timeout waiting for ${DEP}"
+            ${KUBECTL} rollout status deployment/${DEP} --timeout=180s
           }
 
           for dep in "${selected_deployments[@]}"; do
@@ -98,7 +102,9 @@ jobs:
           ${KUBECTL} get pods -o wide || true
 
       - name: Cleanup Old Docker Images & K8s Revisions
-        if: always()
+        if: always() && steps.db_lock.outcome == 'success'
+        env:
+          K3S_PRUNE_IMAGES: ${{ job.status == 'success' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           ./scripts/k3s-maintenance.sh \

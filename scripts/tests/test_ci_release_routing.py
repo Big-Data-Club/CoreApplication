@@ -79,6 +79,9 @@ class ReleaseRoutingTests(unittest.TestCase):
         filters = yaml.safe_load(changes["with"]["filters"])
         for paths in filters.values():
             self.assertNotIn(".github/workflows/production.yml", paths)
+            self.assertNotIn("scripts/deploy-production.sh", paths)
+            self.assertNotIn("scripts/k3s-maintenance.sh", paths)
+            self.assertNotIn("scripts/render-deployment.py", paths)
 
     def test_missing_image_fails_before_deployment_and_published_image_passes(self):
         job = self.production["jobs"]["verify-frontend-image"]

@@ -89,6 +89,7 @@ declare -A images=(
 declare -A manifests=(
   [auth-service]=k3s/base/auth-service-deployment.yaml
   [ai-service]=k3s/base/ai-service-deployment.yaml
+  [ai-worker]=k3s/base/ai-service-deployment.yaml
   [chat-service]=k3s/base/chat-service-deployment.yaml
   [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml
   [ai-lab-authoring-worker]=k3s/base/ai-lab-authoring-worker-deployment.yaml
@@ -96,7 +97,12 @@ declare -A manifests=(
   [farm-service]=k3s/base/farm-service-deployment.yaml
   [dutylog-service]=k3s/base/dutylog-service-deployment.yaml
   [ai-gateway]=k3s/base/ai-gateway-deployment.yaml
+  [recommender-service]=k3s/base/recommender-service-deployment.yaml
 )
+
+for deployment in "${deployments[@]}"; do
+  [[ -n "${images[$deployment]:-}" ]] || { echo "Unknown deployment: ${deployment}" >&2; exit 2; }
+done
 
 # ai-gateway shares one pod between the gateway proxy and the Autossh tunnel;
 # both container images must be patched on the same rollout.
@@ -144,24 +150,14 @@ diagnose_rollout() {
   kubectl get pods --namespace "$DEPLOY_NAMESPACE" -l "app=${deployment}" -o wide >&2 || true
   while IFS= read -r pod; do
     [[ -z "$pod" ]] && continue
-    echo "--- ${pod}: previous/current logs ---" >&2
+    echo "--- ${pod}: current logs ---" >&2
     kubectl logs --namespace "$DEPLOY_NAMESPACE" "$pod" --all-containers --tail=150 >&2 || true
-    kubectl logs --namespace "$DEPLOY_NAMESPACE" "$pod" --all-containers --previous --tail=150 >&2 || true
+    while IFS= read -r container; do
+      [[ -z "$container" ]] && continue
+      kubectl logs --namespace "$DEPLOY_NAMESPACE" "$pod" -c "$container" --previous --tail=150 >&2 || true
+    done < <(kubectl get pod "$pod" --namespace "$DEPLOY_NAMESPACE" \
+      -o 'jsonpath={range .status.containerStatuses[?(@.lastState.terminated)]}{.name}{"\n"}{end}' 2>/dev/null || true)
   done < <(kubectl get pods --namespace "$DEPLOY_NAMESPACE" -l "app=${deployment}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-}
-
-clear_terminating_pods() {
-  local deployment="$1"
-  local pods=()
-  mapfile -t pods < <(
-    kubectl get pods --namespace "$DEPLOY_NAMESPACE" -l "app=${deployment}" \
-      -o custom-columns=NAME:.metadata.name,DELETING:.metadata.deletionTimestamp --no-headers 2>/dev/null \
-      | awk '$2 != "<none>" && $2 != "" { print $1 }'
-  )
-  if ((${#pods[@]})); then
-    echo "Removing ${#pods[@]} pod(s) already marked Terminating for ${deployment}." >&2
-    kubectl delete pod --namespace "$DEPLOY_NAMESPACE" --grace-period=0 --force "${pods[@]}" >&2 || true
-  fi
 }
 
 # Sync configuration before any application rollout. Normal farm changes select Auth too
@@ -174,6 +170,7 @@ if [[ " ${deployments[*]} " == *" farm-service "* ]]; then
 fi
 
 kubectl cluster-info >/dev/null
+./scripts/k3s-maintenance.sh --namespace "$DEPLOY_NAMESPACE" --phase pre
 # Applying other workloads must never revive the suspended SSH tunnel.
 for paused in ai-gateway ai-gateway-info; do
   if [[ -n "$(kubectl get deployment "$paused" --namespace "$DEPLOY_NAMESPACE" --ignore-not-found -o name)" ]]; then
@@ -181,9 +178,6 @@ for paused in ai-gateway ai-gateway-info; do
     kubectl rollout status deployment/"$paused" --namespace "$DEPLOY_NAMESPACE" --timeout=90s
   fi
 done
-./scripts/k3s-maintenance.sh \
-  --namespace "$DEPLOY_NAMESPACE" \
-  --phase pre
 # Config changes are safe to apply in place; only deployments selected below
 # are restarted, so unrelated workloads keep their current pods.
 python3 scripts/apply-runtime-config.py
@@ -225,65 +219,44 @@ if [[ " ${deployments[*]} " == *" ai-worker "* ]]; then
   kubectl apply -f k3s/base/kafka-ai-topics-job.yaml --namespace "$DEPLOY_NAMESPACE"
   kubectl wait --for=condition=complete job/kafka-ai-topics --namespace "$DEPLOY_NAMESPACE" --timeout=180s
 fi
-# Apply manifests only for selected workloads that require spec-level changes.
-# Capture the previous immutable image before apply so rollback remains correct
-# even though the base manifest uses a `latest` placeholder.
-for deployment in "${deployments[@]}"; do
-  if [[ -n "${manifests[$deployment]:-}" ]]; then
-    if kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" >/dev/null 2>&1; then
-      previous_images[$deployment]="$(
-        kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
-          -o "jsonpath={.spec.template.spec.containers[?(@.name=='${containers[$deployment]}')].image}"
-      )"
-    else
-      created+=("$deployment")
-    fi
-    if [[ -n "${sidecars[$deployment]:-}" ]]; then
-      previous_sidecars[$deployment]="$(
-        kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
-          -o "jsonpath={.spec.template.spec.containers[?(@.name=='${sidecars[$deployment]}')].image}" 2>/dev/null || true
-      )"
-    fi
-    kubectl apply -f "${manifests[$deployment]}" --namespace "$DEPLOY_NAMESPACE"
-  elif [[ "$deployment" == "recommender-service" ]]; then
-    kubectl apply -f k3s/base/recommender-service-deployment.yaml --namespace "$DEPLOY_NAMESPACE"
-  fi
-done
-for deployment in "${deployments[@]}"; do
-  kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" >/dev/null
-done
-
+# Render the final image before apply, then finish each selected rollout before
+# starting the next. Shared manifests must not restart unselected Deployments.
 for deployment in "${deployments[@]}"; do
   if [[ "$deployment" == "farm-service" && " ${deployments[*]} " == *" lms-service "* ]]; then
     # Farm requests private grading content from LMS; let the new LMS schema
     # and endpoint become ready before starting the Farm image.
     kubectl rollout status deployment/lms-service --namespace "$DEPLOY_NAMESPACE" --timeout "$ROLLOUT_TIMEOUT"
   fi
-  [[ -n "${images[$deployment]:-}" ]] || { echo "Unknown deployment: ${deployment}" >&2; exit 2; }
   tag="$IMAGE_TAG"
   if [[ "$deployment" == "frontend" && -n "${FRONTEND_IMAGE_TAG:-}" ]]; then
     tag="$FRONTEND_IMAGE_TAG"
   fi
   image="${REGISTRY_NAMESPACE}/${images[$deployment]}:${tag}"
-  if [[ -z "${previous_images[$deployment]:-}" ]]; then
+  existing="$(kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" --ignore-not-found -o name)"
+  if [[ -n "$existing" ]]; then
     previous_images[$deployment]="$(
       kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
         -o "jsonpath={.spec.template.spec.containers[?(@.name=='${containers[$deployment]}')].image}"
     )"
+  elif [[ -n "${manifests[$deployment]:-}" ]]; then
+    created+=("$deployment")
+  else
+    echo "Deployment ${deployment} does not exist and has no manifest." >&2
+    false
   fi
-  if [[ -n "${farm_config_revision:-}" && ( "$deployment" == "auth-service" || "$deployment" == "farm-service" ) ]]; then
-    kubectl patch "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" --type merge \
-      -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"bdc.io/farm-config-revision\":\"${farm_config_revision}\"}}}}}"
+  if [[ -n "${manifests[$deployment]:-}" ]]; then
+    render_args=("${manifests[$deployment]}" "$deployment" "${containers[$deployment]}" "$image" --namespace "$DEPLOY_NAMESPACE")
+    if [[ -n "${farm_config_revision:-}" && ( "$deployment" == "auth-service" || "$deployment" == "farm-service" ) ]]; then
+      render_args+=(--config-revision "$farm_config_revision")
+    fi
+    manifest="$(python3 scripts/render-deployment.py "${render_args[@]}")"
+    updated+=("$deployment")
+    printf '%s\n' "$manifest" | kubectl apply -f - --namespace "$DEPLOY_NAMESPACE"
+  elif [[ "${previous_images[$deployment]}" != "$image" ]]; then
+    updated+=("$deployment")
+    kubectl set image "deployment/${deployment}" \
+      "${containers[$deployment]}=${image}" --namespace "$DEPLOY_NAMESPACE"
   fi
-  if [[ "${previous_images[$deployment]}" == "$image" ]]; then
-    echo "${deployment} already uses ${image}; verifying configuration rollout."
-    continue
-  fi
-  echo "Updating ${deployment} to ${image}"
-  kubectl set image "deployment/${deployment}" \
-    "${containers[$deployment]}=${image}" \
-    --namespace "$DEPLOY_NAMESPACE"
-  updated+=("$deployment")
   if [[ -n "${sidecars[$deployment]:-}" ]]; then
     sidecar_tag="$IMAGE_TAG"
     sidecar_image="${REGISTRY_NAMESPACE}/${sidecar_images[$deployment]}:${sidecar_tag}"
@@ -299,23 +272,11 @@ for deployment in "${deployments[@]}"; do
         --namespace "$DEPLOY_NAMESPACE"
     fi
   fi
-done
-
-for deployment in "${deployments[@]}"; do
   if ! kubectl rollout status "deployment/${deployment}" \
     --namespace "$DEPLOY_NAMESPACE" \
     --timeout "$ROLLOUT_TIMEOUT"; then
-    # A pod with deletionTimestamp is already being removed.  On a constrained
-    # single-node K3s host it can otherwise hold a rollout hostage forever.
-    # Never force-delete a live pod; only retry after clearing such stale
-    # terminating objects, then emit actionable diagnostics on a real failure.
-    clear_terminating_pods "$deployment"
-    if ! kubectl rollout status "deployment/${deployment}" \
-      --namespace "$DEPLOY_NAMESPACE" \
-      --timeout 2m; then
-      diagnose_rollout "$deployment"
-      exit 1
-    fi
+    diagnose_rollout "$deployment"
+    false # Trigger ERR/rollback; explicit exit would bypass the ERR trap.
   fi
 done
 

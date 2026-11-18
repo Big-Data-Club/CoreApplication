@@ -4,6 +4,7 @@ set -Eeuo pipefail
 namespace="${DEPLOY_NAMESPACE:-default}"
 phase=post
 disk_threshold="${K3S_PRUNE_DISK_THRESHOLD:-82}"
+prune_images="${K3S_PRUNE_IMAGES:-true}"
 
 usage() {
   echo "Usage: $0 [--namespace NAME] [--phase pre|post] [--disk-threshold PERCENT]"
@@ -21,6 +22,7 @@ while (($#)); do
 done
 
 [[ "$phase" == pre || "$phase" == post ]] || { echo "phase must be pre or post" >&2; exit 2; }
+[[ "$prune_images" == true || "$prune_images" == false ]] || { echo "K3S_PRUNE_IMAGES must be true or false" >&2; exit 2; }
 [[ "$disk_threshold" =~ ^[0-9]+$ ]] && ((disk_threshold >= 50 && disk_threshold <= 99)) || {
   echo "disk threshold must be between 50 and 99" >&2
   exit 2
@@ -40,20 +42,30 @@ if ((${#completed_pods[@]})); then
   echo "K3s maintenance (${phase}): removed ${#completed_pods[@]} completed pod object(s)."
 fi
 
-disk_path=/var/lib/rancher/k3s
+disk_path=/var/lib/rancher/k3s/agent/containerd
+[[ -d "$disk_path" ]] || disk_path=/var/lib/rancher/k3s
 [[ -d "$disk_path" ]] || disk_path=/
 disk_used="$(df -P "$disk_path" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')"
 [[ "$disk_used" =~ ^[0-9]+$ ]] || { echo "Cannot determine K3s disk usage" >&2; exit 1; }
 
-if [[ "$disk_used" -ge "$disk_threshold" ]]; then
+if [[ "$disk_used" -ge "$disk_threshold" && "$prune_images" == true ]]; then
   echo "K3s disk usage is ${disk_used}% (threshold ${disk_threshold}%); pruning unused containerd images."
   if command -v k3s >/dev/null 2>&1 && sudo -n /usr/local/bin/k3s crictl rmi --prune; then
     echo "Unused K3s images pruned."
   else
-    echo "WARNING: image prune was required but the runner lacks the approved sudo rule." >&2
+    echo "WARNING: image prune failed or the runner lacks the approved sudo rule." >&2
   fi
 else
-  echo "K3s maintenance (${phase}): disk=${disk_used}%; image prune skipped below ${disk_threshold}%."
+  echo "K3s maintenance (${phase}): disk=${disk_used}%; image prune skipped (enabled=${prune_images}, threshold=${disk_threshold}%)."
 fi
 
 df -h "$disk_path" | tail -n 1
+disk_used="$(df -P "$disk_path" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')"
+[[ "$disk_used" =~ ^[0-9]+$ ]] || { echo "Cannot verify K3s disk usage after maintenance" >&2; exit 1; }
+if ((disk_used >= disk_threshold)); then
+  echo "WARNING: K3s disk remains at ${disk_used}%; required below ${disk_threshold}%. Inspect active images, snapshots, logs and volumes; pruning may not reclaim them." >&2
+  if [[ "$phase" == pre ]]; then
+    echo "Stopping before rollout to avoid DiskPressure and eviction." >&2
+    exit 1
+  fi
+fi

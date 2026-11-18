@@ -61,6 +61,8 @@ jobs:
           python3 -m pip install PyYAML==6.0.3
           python3 -m unittest discover -s scripts/tests -p test_checkout_service_submodules.py
           python3 -m unittest discover -s scripts/tests -p test_ci_release_routing.py
+          python3 -m unittest discover -s scripts/tests -p test_deployment_safety.py
+          bash -n scripts/deploy-production.sh scripts/k3s-maintenance.sh
 
       - name: Detect file changes
         uses: dorny/paths-filter@v3

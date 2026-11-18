@@ -488,14 +488,11 @@ default); it does not prune legacy Docker or active K3s storage. A successful
 run never means a new commit reached production: it is only a restart of the
 image already configured in Kubernetes.
 
-More importantly, the restart and rollout-status commands are followed by
-`|| echo`, so their failures are logged as warnings rather than failing the
-job. A legacy-CD **Success** is therefore not proof that every target became
-ready. Operators must run `kubectl rollout status`, inspect pods/events, and
-check the application explicitly after this workflow. Do not run its manual
-`all` target casually, because it can restart every known workload. Cleanup is
-threshold-based, but simultaneous image pulls and cold starts can still create
-temporary disk, network, and memory pressure.
+Restart and rollout-status errors now fail the job and stop subsequent restarts.
+The same disk preflight gate applies before restarting. After a failure, cleanup
+reports disk usage and removes completed pod objects but skips image pruning so
+recovery does not incur unnecessary image downloads. Application smoke checks
+remain required. Do not run the manual `all` target casually.
 
 The legacy workflow has no `workflow_run` trigger. Manual dispatch is a
 restart-only operation, shares the `production` concurrency group, and must be
@@ -507,7 +504,7 @@ its current image first. Use the SHA-based primary workflow for releases.
 | **Skipped** Build and **Skipped** Deploy in `production.yml` | No selected production paths changed. | Expected no-op; no release happened. |
 | **Success** workflow, but Build is skipped | Detection/manual-tag policy intentionally avoided a build. | Confirm whether Deploy ran and inspect `services` output. |
 | **Success** Deploy in `production.yml` | Selected deployments passed rollout status after a SHA update. | Still run service smoke checks and inspect the deployed image. |
-| **Success** in legacy CD | The restart workflow completed; errors may only have been logged as warnings. | Do not call it a new release; independently inspect image, rollout, events, and logs. |
+| **Success** in legacy CD | Requested restarts passed rollout checks; no new image was selected. | Do not call it a new release; verify application behavior and the configured image. |
 | **Cancelled** | A newer run or an operator stopped it. | Inspect current image/pod state before retrying. |
 | **Failure** | A detector, build, registry, runner, rollout, or verification step failed. | Follow section 7; do not infer whether rollback fully completed without checking the cluster. |
 
@@ -584,17 +581,37 @@ The deploy script is intentionally conservative:
 
 ```text
 verify kubectl access
-  -> apply k3s/base/configmap.yaml
-  -> apply recommender manifest only when that service is selected
+  -> disk preflight: prune unused CRI images if needed, then remeasure
+  -> stop before rollout if disk usage remains >=82% (configurable)
+  -> synchronize runtime configuration and selected infrastructure
   -> record each selected Deployment's current image
-  -> kubectl set image ...:<immutable SHA>
-  -> kubectl rollout status for each selected Deployment
+  -> render only that Deployment with its final immutable image, then apply
+  -> await that Deployment before updating the next workload
   -> on error: restore only images changed by this invocation
 ```
 
 It does **not** apply the full Kustomize base during each release, so a stale
 manifest cannot overwrite unrelated deployment images. It also does not
 delete persistent volumes.
+
+`render-deployment.py` uses kubectl's client dry-run JSON plus Python's standard
+library, without adding a runner dependency. Shared AI manifests cannot apply an
+unselected worker or briefly deploy their placeholder image. Farm configuration
+annotations accompany the final image in the same template update.
+
+The primary workflow checks disk before credential/schema preparation and the
+script rechecks before application rollout. `K3S_PRUNE_DISK_THRESHOLD` defaults
+to 82. A missing approved sudo rule or ineffective prune cannot silently bypass
+the preflight gate. Image cleanup targets only unused K3s CRI images; it does not
+delete active snapshots, model caches, logs, Docker storage or persistent volumes.
+Failed/Unknown pod objects are retained for diagnostics, and terminating pods are
+not force-deleted automatically. Previous container logs are requested only when
+Kubernetes reports a prior terminated container; missing retained logs remain
+nonfatal diagnostics. Primary workflow failure cleanup skips image pruning while
+rollback/recovery may still be active. A deployment-only script/workflow edit runs
+safety tests without rebuilding or rolling out every application image; the new
+logic takes effect on the next selected/manual release. These changes do not
+repair an already full production filesystem by themselves.
 
 ### 5.4 Manual deployment of a known immutable image
 
