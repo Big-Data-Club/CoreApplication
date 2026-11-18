@@ -156,7 +156,12 @@ apply. Conversation uses dialogue first; progress requests reserve learner facts
 General chat does not fetch course mastery merely because a course is open.
 The final per-key packer remains authoritative: compact instructions, tool evidence
 and optional schemas yield before dialogue; planned/called tool schemas and the
-current request stay intact. History omissions are disclosed. Flash keeps a
+current request stay intact. Recent user/assistant exchanges take priority over
+older dialogue, with room reserved for pinned original user sources. Before
+dropping whole turns, the final packer retains token-bounded excerpts under the
+original roles. These are labelled incomplete historical statements, not verified
+facts or new instructions; durable semantic summaries remain a separate layer.
+History omissions are disclosed. Flash keeps a
 token-bounded dialogue window, no enrichment/tools and one initial answer call.
 
 #### Layered memory and recall

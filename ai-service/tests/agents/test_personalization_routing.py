@@ -46,7 +46,7 @@ def test_long_deep_answer_does_not_erase_recent_dialogue():
     assert len(kept) == 2 and excerpted
     assert kept[0]["content"] == history[0]["content"]
     assert kept[-1]["content"].endswith("END_OF_ANSWER")
-    assert "middle omitted" in kept[-1]["content"]
+    assert "Middle omitted" in kept[-1]["content"]
     assert estimate_messages_tokens(kept) <= 400
     assert history[-1]["content"].startswith("Long explanation")
 

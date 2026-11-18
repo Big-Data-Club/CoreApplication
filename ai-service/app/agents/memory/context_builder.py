@@ -306,41 +306,31 @@ class ContextBuilder:
         Excerpts explicitly retain both ends; they are not fabricated summaries.
         Tool protocol is not replayed from an incomplete history window.
         """
+        from app.agents.core.conversation_task import fit_dialogue_message
+
         kept: list[tuple[int, dict]] = []
         excerpted = False
+        latest_user = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1)
+        has_older_anchor = any(m.get("pinned") and m.get("role") == "user"
+                               for m in messages[:max(0, latest_user)])
         indices = sorted(range(len(messages)), key=lambda i: (
+            i >= latest_user if latest_user >= 0 else True,
             bool(messages[i].get("pinned")) and messages[i].get("role") == "user",
-            messages[i].get("role") == "user", i,
+            i,
         ), reverse=True)
         for index in indices:
             original = messages[index]
             if original.get("role") == "tool" or original.get("tool_calls"):
                 continue
-            message = dict(original)
             used = estimate_messages_tokens([item for _, item in kept])
-            cap = min(max(0, budget // 2), budget - used)
-            if estimate_messages_tokens([message]) > cap:
-                text = str(message.get("content") or "")
-                marker = "\n[Earlier message excerpt; middle omitted to fit context]\n"
-                low, high = 0, len(text)
-                while low < high:
-                    middle = (low + high + 1) // 2
-                    head, tail = middle // 2, middle - middle // 2
-                    message["content"] = text[:head] + marker + (text[-tail:] if tail else "")
-                    if estimate_messages_tokens([message]) <= cap:
-                        low = middle
-                    else:
-                        high = middle - 1
-                if low < 64:
-                    excerpted = True
-                    continue
-                head, tail = low // 2, low - low // 2
-                message["content"] = text[:head] + marker + text[-tail:]
+            cap = min(max(0, budget // (3 if has_older_anchor else 2)), budget - used)
+            message = fit_dialogue_message(original, cap)
+            if message is None:
                 excerpted = True
-            if used + estimate_messages_tokens([message]) <= budget:
-                kept.append((index, message))
-            else:
+                continue
+            if message.get("content") != original.get("content"):
                 excerpted = True
+            kept.append((index, message))
         return [item for _, item in sorted(kept)], excerpted
 
     @staticmethod

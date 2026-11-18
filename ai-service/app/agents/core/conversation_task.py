@@ -59,7 +59,31 @@ def excerpt_dialogue(content: str, limit: int) -> str:
     notice = "\n[Middle omitted; this is an excerpt, not the complete source.]\n"
     remaining = max(0, limit - len(notice))
     head = remaining * 2 // 3
-    return content[:head] + notice + content[-(remaining - head):]
+    tail = remaining - head
+    return content[:head] + notice + (content[-tail:] if tail else "")
+
+
+def fit_dialogue_message(message: dict, budget: int) -> dict | None:
+    """Keep an attributed original or explicitly labelled excerpt, within budget."""
+    from app.core.llm_gateway.token_budget import estimate_messages_tokens
+
+    candidate = dict(message)
+    if estimate_messages_tokens([candidate]) <= budget:
+        return candidate
+    text = str(message.get("content") or "")
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate["content"] = excerpt_dialogue(text, middle)
+        if estimate_messages_tokens([candidate]) <= budget:
+            low = middle
+        else:
+            high = middle - 1
+    # Do not keep a marker without a meaningful quote around it.
+    if low < 128:
+        return None
+    candidate["content"] = excerpt_dialogue(text, low)
+    return candidate
 
 
 def planning_dialogue(history: list[dict] | None) -> list[dict]:

@@ -1437,7 +1437,7 @@ async def run_react_loop(
         effective_message = (
             f"{effective_user_request}\n\n"
             f"[System hint: user appears to be asking about '{ctx_decision.suggested_search_topic}' "
-            f"- search this topic cross-course if needed]"
+            f"- search this topic only within the verified course scope]"
         )
         logger.debug("Injected search topic hint: %s", ctx_decision.suggested_search_topic)
 
