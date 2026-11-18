@@ -34,6 +34,9 @@ RUN python -c "from starlette.formparsers import parse_options_header; assert pa
 # ==========================================
 FROM python:3.12-slim AS runtime
 
+# YouTube audio fallback: yt-dlp EJS requires an explicitly enabled Node >=22.
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         # curl: used by HEALTHCHECK CMD
         curl \

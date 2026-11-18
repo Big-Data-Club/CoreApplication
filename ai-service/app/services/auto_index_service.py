@@ -18,7 +18,8 @@ import hashlib
 import io
 import logging
 import os
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 import numpy as np
@@ -30,8 +31,9 @@ from app.core.llm import (
     create_embeddings_batch,
     create_passage_embeddings_batch,
 )
-from app.core.llm_gateway import TASK_NODE_EXTRACT
-from app.core.llm_gateway.errors import NoKeyAvailableError, NoModelAvailableError
+from app.core.llm_gateway import TASK_NODE_EXTRACT, get_gateway
+from app.core.llm_gateway.errors import ContextLengthError, NoKeyAvailableError, NoModelAvailableError
+from app.core.llm_gateway.token_budget import estimate_request_tokens, estimate_tokens, split_text_preserving_content
 from app.services.chunker import (
     PDFChunker,
     DocxChunker,
@@ -56,7 +58,6 @@ RELATION_SIMILARITY_THRESHOLD = 0.68
 MAX_NODES_PER_BATCH = 5
 MAX_NODES_PER_DOCUMENT = 12
 EMBED_BATCH_SIZE = 16
-MAX_EXCERPT_CHARS = 9000
 MAX_EXISTING_NODES_FOR_GRAPH = 500
 
 # Cross-document dedup: aggressively merge to prevent node explosion
@@ -330,18 +331,30 @@ def _extract_doc_title(text: str) -> Optional[str]:
     return None
 
 
-def _smart_excerpt(text: str, max_chars: int = MAX_EXCERPT_CHARS) -> str:
-    if len(text) <= max_chars:
-        return text
-    n_parts, part_size = 5, max_chars // 5
-    total_len, step = len(text), len(text) // 5
-    parts = []
-    for i in range(n_parts):
-        start = i * step
-        snippet = text[start: min(start + part_size, total_len)].strip()
-        if snippet:
-            parts.append(snippet)
-    return "\n\n[...]\n\n".join(parts)
+def _node_extraction_messages(raw_text: str, file_type: str, language: str, doc_title: str | None) -> list[dict]:
+    """Count and send the same full prompt; evidence is split, never sampled."""
+    prompt = build_node_extraction_prompt(
+        document_excerpt=raw_text, file_type=file_type, language=language,
+        doc_title=(doc_title or _extract_doc_title(raw_text) or "")[:200],
+        detected_headings=[heading[:160] for heading in _extract_headings(raw_text)],
+        max_nodes=min(MAX_NODES_PER_BATCH, max(1, len(raw_text) // 1500)),
+    )
+    return [{"role": "system", "content": NODE_EXTRACTION_SYSTEM},
+            {"role": "user", "content": prompt}]
+
+
+def _split_extraction_batch(chunks: list[DocumentChunk]) -> list[list[DocumentChunk]]:
+    """Reduce an oversized request, preserving original evidence IDs and text."""
+    if len(chunks) > 1:
+        middle = len(chunks) // 2
+        return [chunks[:middle], chunks[middle:]]
+    chunk = chunks[0]
+    if len(chunk.text) < 2:
+        raise ContextLengthError("Node extraction instructions exceed the model/key budget")
+    pieces = split_text_preserving_content(chunk.text, max(1, estimate_tokens(chunk.text) // 2))
+    if len(pieces) < 2:
+        raise ContextLengthError("Node extraction cannot fit one evidence fragment")
+    return [[replace(chunk, text=piece)] for piece in pieces]
 
 
 # ── Embedding batch helper ─────────────────────────────────────────────────────
@@ -733,7 +746,7 @@ class AutoIndexService:
         for chunk in chunks:
             chunk.language = language
 
-        raw_text = " ".join(seg["text"] for seg in segments[:500])
+        raw_text = " ".join(seg["text"] for seg in segments)
         return raw_text, chunks
 
     async def _extract_text_and_chunks(
@@ -880,23 +893,41 @@ class AutoIndexService:
             return [], []
 
         BATCH_SIZE = 15
+        request_budget = await get_gateway().preview_request_budget(TASK_NODE_EXTRACT)
+        output_tokens = min(2048, max(512, request_budget // 4))
+        input_limit = request_budget - output_tokens - min(256, request_budget // 20)
+        if estimate_request_tokens(_node_extraction_messages("", file_type, language, doc_title)) >= input_limit:
+            raise ContextLengthError("Node extraction instructions exceed the model/key budget")
+        pending = deque(quality_chunks[i:i+BATCH_SIZE] for i in range(0, len(quality_chunks), BATCH_SIZE))
         all_nodes = []
         all_relations = []
         node_offset = 0
+        completed_batches = 0
         
-        for i in range(0, len(quality_chunks), BATCH_SIZE):
-            batch_chunks = quality_chunks[i:i+BATCH_SIZE]
+        while pending:
+            batch_chunks = pending.popleft()
             batch_text = "\n\n".join(
                 f"[EVIDENCE CHUNK {c.index}]\n{c.text}" for c in batch_chunks
             )
             if not batch_text.strip():
                 continue
                 
-            nodes, relations = await self._extract_nodes_and_relations(
-                batch_text, file_type, language, file_url, doc_title,
-                valid_evidence_indexes={c.index for c in batch_chunks},
-                evidence_chunks={c.index: c for c in batch_chunks},
-            )
+            messages = _node_extraction_messages(batch_text, file_type, language, doc_title)
+            if estimate_request_tokens(messages) > input_limit:
+                pending.extendleft(reversed(_split_extraction_batch(batch_chunks)))
+                continue
+            try:
+                nodes, relations = await self._extract_nodes_and_relations(
+                    batch_text, file_type, language, file_url, doc_title,
+                    valid_evidence_indexes={c.index for c in batch_chunks},
+                    evidence_chunks={c.index: c for c in batch_chunks},
+                    max_tokens=output_tokens,
+                )
+            except ContextLengthError:
+                # A different fallback model/key may allow less than preview.
+                pending.extendleft(reversed(_split_extraction_batch(batch_chunks)))
+                continue
+            completed_batches += 1
             
             for r in relations:
                 r.source_index += node_offset
@@ -918,7 +949,7 @@ class AutoIndexService:
         # After dedup, all nodes are renumbered 0..N-1. Ask LLM to find
         # relations between nodes that span batch boundaries (these were
         # invisible during per-batch extraction).
-        if len(quality_chunks) > BATCH_SIZE and len(all_nodes) >= 3:
+        if completed_batches > 1 and len(all_nodes) >= 3:
             cross_relations = await self._synthesize_cross_batch_relations(
                 all_nodes, all_relations, language,
             )
@@ -982,29 +1013,17 @@ class AutoIndexService:
         doc_title: Optional[str] = None,
         valid_evidence_indexes: Optional[set[int]] = None,
         evidence_chunks: Optional[dict[int, DocumentChunk]] = None,
+        max_tokens: int = 2048,
     ) -> tuple[list[ExtractedNode], list[ExtractedRelation]]:
-        n_nodes = min(MAX_NODES_PER_BATCH, max(1, len(raw_text) // 1500))
-        if doc_title is None:
-            doc_title = _extract_doc_title(raw_text)
-        headings = _extract_headings(raw_text)
-        excerpt  = _smart_excerpt(raw_text, MAX_EXCERPT_CHARS)
-
-        prompt = build_node_extraction_prompt(
-            document_excerpt=excerpt, file_type=file_type, language=language,
-            doc_title=doc_title, detected_headings=headings, max_nodes=n_nodes,
-        )
-        messages = [
-            {"role": "system", "content": NODE_EXTRACTION_SYSTEM},
-            {"role": "user",   "content": prompt},
-        ]
+        messages = _node_extraction_messages(raw_text, file_type, language, doc_title)
 
         try:
             result = await chat_complete_json(
                 messages=messages, model=settings.quiz_model,
-                temperature=0.15, max_tokens=2048,
+                temperature=0.15, max_tokens=max_tokens, min_completion_tokens=512,
                 task=TASK_NODE_EXTRACT,
             )
-        except (NoKeyAvailableError, NoModelAvailableError):
+        except (NoKeyAvailableError, NoModelAvailableError, ContextLengthError):
             # A graph without grounded concept extraction is not a completed
             # analysis. Bubble this up so the worker records FAILED and the
             # teacher can retry after keys/bindings recover.
@@ -1012,7 +1031,7 @@ class AutoIndexService:
         except Exception as exc:
             logger.error("LLM node extraction failed: %s", exc, exc_info=True)
             # Never turn an LLM outage into a generic, ungrounded graph node.
-            return [], []
+            raise
 
         raw_nodes = result.get("nodes", [])
         nodes: list[ExtractedNode] = []

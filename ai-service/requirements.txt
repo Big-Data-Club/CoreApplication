@@ -35,6 +35,7 @@ minio==7.2.12
 neo4j==5.27.0
 
 youtube-transcript-api==1.2.4
+yt-dlp[default]==2026.10.26
 faster-whisper==1.1.0
 
 python-json-logger==2.0.7

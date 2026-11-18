@@ -280,6 +280,25 @@ corrections, source retention, worker boundaries and resumed sessions.
 `test_conversation_state_postgres.py` uses an explicit disposable
 `AGENT_STATE_TEST_DSN` to verify JSONB merging, ownership and concurrent ordering.
 
+### Video and YouTube indexing
+
+Video indexing keeps uploaded-video audio transcription (FFmpeg + local
+faster-whisper). YouTube tries published captions first, then public audio via
+yt-dlp with Node 22 EJS, reusing that same transcriber and timestamped chunker.
+The audio fallback excludes live/unknown-duration videos, respects the existing
+video duration/size limits, uses bounded network retries and a progress deadline,
+and removes temporary files. It uses no cookies or authentication bypass; blocked
+audio/captions require an original upload or captions. Audio is normalized to
+16 kHz mono FLAC before transcription.
+
+Node extraction measures the complete prompt against the task's preview budget,
+reserving output and headroom. Oversized batches/chunks split without discarding
+text or changing evidence IDs; a smaller actual model/key can trigger further
+splitting. Extraction errors propagate to the worker's existing failed status;
+only a successful empty extraction may produce an indexed document without nodes.
+Release the shared AI HTTP/worker image to install the new yt-dlp/EJS dependency
+and Node binary. No migration or event payload change is required.
+
 ### Farm learning attempt delivery
 
 Farm answers queue LMS attempts in the same game transaction. After a successful

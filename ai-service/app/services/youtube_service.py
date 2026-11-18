@@ -1,18 +1,17 @@
 """
 app/services/youtube_service.py
 
-Fetch published YouTube captions for indexing.
-
-Do not silently download YouTube audio as a fallback.  YouTube's delivery
-clients increasingly require per-video Proof-of-Origin tokens, so such a
-fallback is unreliable on a server and can cause repeated 403/IP blocks.  A
-video without captions should be uploaded by its owner for local transcription.
+Fetch YouTube captions first, then bounded public audio for local transcription.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
+import math
+import tempfile
+import time
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,7 @@ class YouTubeTranscriptFetcher:
     Lấy transcript YouTube theo thứ tự ưu tiên:
       1. Manual subtitles (vi hoặc en)
       2. Auto-generated captions
-      3. Nếu không có caption: yêu cầu upload video gốc để xử lý nội bộ.
+      3. Nếu không lấy được caption: thử audio công khai và Whisper nội bộ.
 
     Output tương thích VideoTranscriptChunker.chunk_whisper_json():
       {"segments": [{"start": float, "end": float, "text": str}, ...]}
@@ -60,10 +59,56 @@ class YouTubeTranscriptFetcher:
         if result:
             return result
 
-        raise ValueError(
-            "YouTube video has no accessible captions. Upload the source video "
-            "to BDC Hub to transcribe it securely, or add captions on YouTube first."
-        )
+        try:
+            return await self._fetch_audio(video_id)
+        except Exception as exc:
+            logger.warning("YouTube audio fallback failed id=%s error_type=%s", video_id, type(exc).__name__)
+            raise ValueError(
+                "YouTube captions and public audio are unavailable. Upload the source video "
+                "to BDC Hub or add captions on YouTube, then retry indexing."
+            ) from exc
+
+    async def _fetch_audio(self, video_id: str) -> dict:
+        from yt_dlp import YoutubeDL
+        from app.services.video_index_service import video_index_service, settings
+
+        with tempfile.TemporaryDirectory(prefix="bdc-youtube-audio-") as tmp:
+            folder = Path(tmp)
+            audio_path = folder / "source.audio"
+            deadline = time.monotonic() + settings.video_ffmpeg_timeout_sec
+
+            def validate(info, *, incomplete=False):
+                duration = info.get("duration")
+                if incomplete and duration is None:
+                    return None  # yt-dlp calls the filter before full metadata is available.
+                if (info.get("is_live")
+                        or type(duration) not in (int, float) or not math.isfinite(duration)
+                        or not 0 < duration <= settings.video_max_duration_sec):
+                    return "Video duration is unavailable, live, or exceeds the indexing limit"
+                return None
+
+            def check_progress(progress):
+                if (progress.get("downloaded_bytes", 0) > settings.video_max_input_bytes
+                        or time.monotonic() > deadline):
+                    raise ValueError("YouTube audio exceeds the download budget")
+
+            def download():
+                # Canonical ID URL only: no playlists, cookies, or user-supplied download options.
+                with YoutubeDL({
+                    "format": "bestaudio", "noplaylist": True, "outtmpl": str(audio_path),
+                    "max_filesize": settings.video_max_input_bytes,
+                    "socket_timeout": 10, "retries": 1, "fragment_retries": 1,
+                    "match_filter": validate, "progress_hooks": [check_progress],
+                    "js_runtimes": {"node": {}}, "remote_components": [],
+                    "quiet": True, "no_warnings": True,
+                }) as downloader:
+                    downloader.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)
+                if not audio_path.exists() or not 0 < audio_path.stat().st_size <= settings.video_max_input_bytes:
+                    raise ValueError("No bounded public audio could be downloaded")
+
+            await asyncio.to_thread(download)
+            result = await video_index_service._transcribe(audio_path, folder)
+            return {**result, "method": "youtube_audio_whisper"}
 
     # ── Method 1: youtube-transcript-api ──────────────────────────────────────
 

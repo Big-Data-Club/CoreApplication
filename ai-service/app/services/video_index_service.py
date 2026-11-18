@@ -98,12 +98,12 @@ class VideoIndexService:
             return raw_text, chunks
 
     async def _transcribe(self, video_path: Path, tmp_path: Path) -> dict:
-        audio_path = tmp_path / "audio.mp3"
+        audio_path = tmp_path / "audio.flac"
         await asyncio.to_thread(
             _run,
             [
-                "ffmpeg", "-y", "-i", str(video_path), "-vn", "-ac", "1", "-ar", "16000",
-                "-b:a", "32k", str(audio_path),
+                "ffmpeg", "-y", "-nostdin", "-i", str(video_path), "-map", "0:a:0",
+                "-vn", "-ac", "1", "-ar", "16000", "-c:a", "flac", str(audio_path),
             ],
             timeout=settings.video_ffmpeg_timeout_sec,
         )
