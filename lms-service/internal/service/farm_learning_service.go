@@ -262,8 +262,9 @@ func (s *FarmLearningService) RecordAttempt(ctx context.Context, a FarmAttempt) 
 		score = 1
 	}
 	payload, _ := json.Marshal(map[string]interface{}{"source": "knowledge_farm", "challenge_id": a.ChallengeID, "source_id": a.SourceID})
+	// pgx simple_protocol encodes []byte as bytea; JSONB requires JSON text.
 	_, err = tx.ExecContext(ctx, `INSERT INTO micro_lesson_interactions(user_id,course_id,node_id,action_type,score,status,payload)
-		VALUES($1,$2,$3,$4,$5,$6,$7)`, a.UserID, a.CourseID, a.NodeID, action, score, map[bool]string{true: "correct", false: "incorrect"}[a.Correct], payload)
+		VALUES($1,$2,$3,$4,$5,$6,$7)`, a.UserID, a.CourseID, a.NodeID, action, score, map[bool]string{true: "correct", false: "incorrect"}[a.Correct], string(payload))
 	if err != nil {
 		return err
 	}

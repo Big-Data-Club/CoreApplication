@@ -31,6 +31,8 @@ func TestFarmLearningAttemptAtomicAndIdempotent(t *testing.T) {
 	}
 	defer admin.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE")
 	cfg.RuntimeParams["search_path"] = schema
+	// Match production: simple protocol encodes []byte as bytea, not JSON text.
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	db := stdlib.OpenDB(*cfg)
 	defer db.Close()
 	ddl := `CREATE TABLE users(id BIGINT PRIMARY KEY);
@@ -72,6 +74,13 @@ func TestFarmLearningAttemptAtomicAndIdempotent(t *testing.T) {
 	var mastery float64
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM micro_lesson_interactions`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("interaction count %d %v", count, err)
+	}
+	var source, challengeID, sourceID string
+	if err = db.QueryRowContext(ctx, `SELECT payload->>'source',payload->>'challenge_id',payload->>'source_id' FROM micro_lesson_interactions`).Scan(&source, &challengeID, &sourceID); err != nil {
+		t.Fatal("read farm JSON payload", err)
+	}
+	if source != "knowledge_farm" || challengeID != a.ChallengeID || sourceID != a.SourceID {
+		t.Fatalf("incorrect farm payload: source=%q challenge_id=%q source_id=%q", source, challengeID, sourceID)
 	}
 	if err = db.QueryRowContext(ctx, `SELECT mini_quiz_score FROM knowledge_node_mastery WHERE user_id=41 AND course_id=9 AND node_id=55`).Scan(&mastery); err != nil || mastery != 0 {
 		t.Fatalf("mastery %f %v", mastery, err)
