@@ -28,6 +28,7 @@ async def test_search_multilingual_respects_skip_rerank_and_skip_hydration():
         # Call with skip_rerank=True, skip_hydration=True
         results = await rag_service.search_multilingual(
             query="Học máy là gì?",
+            course_id=7,
             top_k=3,
             skip_rerank=True,
             skip_hydration=True,
@@ -119,7 +120,7 @@ async def test_graphrag_retrieve_avoids_double_rerank():
         with patch.object(rag_service, "search_hierarchical", new_callable=AsyncMock) as mock_hierarchical:
             mock_hierarchical.return_value = ([dummy_chunk], "content")
 
-            ctx = await graphrag_service.retrieve(query="cổng postgresql", top_k=3)
+            ctx = await graphrag_service.retrieve(query="cổng postgresql", course_id=7, top_k=3)
 
             mock_hierarchical.assert_called_once()
             call_kwargs = mock_hierarchical.call_args.kwargs

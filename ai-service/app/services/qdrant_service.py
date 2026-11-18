@@ -36,6 +36,7 @@ from qdrant_client.http.models import (
 )
 
 from app.core.config import get_settings
+from app.core.retrieval_scope import require_course_id
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -197,8 +198,10 @@ class QdrantService:
         Returns ScoredPoints whose `.payload` contains all metadata needed
         to build a `RetrievedChunk` - no secondary DB query required.
         """
-        client = self._get_client()
         query_filter = self._build_chunk_filter(course_id, node_id, content_id, content_ids)
+        if content_ids == []:
+            return []
+        client = self._get_client()
         return await client.search(
             collection_name=CHUNK_COLLECTION,
             query_vector=query_vector,
@@ -216,6 +219,7 @@ class QdrantService:
         content_id: int | None,
         content_ids: list[int] | None = None,
     ) -> Filter | None:
+        require_course_id(course_id)
         must: list[FieldCondition] = [
             FieldCondition(key="status", match=MatchValue(value="ready")),
         ]
@@ -305,6 +309,7 @@ class QdrantService:
         top_k: int = 20,
         score_threshold: float = 0.60,
     ) -> list[ScoredPoint]:
+        require_course_id(course_id)
         client = self._get_client()
         return await client.search(
             collection_name=NODE_COLLECTION,

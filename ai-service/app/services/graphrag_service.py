@@ -30,6 +30,7 @@ import time
 from dataclasses import dataclass, field
 
 from app.core.config import get_settings
+from app.core.retrieval_scope import require_course_id
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -132,7 +133,7 @@ class GraphRAGService:
 
         Args:
             query:               User query / concept to search for.
-            course_id:           Optional course scope filter.
+            course_id:           Required positive course scope.
             content_id:          Optional content scope filter.
             node_id:             Optional node scope filter.
             top_k:               Final number of chunks to return.
@@ -156,6 +157,7 @@ class GraphRAGService:
         ctx = GraphRAGContext(query=query)
         if content_ids == []:
             return ctx
+        require_course_id(course_id)
 
         # ── Phase 1: Standard hierarchical retrieval ──────────────────────────
         try:

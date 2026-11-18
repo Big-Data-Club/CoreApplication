@@ -84,6 +84,8 @@ async def generate_concept_check(body: ConceptCheckRequest, request: Request):
     # If the FE only gave us a node id, pull the top-3 retrieval chunks
     # and stitch them together - same pattern used by the quiz generator.
     if not text_chunk and body.node_id is not None:
+        if body.course_id is None or body.course_id <= 0:
+            raise HTTPException(status_code=400, detail="A positive course_id is required for retrieval")
         async with get_ai_conn() as conn:
             node = await conn.fetchrow(
                 "SELECT id, name, name_vi FROM knowledge_nodes WHERE id = $1",

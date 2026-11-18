@@ -47,7 +47,7 @@ async def test_optional_graph_timeout_cancels_work_and_keeps_base_hits(retrieval
         return run
     for name in ("_expand_graph", "_get_prereq_chain", "_fetch_node_metadata"):
         monkeypatch.setattr(retrieval, name, blocked(name))
-    result = await asyncio.wait_for(retrieval.retrieve("query"), timeout=.5)
+    result = await asyncio.wait_for(retrieval.retrieve("query", course_id=7), timeout=.5)
     assert len(started) == 3
     assert cancelled == started
     assert [c.chunk_id for c in result.ranked_chunks] == [1]
@@ -85,7 +85,7 @@ async def test_reranker_and_hydration_timeout_keep_original_children(retrieval, 
         await asyncio.Event().wait()
     monkeypatch.setattr("app.core.embeddings.rerank_chunks", blocked)
     monkeypatch.setattr(rag_service, "hydrate_parents", blocked)
-    result = await asyncio.wait_for(retrieval.retrieve("query", graph_enabled=False), timeout=.5)
+    result = await asyncio.wait_for(retrieval.retrieve("query", course_id=7, graph_enabled=False), timeout=.5)
     assert result.ranked_chunks[0].chunk_text == "Matched child"
     retrieval._expand_graph.assert_not_awaited()
 
@@ -125,6 +125,10 @@ async def test_parent_hydration_retains_exact_child_metadata(monkeypatch):
     assert result[0].parent_chunk_id == 4
     assert "Explanation" in result[0].chunk_text
     conn.fetch.assert_awaited_once()
+    sql = conn.fetch.call_args.args[0]
+    assert "parent.course_id = child.course_id" in sql
+    assert "parent.content_id = child.content_id" in sql
+    assert "parent.status = 'ready'" in sql
 
 
 @pytest.mark.asyncio
@@ -235,5 +239,5 @@ async def test_disabled_reranker_keeps_base_before_placeholder_neighbor_scores(r
     rag_service.search_hierarchical.return_value = ([base], "course")
     retrieval._expand_graph.return_value = {"expanded_nodes": [{"id": 2}], "edges": []}
     monkeypatch.setattr(rag_service, "search_by_node_ids", AsyncMock(return_value=[neighbor]))
-    result = await retrieval.retrieve("query", top_k=1)
+    result = await retrieval.retrieve("query", course_id=7, top_k=1)
     assert result.ranked_chunks == [base]

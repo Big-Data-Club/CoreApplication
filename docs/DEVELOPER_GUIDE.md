@@ -248,8 +248,11 @@ of supplied user/page text or retrieved evidence collected this turn. Reconstruc
 or invented source data is rejected. Exact matching verifies copying, not semantic
 truth, completeness, or the absence of malicious prose in the source. Review remains
 required. A course lookup failure cannot reset a draft's retrieval to unscoped mode.
-Scoped hierarchical RAG cannot expand into the global private corpus or adopt a
-different course from content hierarchy hints. Vector candidates are hydrated from
+RAG and vector search require a positive course ID before embedding, translation,
+or retrieval. Missing/invalid scope is rejected; an explicit empty content scope
+returns no evidence. Hierarchical RAG cannot expand into the global private corpus
+or adopt a different course from content hierarchy hints. Pinned quiz references,
+parent hydration and graph enrichment remain within the source course. Vector candidates are hydrated from
 ready PostgreSQL chunk rows with course/node/content filters; stale, deleted and
 out-of-scope index payloads do not become evidence. No migration or dependency is
 added. Release the shared AI HTTP/worker image; no frontend contract or Kafka

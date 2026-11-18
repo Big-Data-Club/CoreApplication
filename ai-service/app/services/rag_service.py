@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 from app.core.config import get_settings
 from app.core.database import get_ai_conn
+from app.core.retrieval_scope import require_course_id
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()
@@ -430,6 +431,9 @@ class RAGService:
         content_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         import asyncio
+        require_course_id(course_id)
+        if content_ids == []:
+            return []
         top_k = top_k or settings.top_k_chunks
         # Fetch slightly more candidates from each search channel for RRF merge
         fetch_k = (settings.rerank_fetch_k if settings.use_reranker else top_k) * 2
@@ -753,6 +757,7 @@ class RAGService:
         """
         if not node_ids or content_ids == []:
             return []
+        require_course_id(course_id)
         results: list[RetrievedChunk] = []
         if settings.use_qdrant:
             from app.services.qdrant_service import qdrant_service
@@ -896,6 +901,9 @@ class RAGService:
         skip_hydration: bool = False,
     ) -> list[RetrievedChunk]:
         from app.core.multilingual import multilingual_search
+        require_course_id(course_id)
+        if content_ids == []:
+            return []
         top_k = top_k or settings.top_k_chunks
         candidates = await multilingual_search(
             search_fn=self.search,
@@ -926,7 +934,7 @@ class RAGService:
         # 2. Enrich with Knowledge Graph context (prerequisites and related nodes)
         if not skip_hydration and final_chunks:
             try:
-                final_chunks = await self.enrich_chunks_with_graph_context(final_chunks)
+                final_chunks = await self.enrich_chunks_with_graph_context(final_chunks, course_id=course_id)
             except Exception as exc:
                 logger.warning("Graph context enrichment failed in search_multilingual: %s", exc)
 
@@ -946,11 +954,12 @@ class RAGService:
         """
         if not question_text:
             return []
+        require_course_id(course_id)
 
         pinned: list[RetrievedChunk] = []
         if reference_chunk_id:
             pinned_chunk = await self.get_chunk(reference_chunk_id)
-            if pinned_chunk:
+            if pinned_chunk and pinned_chunk["course_id"] == course_id:
                 pinned = [RetrievedChunk(
                     chunk_id=pinned_chunk["id"],
                     chunk_text=pinned_chunk["chunk_text"],
@@ -1128,6 +1137,9 @@ class RAGService:
                 FROM document_chunks child
                 JOIN document_chunks parent ON parent.id = child.parent_chunk_id
                 WHERE child.id = ANY($1)
+                  AND parent.course_id = child.course_id
+                  AND parent.content_id = child.content_id
+                  AND parent.status = 'ready'
                 """,
                 [c.chunk_id for c in chunks],
             )
@@ -1156,6 +1168,7 @@ class RAGService:
     async def enrich_chunks_with_graph_context(
         self,
         chunks: list[RetrievedChunk],
+        course_id: int,
     ) -> list[RetrievedChunk]:
         """
         Enriches a list of retrieved chunks with their Knowledge Graph context
@@ -1164,6 +1177,7 @@ class RAGService:
         """
         if not chunks:
             return chunks
+        require_course_id(course_id)
 
         # Collect unique node_ids
         node_ids = list({c.node_id for c in chunks if c.node_id})
@@ -1181,9 +1195,10 @@ class RAGService:
                 """
                 SELECT id, name, name_vi, description
                 FROM knowledge_nodes
-                WHERE id = ANY($1)
+                WHERE id = ANY($1) AND course_id = $2
                 """,
                 node_ids,
+                course_id,
             )
             for r in rows:
                 node_info[r["id"]] = {
@@ -1201,9 +1216,11 @@ class RAGService:
                 FROM knowledge_node_relations r
                 JOIN knowledge_nodes src ON src.id = r.source_node_id
                 JOIN knowledge_nodes tgt ON tgt.id = r.target_node_id
-                WHERE r.source_node_id = ANY($1) OR r.target_node_id = ANY($1)
+                WHERE (r.source_node_id = ANY($1) OR r.target_node_id = ANY($1))
+                  AND src.course_id = $2 AND tgt.course_id = $2
                 """,
                 node_ids,
+                course_id,
             )
 
             for r in rel_rows:
@@ -1277,9 +1294,9 @@ class RAGService:
     async def get_chunk(self, chunk_id: int) -> dict | None:
         async with get_ai_conn() as conn:
             row = await conn.fetchrow(
-                """SELECT id, chunk_text, content_id, node_id,
+                """SELECT id, chunk_text, content_id, node_id, course_id,
                           source_type, page_number, start_time_sec, end_time_sec, language
-                   FROM document_chunks WHERE id = $1""",
+                   FROM document_chunks WHERE id = $1 AND status = 'ready'""",
                 chunk_id,
             )
         return dict(row) if row else None
@@ -1300,10 +1317,13 @@ class RAGService:
         **kwargs,
     ) -> tuple[list[RetrievedChunk], str]:
         """
-        Hierarchical search: Lesson -> Section/Module -> Course -> Global KB.
+        Hierarchical search within one course: Lesson -> Section/Module -> Course.
         Returns (chunks, resolved_scope).
         """
         import httpx
+        require_course_id(course_id)
+        if content_ids == []:
+            return [], "none"
         top_k = top_k or settings.top_k_chunks
 
         extra_search_kwargs = {}
@@ -1404,17 +1424,6 @@ class RAGService:
             )
             if chunks:
                 return chunks, "course"
-
-        # 4. Global KB level
-        if max_expansion_level == "global" and course_id is None:
-            logger.info("Hierarchical RAG: Level 4 (Global KB)")
-            chunks = await self.search_multilingual(
-                query=query,
-                top_k=top_k,
-                min_similarity=min_similarity,
-                **extra_search_kwargs,
-            )
-            return chunks, "global"
 
         return [], "none"
 
