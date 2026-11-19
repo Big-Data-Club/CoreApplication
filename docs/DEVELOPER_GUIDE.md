@@ -2,21 +2,57 @@
 
 Gateway bootstrap seeds the Mistral AI provider (`openai_compat`,
 `https://api.mistral.ai/v1`) and 62 model IDs/aliases from the operator's
-`/v1/models` snapshot. It creates only missing rows and preserves existing admin
-settings; it does not seed Mistral keys or task bindings. Configure those through
+`/v1/models` snapshot. It creates missing rows and preserves existing admin
+settings, except the one-time activation of the previously catalog-only Voxtral
+TTS 3 rows described below; it does not seed Mistral keys. Configure keys through
 the existing admin UI after deployment. Context lengths and capability flags
 come from that snapshot rather than assumptions based on model names. Prices
 are not populated from the snapshot; zero defaults are not a statement of free
 usage. Refresh mutable `latest` aliases when the provider catalog changes.
 
+After default bindings are loaded, bootstrap promotes a Mistral chat binding to
+the lowest priority number for each compatible task, once per task. Flash uses
+Ministral 8B; router/language/clarification use Ministral 3B; diagnosis uses
+Mistral Small; ReAct, quiz, lab authoring, blueprint and Content Studio use
+Mistral Large; remaining text/vision tasks use Mistral Medium. These choices are
+an operator routing policy, not measured latency/quality guarantees. Existing
+fallbacks and Pin settings remain intact (Pin still overrides priority).
+`text_to_speech` uses Voxtral TTS 3 first; `jev_decision` retains its dedicated
+System One protocol binding.
+The `seeded-mistral-first:v1` note prevents subsequent startups from resetting
+admin edits, including disabled bindings. Existing Mistral bindings retain their
+token limits, temperature and JSON settings; new ones inherit model defaults.
+
 Model config records input/output modalities, aliases and original capabilities.
 The admin Models panel groups every audio-capable model under Audio, including
 chat audio, transcription, realtime transcription and speech output. Non-chat
-OCR, embedding, moderation, transcription and TTS entries remain disabled and
+OCR, embedding, moderation, transcription and older TTS entries remain disabled and
 `catalog_only`: their dedicated endpoints are not implemented by the generic
 chat adapter. Both binding creation and gateway execution reject those entries.
 Audio chat uses the chat protocol; accepting audio in the catalog does not add
 an audio upload interface to Cowork.
+
+`voxtral-mini-tts-3-0` and its `voxtral-mini-tts-3` alias use the dedicated
+`mistral_speech` model protocol under the SAME `mistral` provider/key pool as
+chat. No second provider or duplicate API key is needed. Bootstrap activates
+their previously catalog-only rows once, keeping model IDs and custom config;
+later disabling a model is respected. Existing TTS providers remain fallbacks,
+and existing Pins continue to override priority. Speech models cannot bind to
+chat tasks, and the chat gateway rejects their protocol even through model hints.
+
+The adapter calls `POST /v1/audio/speech` with `voice_id`, decodes the JSON
+`audio_data` base64 field, rejects invalid/empty/oversized audio and returns MP3
+by default. It reuses gateway key rotation, sanitized error logging and the
+existing worker/storage pipeline. Default voices are Huong (`voice_3144`) for
+Vietnamese and Sheila (`voice_478`) for English; other languages use the
+configured `voice_id`. Admins can extend `model.config.voices_by_language` or
+replace `voice_id`; clear the per-language mapping to use one custom voice.
+The provider API does not accept the existing UI's numeric speed parameter;
+non-unit speed is applied locally using bounded FFmpeg `atempo`, preserving
+the output format. Whisper transcription and VLM-based OCR remain unchanged.
+
+API references: [Mistral speech endpoint](https://docs.mistral.ai/api/endpoint/audio/speech),
+[preset voices](https://docs.mistral.ai/studio/audio/text-to-speech/voices).
 
 The compatible adapter separates structured answer blocks from provider-exposed
 thinking blocks, retaining the raw response for the agent event path. ReAct and

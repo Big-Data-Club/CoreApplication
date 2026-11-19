@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -13,6 +14,102 @@ from app.core.llm_gateway.adapters.speech import synthesize
 from app.core.llm_gateway.errors import ProviderError, RateLimitedError
 from app.core.llm_gateway.gateway import LLMGateway
 from app.core.llm_gateway.types import Model, SpeechRequest, TaskBinding
+
+
+def mistral_model():
+    return replace(model(), provider_id=42, provider_code="mistral", adapter_type="openai_compat",
+        base_url="https://api.mistral.ai/v1", model_name="voxtral-mini-tts-3-0", family="audio",
+        config={"api_protocol": "mistral_speech", "voice_id": "voice_3144", "response_format": "mp3",
+                "voices_by_language": {"vi": "voice_3144", "en": "voice_478"}})
+
+
+@pytest.mark.parametrize("language,voice", [("vi-VN", "voice_3144"), ("en-US", "voice_478")])
+def test_mistral_uses_voice_id_and_decodes_json_audio(language, voice):
+    import json
+    from app.core.llm_gateway.adapters.speech import is_speech_model, speech_media_type
+    def handle(req):
+        assert str(req.url) == "https://api.mistral.ai/v1/audio/speech"
+        assert req.headers["authorization"] == "Bearer fixture-key"
+        assert json.loads(req.content) == {"model": "voxtral-mini-tts-3-0", "input": "Hello",
+            "voice_id": voice, "response_format": "mp3", "stream": False}
+        return httpx.Response(200, json={"audio_data": base64.b64encode(b"mp3-audio").decode()})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    with patch("app.core.llm_gateway.adapters.speech.httpx.AsyncClient", return_value=client):
+        audio = asyncio.run(synthesize(mistral_model(), "fixture-key", SpeechRequest(text="Hello", language=language)))
+    assert audio == b"mp3-audio"
+    assert speech_media_type(mistral_model()) == "audio/mpeg"
+    assert is_speech_model(mistral_model())
+    assert not is_speech_model(replace(mistral_model(), config={"api_protocol": "chat"}))
+
+
+@pytest.mark.parametrize("payload", [{}, {"audio_data": ""}, {"audio_data": "not base64 private text"},
+                                     {"audio_data": None}, ["unexpected schema"]])
+def test_mistral_rejects_invalid_audio_without_exposing_response(payload):
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=payload)))
+    with patch("app.core.llm_gateway.adapters.speech.httpx.AsyncClient", return_value=client):
+        with pytest.raises(ProviderError) as raised:
+            asyncio.run(synthesize(mistral_model(), "fixture-key", SpeechRequest(text="Private input")))
+    assert "private" not in str(raised.value).lower()
+
+
+def test_mistral_numeric_speed_is_applied_locally_without_unsupported_api_fields():
+    from pathlib import Path
+    def handle(req):
+        import json
+        assert "speed" not in json.loads(req.content)
+        return httpx.Response(200, json={"audio_data": base64.b64encode(b"input-mp3").decode()})
+
+    async def ffmpeg(*args, **kwargs):
+        assert args[:4] == ("ffmpeg", "-y", "-v", "error")
+        assert "atempo=0.800" in args
+        assert Path(args[5]).read_bytes() == b"input-mp3"
+        Path(args[-1]).write_bytes(b"slower-mp3")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    with patch("app.core.llm_gateway.adapters.speech.httpx.AsyncClient", return_value=client), patch(
+        "app.services.studio.browser_renderer.command", side_effect=ffmpeg,
+    ):
+        audio = asyncio.run(synthesize(mistral_model(), "fixture-key", SpeechRequest(text="Hello", speed=.8)))
+    assert audio == b"slower-mp3"
+
+
+def test_gateway_reuses_mistral_provider_key_and_falls_back_after_tts_rejection():
+    async def run():
+        first, fallback = mistral_model(), model()
+        chain = [TaskBinding(1, "text_to_speech", first, 0, None, None, False, False, True, None),
+                 TaskBinding(2, "text_to_speech", fallback, 10, None, None, False, False, True, None)]
+        gateway = LLMGateway.__new__(LLMGateway)
+        gateway.registry = SimpleNamespace(get_binding_chain=AsyncMock(return_value=chain))
+        gateway.key_pool = SimpleNamespace(lease=AsyncMock(return_value=SimpleNamespace(id=1, plaintext="fixture-key")),
+            record_success=AsyncMock())
+        gateway._log = AsyncMock()
+        with patch("app.core.llm_gateway.adapters.speech.synthesize", side_effect=[ProviderError("rejected", retryable=False), b"backup"]):
+            response = await gateway.speech(SpeechRequest(text="Hello"))
+        assert response.audio == b"backup" and response.model == fallback
+        assert gateway.key_pool.lease.call_args_list[0].args[0] == 42
+        assert gateway.key_pool.lease.call_args_list[1].args[0] == fallback.provider_id
+    asyncio.run(run())
+
+
+def test_mistral_speech_binding_is_accepted_but_not_for_chat():
+    from fastapi import HTTPException
+    from app.api.endpoints.admin_llm import BindingIn, upsert_binding
+
+    async def run():
+        voice = mistral_model()
+        binding = TaskBinding(1, "text_to_speech", voice, 0, None, None, False, False, True, None)
+        registry = SimpleNamespace(get_model=AsyncMock(return_value=voice),
+            upsert_binding=AsyncMock(return_value=binding))
+        with patch("app.api.endpoints.admin_llm._verify"), patch(
+            "app.api.endpoints.admin_llm.get_registry", return_value=registry,
+        ):
+            await upsert_binding(BindingIn(task_code="text_to_speech", model_id=voice.id), None)
+            registry.upsert_binding.assert_awaited_once()
+            with pytest.raises(HTTPException) as raised:
+                await upsert_binding(BindingIn(task_code="chat", model_id=voice.id), None)
+        assert raised.value.status_code == 400
+        registry.upsert_binding.assert_awaited_once()
+    asyncio.run(run())
 
 
 def model():

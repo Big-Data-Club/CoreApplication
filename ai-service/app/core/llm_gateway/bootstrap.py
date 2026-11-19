@@ -19,7 +19,7 @@ from typing import Optional
 from app.core.config import get_settings
 from app.core.llm_gateway.freemodel_providers import _DEFAULT_FREEMODEL_PROVIDERS
 from app.core.llm_gateway.registry import ModelRegistry, get_registry
-from app.core.llm_gateway.mistral_catalog import bootstrap_mistral
+from app.core.llm_gateway.mistral_catalog import bootstrap_mistral, bootstrap_mistral_bindings
 from app.core.llm_gateway.types import (
     ALL_TASK_CODES,
     TASK_FORMAT_LAB, TASK_CREATE_LAB, TASK_CREATE_LAB_TESTCASE, TASK_EDIT_TESTCASE, TASK_CREATE_LAB_GENERATOR,
@@ -707,6 +707,10 @@ async def bootstrap_llm_registry() -> None:
                 enabled=True,
                 notes=f"seeded-fallback:{oss_model_id}",
             )
+
+    # Explicit operator-requested promotion, including chains configured before
+    # Mistral was available. The helper preserves later admin overrides.
+    await bootstrap_mistral_bindings(registry)
 
     # Warm binding cache for every known task code
     registry.invalidate()

@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -18,6 +22,14 @@ _AUDIO_MEDIA_TYPES = {
     "opus": "audio/ogg",
     "flac": "audio/flac",
 }
+
+
+def is_speech_model(model: Model) -> bool:
+    if model.config.get("catalog_only"):
+        return False
+    return model.adapter_type in SPEECH_ADAPTERS or (
+        model.adapter_type == "openai_compat" and model.config.get("api_protocol") == "mistral_speech"
+    )
 
 
 def speech_media_type(model: Model) -> str:
@@ -71,15 +83,55 @@ async def _audio(client: httpx.AsyncClient, url: str, **kwargs) -> bytes:
 
 async def synthesize(model: Model, api_key: str, req: SpeechRequest) -> bytes:
     config = model.config or {}
+    mistral = model.adapter_type == "openai_compat" and config.get("api_protocol") == "mistral_speech"
     voice = config.get("voice_id")
     try:
-        speed = req.speed if req.speed is not None else float(config.get("speed", 0.97))
+        speed = req.speed if req.speed is not None else float(config.get("speed", 1.0 if mistral else 0.97))
     except (TypeError, ValueError):
         raise SpeechProviderError("invalid_speed", provider=model.adapter_type)
     if not 0.7 <= speed <= 1.2:
         raise SpeechProviderError("invalid_speed", provider=model.adapter_type)
     language = req.language.split("-")[0].lower()
     async with httpx.AsyncClient(timeout=120, follow_redirects=False) as client:
+        if mistral:
+            voices = config.get("voices_by_language") or {}
+            voice = voices.get(language, voice) if isinstance(voices, dict) else voice
+            if not voice:
+                raise SpeechProviderError("voice_required", provider="mistral")
+            base = (model.base_url or "https://api.mistral.ai/v1").rstrip("/")
+            fmt = str(config.get("response_format") or "mp3")
+            if fmt not in _AUDIO_MEDIA_TYPES:
+                raise SpeechProviderError("request_rejected", provider="mistral")
+            response = await client.post(
+                f"{base}/audio/speech",
+                headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+                json={"model": model.model_name, "input": req.text, "voice_id": str(voice),
+                      "response_format": fmt, "stream": False},
+            )
+            check_response(response, "mistral")
+            try:
+                encoded = response.json()["audio_data"]
+                if not isinstance(encoded, str) or len(encoded) > 4 * ((MAX_AUDIO_BYTES + 2) // 3):
+                    raise ValueError("Invalid audio size")
+                data = base64.b64decode(encoded, validate=True)
+            except (ValueError, KeyError, TypeError, binascii.Error):
+                raise SpeechProviderError("invalid_audio", provider="mistral") from None
+            if not data or len(data) > MAX_AUDIO_BYTES:
+                raise SpeechProviderError("invalid_audio", provider="mistral")
+            if speed != 1.0:
+                # Mistral accepts pace tags, not this UI's numeric speed.
+                # Reuse FFmpeg so existing speed controls retain their meaning.
+                from app.services.studio.browser_renderer import command
+                with TemporaryDirectory(prefix="mistral-speech-") as temporary:
+                    source = Path(temporary) / f"source.{fmt}"
+                    output = Path(temporary) / f"output.{fmt}"
+                    source.write_bytes(data)
+                    await command("ffmpeg", "-y", "-v", "error", "-i", source,
+                                  "-filter:a", f"atempo={speed:.3f}", output, timeout=60)
+                    data = output.read_bytes()
+                if not data or len(data) > MAX_AUDIO_BYTES:
+                    raise SpeechProviderError("invalid_audio", provider="mistral")
+            return data
         if model.adapter_type == "elevenlabs":
             if not voice:
                 raise SpeechProviderError("voice_required", provider="elevenlabs")

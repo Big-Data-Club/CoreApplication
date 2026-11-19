@@ -268,8 +268,8 @@ async def upsert_binding(body: BindingIn, request: Request):
     is_system_one = model.config.get("api_protocol") == "system_one"
     if (body.task_code == TASK_JEV_DECISION) != is_system_one:
         raise HTTPException(400, "System One models must be bound only to jev_decision")
-    from app.core.llm_gateway.adapters.speech import SPEECH_ADAPTERS
-    if (body.task_code == "text_to_speech") != (model.adapter_type in SPEECH_ADAPTERS):
+    from app.core.llm_gateway.adapters.speech import is_speech_model
+    if (body.task_code == "text_to_speech") != is_speech_model(model):
         raise HTTPException(400, "Speech models must be bound only to text_to_speech")
     b = await get_registry().upsert_binding(**body.model_dump())
     return _binding_dto(b)

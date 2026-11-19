@@ -61,7 +61,7 @@ class LLMGateway:
     async def speech(self, req):
         """Use the managed speech bindings with the existing key health pool."""
         import asyncio
-        from app.core.llm_gateway.adapters.speech import SPEECH_ADAPTERS, synthesize
+        from app.core.llm_gateway.adapters.speech import is_speech_model, synthesize
         from app.core.llm_gateway.types import SpeechResponse, TASK_TEXT_TO_SPEECH
         from app.core.llm_gateway.speech_errors import SpeechProviderError
 
@@ -72,7 +72,7 @@ class LLMGateway:
         attempted_error = None
         for index, binding in enumerate(chain):
             model = binding.model
-            if model.adapter_type not in SPEECH_ADAPTERS:
+            if not is_speech_model(model):
                 continue
             excluded = set()
             for attempt in range(MAX_KEYS_PER_MODEL):
@@ -299,7 +299,7 @@ class LLMGateway:
         _context_retry: bool = False,
     ) -> ChatResponse:
         model = binding.model
-        if model.config.get("catalog_only"):
+        if model.config.get("catalog_only") or model.config.get("api_protocol") == "mistral_speech":
             raise ProviderError("This catalog model requires its dedicated API endpoint", retryable=False)
         adapter_cls = get_adapter_class(model.adapter_type)
  
@@ -504,7 +504,7 @@ class LLMGateway:
         _context_retry: bool = False,
     ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
         model = binding.model
-        if model.config.get("catalog_only"):
+        if model.config.get("catalog_only") or model.config.get("api_protocol") == "mistral_speech":
             raise ProviderError("This catalog model requires its dedicated API endpoint", retryable=False)
         adapter_cls = get_adapter_class(model.adapter_type)
 
