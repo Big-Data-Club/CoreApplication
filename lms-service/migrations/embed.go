@@ -7,3 +7,6 @@ import _ "embed"
 //
 //go:embed V021__learning_notifications.sql
 var LearningNotifications string
+
+//go:embed V023__always_publish_learning_resources.sql
+var AlwaysPublishLearningResources string

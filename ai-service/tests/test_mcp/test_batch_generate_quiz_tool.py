@@ -91,7 +91,8 @@ def test_correct_answers_are_balanced_without_changing_answer_text():
     assert positions == [0, 1, 2, 3]
 
 
-def test_complete_quiz_settings_include_schedule_and_attempt_limit():
+@pytest.mark.parametrize("publish", [None, False, True])
+def test_complete_quiz_settings_include_schedule_and_attempt_limit(publish):
     payload = _quiz_settings_payload(
         {
             "section_id": 378,
@@ -101,7 +102,7 @@ def test_complete_quiz_settings_include_schedule_and_attempt_limit():
             "available_from": "2026-09-02T08:00:00+07:00",
             "available_until": "2026-09-30T23:59:00+07:00",
             "shuffle_answers": True,
-            "publish": True,
+            **({"publish": publish} if publish is not None else {}),
         },
         [91, 92],
         fallback_title="Attention performance",

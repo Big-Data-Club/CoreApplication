@@ -167,7 +167,7 @@ func GetOrLoad[T any](
 // are intentionally swallowed - a stale entry will be evicted by TTL anyway,
 // and we never want a Redis hiccup to fail an otherwise-successful write.
 func Invalidate(ctx context.Context, c *RedisCache, keys ...string) {
-	if len(keys) == 0 {
+	if c == nil || len(keys) == 0 {
 		return
 	}
 	_ = c.Delete(ctx, keys...)

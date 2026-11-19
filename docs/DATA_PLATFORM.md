@@ -76,13 +76,25 @@ may instead apply V021 transactionally before rollout. Deploy LMS before fronten
 the Personalize text cleanup is compatible in either order. No Auth email change
 is required and no additional notification email is sent by this feature.
 
+V023 makes `course_sections.is_published`, `section_content.is_published` and
+`quizzes.is_published` always true. APIs and MCP normalize legacy false flags;
+database BEFORE triggers also override explicit false/NULL from other writers.
+Defaults are true, existing rows are backfilled parent-first and columns become
+NOT NULL. Startup installs V023 after V021 under the same transaction/advisory
+lock; operators can apply the migration transactionally before rollout instead.
+Course DRAFT/PUBLISHED/ARCHIVED status, organization visibility, enrollment and
+agent write approval remain independent access controls.
+
 Database triggers capture published course, chapter and content publication,
-edits, order changes and removals in the mutation's transaction. Draft/no-op/AI
-index-status writes are silent. Known course publications from the last 14 days
+edits, order changes and removals in the mutation's transaction. Quiz creation
+and meaningful quiz settings edits reuse content events, including the same
+chapter grouping key so a quiz and its content wrapper produce one grouped alert.
+Quiz score bookkeeping, no-op and AI index-status writes are silent. Draft
+courses do not generate content alerts. Known course publications from the last 14 days
 are backfilled; historical edits are not invented. The outbox has no recipient
 copies: visibility and accepted enrollment are checked when reading. The scope
 function matches the catalog's organization/private-organization rules. Revoked
-access, hidden content and moved resources cannot leak through old events.
+access, unavailable courses and moved resources cannot leak through old events.
 
 An indexed relay inspects only pending rows (50 per two-second tick), claims them
 with `FOR UPDATE SKIP LOCKED`, and coalesces Redis wake-ups by channel per batch.

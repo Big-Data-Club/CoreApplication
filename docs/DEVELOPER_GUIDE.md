@@ -395,3 +395,22 @@ course's relevance. A bounded Research Engineer topic rule boosts research,
 statistics and ML tooling; missing course level is neutral. These remain lexical
 rules, not semantic model inference. Deploy recommender and frontend together;
 no mastery backfill or migration is needed.
+## Learning publication policy
+
+Chapter, lesson/content and quiz `is_published` flags are always true, including
+API and MCP clients explicitly sending false. Migration
+`lms-service/migrations/V023__always_publish_learning_resources.sql` contains the
+full backfill, defaults, write guards and quiz notification capture. Run against
+the LMS database from a repository checkout using psql:
+
+```sql
+BEGIN;
+\i lms-service/migrations/V023__always_publish_learning_resources.sql
+COMMIT;
+```
+
+The LMS startup schema installer also installs V023 after V021 when absent.
+The backfill may create course-update notifications through existing triggers;
+it does not change a course's DRAFT/PUBLISHED/ARCHIVED status or enrollment.
+MCP authorization and approval still precede writes. Question Bank proposals
+remain proposals; an assembled course quiz is published immediately.

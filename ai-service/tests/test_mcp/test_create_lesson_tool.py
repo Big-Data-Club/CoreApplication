@@ -24,7 +24,8 @@ def test_lesson_file_url_requires_public_https():
 
 
 @pytest.mark.asyncio
-async def test_markdown_lesson_creates_text_draft(monkeypatch):
+@pytest.mark.parametrize("publish", [None, False, True])
+async def test_markdown_lesson_is_published_for_all_client_options(monkeypatch, publish):
     async def fake_create(**kwargs):
         assert kwargs["payload"]["type"] == "TEXT"
         assert kwargs["payload"]["metadata"]["content"] == "# Hello"
@@ -34,7 +35,12 @@ async def test_markdown_lesson_creates_text_draft(monkeypatch):
         "app.agents.tools.teacher.mcp_create_lesson._create_lesson_content",
         fake_create,
     )
+    async def fake_publish(content_id, user_id):
+        assert (content_id, user_id) == (123, 7)
+
+    monkeypatch.setattr("app.agents.tools.teacher.mcp_create_lesson._publish_content", fake_publish)
     result = await McpCreateLessonTool().execute(
+        **({"publish": publish} if publish is not None else {}),
         _user_id=7,
         course_id=11,
         section_id=12,
@@ -43,6 +49,8 @@ async def test_markdown_lesson_creates_text_draft(monkeypatch):
     )
     assert result.status == "success"
     assert result.data["content"]["id"] == 123
+    assert result.data["content"]["is_published"] is True
+    assert result.data["state"] == "published"
 
 
 @pytest.mark.asyncio

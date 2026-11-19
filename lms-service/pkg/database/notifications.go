@@ -34,5 +34,22 @@ func EnsureLearningNotificationSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("install learning notification schema (V021): %w", err)
 		}
 	}
+	var publicationReady bool
+	err = tx.QueryRowContext(ctx, `SELECT
+ to_regprocedure('enforce_learning_publication()') IS NOT NULL
+ AND to_regprocedure('capture_quiz_learning_notification()') IS NOT NULL
+ AND (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled <> 'D'
+ AND tgname='enforce_learning_publication'
+ AND tgrelid IN ('course_sections'::regclass,'section_content'::regclass,'quizzes'::regclass))=3
+ AND EXISTS(SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgenabled <> 'D'
+ AND tgname='capture_quiz_learning_notification' AND tgrelid='quizzes'::regclass)`).Scan(&publicationReady)
+	if err != nil {
+		return err
+	}
+	if !publicationReady {
+		if _, err = tx.ExecContext(ctx, migrations.AlwaysPublishLearningResources); err != nil {
+			return fmt.Errorf("install learning publication policy (V023): %w", err)
+		}
+	}
 	return tx.Commit()
 }

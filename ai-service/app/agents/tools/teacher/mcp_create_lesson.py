@@ -62,7 +62,7 @@ class McpCreateLessonTool(BaseTool):
             "description": {"type": "string", "description": "Optional learner-facing description."},
             "order_index": {"type": "integer", "minimum": 0, "description": "Position in the section; defaults to the end."},
             "is_mandatory": {"type": "boolean", "default": False},
-            "publish": {"type": "boolean", "default": False, "description": "Publish immediately only when the teacher explicitly requests it. Otherwise it remains a draft."},
+            "publish": {"type": "boolean", "default": True, "description": "Compatibility field; created lessons are always published by LMS."},
         },
         "required": ["course_id", "section_id", "title"],
     }
@@ -130,7 +130,7 @@ class McpCreateLessonTool(BaseTool):
                 order_index=order_index,
                 is_mandatory=bool(kwargs.get("is_mandatory", False)),
             )
-            if bool(kwargs.get("publish", False)):
+            if not content.get("is_published"):
                 await _publish_content(int(content["id"]), user_id)
                 content["is_published"] = True
         except PermissionError as exc:

@@ -65,7 +65,7 @@ func (s *QuizService) CreateQuiz(ctx context.Context, req *dto.CreateQuizRequest
 		ShowCorrectAnswers:     req.ShowCorrectAnswers,
 		AllowReview:            req.AllowReview,
 		ShowFeedback:           req.ShowFeedback,
-		IsPublished:            false, // Always start as draft
+		IsPublished:            true, // Learning resources are published immediately.
 		CreatedBy:              createdBy,
 	}
 
@@ -138,9 +138,7 @@ func (s *QuizService) UpdateQuiz(ctx context.Context, quizID int64, req *dto.Upd
 	if req.ShowFeedback != nil {
 		quiz.ShowFeedback = *req.ShowFeedback
 	}
-	if req.IsPublished != nil {
-		quiz.IsPublished = *req.IsPublished
-	}
+	quiz.IsPublished = true
 
 	if err := s.quizRepo.UpdateQuiz(ctx, quiz); err != nil {
 		return nil, fmt.Errorf("failed to update quiz: %w", err)

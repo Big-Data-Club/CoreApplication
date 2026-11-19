@@ -641,7 +641,7 @@ func (s *CourseService) CreateSection(ctx context.Context, courseID int64, req *
 		Title:       req.Title,
 		Description: sql.NullString{String: req.Description, Valid: req.Description != ""},
 		OrderIndex:  req.OrderIndex,
-		IsPublished: false,
+		IsPublished: true,
 	}
 
 	created, err := s.courseRepo.CreateSection(ctx, section)
@@ -761,7 +761,7 @@ func (s *CourseService) UpdateSection(ctx context.Context, sectionID int64, req 
 		updates["order_index"] = *req.OrderIndex
 	}
 	if req.IsPublished != nil {
-		updates["is_published"] = *req.IsPublished
+		updates["is_published"] = true
 	}
 
 	if len(updates) == 0 {
@@ -850,7 +850,7 @@ func (s *CourseService) CreateContent(ctx context.Context, sectionID int64, req 
 		Description: sql.NullString{String: req.Description, Valid: req.Description != ""},
 		OrderIndex:  req.OrderIndex,
 		Metadata:    metadata,
-		IsPublished: false,
+		IsPublished: true,
 		IsMandatory: req.IsMandatory,
 		CreatedBy:   userID,
 	}
@@ -1017,7 +1017,7 @@ func (s *CourseService) UpdateContent(ctx context.Context, contentID int64, req 
 		updates["metadata"] = string(metadata)
 	}
 	if req.IsPublished != nil {
-		updates["is_published"] = *req.IsPublished
+		updates["is_published"] = true
 	}
 	if req.IsMandatory != nil {
 		updates["is_mandatory"] = *req.IsMandatory

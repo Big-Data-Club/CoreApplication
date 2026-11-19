@@ -70,7 +70,7 @@ class McpBatchGenerateQuizTool(BaseTool):
                     "available_until": {"type": "string", "description": "RFC3339/ISO-8601 timestamp with timezone."},
                     "shuffle_questions": {"type": "boolean", "default": False},
                     "shuffle_answers": {"type": "boolean", "default": True},
-                    "publish": {"type": "boolean", "default": False},
+                    "publish": {"type": "boolean", "default": True, "description": "Compatibility field; assembled quizzes are always published by LMS."},
                     "enforce_bloom_ladder": {"type": "boolean", "default": True, "description": "For each quiz: questions 1–4 remember, 5–6 understand, 7 apply, 8+ analyze."},
                     "require_advanced_source_refs": {"type": "boolean", "default": True, "description": "Require questions 8–10 to cite the posted lesson/content evidence used to author them."},
                 },
@@ -343,7 +343,7 @@ def _quiz_settings_payload(settings_obj: dict[str, Any], item_ids: list[int], *,
         "shuffle_questions": bool(settings_obj.get("shuffle_questions", False)),
         "shuffle_answers": bool(settings_obj.get("shuffle_answers", True)),
         "auto_grade": True,
-        "is_published": bool(settings_obj.get("publish", False)),
+        "is_published": True,
     }
 
 

@@ -418,7 +418,7 @@ func (s *QuestionBankService) CreateQuizFromBank(
 			Description: toNullString(req.Description),
 			OrderIndex:  nextOrder,
 			Metadata:    []byte("{}"),
-			IsPublished: req.IsPublished,
+			IsPublished: true,
 			IsMandatory: true,
 			CreatedBy:   userID,
 		})
@@ -507,7 +507,7 @@ func (s *QuestionBankService) CreateQuizFromBank(
 		ShowCorrectAnswers:     true,
 		AllowReview:            true,
 		ShowFeedback:           true,
-		IsPublished:            req.IsPublished,
+		IsPublished:            true,
 		CreatedBy:              userID,
 	}
 
@@ -578,7 +578,7 @@ func (s *QuestionBankService) CreateQuizFromBank(
 	}
 
 	return &dto.CreateQuizFromBankResponse{
-		QuizID: quiz.ID, ContentID: contentID, QuestionsAdded: added, IsPublished: req.IsPublished,
+		QuizID: quiz.ID, ContentID: contentID, QuestionsAdded: added, IsPublished: true,
 	}, nil
 }
 
