@@ -91,6 +91,16 @@ Supported types: multichoice, truefalse, shortanswer and essay. Unsupported type
 non-image media, missing image attachments and incompatible weighted grading fail
 explicitly before saving.
 Existing authorized batch creation endpoints persist reviewed questions.
+Quiz question batches (1–100 items) validate all inputs and authorize once,
+then commit questions/options/accepted answers in one transaction. A failed or
+cancelled write rolls back the whole batch. Responses reuse inserted IDs and
+timestamps instead of reading every question back; best-effort bank mirroring
+resolves the course once after commit. Only the quiz batch POST uses the bounded
+two-minute costly-request budget; ordinary question requests retain 15 seconds.
+This removes per-question permission/transaction/read overhead without widening
+general timeouts. Older failed imports may already contain partial questions;
+review them before retrying, since this fix does not remove or deduplicate data.
+The quick AI import dialog recommends Moodle XML for direct structured parsing.
 
 Review flags and visibility aggregates live in sessionStorage per attempt;
 flags require no server writes. Visibility tracking uses `visibilitychange`, not

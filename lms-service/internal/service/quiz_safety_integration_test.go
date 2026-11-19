@@ -3,14 +3,102 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"example/hello/internal/dto"
 	"example/hello/internal/models"
 	"example/hello/internal/repository"
 	"example/hello/internal/testutil"
 )
+
+func batchQuestions(count int) []dto.CreateQuestionRequest {
+	questions := make([]dto.CreateQuestionRequest, count)
+	for i := range questions {
+		questions[i] = dto.CreateQuestionRequest{QuestionType: dto.QuestionTypeSingleChoice,
+			QuestionText: fmt.Sprintf("Imported question %d", i), Points: 1, OrderIndex: i,
+			AnswerOptions: []dto.CreateAnswerOptionRequest{
+				{OptionText: "Yes", IsCorrect: true, OrderIndex: 0},
+				{OptionText: "No", OrderIndex: 1},
+			}}
+	}
+	return questions
+}
+
+func TestQuestionBatchReturnsPersistedAnswersAndRollsBackOnWriteFailure(t *testing.T) {
+	s, db := quizFixture(t)
+	s.bankRepo = repository.NewQuestionBankRepository(db)
+	ctx := context.Background()
+	questions, err := s.BatchCreateQuestions(ctx, 1, batchQuestions(50), 1, "TEACHER")
+	if err != nil || len(questions) != 50 {
+		t.Fatalf("batch: count=%d err=%v", len(questions), err)
+	}
+	for _, question := range questions {
+		if question.ID == 0 || len(question.AnswerOptions) != 2 || question.AnswerOptions[0].ID == 0 || question.AnswerOptions[0].QuestionID != question.ID {
+			t.Fatalf("missing persisted answer metadata: %+v", question)
+		}
+	}
+	var bankCount int
+	if err := db.QueryRow(`SELECT count(*) FROM question_bank_items`).Scan(&bankCount); err != nil || bankCount != 50 {
+		t.Fatalf("batch bank sync: count=%d err=%v", bankCount, err)
+	}
+	if _, err := db.Exec(`ALTER TABLE quiz_answer_options ADD CONSTRAINT reject_fixture CHECK(option_text <> 'reject')`); err != nil {
+		t.Fatal(err)
+	}
+	failing := batchQuestions(2)
+	failing[1].AnswerOptions[1].OptionText = "reject"
+	result, err := s.BatchCreateQuestions(ctx, 1, failing, 1, "TEACHER")
+	if err == nil || result != nil {
+		t.Fatalf("expected atomic failure, got count=%d err=%v", len(result), err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM quiz_questions WHERE quiz_id=1`).Scan(&count); err != nil || count != 50 {
+		t.Fatalf("partial batch committed: count=%d err=%v", count, err)
+	}
+}
+
+func TestQuestionBatchDeadlineRollsBackEarlierQuestions(t *testing.T) {
+	s, db := quizFixture(t)
+	_, err := db.Exec(`CREATE FUNCTION slow_second_import() RETURNS trigger AS $$
+        BEGIN
+            IF NEW.question_text = 'Imported question 1' THEN PERFORM pg_sleep(1); END IF;
+            RETURN NEW;
+        END; $$ LANGUAGE plpgsql;
+        CREATE TRIGGER slow_import BEFORE INSERT ON quiz_questions FOR EACH ROW EXECUTE FUNCTION slow_second_import()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	result, err := s.BatchCreateQuestions(ctx, 1, batchQuestions(2), 1, "TEACHER")
+	if err == nil || result != nil || ctx.Err() == nil {
+		t.Fatalf("expected deadline failure: count=%d err=%v", len(result), err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM quiz_questions`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("deadline left partial questions: count=%d err=%v", count, err)
+	}
+}
+
+func TestQuestionBatchValidatesAllItemsAndAuthorizationBeforeWriting(t *testing.T) {
+	s, db := quizFixture(t)
+	for _, user := range []int64{2, 3} {
+		if _, err := s.BatchCreateQuestions(context.Background(), 1, batchQuestions(2), user, "STUDENT"); err == nil {
+			t.Fatal("unauthorized batch accepted")
+		}
+	}
+	invalid := batchQuestions(2)
+	invalid[1].AnswerOptions = nil
+	if _, err := s.BatchCreateQuestions(context.Background(), 1, invalid, 1, "TEACHER"); err == nil {
+		t.Fatal("invalid later question accepted")
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM quiz_questions`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("validation failure wrote questions: count=%d err=%v", count, err)
+	}
+}
 
 func quizFixture(t *testing.T) (*QuizService, *sql.DB) {
 	t.Helper()

@@ -16,6 +16,31 @@ import (
 
 type failedCounter struct{}
 
+func TestQuestionBatchUsesBoundedImportBudgetOnly(t *testing.T) {
+	for _, route := range []struct {
+		path   string
+		budget time.Duration
+	}{
+		{"/api/v1/quizzes/:quizId/questions/batch", 2 * time.Minute},
+		{"/api/v1/quizzes/:quizId/questions", 15 * time.Second},
+	} {
+		t.Run(route.path, func(t *testing.T) {
+			r := gin.New()
+			r.Use(RequestBudget(1024, config.DefaultRequestLimits()))
+			r.POST(route.path, func(c *gin.Context) {
+				deadline, ok := c.Request.Context().Deadline()
+				remaining := time.Until(deadline)
+				if !ok || remaining > route.budget || remaining < route.budget-time.Second {
+					t.Fatalf("unexpected deadline: %v", remaining)
+				}
+				c.Status(204)
+			})
+			path := strings.ReplaceAll(route.path, ":quizId", "117")
+			r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", path, nil))
+		})
+	}
+}
+
 func (failedCounter) IncrementWithExpiry(context.Context, string, time.Duration) (int64, error) {
 	return 0, errors.New("redis offline")
 }

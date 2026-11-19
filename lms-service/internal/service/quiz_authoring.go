@@ -191,6 +191,33 @@ func (s *QuizService) CreateQuestion(ctx context.Context, req *dto.CreateQuestio
 		return nil, err
 	}
 
+	aggregate, err := s.prepareQuestion(req)
+	if err != nil {
+		return nil, err
+	}
+	question := &aggregate.QuizQuestion
+	options, answers := aggregate.AnswerOptions, aggregate.CorrectAnswers
+
+	if err := s.quizRepo.CreateQuestionWithAnswers(ctx, question, options, answers); err != nil {
+		return nil, err
+	}
+
+	// Mirroring remains best-effort but has no unbounded background goroutine.
+	if err := s.mirrorQuestionToBank(ctx, req, userID); err != nil {
+		logger.Error("Question bank mirror failed", err)
+	}
+
+	// Retrieve complete question
+	questionWithOptions, err := s.quizRepo.GetQuestionWithOptions(ctx, question.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.buildQuestionResponse(questionWithOptions), nil
+}
+
+// prepareQuestion validates and maps input without database work.
+func (s *QuizService) prepareQuestion(req *dto.CreateQuestionRequest) (*models.QuestionWithOptions, error) {
 	// Validate question type and requirements
 	if err := s.validateQuestionRequest(req); err != nil {
 		return nil, err
@@ -254,22 +281,7 @@ func (s *QuizService) CreateQuestion(ctx context.Context, req *dto.CreateQuestio
 		}
 	}
 
-	if err := s.quizRepo.CreateQuestionWithAnswers(ctx, question, options, answers); err != nil {
-		return nil, err
-	}
-
-	// Mirroring remains best-effort but has no unbounded background goroutine.
-	if err := s.mirrorQuestionToBank(ctx, req, userID); err != nil {
-		logger.Error("Question bank mirror failed", err)
-	}
-
-	// Retrieve complete question
-	questionWithOptions, err := s.quizRepo.GetQuestionWithOptions(ctx, question.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.buildQuestionResponse(questionWithOptions), nil
+	return &models.QuestionWithOptions{QuizQuestion: *question, AnswerOptions: options, CorrectAnswers: answers}, nil
 }
 
 // mirrorQuestionToBank mirrors a committed question using the caller deadline.
@@ -281,6 +293,10 @@ func (s *QuizService) mirrorQuestionToBank(ctx context.Context, req *dto.CreateQ
 	if err != nil {
 		return err
 	}
+	return s.mirrorQuestionToBankForCourse(ctx, req, userID, courseID)
+}
+
+func (s *QuizService) mirrorQuestionToBankForCourse(ctx context.Context, req *dto.CreateQuestionRequest, userID, courseID int64) error {
 	options, err := json.Marshal(req.AnswerOptions)
 	if err != nil {
 		return err
@@ -311,26 +327,39 @@ func (s *QuizService) BatchCreateQuestions(ctx context.Context, quizID int64, re
 		return nil, err
 	}
 
-	var createdQuestions []*dto.QuestionResponse
-
+	questions := make([]*models.QuestionWithOptions, len(reqs))
 	for i := range reqs {
-		// Ensure QuizID matches
 		reqs[i].QuizID = quizID
-
-		// Create question
-		question, err := s.CreateQuestion(ctx, &reqs[i], userID, userRole)
+		question, err := s.prepareQuestion(&reqs[i])
 		if err != nil {
-			// Note: since we iterate over CreateQuestion, if one fails midway,
-			// the previous ones are already committed. In a real-world scenario,
-			// we'd want a single transaction for the whole batch, but since this
-			// uses the existing service method, partial success might happen.
-			// Returning what we created so far and the error.
-			return createdQuestions, fmt.Errorf("failed to create question at index %d: %w", i, err)
+			return nil, fmt.Errorf("invalid question at index %d: %w", i, err)
 		}
-
-		createdQuestions = append(createdQuestions, question)
+		questions[i] = question
+	}
+	if err := s.quizRepo.CreateQuestionsWithAnswers(ctx, questions); err != nil {
+		return nil, err
 	}
 
+	// Optional mirroring stays best-effort, with one course lookup for the batch.
+	if s.bankRepo != nil && ctx.Err() == nil {
+		courseID, err := s.quizRepo.GetQuizCourseID(ctx, quizID)
+		if err != nil {
+			logger.Error("Question bank batch course lookup failed", err)
+		} else {
+			for i := range reqs {
+				if ctx.Err() != nil {
+					break
+				}
+				if err := s.mirrorQuestionToBankForCourse(ctx, &reqs[i], userID, courseID); err != nil {
+					logger.Error("Question bank mirror failed", err)
+				}
+			}
+		}
+	}
+	createdQuestions := make([]*dto.QuestionResponse, len(questions))
+	for i, question := range questions {
+		createdQuestions[i] = s.buildQuestionResponse(question)
+	}
 	return createdQuestions, nil
 }
 

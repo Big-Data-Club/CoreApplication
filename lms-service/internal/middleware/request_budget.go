@@ -44,7 +44,8 @@ func RequestBudget(uploadBytes int64, limits config.RequestLimits) gin.HandlerFu
 			slots = callbacks
 			bodyLimit = 16 << 20
 			timeout = 30 * time.Second
-		case strings.Contains(path, "generate") || strings.Contains(path, "/ai/") || strings.Contains(path, "bulk-grade"):
+		case (c.Request.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/quizzes/") && strings.HasSuffix(path, "/questions/batch")) ||
+			strings.Contains(path, "generate") || strings.Contains(path, "/ai/") || strings.Contains(path, "bulk-grade"):
 			slots = costly
 			timeout = 2 * time.Minute
 		case strings.Contains(path, "/files/"):
