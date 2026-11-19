@@ -452,6 +452,11 @@ class DraftingSpecialist:
             yield AgentEvent(type=AgentEventType.SUBAGENT_THINK,
                 data={"subagent_id": self.subagent_id, "delta": more},
                 session_id=self.session_id, turn_id=self.turn_id)
+        if self.completion.thinking:
+            yield AgentEvent(type=AgentEventType.THINKING,
+                data={"subagent_id": self.subagent_id, "delta": self.completion.thinking},
+                session_id=self.session_id, turn_id=self.turn_id)
+        self.answered_model = self.completion.model or self.answered_model
         draft = self.completion.text
 
         yield AgentEvent(

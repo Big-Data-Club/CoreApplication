@@ -13,6 +13,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def compact_tool_schemas(schemas: list[dict]) -> list[dict]:
+    """Trim schema prose for small budgets without changing validation rules."""
+    def compact(value):
+        if isinstance(value, dict):
+            return {key: (item[:160] if key == "description" and isinstance(item, str)
+                          else compact(item)) for key, item in value.items()}
+        if isinstance(value, list):
+            return [compact(item) for item in value]
+        return value
+    return compact(schemas)
+
 # Tools that are cheap, safe and broadly useful - always worth keeping in
 # the focused view when the planner asked for retrieval of any kind.
 _RETRIEVAL_CORE = {"search_course_materials", "search_web", "fetch_page"}

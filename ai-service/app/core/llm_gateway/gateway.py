@@ -561,6 +561,8 @@ class LLMGateway:
                         first_chunk = False
                     if usage:
                         total_usage = usage
+                    if isinstance(raw, dict) and not raw.get("model"):
+                        raw = {**raw, "model": model.model_name}
                     yield delta, usage, raw
 
                 # Success path

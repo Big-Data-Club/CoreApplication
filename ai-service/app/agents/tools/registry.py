@@ -207,7 +207,9 @@ async def execute_tool(
     if supplied_course is not None and (type(supplied_course) is not int or supplied_course <= 0):
         return deny("invalid_course_id", "A positive integer course_id is required.")
     if course_id is not None and supplied_course is not None and course_id != supplied_course:
-        return deny("course_scope_mismatch", "The requested course differs from the verified execution context.")
+        result = deny("course_scope_mismatch", "Use the verified course for the current lesson; do not search another course.")
+        result.data["verified_course_id"] = course_id
+        return result
     resolved_course = course_id if course_id is not None else supplied_course
     requires_course = name in COURSE_REQUIRED_TOOLS or (
         name == "generate_content_draft" and not arguments.get("source_text")

@@ -169,6 +169,30 @@ class PromptBudgetTests(unittest.TestCase):
 
 
 class StreamFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stream_labels_missing_provider_model_from_selected_binding(self) -> None:
+        gateway = LLMGateway()
+        binding = TaskBinding(1, TASK_AGENT_REACT, _model(8000), 1, None, None, False, False, True)
+        gateway.key_pool = SimpleNamespace(
+            lease=AsyncMock(return_value=SimpleNamespace(id=1, plaintext="fixture", record=SimpleNamespace(tpm_limit=None))),
+            record_success=AsyncMock(),
+        )
+        raw = {"choices": [{"delta": {"content": "answer"}, "finish_reason": "stop"}]}
+
+        class Adapter:
+            def __init__(self, **kwargs):
+                pass
+
+            async def stream(self, **kwargs):
+                yield "answer", Usage(), raw
+
+        with patch("app.core.llm_gateway.gateway.get_adapter_class", return_value=Adapter), \
+             patch.object(gateway, "_log", new=AsyncMock()):
+            chunks = [part async for part in gateway._stream_binding(binding=binding,
+                req=ChatRequest(task=TASK_AGENT_REACT, messages=[{"role": "user", "content": "question"}]),
+                attempt_no=1, fallback_used=False)]
+        self.assertEqual(chunks[0][2]["model"], "test-model")
+        self.assertNotIn("model", raw)
+
     async def test_preflight_tries_another_key_on_same_model(self) -> None:
         gateway = LLMGateway()
         binding = TaskBinding(1, TASK_AGENT_REACT, _model(20000), 1, None, None, False, False, True)

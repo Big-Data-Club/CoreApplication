@@ -1,3 +1,39 @@
+## Agent turn recovery and dialogue continuity (2026-11-19)
+
+Recent dialogue receives a bounded reserve before optional context when a
+history window exists. Durable preferences can use at most one quarter of the
+memory envelope. For request budgets at or below 6000 tokens, tool description
+prose is shortened without changing parameter schemas or authorization rules;
+Standard's memory estimate excludes unavailable web tools. Actual gateway
+packing remains authoritative and preserves the current request.
+
+Identical read-only tool calls share a per-turn result cache. Writes and approval
+workflows never use this cache. An iteration containing only previously completed
+reads goes directly to answer-only synthesis. The synthesis request retains prior
+user/assistant dialogue and includes identical evidence payloads once. A mismatched
+course is still rejected at execution, with the verified course ID returned as a
+correction hint; the model's supplied course ID is never silently substituted.
+
+Tool SSE events and persisted activities carry optional `call_id` values. The
+frontend de-duplicates repeated starts by ID and updates the corresponding result,
+rather than overwriting every activity with the same tool name. Old events without
+IDs remain supported. Failed read summaries use a plain UI message while the
+model-side result retains the diagnostic needed for correction. Tool codes and
+budget notices are control signals; the answer prompt asks for an ordinary-language
+limitation instead of reproducing these signals as learner-facing explanations.
+
+Both normal answers and final synthesis retain the answering model and exposed
+thinking, including answer continuations. Synthesis streams trace events separately
+from answer text and persists them in the existing owned message metadata. Missing
+model labels in dict stream chunks are filled from the selected gateway binding;
+the UI shows the model while generating and after completion. No synthetic
+reasoning transcript is requested in the mentor prompt. Legacy tagged reasoning
+remains separated for compatibility; shared logs record counts only. Models that
+do not expose thinking are not assigned an invented trace.
+Thinking-only responses receive a bounded answer-only completion attempt using
+the compact system prompt when needed; a persistent lack of answer text is
+reported as incomplete rather than saved as an empty successful response.
+
 ## Mistral model catalog and exposed reasoning (2026-11-19)
 
 Gateway bootstrap seeds the Mistral AI provider (`openai_compat`,

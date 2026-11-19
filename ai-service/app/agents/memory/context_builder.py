@@ -92,7 +92,9 @@ class ContextBuilder:
             memory_budget_tokens if memory_budget_tokens is not None else settings.max_context_tokens,
         ))
         # Allocate by purpose and actual demand; unused tiers yield to dialogue.
-        durable_budget = min(512, budget)
+        # Preserve room for original dialogue even when only a small envelope
+        # remains; preferences must not consume the entire recent-history tier.
+        durable_budget = min(512, budget // 4)
         facts_reserve = min(settings.ltm_facts_budget, budget // 2) if intent_type == "progress_advice" else 0
 
         raw: dict[str, Any] = {}

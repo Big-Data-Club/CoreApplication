@@ -83,7 +83,7 @@ async def test_flash_preserves_three_call_limit(limits):
     await collect(gateway, state, "flash")
     assert state.continuations == 3 and state.incomplete
     assert state.stop_cause == "answer_budget_exhausted"
-    assert "lượt hoàn tất cuối" in str(gateway.requests[-1].messages)
+    assert "final completion call" in str(gateway.requests[-1].messages)
 
 
 @pytest.mark.asyncio
@@ -162,7 +162,7 @@ async def test_continuation_strips_tool_protocol_and_does_not_reuse_stale_packer
     await _request_answer_continuation(gateway, req, "Partial", question="Thuê QPU?")
     followup = gateway.requests[0]
     packed = followup.message_packer(followup.messages, {}, 10000)
-    assert "Tiếp tục chính xác" in str(packed) and "Thuê QPU?" in str(packed)
+    assert "Continue exactly where the answer stopped" in str(packed) and "Thuê QPU?" in str(packed)
     assert all(m["role"] != "tool" and "tool_calls" not in m and "tool_call_id" not in m for m in packed)
     assert req.extra != {}  # caller's request is not mutated
 
@@ -277,7 +277,7 @@ async def test_standard_still_stops_at_configured_call_limit(limits):
     await collect(gateway, state, "standard")
     assert state.continuations == 8 and state.incomplete
     assert state.stop_cause == "answer_budget_exhausted"
-    assert "lượt hoàn tất cuối" in str(gateway.requests[-1].messages)
+    assert "final completion call" in str(gateway.requests[-1].messages)
 
 
 @pytest.mark.asyncio

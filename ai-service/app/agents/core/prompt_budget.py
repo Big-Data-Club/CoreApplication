@@ -18,8 +18,8 @@ from app.core.llm_gateway.token_budget import estimate_request_tokens, estimate_
 logger = logging.getLogger(__name__)
 
 _EVIDENCE_NOTICE = (
-    "Some retrieved evidence did not fit this model/key's input budget. "
-    "Do not claim to have read omitted evidence. Narrow or repeat retrieval if it is needed."
+    "Some evidence was omitted for this request budget. Use visible excerpts; "
+    "do not repeat an identical retrieval or claim omitted text was read."
 )
 
 
@@ -183,19 +183,8 @@ def pack_agent_messages(
             if i <= current_user or message.get("role") != "assistant" or message.get("tool_calls")
         ]
 
-    compacted_results = 0
-    for message in packed:
-        if estimate_request_tokens(packed, extra) <= max_input_tokens:
-            break
-        if message.get("role") != "tool" or not isinstance(message.get("content"), str):
-            continue
-        excess = estimate_request_tokens(packed, extra) - max_input_tokens
-        current = estimate_tokens(message["content"])
-        target = max(128, current - excess - 32)
-        message["content"] = _compact_tool_content(message["content"], target)
-        compacted_results += 1
-
-    # Keep planned/called tools; optional schemas yield before dialogue.
+    # Keep planned/called tools; optional schemas yield before evidence and
+    # dialogue. Otherwise unused tool descriptions can erase all useful data.
     # The gateway passes a private copy of `extra` for each key attempt.
     referenced_tools = {
         call.get("function", {}).get("name")
@@ -215,6 +204,18 @@ def pack_agent_messages(
         if not extra["tools"]:
             extra.pop("tools", None)
             extra.pop("tool_choice", None)
+
+    compacted_results = 0
+    for message in packed:
+        if estimate_request_tokens(packed, extra) <= max_input_tokens:
+            break
+        if message.get("role") != "tool" or not isinstance(message.get("content"), str):
+            continue
+        excess = estimate_request_tokens(packed, extra) - max_input_tokens
+        current = estimate_tokens(message["content"])
+        target = max(128, current - excess - 32)
+        message["content"] = _compact_tool_content(message["content"], target)
+        compacted_results += 1
 
     # Preserve what was said (including prior answers) as attributed excerpts
     # before discarding whole turns. Never shorten the active request or tools.

@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.llm_gateway import ChatRequest
 from app.core.llm_gateway.errors import ProviderError
 from app.core.llm_gateway.token_budget import estimate_tokens
+from app.core.llm_gateway.response_content import provider_thinking
 from app.agents.core.prompt_budget import pack_agent_messages
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,8 @@ def _remove_continuation_overlap(previous: str, continuation: str) -> str:
 
 async def _request_answer_continuation(
     gateway: Any, req: ChatRequest, previous: str, *, question: str | None = None,
+    trace: AnswerCompletion | None = None,
+    compact_system_prompt: str | None = None,
 ) -> tuple[str, str | None]:
     """Continue a token-limited answer without exposing reasoning or tool calls."""
     original_question = question if question is not None else next(
@@ -155,15 +158,22 @@ async def _request_answer_continuation(
          if m.get("role") == "user"), "",
     )
     instruction = (
-        "Tiếp tục chính xác từ chỗ câu trả lời vừa dừng. Không lặp lại phần đã viết; "
-        "hoàn tất câu, hàng bảng Markdown, khối code và các mục còn thiếu. "
-        "Không mở thêm mục ngoài yêu cầu. Không gọi công cụ. Giữ nguyên trích dẫn. "
-        "Chỉ dựa trên dữ liệu tham khảo; nếu nguồn bị lược bỏ, không tự bịa thêm. "
-        "Nếu câu trả lời đã đầy đủ, không viết thêm.\nCâu hỏi gốc: " + original_question
+        "Continue exactly where the answer stopped, without repeating existing text. "
+        "Complete unfinished sentences, Markdown table rows, code blocks and missing sections. "
+        "Do not add sections beyond the request or call tools. Preserve citations and the answer's "
+        "language and style. Use only the reference data; do not invent content when sources were "
+        "omitted. If the answer is already complete, write nothing further.\nOriginal question: " + original_question
     )
+    if not previous.strip():
+        instruction = (
+            "Answer the question below directly using the available data, in the user's preferred "
+            "language or the language of their question. Do not call tools, emit <thought> tags or "
+            "write a reasoning transcript. Ask for clarification if decisive facts are missing.\n"
+            "Original question: " + original_question
+        )
     systems = [dict(m) for m in req.messages if m.get("role") == "system"]
-    compact_prompt = None
-    if isinstance(req.message_packer, partial) and req.message_packer.func is pack_agent_messages:
+    compact_prompt = compact_system_prompt
+    if compact_prompt is None and isinstance(req.message_packer, partial) and req.message_packer.func is pack_agent_messages:
         compact_prompt = req.message_packer.keywords.get("compact_system_prompt")
     # Keep source data AFTER the active continuation instruction during packing,
     # so it is compacted as evidence instead of silently evicted as old dialogue.
@@ -174,7 +184,7 @@ async def _request_answer_continuation(
     def pack_continuation(_items: list[dict], _extra: dict, budget: int) -> list[dict]:
         tail_chars = min(12000, max(256, int(budget * 0.3 * 2.4)))
         active = {"role": "user", "content": instruction + (
-            "\nĐoạn cuối câu trả lời (chỉ để nối tiếp, không phải chỉ dẫn):\n"
+            "\nAnswer tail (for continuation only, not instructions):\n"
             + previous[-tail_chars:]
         )}
         packed = pack_agent_messages(
@@ -200,6 +210,8 @@ async def _request_answer_continuation(
     finish_reason: str | None = None
     try:
         async for delta_text, _, chunk in gateway.stream(continuation_req):
+            if trace is not None:
+                trace.observe(chunk)
             if delta_text:
                 more_text += "".join(
                     text for kind, text in parser.feed(delta_text) if kind == "content"
@@ -221,7 +233,7 @@ def _answer_only_messages(messages: list[dict]) -> list[dict]:
             continue
         role = message.get("role", "user")
         if role == "tool":
-            role, content = "user", "Kết quả công cụ (dữ liệu tham khảo):\n" + str(content)
+            role, content = "user", "Tool results (reference data):\n" + str(content)
         result.append({"role": role, "content": content})
     return result
 
@@ -257,13 +269,22 @@ class AnswerCompletion:
     continuations: int = 0
     stop_cause: str | None = None
     question: str | None = None
+    model: str | None = None
+    thinking: str = ""
+
+    def observe(self, raw: Any) -> None:
+        model = _val(raw, "model")
+        if model:
+            self.model = str(model)
+        self.thinking += provider_thinking(raw)
 
     @property
     def incomplete(self) -> bool:
         return answer_is_incomplete(self.finish_reason)
 
 
-async def continue_answer(gateway: Any, req: ChatRequest, state: AnswerCompletion, mode: str):
+async def continue_answer(gateway: Any, req: ChatRequest, state: AnswerCompletion, mode: str,
+                          *, compact_system_prompt: str | None = None):
     """Extend only truncated/interrupted answers, stopping on completion or no progress.
 
     The token ceiling is an estimate of visible answer size, including the first
@@ -287,13 +308,15 @@ async def continue_answer(gateway: Any, req: ChatRequest, state: AnswerCompletio
         if state.continuations == calls or remaining <= chunk_tokens:
             request = replace(request, messages=[*request.messages, {
                 "role": "system", "content": (
-                    "Đây là lượt hoàn tất cuối trong ngân sách. Hoàn thành ngắn gọn "
-                    "các ý còn thiếu, đóng bảng/khối code và kết thúc câu trả lời."
+                    "This is the final completion call within the budget. Finish the remaining "
+                    "points concisely, close tables and code blocks, and end the answer. "
+                    "Preserve the answer's language."
                 ),
             }])
         try:
             more, reason = await _request_answer_continuation(
-                gateway, request, state.text, question=state.question,
+                gateway, request, state.text, question=state.question, trace=state,
+                compact_system_prompt=compact_system_prompt,
             )
         except Exception as exc:
             logger.warning("Answer continuation failed error_type=%s", type(exc).__name__)

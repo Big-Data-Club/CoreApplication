@@ -41,5 +41,5 @@ class RecallConversationTool(BaseTool):
         return ToolResult(
             status="success",
             data={"results": results, "scope": "current_owned_session", "bounded_window": True},
-            message=f"Retrieved {len(results)} archived messages. This is a bounded window, not the complete conversation.",
+            message=f"Đã tìm thấy {len(results)} tin nhắn trong cuộc trò chuyện này.",
         )
