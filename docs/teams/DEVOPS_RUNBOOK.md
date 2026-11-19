@@ -595,7 +595,11 @@ manifest cannot overwrite unrelated deployment images. It also does not
 delete persistent volumes.
 
 `render-deployment.py` uses kubectl's client dry-run JSON plus Python's standard
-library, without adding a runner dependency. Shared AI manifests cannot apply an
+library, without adding a runner dependency. It accepts both consecutive JSON
+objects from multi-document manifests and a Kubernetes List, and rejects invalid
+or partial JSON before applying anything. The parent deploy process owns rollback;
+inherited command-substitution ERR traps do not roll workloads back twice.
+Shared AI manifests cannot apply an
 unselected worker or briefly deploy their placeholder image. Farm configuration
 annotations accompany the final image in the same template update.
 

@@ -122,6 +122,10 @@ rollback_on_error() {
   if (( exit_code == 0 )); then
     return
   fi
+  # ERR is inherited by command substitutions; the parent owns rollback.
+  if (( BASH_SUBSHELL > 0 )); then
+    return "$exit_code"
+  fi
   echo "Deployment failed; rolling back workloads changed by this run." >&2
   for deployment in "${updated[@]}"; do
     # A newly-created workload has no meaningful previous image.  It is

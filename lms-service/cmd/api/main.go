@@ -272,7 +272,7 @@ func main() {
 		})
 	})
 
-	// Initialize handlers
+	// Initialize handlers.
 	notificationService := service.NewNotificationService(db, redisClient)
 	notificationHandler := handler.NewNotificationHandler(notificationService, redisClient)
 	startWorker(notificationService.Run)

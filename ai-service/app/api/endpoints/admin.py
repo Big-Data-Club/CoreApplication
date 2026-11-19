@@ -14,7 +14,6 @@ settings = get_settings()
 
 router = APIRouter(prefix="/admin", tags=["Admin - Migration"])
 
-
 class ReindexRequest(BaseModel):
     course_id: Optional[int] = None
 

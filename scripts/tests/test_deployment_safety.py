@@ -85,7 +85,14 @@ with open(os.environ['CALLS'], 'a') as out:
     out.write(json.dumps({'args': a, 'payload': json.loads(payload) if payload else None}) + '\\n')
 if a[:1] == ['create'] and '--dry-run=client' in a:
     docs = list(yaml.safe_load_all(Path(a[a.index('-f') + 1]).read_text()))
-    print(json.dumps({'kind': 'List', 'items': docs}))
+    renders = sum(json.loads(line)['args'][:1] == ['create'] for line in Path(os.environ['CALLS']).read_text().splitlines())
+    if str(renders) == os.environ.get('FAIL_RENDER_AT'):
+        print('{}\\ninvalid JSON')
+    elif os.environ.get('RENDER_LIST') == '1':
+        print(json.dumps({'kind': 'List', 'items': docs}))
+    else:
+        for doc in docs:
+            print(json.dumps(doc, indent=2))
 elif a[:1] == ['get']:
     target = a[1]
     if target == 'deployment': pass  # suspended gateways do not exist
@@ -117,6 +124,24 @@ elif a[:2] == ['rollout', 'status'] and a[2] == os.environ.get('FAIL_ROLLOUT'):
         first_wait = next(i for i, c in enumerate(calls) if c['args'][:3] == ['rollout', 'status', 'deployment/ai-service'])
         self.assertLess(apply_indices[0], first_wait)
         self.assertLess(first_wait, apply_indices[1])
+
+    def test_kubectl_list_output_is_also_supported(self):
+        self.setup_deployment()
+        result = self.run_script("deploy-production.sh", SERVICES="ai-service", RENDER_LIST="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        applied = [c['payload'] for c in self.commands() if c['payload']]
+        self.assertEqual(len(applied), 1)
+        self.assertEqual([d['metadata']['name'] for d in applied[0]['items'] if d['kind'] == 'Deployment'], ['ai-service'])
+
+    def test_failed_render_rolls_back_once_and_never_applies_partial_output(self):
+        self.setup_deployment()
+        result = self.run_script("deploy-production.sh", FAIL_RENDER_AT="2")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stderr.count('Deployment failed; rolling back'), 1)
+        self.assertEqual(sum(bool(c['payload']) for c in self.commands()), 1)
+        restored = [c for c in self.commands() if c['args'][:3] == ['set', 'image', 'deployment/ai-service']]
+        self.assertEqual(len(restored), 1)
+        self.assertIn('ai-service=test/bdc-ai:old-sha', restored[0]['args'])
 
     def test_failed_rollout_restores_image_and_does_not_start_next_workload(self):
         self.setup_deployment()
