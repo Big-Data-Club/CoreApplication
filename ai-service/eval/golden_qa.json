@@ -1,5 +1,24 @@
 [
   {
+    "id": "mentor-rl-prerequisite-coverage",
+    "opt_in": true,
+    "requires_course": true,
+    "agent": "mentor",
+    "pageType": "lesson",
+    "message": "Để hiểu Reinforcement Learning, tôi nên nắm chắc những gì? Sắp xếp thứ tự học và giải thích các kiến thức nền cần thiết.",
+    "expected_sources": true,
+    "must_cover": {
+      "probability_expectation": ["xác suất", "kỳ vọng", "probability", "expectation"],
+      "mdp": ["mdp", "markov"],
+      "reward_return": ["return", "tổng phần thưởng", "tích lũy", "discount"],
+      "policy": ["policy", "chính sách"],
+      "value": ["hàm giá trị", "value function", "v(s)", "q(s"],
+      "bellman": ["bellman"],
+      "exploration_exploitation": ["exploration", "khám phá", "khai thác"],
+      "learning_order": ["thứ tự", "trước", "sau đó", "lộ trình", "first", "then"]
+    }
+  },
+  {
     "id": "mentor-oop",
     "agent": "mentor",
     "message": "Polymorphism trong OOP là gì? Cho ví dụ cụ thể.",

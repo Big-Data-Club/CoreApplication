@@ -4,11 +4,13 @@ Golden-QA evaluation harness for the BDC agent.
 Runs a set of golden questions against a LIVE ai-service and scores the
 verifiability contract:
 
-  1. grounding   - cases marked expected_sources=true must return
-                   DONE.references with >=1 entry.
-  2. no-fabrication - every inline [n] marker in the answer must map to an
+  1. grounding   - expected_sources=true requires an actual valid citation,
+                   not merely a nonempty list of retrieved references.
+  2. citation integrity - every inline citation marker must map to an
                    existing reference (no dangling citations).
   3. relevance   - answer must contain the configured keywords (casefold).
+  4. aspect mentions - optional must_cover groups detect missing topic mentions;
+                   this is not a factual entailment or comprehension score.
 
 Usage (service must be running):
     python scripts/eval_golden_qa.py \
@@ -24,6 +26,7 @@ import asyncio
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,12 +34,14 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.agents.core.references import validate_inline_citations  # noqa: E402
+from app.agents.core.retrieval_evidence import cited_refs  # noqa: E402
 
 GOLDEN_FILE = Path(__file__).resolve().parents[1] / "eval" / "golden_qa.json"
 
 
 async def run_case(client: httpx.AsyncClient, base_url: str, secret: str,
-                   user_id: int, case: dict) -> dict[str, Any]:
+                   user_id: int, case: dict, course_id: int | None = None) -> dict[str, Any]:
+    started = time.monotonic()
     payload = {
         "message": case["message"],
         "agent_type": case.get("agent", "mentor"),
@@ -45,6 +50,9 @@ async def run_case(client: httpx.AsyncClient, base_url: str, secret: str,
     }
     if case.get("system_context"):
         payload["system_context"] = case["system_context"]
+    if course_id is not None:
+        payload["course_id"] = course_id
+        payload["page_context"]["courseId"] = course_id
     result: dict[str, Any] = {
         "id": case["id"], "ok": True, "failures": [],
         "text": "", "references": [], "model": None,
@@ -79,15 +87,19 @@ async def run_case(client: httpx.AsyncClient, base_url: str, secret: str,
                 elif etype == "done":
                     references = data.get("references") or []
                     result["model"] = data.get("model")
+                    result["retrieval_evidence"] = data.get("retrieval_evidence")
 
     answer = "".join(text_parts)
     result["text"] = answer
     result["references"] = [r.get("title") for r in references]
+    result["elapsed_seconds"] = round(time.monotonic() - started, 3)
+    actual_citations = cited_refs(answer) & set(range(1, len(references) + 1))
+    result["cited_sources"] = len(actual_citations)
 
     # 1. Grounding
-    if case.get("expected_sources") and not references:
+    if case.get("expected_sources") and not actual_citations:
         result["ok"] = False
-        result["failures"].append("expected sources but DONE.references was empty")
+        result["failures"].append("expected grounded citations, not just retrieved references")
 
     # 2. No fabricated citations
     invalid = validate_inline_citations(answer, len(references))
@@ -109,6 +121,17 @@ async def run_case(client: httpx.AsyncClient, base_url: str, secret: str,
         result["ok"] = False
         result["failures"].append(f"expected one of {any_of} in the answer")
 
+    # Lexical aspect coverage is a regression signal, not an entailment or
+    # comprehension score. Live evaluation still requires substantive review.
+    coverage = {aspect: any(term.casefold() in lowered for term in terms)
+                for aspect, terms in case.get("must_cover", {}).items()}
+    if coverage:
+        result["aspect_mentions"] = coverage
+        absent = [aspect for aspect, present in coverage.items() if not present]
+        if absent:
+            result["ok"] = False
+            result["failures"].append(f"missing required aspect mentions: {absent}")
+
     if not answer.strip():
         result["ok"] = False
         result["failures"].append("empty answer")
@@ -120,16 +143,30 @@ async def main() -> int:
     ap.add_argument("--base-url", default="http://localhost:8000")
     ap.add_argument("--secret", required=True)
     ap.add_argument("--user-id", type=int, default=1)
+    ap.add_argument("--course-id", type=int)
+    ap.add_argument("--case-id", action="append", help="Run only selected case IDs")
     args = ap.parse_args()
 
     cases = json.loads(GOLDEN_FILE.read_text(encoding="utf-8"))
+    if args.case_id:
+        cases = [case for case in cases if case["id"] in args.case_id]
+        if not cases:
+            ap.error("No matching case IDs")
+    else:
+        cases = [case for case in cases if not case.get("opt_in")]
+    if args.course_id is not None and args.course_id <= 0:
+        ap.error("--course-id must be positive")
+    if any(case.get("requires_course") for case in cases) and args.course_id is None:
+        ap.error("Selected cases require --course-id for an authorized course")
     results: list[dict[str, Any]] = []
     async with httpx.AsyncClient() as client:
         for case in cases:
-            res = await run_case(client, args.base_url, args.secret, args.user_id, case)
+            res = await run_case(client, args.base_url, args.secret, args.user_id, case, args.course_id)
             results.append(res)
             status = "PASS" if res["ok"] else "FAIL"
             print(f"[{status}] {res['id']} model={res['model']} refs={len(res['references'])}")
+            if res.get("retrieval_evidence"):
+                print(f"       evidence={json.dumps(res['retrieval_evidence'], sort_keys=True)} latency={res['elapsed_seconds']}s")
             for failure in res["failures"]:
                 print(f"       - {failure}")
 

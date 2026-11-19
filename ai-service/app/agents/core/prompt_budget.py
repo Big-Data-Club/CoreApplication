@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from app.agents.core.conversation_task import fit_dialogue_message
+from app.agents.core.retrieval_evidence import pool_retrieval_evidence
 from app.core.llm_gateway.errors import ContextLengthError
 from app.core.llm_gateway.token_budget import estimate_request_tokens, estimate_tokens
 
@@ -81,7 +82,10 @@ def _compact_tool_content(content: str, target_tokens: int) -> str:
                     if isinstance(source_text, str):
                         # Bound each candidate, retaining sentence boundaries
                         # where possible and making excerpting explicit.
-                        text_limit = max(120, min(720, int(target_tokens * 2.4 / max(1, min(len(entries), 4)))))
+                        # Spread the excerpt allowance across distinct sources
+                        # before spending it on long prefixes from the first four.
+                        desired_count = min(len(entries), max(1, target_tokens // 120))
+                        text_limit = max(80, min(720, int(target_tokens * 2.4 * .65 / max(1, desired_count))))
                         if len(source_text) > text_limit:
                             cut = source_text[:text_limit]
                             boundary = max(cut.rfind(". "), cut.rfind("\n\n"))
@@ -156,7 +160,7 @@ def pack_agent_messages(
     system/current-user/schema data alone exceed the allowance, fail clearly
     so the gateway can try a larger configured binding.
     """
-    packed = [dict(message) for message in messages]
+    packed = pool_retrieval_evidence([dict(message) for message in messages])
     before = estimate_request_tokens(packed, extra)
     if before <= max_input_tokens:
         return packed

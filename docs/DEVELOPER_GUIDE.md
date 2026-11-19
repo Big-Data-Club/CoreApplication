@@ -1,3 +1,20 @@
+## Retrieval evidence workspace (2026-11-20)
+
+See [ADR 9](adr/ADR-9-retrieval-evidence-workspace.md) for research, design and
+validation limits. ReAct accumulates authorized retrieval evidence across calls,
+balances excerpts across search groups and preserves source refs on private
+request copies. Large read-only contexts may use at most eight source-reading
+batches, with two jobs concurrently, through the existing `memory_compress`
+binding. Only exact source-matching quotation notes are accepted. These workers
+do not receive tools or permission to mutate LMS content. Deep consolidation
+reuses the same readers; authoring retains its canonical-source path.
+
+Optional `decisionExplanation.retrieval_evidence` metadata and thinking/done SSE
+fields report retrieved/unique/prepared/excerpted/cited counts and reader work.
+The frontend filters display to cited references without changing citation
+numbers. These are observable context and attribution metrics, not measures
+of comprehension or automatic fact verification. No reindex/migration is needed.
+
 ## Agent turn recovery and dialogue continuity (2026-11-19)
 
 Recent dialogue receives a bounded reserve before optional context when a

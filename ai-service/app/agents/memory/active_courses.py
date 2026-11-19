@@ -223,8 +223,8 @@ def format_active_courses_for_prompt(
 
     lines = [
         "ACTIVE COURSES FOR THIS USER",
-        "(These are the ONLY valid course_ids. Do NOT invent any other "
-        "course_id. Pick from this list.)",
+        "(This list may be abbreviated. Also accept a server-verified current course/page anchor. "
+        "Never invent IDs; tool permissions are checked at execution.)",
     ]
     omitted_courses = 0
     omitted_nodes = 0
