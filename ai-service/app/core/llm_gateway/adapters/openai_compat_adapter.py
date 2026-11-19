@@ -15,6 +15,7 @@ import httpx
 from app.core.llm_gateway.adapters.base import LLMAdapter
 from app.core.llm_gateway.errors import AuthError, ContextLengthError, ProviderError, RateLimitedError
 from app.core.llm_gateway.types import Model, Usage
+from app.core.llm_gateway.response_content import split_content
  
 logger = logging.getLogger(__name__)
  
@@ -50,7 +51,7 @@ class OpenAICompatAdapter(LLMAdapter):
         }
         if json_mode and model.supports_json:
             body["response_format"] = {"type": "json_object"}
-        for k in ("tools", "tool_choice", "stop", "top_p"):
+        for k in ("tools", "tool_choice", "stop", "top_p", "reasoning_effort"):
             if k in extra:
                 body[k] = extra[k]
  
@@ -106,7 +107,7 @@ class OpenAICompatAdapter(LLMAdapter):
                 retryable=True,
             ) from exc
         choice = (data.get("choices") or [{}])[0]
-        content = ((choice.get("message") or {}).get("content")) or ""
+        content, _ = split_content((choice.get("message") or {}).get("content"))
         usage_obj = data.get("usage") or {}
         usage = Usage(
             prompt_tokens=int(usage_obj.get("prompt_tokens") or 0),
@@ -146,7 +147,7 @@ class OpenAICompatAdapter(LLMAdapter):
         }
         if json_mode and model.supports_json:
             body["response_format"] = {"type": "json_object"}
-        for key in ("tools", "tool_choice", "stop", "top_p"):
+        for key in ("tools", "tool_choice", "stop", "top_p", "reasoning_effort"):
             if key in extra:
                 body[key] = extra[key]
 
@@ -191,7 +192,7 @@ class OpenAICompatAdapter(LLMAdapter):
                                 retryable=True,
                             ) from exc
                         choice = (chunk.get("choices") or [{}])[0]
-                        content = ((choice.get("message") or {}).get("content")) or ""
+                        content, _ = split_content((choice.get("message") or {}).get("content"))
                         usage_obj = chunk.get("usage") or {}
                         usage = Usage(
                             prompt_tokens=int(usage_obj.get("prompt_tokens") or 0),
@@ -216,7 +217,7 @@ class OpenAICompatAdapter(LLMAdapter):
 
                         choices = chunk.get("choices") or []
                         delta = (choices[0].get("delta") or {}) if choices else {}
-                        content = delta.get("content")
+                        content, _ = split_content(delta.get("content"))
                         usage_obj = chunk.get("usage") or {}
                         usage = None
                         if usage_obj:

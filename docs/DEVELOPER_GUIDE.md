@@ -1,3 +1,40 @@
+## Mistral model catalog and exposed reasoning (2026-11-19)
+
+Gateway bootstrap seeds the Mistral AI provider (`openai_compat`,
+`https://api.mistral.ai/v1`) and 62 model IDs/aliases from the operator's
+`/v1/models` snapshot. It creates only missing rows and preserves existing admin
+settings; it does not seed Mistral keys or task bindings. Configure those through
+the existing admin UI after deployment. Context lengths and capability flags
+come from that snapshot rather than assumptions based on model names. Prices
+are not populated from the snapshot; zero defaults are not a statement of free
+usage. Refresh mutable `latest` aliases when the provider catalog changes.
+
+Model config records input/output modalities, aliases and original capabilities.
+The admin Models panel groups every audio-capable model under Audio, including
+chat audio, transcription, realtime transcription and speech output. Non-chat
+OCR, embedding, moderation, transcription and TTS entries remain disabled and
+`catalog_only`: their dedicated endpoints are not implemented by the generic
+chat adapter. Both binding creation and gateway execution reject those entries.
+Audio chat uses the chat protocol; accepting audio in the catalog does not add
+an audio upload interface to Cowork.
+
+The compatible adapter separates structured answer blocks from provider-exposed
+thinking blocks, retaining the raw response for the agent event path. ReAct and
+drafting streams emit thinking separately from answer deltas; subagent thinking
+is recorded in the corresponding existing multi-agent log. Existing message
+metadata stores `thinking`/`multi_agent_logs`, and the authenticated history
+loader restores them. These fields are presentation traces, not verified facts
+or additional instructions, and must not be injected into conversation memory
+as user statements. Do not write raw thinking to shared server logs.
+
+Thinking and execution logs stay collapsed during and after streaming until
+the user expands them. Only explicit lifecycle events create step records;
+token deltas append text without allocating a separate step for every token.
+Models that do not return exposed thinking are not assigned invented reasoning.
+This does not expose internal planning calls that only return structured plans.
+
+Provider format reference: [Mistral reasoning](https://docs.mistral.ai/inference/conversations/reasoning).
+
 ## LMS request safety and quiz transactions (2026-11)
 
 LMS owns the policy and storage boundary. `QuizPolicy` checks quiz-to-course

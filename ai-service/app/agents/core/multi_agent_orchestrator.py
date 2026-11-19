@@ -233,7 +233,7 @@ class MultiAgentOrchestrator:
                 "status": "running",
                 "thinking": "",
             })
-        elif ev.type == AgentEventType.SUBAGENT_THINK:
+        elif ev.type in (AgentEventType.SUBAGENT_THINK, AgentEventType.THINKING):
             sub_id = ev.data.get("subagent_id")
             for log in self.multi_agent_logs:
                 if log["subagentId"] == sub_id:

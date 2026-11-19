@@ -299,6 +299,8 @@ class LLMGateway:
         _context_retry: bool = False,
     ) -> ChatResponse:
         model = binding.model
+        if model.config.get("catalog_only"):
+            raise ProviderError("This catalog model requires its dedicated API endpoint", retryable=False)
         adapter_cls = get_adapter_class(model.adapter_type)
  
         temperature = _resolve(
@@ -502,6 +504,8 @@ class LLMGateway:
         _context_retry: bool = False,
     ) -> AsyncIterator[tuple[Optional[str], Optional[Usage], Any]]:
         model = binding.model
+        if model.config.get("catalog_only"):
+            raise ProviderError("This catalog model requires its dedicated API endpoint", retryable=False)
         adapter_cls = get_adapter_class(model.adapter_type)
 
         temperature = _resolve(

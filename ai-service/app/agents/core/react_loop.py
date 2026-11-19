@@ -45,6 +45,7 @@ from app.agents.tools.registry import (
 from app.core.config import get_settings
 from app.core.llm_gateway import get_gateway, ChatRequest, TASK_AGENT_FLASH, TASK_AGENT_REACT
 from app.core.llm_gateway.errors import ContextLengthError
+from app.core.llm_gateway.response_content import provider_thinking
 from app.agents.tools.base_tool import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -1602,6 +1603,16 @@ async def run_react_loop(
                 choices = _val(chunk, "choices")
                 choice_0 = choices[0] if (choices and isinstance(choices, (list, tuple)) and len(choices) > 0) else None
                 container = _val(choice_0, "delta") or _val(choice_0, "message") if choice_0 else None
+
+                reasoning_delta = provider_thinking(chunk)
+                if reasoning_delta:
+                    assistant_thinking += reasoning_delta
+                    yield AgentEvent(
+                        type=AgentEventType.THINKING,
+                        data={"delta": reasoning_delta},
+                        session_id=session_id,
+                        turn_id=iter_id,
+                    )
 
                 raw_text = delta_text or (_val(container, "content") if container and isinstance(_val(container, "content"), str) else "")
                 if raw_text:

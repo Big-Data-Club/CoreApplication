@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import unittest
+import json
 from unittest.mock import patch
+
+import httpx
 
 from app.core.llm_gateway.adapters.openai_compat_adapter import OpenAICompatAdapter
 from app.core.llm_gateway.types import Model
+from app.core.llm_gateway.response_content import provider_thinking
 
 
 class _FakeResponse:
@@ -45,6 +49,10 @@ class _FakeClient:
         self.calls.append((args, kwargs))
         return self.response
 
+    async def post(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return self.response
+
 
 def _model() -> Model:
     return Model(
@@ -71,6 +79,32 @@ def _model() -> Model:
 
 
 class OpenAICompatStreamingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mistral_structured_content_preserves_thinking_in_both_transports(self):
+        blocks = [
+            {"type": "thinking", "thinking": [{"type": "text", "text": "Check rank."}]},
+            {"type": "text", "text": "[10]"},
+        ]
+        payload = {"choices": [{"message": {"content": blocks}}]}
+        adapter = OpenAICompatAdapter(api_key="secret", base_url="https://api.mistral.ai/v1")
+        for response, streaming in [
+            (httpx.Response(200, json=payload), False),
+            (_FakeResponse([], headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode()), True),
+            (_FakeResponse(["data: " + json.dumps({"choices": [{"delta": {"content": blocks}}]}),
+                "data: [DONE]"]), True),
+        ]:
+            client = _FakeClient(response)
+            with patch("app.core.llm_gateway.adapters.openai_compat_adapter.httpx.AsyncClient", return_value=client):
+                kwargs = dict(model=_model(), messages=[{"role": "user", "content": "Rank 2?"}],
+                    temperature=0.2, max_tokens=512, json_mode=False, extra={"reasoning_effort": "low"})
+                if streaming:
+                    parts = [part async for part in adapter.stream(**kwargs)]
+                else:
+                    parts = [await adapter.chat(**kwargs)]
+            assert "".join(part[0] or "" for part in parts) == "[10]"
+            assert "".join(provider_thinking(part[2]) for part in parts) == "Check rank."
+            assert client.calls[0][1]["json"]["reasoning_effort"] == "low"
+
     async def test_relays_text_tool_and_usage_chunks_without_buffering(self):
         response = _FakeResponse([
             ": keepalive",

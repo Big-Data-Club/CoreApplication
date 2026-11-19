@@ -13,6 +13,7 @@ import time
 from typing import AsyncIterator, Optional
 from pydantic import BaseModel, Field
 
+from app.core.llm_gateway.response_content import provider_thinking
 from app.agents.events import AgentEvent, AgentEventType
 from app.agents.core.prompts import DIALOGUE_GROUNDING
 from app.agents.core.answer_completion import (
@@ -414,6 +415,14 @@ class DraftingSpecialist:
                     )
                     if chunk_model:
                         self.answered_model = str(chunk_model)
+                reasoning_delta = provider_thinking(raw)
+                if reasoning_delta:
+                    yield AgentEvent(
+                        type=AgentEventType.THINKING,
+                        data={"delta": reasoning_delta, "subagent_id": self.subagent_id},
+                        session_id=self.session_id,
+                        turn_id=self.turn_id,
+                    )
                 if delta_text:
                     delta_text = "".join(text for kind, text in parser.feed(delta_text) if kind == "content")
                     draft += delta_text

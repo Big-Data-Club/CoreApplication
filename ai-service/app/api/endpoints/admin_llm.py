@@ -263,6 +263,8 @@ async def upsert_binding(body: BindingIn, request: Request):
     model = await get_registry().get_model(body.model_id)
     if model is None:
         raise HTTPException(404, "Model not found")
+    if model.config.get("catalog_only"):
+        raise HTTPException(400, "This catalog model requires its dedicated API endpoint")
     is_system_one = model.config.get("api_protocol") == "system_one"
     if (body.task_code == TASK_JEV_DECISION) != is_system_one:
         raise HTTPException(400, "System One models must be bound only to jev_decision")
