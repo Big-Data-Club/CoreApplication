@@ -50,7 +50,7 @@ prometheus:
     # Single-node VM shares one 39G disk with everything else; 15d of TSDB
     # blocks previously grew the PVC past 4G and helped fill the node.
     retention: 5d
-    retention.size: 3GiB
+    retentionSize: "3GB"
 
     storageSpec:
       volumeClaimTemplate:
