@@ -1,5 +1,6 @@
 import pg from "pg";
 import { readFile, readdir } from "node:fs/promises";
+import { baselineManualSchema } from "./migration-baseline.mjs";
 
 export function createPool(config = {}) {
   const max = Number(process.env.WORKSPACE_DB_POOL_MAX || 6);
@@ -61,18 +62,23 @@ export async function migrate(pool) {
     const names = (await readdir(new URL("../migrations/", import.meta.url)))
       .filter((n) => n.endsWith(".sql"))
       .sort();
-    for (const name of names) {
+    const migrations = await Promise.all(
+      names.map(async (name) => ({
+        name,
+        sql: await readFile(
+          new URL(`../migrations/${name}`, import.meta.url),
+          "utf8",
+        ),
+      })),
+    );
+    await baselineManualSchema(client, migrations);
+    for (const { name, sql } of migrations) {
       const done = await client.query(
         "SELECT 1 FROM workspace_migrations WHERE name=$1",
         [name],
       );
       if (!done.rowCount) {
-        await client.query(
-          await readFile(
-            new URL(`../migrations/${name}`, import.meta.url),
-            "utf8",
-          ),
-        );
+        await client.query(sql);
         await client.query(
           "INSERT INTO workspace_migrations(name) VALUES($1)",
           [name],

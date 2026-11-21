@@ -27,6 +27,19 @@ Production sets `WORKSPACE_DATABASE_NAME=bdc_workspace`; startup verifies the
 actual database name before migration or schema checks, rejecting an incorrectly
 configured connection before creating tables. Local Compose expects `workspace`.
 
+If SQL was applied manually in Neon without `workspace_migrations`, startup
+compares the existing Workspace tables, columns, defaults, constraints and indexes
+against each contiguous migration prefix in a temporary reference schema. Only
+an exact match is recorded in the empty ledger; remaining migrations then run
+normally in the same transaction. Existing user/page data is preserved, and the
+four-version retention policy is enforced when adopting migration 009. A partial
+or changed schema is rejected without recording migrations. This recovery needs
+database-owner permissions to create/drop the temporary schema; it does not
+rewrite existing migration files or blindly ignore duplicate-table errors.
+After deploying this fix, keep `WORKSPACE_MIGRATE_ON_START=true` for recovery.
+There is no need to drop tables, recreate the database, or manually insert ledger
+rows. A nonempty but incomplete ledger still requires operator inspection.
+
 For separate migration/runtime credentials, run `npm run migrate` with the
 Workspace database owner URL, then set `WORKSPACE_MIGRATE_ON_START=false` and
 use a restricted runtime role. Startup then verifies all migration filenames
