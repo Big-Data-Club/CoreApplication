@@ -64,6 +64,16 @@ are not a load-test result; follow the existing approved performance procedure o
 staging before claiming capacity. Application limits cannot absorb volumetric
 DDoS once upstream bandwidth is exhausted.
 
+Workspace is selected by the existing production workflow for changes to its
+service or manifests. Provision its configuration before pushing the release;
+missing Workspace DB/origin configuration stops the rollout. See [the service guide](../../workspace-service/README.md)
+for its dedicated PostgreSQL database, direct LISTEN connection, backup scope,
+WebSocket edge route, allowed origins, frontend runtime address and limits.
+`k3s/workspace` uses one replica without surge, and applies migrations before
+readiness. Migration 009 retains only four snapshots/page; 010 enables notebook
+copies into authorized team spaces. AI Workspace is disabled by default.
+A frontend pointer change alone does not provision Workspace infrastructure.
+
 Studio/MCP rollout (2026-10-21): apply AI migration V022 before deploying the
 matching HTTP, worker and frontend images. New Studio artifacts require a
 separate private unversioned MinIO bucket (default `<MINIO_BUCKET>-studio-temporary`),

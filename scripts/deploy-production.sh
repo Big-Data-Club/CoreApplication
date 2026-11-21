@@ -64,6 +64,7 @@ declare -A containers=(
   [farm-service]=farm-service
   [dutylog-service]=dutylog-service
   [ai-gateway]=gateway
+  [workspace-service]=workspace-service
 )
 
 declare -A images=(
@@ -81,6 +82,7 @@ declare -A images=(
   [farm-service]=bdc-farm
   [dutylog-service]=bdc-dutylog
   [ai-gateway]=bdc-ai-gateway
+  [workspace-service]=bdc-workspace
 )
 
 # Some workloads have deployment-level configuration (env, probes, resources)
@@ -98,6 +100,7 @@ declare -A manifests=(
   [dutylog-service]=k3s/base/dutylog-service-deployment.yaml
   [ai-gateway]=k3s/base/ai-gateway-deployment.yaml
   [recommender-service]=k3s/base/recommender-service-deployment.yaml
+  [workspace-service]=k3s/workspace/deployment.yaml
 )
 
 for deployment in "${deployments[@]}"; do
@@ -174,6 +177,14 @@ if [[ " ${deployments[*]} " == *" farm-service "* ]]; then
 fi
 
 kubectl cluster-info >/dev/null
+if [[ " ${deployments[*]} " == *" workspace-service "* ]]; then
+  # Configuration must already be provisioned by the operator. Do not create
+  # an empty database Secret or silently deploy with another service's URL.
+  kubectl get secret bdc-workspace-secrets --namespace "$DEPLOY_NAMESPACE" -o json |
+    python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("data",{}).get("DATABASE_URL") else "Workspace DATABASE_URL is missing; provision bdc-workspace-secrets before release")'
+  kubectl get configmap bdc-workspace-config --namespace "$DEPLOY_NAMESPACE" -o json |
+    python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("data",{}).get("WORKSPACE_ALLOWED_ORIGINS"," ").strip() else "Workspace origins are missing; provision bdc-workspace-config before release")'
+fi
 ./scripts/k3s-maintenance.sh --namespace "$DEPLOY_NAMESPACE" --phase pre
 # Applying other workloads must never revive the suspended SSH tunnel.
 for paused in ai-gateway ai-gateway-info; do
@@ -186,6 +197,11 @@ done
 # are restarted, so unrelated workloads keep their current pods.
 python3 scripts/apply-runtime-config.py
 kubectl apply -f k3s/base/ingress.yaml --namespace "$DEPLOY_NAMESPACE"
+if [[ " ${deployments[*]} " == *" workspace-service "* ]]; then
+  kubectl apply -f k3s/workspace/middleware.yaml --namespace "$DEPLOY_NAMESPACE"
+  python3 -c 'import os,yaml; p=yaml.safe_load(open("k3s/workspace/ingress.yaml")); p["metadata"]["annotations"]["traefik.ingress.kubernetes.io/router.middlewares"]=os.environ.get("DEPLOY_NAMESPACE","default")+"-workspace-handshake-rate@kubernetescrd"; print(yaml.safe_dump(p))' |
+    kubectl apply -f - --namespace "$DEPLOY_NAMESPACE"
+fi
 # Kafka is shared infrastructure for the AI workers. Applying an unchanged
 # StatefulSet is a no-op; applying a changed one performs the controlled
 # one-broker rollout required for heap/probe/resource fixes.

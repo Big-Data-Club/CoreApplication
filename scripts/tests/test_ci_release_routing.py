@@ -52,6 +52,15 @@ class ReleaseRoutingTests(unittest.TestCase):
         self.assertEqual(result["services"], "recommender-service")
         self.assertNotIn("frontend_image_tag", result)
 
+    def test_workspace_uses_one_existing_production_pipeline(self):
+        result = self.select(WORKSPACE_CHANGED="true")
+        self.assertEqual(result["services"], "workspace-service")
+        self.assertEqual(json.loads(result["matrix"])["include"], [{"image": "bdc-workspace", "context": "workspace-service"}])
+        self.assertIn("verify-workspace", self.production["jobs"]["deploy"]["needs"])
+        checks = workflow(".github/workflows/workspace.yml")
+        self.assertIn("workflow_call", checks["on"])
+        self.assertNotIn("push", checks["on"])
+
     def test_no_changes_produces_no_release(self):
         result = self.select()
         self.assertEqual(result["services"], "")

@@ -17,6 +17,11 @@ events, never direct database access.
 | Personalize | Python / DuckDB / aiokafka | `personalize-service/main.py`, worker | learner analytics and profiles |
 | Recommender | Python / FastAPI | `recommender-service/app/` | fast recommendations and outcome capture |
 | Frontend | Next.js submodule | `frontend/` | browser UX and server-side proxy boundary |
+| Workspace | Node / Yjs / PostgreSQL | `workspace-service/src/main.mjs` | spaces, document collaboration, access, databases, private files and history |
+
+Workspace development and local verification: [feature contract](../features/WORKSPACE.md)
+and [service guide](../../workspace-service/README.md). Its database is separate;
+do not reuse Chat persistence or read Personalize notebook tables directly.
 
 ## 2. First local run
 

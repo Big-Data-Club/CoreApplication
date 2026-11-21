@@ -49,6 +49,9 @@ jobs:
         id: changes
         with:
           filters: |
+            workspace:
+              - 'workspace-service/**'
+              - 'k3s/workspace/**'
             frontend:
               - 'frontend'
             auth:
@@ -115,6 +118,7 @@ jobs:
           FARM_CHANGED: ${{ steps.changes.outputs.farm }}
           DUTYLOG_CHANGED: ${{ steps.changes.outputs.dutylog }}
           FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend }}
+          WORKSPACE_CHANGED: ${{ steps.changes.outputs.workspace }}
           MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
           MANUAL_SERVICES: ${{ inputs.services }}
         shell: bash
@@ -174,6 +178,11 @@ jobs:
           if [[ "${DUTYLOG_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-dutylog","context":"dutylog/backend"}')
             services+=(dutylog-service)
+          fi
+
+          if [[ "${WORKSPACE_CHANGED}" == "true" ]]; then
+            items+=('{"image":"bdc-workspace","context":"workspace-service"}')
+            services+=(workspace-service)
           fi
 
           # Frontend owns its image build. A gitlink update only selects rollout.
@@ -236,10 +245,16 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -p 'test_sync_farm_config.py'
       - run: bash scripts/test-knowledge-farm.sh
 
+  verify-workspace:
+    name: Verify Workspace transactions and permissions
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_build == 'true' && contains(needs.detect-changes.outputs.services, 'workspace-service')
+    uses: ./.github/workflows/workspace.yml
+
   build:
     name: Build ${{ matrix.image }}
-    needs: [detect-changes, verify-farm]
-    if: always() && needs.detect-changes.outputs.should_build == 'true' && (needs.verify-farm.result == 'success' || needs.verify-farm.result == 'skipped')
+    needs: [detect-changes, verify-farm, verify-workspace]
+    if: always() && needs.detect-changes.outputs.should_build == 'true' && (needs.verify-farm.result == 'success' || needs.verify-farm.result == 'skipped') && (needs.verify-workspace.result == 'success' || needs.verify-workspace.result == 'skipped')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -291,11 +306,12 @@ jobs:
 
   deploy:
     name: Roll out production
-    needs: [detect-changes, verify-farm, verify-frontend-image, build]
+    needs: [detect-changes, verify-farm, verify-workspace, verify-frontend-image, build]
     if: >-
       always() && needs.detect-changes.result == 'success' &&
       needs.detect-changes.outputs.services != '' &&
       (needs.verify-farm.result == 'success' || needs.verify-farm.result == 'skipped') &&
+      (needs.verify-workspace.result == 'success' || needs.verify-workspace.result == 'skipped') &&
       (needs.verify-frontend-image.result == 'success' || needs.verify-frontend-image.result == 'skipped') &&
       (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.detect-changes.outputs.should_build == 'false'))
     runs-on: [self-hosted, linux, x64, production]
