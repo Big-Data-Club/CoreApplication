@@ -13,7 +13,7 @@ const feed=async(user=502)=>(await db.query(feedSql,[user])).rows;
 const count=async()=>Number((await db.query('SELECT COUNT(*) AS count FROM learning_notification_events')).rows[0].count);
 before(async()=>{
  db=new PGlite();
- for(const file of ['V001__core_schema.sql','V005__organizations.sql','V021__learning_notifications.sql']) await db.exec(readFileSync(root+'lms-service/migrations/'+file,'utf8'));
+ for(const file of ['V001__core_schema.sql','V005__organizations.sql','V021__learning_notifications.sql']) await db.exec(readFileSync(root+'lms-service/migrations/releases/2026-11/'+file,'utf8'));
  await db.exec(`INSERT INTO users(id,email) VALUES(501,'author@example.test'),(502,'learner@example.test'),(503,'outsider@example.test'),(504,'private@example.test');
  INSERT INTO organizations(id,name,slug,settings) VALUES(2,'Private','private','{"allow_cross_org_courses":false}'),(3,'Other','other','{"allow_cross_org_courses":true}');
  INSERT INTO organization_members(org_id,user_id) VALUES(1,501),(1,502),(2,504);

@@ -36,7 +36,7 @@ func TestCompleteGradingAtomicAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	migration, err := os.ReadFile("../../migrations/V006__grading_compile_status.sql")
+	migration, err := os.ReadFile("../../migrations/releases/2026-11/V006__grading_compile_status.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,25 +4,25 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
 	"sort"
+	"strings"
 )
 
-//go:embed V*.sql
+//go:embed releases
 var files embed.FS
 
 func Apply(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS lab_schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
 		return err
 	}
-	entries, err := files.ReadDir(".")
+	paths, err := migrationPaths(files)
 	if err != nil {
 		return err
 	}
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			names = append(names, entry.Name())
-		}
+	names := make([]string, 0, len(paths))
+	for name := range paths {
+		names = append(names, name)
 	}
 	sort.Strings(names)
 	if err := baselineLegacySchema(db, names); err != nil {
@@ -36,7 +36,7 @@ func Apply(db *sql.DB) error {
 		if applied {
 			continue
 		}
-		sqlText, err := files.ReadFile(name)
+		sqlText, err := files.ReadFile(paths[name])
 		if err != nil {
 			return err
 		}
@@ -93,4 +93,22 @@ func baselineLegacySchema(db *sql.DB, names []string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// Keep the historical basename in lab_schema_migrations, never the release path.
+func migrationPaths(source fs.FS) (map[string]string, error) {
+	paths := make(map[string]string)
+	err := fs.WalkDir(source, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			if _, exists := paths[entry.Name()]; exists {
+				return fmt.Errorf("duplicate migration name: %s", entry.Name())
+			}
+			paths[entry.Name()] = path
+		}
+		return nil
+	})
+	return paths, err
 }

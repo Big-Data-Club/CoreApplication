@@ -73,11 +73,11 @@ def test_library_database_ownership_migration_and_review_idempotency(monkeypatch
                 CREATE TABLE flashcard_repetitions(flashcard_id BIGINT, student_id BIGINT, repetitions INT, interval_days INT, easiness_factor FLOAT, next_review_date DATE);
                 INSERT INTO flashcards VALUES(9,1,7,'CPU','Central processing unit','ACTIVE'),(10,1,8,'Hello','Xin chào','ACTIVE');
                 INSERT INTO flashcard_repetitions VALUES(9,1,2,6,2.5,CURRENT_DATE+6);""")
-            await conn.execute((Path(__file__).parents[1] / "migrations/V016__personal_flashcard_library.sql").read_text())
+            await conn.execute((Path(__file__).parents[1] / "migrations/releases/2026-11/V016__personal_flashcard_library.sql").read_text())
             # Simulate V016 already applied, including a newly created unscoped card.
             orphan = await conn.fetchval("INSERT INTO personal_flashcard_decks(student_id,name) VALUES(1,'New cards') RETURNING id")
             await conn.execute("INSERT INTO personal_flashcards(student_id,deck_id,front_text,back_text) VALUES(1,$1,'Q','A')", orphan)
-            await conn.execute((Path(__file__).parents[1] / "migrations/V017__flashcard_library_course_scope.sql").read_text())
+            await conn.execute((Path(__file__).parents[1] / "migrations/releases/2026-11/V017__flashcard_library_course_scope.sql").read_text())
             library = await service.library_action(1, 7, "list", {})
             assert library["cards"][0]["repetitions"] == 2
             assert library["cards"][0]["legacy_id"] == 9

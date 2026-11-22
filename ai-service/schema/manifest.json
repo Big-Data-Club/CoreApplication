@@ -1,0 +1,115 @@
+{
+  "engine": "PostgreSQL 17",
+  "source": "repository SQL, not production",
+  "inputs": [
+    {
+      "path": "migrations/releases/2026-11/V001__schema.sql",
+      "sha256": "852b0bebddf8e2c89c0834e508b7d4c28a6cba64d05a455be256f61f85e79a11"
+    },
+    {
+      "path": "migrations/releases/2026-11/V002__performance_indexes.sql",
+      "sha256": "60f3087ae3cfdda82d6b795b69b436cf7236787ef5c8a18a17917a8544be749e"
+    },
+    {
+      "path": "migrations/releases/2026-11/V003__student_facts.sql",
+      "sha256": "1ac7294331cec549e6b03a324af77645564f1f5d5b2d2057ac1594d8bc9ab4d3"
+    },
+    {
+      "path": "migrations/releases/2026-11/V004__expand_relation_types.sql",
+      "sha256": "60251b89b2c81a3c5aad594196e4509ccbc9590776cc0b30a6b445d148bb0a1b"
+    },
+    {
+      "path": "migrations/releases/2026-11/V005__user_concept_mastery.sql",
+      "sha256": "1da3a3f56cbf0df7882305b9d379034d1eb175cf6f008250050fde037a817d89"
+    },
+    {
+      "path": "migrations/releases/2026-11/V006__flashcard_dedup.sql",
+      "sha256": "f006c36fc1754d83dd84a2744572d4ab2a96d6309ddf2812f056c7daeb57b670"
+    },
+    {
+      "path": "migrations/releases/2026-11/V007__agent_telemetry.sql",
+      "sha256": "1f1b380f54c27b55f7ba487d1c5d60f1f732ecaa4306e994f3a19fd8b60b7602"
+    },
+    {
+      "path": "migrations/releases/2026-11/V008__course_blueprints.sql",
+      "sha256": "c87fdb3231cb3fd60433e024d94dc1e6503cbc3c310672cb68ff256ee800eac3"
+    },
+    {
+      "path": "migrations/releases/2026-11/V009__course_blueprint_processing.sql",
+      "sha256": "23f76a0e991e43a4614cc2778fa2c617070d4589264379b0ebe8a3b4b47b59fb"
+    },
+    {
+      "path": "migrations/releases/2026-11/V010__course_blueprint_worker_leases.sql",
+      "sha256": "07a1ff71db97dd0416fe27e949ab9b6e5dec98af476bc9242b4dba586298c679"
+    },
+    {
+      "path": "migrations/releases/2026-11/V011__course_material_routing_jobs.sql",
+      "sha256": "bebe9e14d010dddd7c06c0e83b01f355d8a9ccdb0406fb5d4bd896d71e01d16c"
+    },
+    {
+      "path": "migrations/releases/2026-11/V012__agent_message_feedback.sql",
+      "sha256": "49fc467402569603f5c943290c8a05f9c87be6d473e05d4d933f9942d4474406"
+    },
+    {
+      "path": "migrations/releases/2026-11/V013__studio_projects.sql",
+      "sha256": "6d09831d91bb568d0fd3172547e72ec39f7ccb9339339b2438e6cfa6633d01f9"
+    },
+    {
+      "path": "migrations/releases/2026-11/V014__mcp_api_keys.sql",
+      "sha256": "293e7ccd08745fd5d1d7b228b70bfa567df8e6816fa217fb58a29345c6c8c807"
+    },
+    {
+      "path": "migrations/releases/2026-11/V015__document_chunks_search_indexes.sql",
+      "sha256": "2a1a40909de1bea8bf2abd69fd56f6c3141bf287c345507f77d3f64977c2fc4d"
+    },
+    {
+      "path": "migrations/releases/2026-11/V016__personal_flashcard_library.sql",
+      "sha256": "e026c03416f17b8c18ec6c2a3917d3bd7facb6c54c17a644cace5f8b084a69bc"
+    },
+    {
+      "path": "migrations/releases/2026-11/V017__flashcard_library_course_scope.sql",
+      "sha256": "8a0711b22253533862277691491cf1c1588aa8a62914c48b0e733045f639a2d5"
+    },
+    {
+      "path": "migrations/releases/2026-11/V018__content_study_jobs.sql",
+      "sha256": "ed4b1b59a53fdd743a64c92f66421c3a3aa74080ce47613e8ac5de2e4c908b73"
+    },
+    {
+      "path": "migrations/releases/2026-11/V019__lab_authoring_jobs.sql",
+      "sha256": "6d29a967eb2a0c302ba0931dc17686097d03b8f6171b2cb61a90818804bcd7ae"
+    },
+    {
+      "path": "migrations/releases/2026-11/V020__studio_worker_jobs.sql",
+      "sha256": "4cfc158d5ab1a326aa96ec2c10f7600f90140581d399fb249406e3f83708c487"
+    },
+    {
+      "path": "migrations/releases/2026-11/V021__speech_jobs.sql",
+      "sha256": "67b4519747d252d9ff56c2480f05fe891094fbadce614ef313f3bcc960d25075"
+    },
+    {
+      "path": "migrations/releases/2026-11/V022__studio_temporary_media_and_youtube.sql",
+      "sha256": "5b32e22b63565bf4e573b8e6adfb321f308ae8f27544bdd8d5ec189e820669e5"
+    },
+    {
+      "path": "migrations/releases/2026-11/V023__course_knowledge_map.sql",
+      "sha256": "c6b611d6b767fa9d500113c9f21eac1d3d73750d29c8c0538daac1a397a06693"
+    },
+    {
+      "path": "migrations/releases/2026-11/V024__quiz_insight_results.sql",
+      "sha256": "12f97362c8e41f1c68d9050332b26713d9b95234499e93193495420402127f0b"
+    },
+    {
+      "path": "migrations/releases/2026-11/V025__review_delivery_receipts.sql",
+      "sha256": "473b1a57aeb185d825cb42f18f50a19dee994c4f515ea96e3cda54d079417630"
+    },
+    {
+      "path": "migrations/releases/2026-11/004_graphrag_indexes.sql",
+      "sha256": "9d918db194ef4c07e0f9be09eda9ea5ff136f11d485e3cb9ade0f6578f115b74"
+    }
+  ],
+  "current_sha256": "a0c186ba5a51cd113d29c4185a7c99ea69415b604238ca7f1c113f5e935ff0a5",
+  "requires_jpa_organizations": false,
+  "adjustments": [
+    "idx_sr_student_due_today: replace volatile CURRENT_DATE predicate with IS NOT NULL"
+  ]
+}

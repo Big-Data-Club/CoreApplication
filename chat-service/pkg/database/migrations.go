@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,33 +14,37 @@ type migrationEntry struct {
 	SQL     string
 }
 
-// readMigrationFiles reads all .sql files from dir, sorts them lexicographically,
-// and returns them as migrationEntry slices.
+// Release directories are organizational; the ledger keeps the original basename
+// and global lexicographic order, independent of the containing release folder.
 func readMigrationFiles(dir string) ([]migrationEntry, error) {
-	entries, err := os.ReadDir(dir)
+	paths := make(map[string]string)
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			if _, exists := paths[entry.Name()]; exists {
+				return fmt.Errorf("duplicate migration name: %s", entry.Name())
+			}
+			paths[entry.Name()] = path
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("migrations: read dir %q: %w", dir, err)
 	}
-
-	var files []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			files = append(files, e.Name())
-		}
+	names := make([]string, 0, len(paths))
+	for name := range paths {
+		names = append(names, name)
 	}
-	sort.Strings(files)
-
+	sort.Strings(names)
 	var migrations []migrationEntry
-	for _, name := range files {
-		path := filepath.Join(dir, name)
-		data, err := os.ReadFile(path)
+	for _, name := range names {
+		data, err := os.ReadFile(paths[name])
 		if err != nil {
 			return nil, fmt.Errorf("migrations: read %s: %w", name, err)
 		}
-		migrations = append(migrations, migrationEntry{
-			Version: name,
-			SQL:     string(data),
-		})
+		migrations = append(migrations, migrationEntry{Version: name, SQL: string(data)})
 	}
 	return migrations, nil
 }

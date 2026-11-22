@@ -1,0 +1,15 @@
+{
+  "engine": "DuckDB 1.1.3",
+  "source": "literal startup DDL, no Parquet",
+  "inputs": [
+    {
+      "path": "app/services/lakehouse.py",
+      "sha256": "f41e0d03418f7d1be11a57bc907d69755333a1e976769ef1ad88303b4dbd8212"
+    },
+    {
+      "path": "migrations/releases/2026-11/V20261105__notebook_annotations.sql",
+      "sha256": "99c231bdd7c4bf6109cc64fd96c45c87d0b19ea790dbac386b5dd2ea0c6c19bd"
+    }
+  ],
+  "current_sha256": "448e17c247838ef348f6eb31a910535aba4f4c206d52307e004cdc2ef6e43aee"
+}

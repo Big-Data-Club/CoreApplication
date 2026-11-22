@@ -33,7 +33,7 @@ class FarmRewardPostgresTest {
         try (var context = new AnnotationConfigApplicationContext(Config.class)) {
             var jdbc = context.getBean(JdbcTemplate.class);
             jdbc.execute("CREATE TABLE IF NOT EXISTS users(id BIGINT PRIMARY KEY, total_score INTEGER, updated_at TIMESTAMPTZ)");
-            jdbc.execute(Files.readString(Path.of("migrations/V20261017__farm_score_receipts.sql")));
+            jdbc.execute(Files.readString(Path.of("migrations/releases/2026-11/V20261017__farm_score_receipts.sql")));
             jdbc.execute("TRUNCATE users,farm_score_receipts");
             jdbc.update("INSERT INTO users(id,total_score) VALUES(41,100)");
             var service = context.getBean(FarmRewardService.class);

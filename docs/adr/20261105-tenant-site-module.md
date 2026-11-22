@@ -34,7 +34,7 @@ It does not claim a cluster-wide quota. Set ingress/gateway limits separately
 if replicas or traffic require a global policy; forwarded headers are not trusted
 by this limiter. Oversized declared request bodies are rejected before parsing.
 
-Rollout: apply `auth-and-management-service/migrations/V20261105__tenant_sites.sql`
+Rollout: apply `auth-and-management-service/migrations/releases/2026-11/V20261105__tenant_sites.sql`
 to the Auth database, deploy Auth, then deploy frontend. Existing organization
 landing remains the fallback until publication and after unpublishing. No
 production data is modified by development tests.

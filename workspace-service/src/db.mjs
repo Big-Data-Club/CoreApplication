@@ -1,5 +1,6 @@
 import pg from "pg";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { migrationFiles } from "./migration-files.mjs";
 import { baselineManualSchema } from "./migration-baseline.mjs";
 
 export function createPool(config = {}) {
@@ -26,9 +27,7 @@ async function verifyDatabase(pool) {
 }
 export async function requireSchema(pool) {
   await verifyDatabase(pool);
-  const names = (
-    await readdir(new URL("../migrations/", import.meta.url))
-  ).filter((name) => name.endsWith(".sql"));
+  const names = (await migrationFiles()).map(({ name }) => name);
   const { rows } = await pool.query("SELECT name FROM workspace_migrations");
   const applied = new Set(rows.map((row) => row.name));
   if (names.some((name) => !applied.has(name)))
@@ -59,16 +58,10 @@ export async function migrate(pool) {
     await client.query(
       "CREATE TABLE IF NOT EXISTS workspace_migrations(name text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now())",
     );
-    const names = (await readdir(new URL("../migrations/", import.meta.url)))
-      .filter((n) => n.endsWith(".sql"))
-      .sort();
     const migrations = await Promise.all(
-      names.map(async (name) => ({
+      (await migrationFiles()).map(async ({ name, file }) => ({
         name,
-        sql: await readFile(
-          new URL(`../migrations/${name}`, import.meta.url),
-          "utf8",
-        ),
+        sql: await readFile(file, "utf8"),
       })),
     );
     await baselineManualSchema(client, migrations);

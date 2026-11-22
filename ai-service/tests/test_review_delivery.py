@@ -122,7 +122,7 @@ def test_concurrent_deliveries_on_postgres():
                         correct_count int,wrong_count int,mastery_level float,last_tested_at timestamptz,updated_at timestamptz,
                         PRIMARY KEY(student_id,node_id));
                 """)
-                migration = Path(__file__).resolve().parents[1] / "migrations/V025__review_delivery_receipts.sql"
+                migration = Path(__file__).resolve().parents[1] / "migrations/releases/2026-11/V025__review_delivery_receipts.sql"
                 await conn.execute(migration.read_text())
                 await conn.execute(migration.read_text())
 

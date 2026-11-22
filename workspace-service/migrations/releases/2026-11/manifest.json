@@ -1,0 +1,45 @@
+{
+  "release": "2026-11",
+  "files": [
+    {
+      "name": "001_workspace.sql",
+      "sha256": "c936182dd9cc9d769553cf460b75e9b2824102badaf89f3b1c68fe6cba08cca8"
+    },
+    {
+      "name": "002_ticket_session_expiry.sql",
+      "sha256": "6544e37ab018f4607c3b34995bae07b754806e983350c17062b53fe2dc516cf3"
+    },
+    {
+      "name": "003_page_links.sql",
+      "sha256": "1004ebdbca6cf60b5b32ea774a497114c0aadb3c4fce083da96d9dac331ce540"
+    },
+    {
+      "name": "004_user_fields.sql",
+      "sha256": "9b28cbd06294ebe67d165de913caac5e1cc07e0b595499b0349a4e76cf0f108b"
+    },
+    {
+      "name": "005_block_activity.sql",
+      "sha256": "aebdae237fbd89b284977d5b41941d75c7a0da35286c2f3e17d96efbace62b5e"
+    },
+    {
+      "name": "006_page_analytics.sql",
+      "sha256": "de730ba6cae9da2b22726cd7a60c13ac758490ad24b199d7b964912d0dfc1931"
+    },
+    {
+      "name": "007_page_cover_image.sql",
+      "sha256": "c75df3d5d17402b9ce925a1f383245564f3c392f8e88d4352e2085e2ed4cb4e6"
+    },
+    {
+      "name": "008_library.sql",
+      "sha256": "ab6972616a63b26dc147d7968b7744451c8d8a29de0e2f275d85e5ee9e1c4ab4"
+    },
+    {
+      "name": "009_bounded_versions.sql",
+      "sha256": "19106d85ff2ad2db3df54b05d97c184aa45a4e3ae8253bb5586b82294c765d54"
+    },
+    {
+      "name": "010_notebook_destinations.sql",
+      "sha256": "3c5e425c5c68ea2f97ec6a4e69556a8a5529970f94bd04a5fc1758fa345a7e73"
+    }
+  ]
+}

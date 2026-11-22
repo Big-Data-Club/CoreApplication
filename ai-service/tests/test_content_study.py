@@ -49,7 +49,7 @@ def test_content_jobs_grounding_atomic_save_and_migration_adoption(monkeypatch):
             spec = importlib.util.spec_from_file_location("flashcard_emit", root / "scripts/apply-flashcard-migrations.py")
             emit = importlib.util.module_from_spec(spec); spec.loader.exec_module(emit)
             for version, columns in emit.VERSIONS.items():
-                path, = (root / "ai-service/migrations").glob(version + "__*.sql")
+                path, = (root / "ai-service/migrations").rglob(version + "__*.sql")
                 migrations.append({"version": version, "columns": columns, "sql": path.read_text()})
             # Simulate user's manually applied V016/V017, then upgrade twice.
             await conn.execute(migrations[0]["sql"])

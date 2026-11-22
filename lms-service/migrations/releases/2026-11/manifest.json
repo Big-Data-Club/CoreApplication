@@ -1,0 +1,101 @@
+{
+  "release": "2026-11",
+  "files": [
+    {
+      "name": "V001__core_schema.sql",
+      "sha256": "56c0d8d34380f16c2d4b8c73e4b13f082724affddcce7f14b9f7adf28d5c6405"
+    },
+    {
+      "name": "V002__performance_indexes.sql",
+      "sha256": "a90be6fd3161a2fbd30349575d19915f7c3840379a9f88830e699d7fb2633106"
+    },
+    {
+      "name": "V003__dynamic_roles.sql",
+      "sha256": "c46c46a2c4dfca306b616daffbb701b4022656f72a0ea465953af90d1ab85d6f"
+    },
+    {
+      "name": "V003__micro_quizzes.sql",
+      "sha256": "5e6004646ac629a900fef7804a89533b32b279ec45c4463d481f279554be8112"
+    },
+    {
+      "name": "V004__dynamic_permissions.sql",
+      "sha256": "303d7f8943d83b51dafa601fd0735dc63a3817ce4d618617770441e240922d33"
+    },
+    {
+      "name": "V005__organizations.sql",
+      "sha256": "671790a74913ead7de1d2f63e057e3a9c08f0b6bb0834fe48b0d954c50410e83"
+    },
+    {
+      "name": "V006__organization_indexes.sql",
+      "sha256": "7c898e315a622997f534985eb381499e6a58d53e195456b68220d9f623acde2c"
+    },
+    {
+      "name": "V007__add_organization_to_users.sql",
+      "sha256": "a79a3e82dd39610006de74af77655590f39530e6b04609d7146ca4c1f37a546b"
+    },
+    {
+      "name": "V008__section_overview.sql",
+      "sha256": "ba4c11c60c6fa6b2a9659f3f972a2339b7d09cb91ca1807b7cb3ed59916289ba"
+    },
+    {
+      "name": "V009__section_overview_logs.sql",
+      "sha256": "feb0cb2d37c9ac4a547b5f9a6a3f65382ba3900c6ea3fc4c265c818eb97ea7c7"
+    },
+    {
+      "name": "V010__course_co_teachers.sql",
+      "sha256": "f9504c70957c21c103ad2c67b15e511d5c5149559210cd665367e49587ca70e6"
+    },
+    {
+      "name": "V011__teacher_dashboard_indexes.sql",
+      "sha256": "d7e20811e504bb98919cf77527f0f3774311de214a26288020855be9709d994a"
+    },
+    {
+      "name": "V012__course_listing_indexes.sql",
+      "sha256": "5998a258ea02f2ac2e64695f012b0fe80493b602d4f84a6a8aaf8a8547c77367"
+    },
+    {
+      "name": "V013__user_profile_picture.sql",
+      "sha256": "06feb42421bf6c338d768b3eaa44cc3c2cf5d21f3e05ccf1f285f62fba3c2662"
+    },
+    {
+      "name": "V014__course_archive_restore_status.sql",
+      "sha256": "0cc5424cb70d9149a78eafc21c67a802b88e76f97091ff318cc742f90b6357c7"
+    },
+    {
+      "name": "V015__personalized_learning_schema.sql",
+      "sha256": "3c316d72c57f3c65aadc2915ea4c2ff1456413b01e8a1ea64eab9bef389ab222"
+    },
+    {
+      "name": "V016__competency_framework_model.sql",
+      "sha256": "6d3fa960aa2637ac219664e73b8d0eae40d8f9f096b241874defab7c74d0da40"
+    },
+    {
+      "name": "V017__question_bank.sql",
+      "sha256": "dfac1dced8f39991541020aa5e501439581a4648b6d755b4976b1d6ffeaef938"
+    },
+    {
+      "name": "V018__question_bank_backfill.sql",
+      "sha256": "e22f0757074021c8dc4025c7dd5a5f3ed8f9abb6b6f673f9e99f99de72fa987d"
+    },
+    {
+      "name": "V019__farm_learning_attempts.sql",
+      "sha256": "be93cf68069281a79c6d6dbc9eefa05324f4032a87ccb74c6f7a10634f582440"
+    },
+    {
+      "name": "V020__quiz_focus_summary.sql",
+      "sha256": "1e10693df7783b270011b02bb5a7ba46690851e055ac3c41365ceba8c098fc8f"
+    },
+    {
+      "name": "V021__learning_notifications.sql",
+      "sha256": "83900c88e9cad3a616eb8c33819473735c8a952222659ce3557cbc0308c12c9e"
+    },
+    {
+      "name": "V022__lms_request_safety.sql",
+      "sha256": "1140fee00c923e2ff753968a2b3a291a40599eb3297fb94fb5c53424e6687644"
+    },
+    {
+      "name": "V023__always_publish_learning_resources.sql",
+      "sha256": "1bb7178a3987e39ec1149b56e7ebf755016dd9e9b19ca5efb80447dbe7bb4e00"
+    }
+  ]
+}

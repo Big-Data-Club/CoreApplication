@@ -1,0 +1,29 @@
+{
+  "release": "2026-11",
+  "files": [
+    {
+      "name": "V001__chat_schema.sql",
+      "sha256": "a0d915feef8896b3504bfe8556482639e610a8dfe79c155001c5b0d9160371a4"
+    },
+    {
+      "name": "V002__dm_support.sql",
+      "sha256": "2c7d7c16c2ab1ee5cb98f61870e92aef24d2d29df941c99f0a0290e76aceacdf"
+    },
+    {
+      "name": "V003__seed_existing_channels.sql",
+      "sha256": "9b84bb77d91e13417d9998039b962960215a1409a4662d2cd65554a7ecc7470a"
+    },
+    {
+      "name": "V004__message_replies_and_edits.sql",
+      "sha256": "2a2591d4e2bd8f1c05596659798b03102c1554cc35c4ed47c86c32402032c2f1"
+    },
+    {
+      "name": "V005__chat_attachments.sql",
+      "sha256": "ed53dedd6359c9a8eca6c0e6b68635cf8e9057081437618443478a51c95ef85a"
+    },
+    {
+      "name": "V006__chat_history_and_membership_indexes.sql",
+      "sha256": "f364944cd2618667bf09dd6cd831b38289d7fa0e8253219d42d2216e5ed21c67"
+    }
+  ]
+}

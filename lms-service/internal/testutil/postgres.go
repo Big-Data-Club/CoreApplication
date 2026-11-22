@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"testing"
 
 	"github.com/google/uuid"
@@ -35,10 +36,11 @@ func Database(t *testing.T) *sql.DB {
 	db.SetMaxOpenConns(12)
 	t.Cleanup(func() { db.Close(); admin.Exec(`DROP DATABASE ` + databaseName + ` WITH (FORCE)`); admin.Close() })
 	_, file, _, _ := runtime.Caller(0)
-	paths, err := filepath.Glob(filepath.Join(filepath.Dir(file), "../../migrations/V*.sql"))
+	paths, err := filepath.Glob(filepath.Join(filepath.Dir(file), "../../migrations/releases/*/V*.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	sort.Slice(paths, func(i, j int) bool { return filepath.Base(paths[i]) < filepath.Base(paths[j]) })
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil {

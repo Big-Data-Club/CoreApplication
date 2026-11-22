@@ -227,7 +227,7 @@ Toàn bộ Spec của bài Lab Hóa học được đóng gói dạng JSON và l
 | [`frontend/src/components/labs/chemistry/TitrationCurveWidget.tsx`](../frontend/src/components/labs/chemistry/TitrationCurveWidget.tsx) | Widget vẽ đồ thị chuẩn độ pH thời gian thực |
 | [`frontend/src/components/labs/chemistry/ChemistryCanvasStage.tsx`](../frontend/src/components/labs/chemistry/ChemistryCanvasStage.tsx) | Component Sân khấu Thí nghiệm Hóa 2.5D tương tác (buret, bình tam giác, van nhỏ giọt) |
 | [`frontend/src/components/labs/chemistry/ChemistryLabBuilder.tsx`](../frontend/src/components/labs/chemistry/ChemistryLabBuilder.tsx) | Bộ công cụ No-Code Builder cho Giảng viên tự cấu hình bài Lab |
-| [`lab-service/migrations/V004__chemistry_lab_support.sql`](../lab-service/migrations/V004__chemistry_lab_support.sql) | Script Migration CSDL Postgres bổ sung kiểu `CHEMISTRY` |
+| [`lab-service/migrations/releases/2026-11/V004__chemistry_lab_support.sql`](../lab-service/migrations/releases/2026-11/V004__chemistry_lab_support.sql) | Script Migration CSDL Postgres bổ sung kiểu `CHEMISTRY` |
 
 ## Soạn bài coding, SQL và terminal với AI
 

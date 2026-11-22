@@ -19,7 +19,7 @@ VERSIONS = {
 def emit():
     migrations = []
     for version, columns in VERSIONS.items():
-        path, = (ROOT / "ai-service/migrations").glob(version + "__*.sql")
+        path, = (ROOT / "ai-service/migrations").rglob(version + "__*.sql")
         migrations.append({"version": version, "columns": columns, "sql": path.read_text()})
     runner = Path(__file__).with_name("flashcard-migration-runner.py").read_text()
     print("MIGRATIONS = " + repr(migrations))

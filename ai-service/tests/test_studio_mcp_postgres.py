@@ -36,7 +36,7 @@ def test_studio_mcp_postgres(monkeypatch):
         for module in (authoring, studio, jobs, media):
             monkeypatch.setattr(module,"get_ai_conn",connection)
         monkeypatch.setattr(authoring,"user_can_read_course",AsyncMock(return_value=True))
-        directory = Path(__file__).parent.parent/"migrations"
+        directory = Path(__file__).parent.parent/"migrations/releases/2026-11"
         try:
             for name in ("V013__studio_projects.sql","V020__studio_worker_jobs.sql","V022__studio_temporary_media_and_youtube.sql"):
                 await conn.execute((directory/name).read_text())

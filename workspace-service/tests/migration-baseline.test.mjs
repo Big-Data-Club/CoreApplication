@@ -1,14 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { migrationFiles } from "../src/migration-files.mjs";
 import { createPool, migrate, requireSchema } from "../src/db.mjs";
 
 const only = process.env.TEST_DATABASE_URL ? test : test.skip;
-const directory = new URL("../migrations/", import.meta.url);
-const names = (await readdir(directory))
-  .filter((name) => name.endsWith(".sql"))
-  .sort();
+const files = await migrationFiles();
+const names = files.map(({ name }) => name);
 
 async function isolated(run) {
   const admin = createPool({ connectionString: process.env.TEST_DATABASE_URL });
@@ -34,7 +33,9 @@ async function isolated(run) {
 
 async function manual(pool, count) {
   for (const name of names.slice(0, count))
-    await pool.query(await readFile(new URL(name, directory), "utf8"));
+    await pool.query(
+      await readFile(files.find((entry) => entry.name === name).file, "utf8"),
+    );
   await pool.query(
     "INSERT INTO workspace_users(id,email,name) VALUES('baseline','baseline@example.test','Existing user')",
   );

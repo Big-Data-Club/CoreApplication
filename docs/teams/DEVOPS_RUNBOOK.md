@@ -15,8 +15,8 @@
 ## 1. Purpose and operating principles
 
 LMS safety rollout (2026-11): apply
-[`AI V025`](../../ai-service/migrations/V025__review_delivery_receipts.sql) and
-[`LMS V022`](../../lms-service/migrations/V022__lms_request_safety.sql) to their
+[`AI V025`](../../ai-service/migrations/releases/2026-11/V025__review_delivery_receipts.sql) and
+[`LMS V022`](../../lms-service/migrations/releases/2026-11/V022__lms_request_safety.sql) to their
 respective owner databases before releasing the images. New LMS fails startup
 when its required safety tables are absent. Deploy the AI receiver first, then
 LMS: review delivery retries require the new receiver's idempotency receipts.

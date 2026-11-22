@@ -525,13 +525,13 @@ no mastery backfill or migration is needed.
 
 Chapter, lesson/content and quiz `is_published` flags are always true, including
 API and MCP clients explicitly sending false. Migration
-`lms-service/migrations/V023__always_publish_learning_resources.sql` contains the
+`lms-service/migrations/releases/2026-11/V023__always_publish_learning_resources.sql` contains the
 full backfill, defaults, write guards and quiz notification capture. Run against
 the LMS database from a repository checkout using psql:
 
 ```sql
 BEGIN;
-\i lms-service/migrations/V023__always_publish_learning_resources.sql
+\i lms-service/migrations/releases/2026-11/V023__always_publish_learning_resources.sql
 COMMIT;
 ```
 
@@ -540,3 +540,11 @@ The backfill may create course-update notifications through existing triggers;
 it does not change a course's DRAFT/PUBLISHED/ARCHIVED status or enrollment.
 MCP authorization and approval still precede writes. Question Bank proposals
 remain proposals; an assembled course quiz is published immediately.
+
+### SQL source organization
+
+Migration history is grouped by release under each service's
+`migrations/releases/`; the root `migrations/README.md` indexes the business
+areas. Released SQL is immutable and its historical basename remains the ledger
+identity. See [SQL release conventions](operations/SQL_RELEASES.md) for the
+service catalogue, compatibility rules and the next-release workflow.

@@ -370,7 +370,7 @@ The LMS service handles:
 - `lms-service/internal/handler/personalized_learning_handler.go`
 - `lms-service/internal/service/learning_event_service.go`
 - `lms-service/internal/repository/learning_event_repository.go`
-- `lms-service/migrations/V015__personalized_learning_schema.sql`
+- `lms-service/migrations/releases/2026-11/V015__personalized_learning_schema.sql`
 
 ### Personalize Service (Python)
 

@@ -32,7 +32,7 @@ def test_durable_jobs_postgres(monkeypatch):
             return {'title': 'Reviewed draft', 'description': 'A valid lab problem.'}
         monkeypatch.setattr(svc, 'generate_proposal', generate)
         try:
-            await conn.execute((Path(__file__).parent.parent / 'migrations/V019__lab_authoring_jobs.sql').read_text())
+            await conn.execute((Path(__file__).parent.parent / 'migrations/releases/2026-11/V019__lab_authoring_jobs.sql').read_text())
             body = svc.AuthoringRequest(owner_id=1, task='create_lab', lab_type='CODING', instruction='Generate a lab')
             jobs = [await api.create(body, 'test-secret') for _ in range(3)]
             with pytest.raises(HTTPException) as e:

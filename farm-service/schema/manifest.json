@@ -1,0 +1,33 @@
+{
+  "engine": "PostgreSQL 17",
+  "source": "repository SQL, not production",
+  "inputs": [
+    {
+      "path": "internal/farm/schema.sql",
+      "sha256": "d6257f37097aa21769b6854d5a96d43011bfa56813ae3367ab1265545da3b86b"
+    },
+    {
+      "path": "internal/game/schema.sql",
+      "sha256": "553c381ba191415f7c89bed8c7be463f61b068c40ff8ec088d32a12635db5c39"
+    },
+    {
+      "path": "migrations/releases/2026-11/V001__initial.sql",
+      "sha256": "d6257f37097aa21769b6854d5a96d43011bfa56813ae3367ab1265545da3b86b"
+    },
+    {
+      "path": "migrations/releases/2026-11/V002__playable_world.sql",
+      "sha256": "c1ef68bbc5a08d4470f2ae635cd85fe4eed05e90e0ab1b7e56d840ea658f4290"
+    },
+    {
+      "path": "migrations/releases/2026-11/V003__lms_attempt_outbox.sql",
+      "sha256": "2fafdd31dd7289ea76a75a0948e52d58c8944ce6dea69048ed74ab8248fb10c2"
+    },
+    {
+      "path": "migrations/releases/2026-11/V004__relaxed_care_timers.sql",
+      "sha256": "b929494128b4fa772e91ac6a31d189b3ee50bff38303ebaa7b61f98b3ab4cd8c"
+    }
+  ],
+  "current_sha256": "bbdc970b0ce434d448bc015ec1e1ac32947379fc5f78077dd9950e6411b31a89",
+  "requires_jpa_organizations": false,
+  "adjustments": []
+}

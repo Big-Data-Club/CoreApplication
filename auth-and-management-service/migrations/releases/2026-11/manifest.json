@@ -1,0 +1,13 @@
+{
+  "release": "2026-11",
+  "files": [
+    {
+      "name": "V20261017__farm_score_receipts.sql",
+      "sha256": "de8a6eece89ada0306e22ea0a9ba8c2f8ba6a2fe0a6041cc46665b0830493775"
+    },
+    {
+      "name": "V20261105__tenant_sites.sql",
+      "sha256": "5720d79e38c1627e97f68e17a7db8d67c862b8b13296b783612c5ee09815fd1d"
+    }
+  ]
+}

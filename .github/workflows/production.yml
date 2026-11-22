@@ -41,6 +41,8 @@ jobs:
       - name: Verify release routing
         run: |
           python3 -m pip install PyYAML==6.0.3
+          python3 scripts/check-sql-releases.py
+          python3 -m unittest discover -s scripts/tests -p 'test_sql_*.py'
           python3 -m unittest discover -s scripts/tests -p test_ci_release_routing.py
           python3 -m unittest discover -s scripts/tests -p test_deployment_safety.py
           bash -n scripts/deploy-production.sh scripts/k3s-maintenance.sh
@@ -274,6 +276,9 @@ jobs:
           SUBMODULE_PAT_CONFIGURED: ${{ secrets.SUBMODULE_PAT != '' }}
         run: python3 scripts/checkout-service-submodules.py "$SERVICE_CONTEXT"
 
+      - name: Check available SQL releases
+        run: python3 scripts/check-sql-releases.py
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -486,7 +491,7 @@ jobs:
               finally:
                   await conn.close()
           asyncio.run(main())
-          ' < ai-service/migrations/V014__mcp_api_keys.sql
+          ' < ai-service/migrations/releases/2026-11/V014__mcp_api_keys.sql
           echo "Applying course knowledge map schema"
           kubectl exec -i -n "$DEPLOY_NAMESPACE" "$POD" -- python -c '
           import asyncio, os, sys, asyncpg
@@ -499,7 +504,7 @@ jobs:
               finally:
                   await conn.close()
           asyncio.run(main())
-          ' < ai-service/migrations/V023__course_knowledge_map.sql
+          ' < ai-service/migrations/releases/2026-11/V023__course_knowledge_map.sql
           python3 scripts/apply-flashcard-migrations.py | kubectl exec -i -n "$DEPLOY_NAMESPACE" "$POD" -- python -
 
       - name: Deploy immutable images and verify rollouts

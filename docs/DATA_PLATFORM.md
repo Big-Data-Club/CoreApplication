@@ -641,7 +641,7 @@ No new public endpoint, automatic telemetry or separate export is introduced.
 Legacy PUT callers that omit annotation preserve the stored value.
 
 Personalize applies the additive/idempotent migration under its DuckDB lock at
-startup; see `personalize-service/migrations/V20261105__notebook_annotations.sql`.
+startup; see `personalize-service/migrations/releases/2026-11/V20261105__notebook_annotations.sql`.
 Rollout order: Personalize → AI HTTP → frontend. Old notes require no backfill.
 Do not run tests against a production DuckDB file; tests force a temporary data
 directory and verify legacy rows, isolation, color updates and removal.

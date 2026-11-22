@@ -1,0 +1,29 @@
+{
+  "release": "2026-11",
+  "files": [
+    {
+      "name": "V001__lab_core.sql",
+      "sha256": "f991022139f7f9c8d45347f13968c96ec06a700da602bf94779c240e4f489b67"
+    },
+    {
+      "name": "V002__submissions.sql",
+      "sha256": "5ae6482dc6229414c3d5913a8fc1ee81f6590a101b325c4c0dd625d23c2c636d"
+    },
+    {
+      "name": "V003__virtual_stem_foundation.sql",
+      "sha256": "0c64bd3144b82343feb103526f4371c9e264ea87b93eb11f08f5fd8fdb6f9bf8"
+    },
+    {
+      "name": "V004__chemistry_lab_support.sql",
+      "sha256": "a5bb5e300d252cf0eaca3619bf42e7a8c648d83ff4155bb9fbdfbb728926adc6"
+    },
+    {
+      "name": "V005__runtime_tasks.sql",
+      "sha256": "61cea5aba967055d240c4b8e673d5cea29e21b3d6c2503815c7161ed1bf35d37"
+    },
+    {
+      "name": "V006__grading_compile_status.sql",
+      "sha256": "fa6fef90f7a69c70d668dcaa957d81e4699d10f044123e6d13a130e43cc3e01c"
+    }
+  ]
+}
