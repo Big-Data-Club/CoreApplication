@@ -43,6 +43,9 @@ spec:
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef: {name: bdc-secrets, key: JWT_SECRET}
+            - name: WORKSPACE_MCP_SECRET
+              valueFrom:
+                secretKeyRef: {name: bdc-secrets, key: WORKSPACE_MCP_SECRET, optional: true}
             - name: WORKSPACE_ALLOWED_ORIGINS
               valueFrom:
                 configMapKeyRef: {name: bdc-workspace-config, key: WORKSPACE_ALLOWED_ORIGINS}

@@ -1,0 +1,13 @@
+# Local MCP Workspace testing. Include after docker-compose.workspace.yml.
+services:
+  ai-service:
+    build:
+      dockerfile: Dockerfile.workspace-mcp-local
+    image: ${DOCKER_USERNAME:-bdc}/bdc-ai-workspace-mcp-local:${IMAGE_TAG:-local}
+    depends_on: !override
+      postgres-ai:
+        condition: service_healthy
+      redis-lms:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).close()"]

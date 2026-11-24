@@ -47,7 +47,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from mcp.auth import get_mcp_user_id
+from mcp.auth import WORKSPACE_READ, WORKSPACE_SCOPES, get_mcp_user_id
+from mcp import workspace
 from mcp.server import (
     MCP_PROTOCOL_VERSION,
     MCP_SERVER_CAPABILITIES,
@@ -218,8 +219,16 @@ async def create_user_mcp_key(
     """
     user_id = _require_internal_identity(x_user_id, x_ai_secret)
     scopes = sorted(set(body.scopes))
-    if not scopes or not set(scopes).issubset({"read", "write"}):
-        raise HTTPException(422, "Scopes must contain only 'read' and/or 'write'")
+    if not scopes or not (
+        set(scopes) <= {"read", "write"}
+        or (WORKSPACE_READ in scopes and set(scopes) <= WORKSPACE_SCOPES)
+    ):
+        raise HTTPException(422, "Choose LMS scopes or Workspace scopes for this key")
+    workspace_key = WORKSPACE_READ in scopes
+    if workspace_key and body.expires_in_days is None:
+        raise HTTPException(422, "Workspace keys require an expiration date")
+    if workspace_key and not (settings.mcp_enabled and workspace.enabled()):
+        raise HTTPException(503, "Workspace MCP is not enabled")
 
     raw_key = f"bdc_mcp_{secrets.token_urlsafe(32)}"
     key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
@@ -250,6 +259,8 @@ async def create_user_mcp_key(
             "api_key": raw_key,
             "masked_key": key_prefix,
             "scopes": list(row["scopes"]),
+            **({"server_url": f"{settings.workspace_mcp_public_url.rstrip('/')}/mcp/workspace"}
+               if workspace_key else {}),
             "created_at": row["created_at"].isoformat(),
             "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
             "message": "Copy this key now. It provides MCP access on behalf of your user account."
@@ -292,7 +303,7 @@ async def list_user_mcp_keys(
                 "expires_at": r["expires_at"].isoformat() if r["expires_at"] else None,
                 "last_used_at": r["last_used_at"].isoformat() if r["last_used_at"] else None,
             })
-        return {"keys": keys}
+        return {"keys": keys, "workspace_available": settings.mcp_enabled and workspace.enabled()}
     except Exception as exc:
         logger.exception("Failed to list MCP keys: %s", exc)
         raise HTTPException(500, "Failed to list API keys")
@@ -354,6 +365,7 @@ async def tool_profile(request: Request):
 @router.post("/studio")
 @router.post("/flashcards")
 @router.post("/authoring")
+@router.post("/workspace")
 @router.post("")
 async def mcp_jsonrpc(
     request: Request,

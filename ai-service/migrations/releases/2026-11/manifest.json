@@ -104,6 +104,10 @@
     {
       "name": "V025__review_delivery_receipts.sql",
       "sha256": "473b1a57aeb185d825cb42f18f50a19dee994c4f515ea96e3cda54d079417630"
+    },
+    {
+      "name": "V026__workspace_mcp_key_scopes.sql",
+      "sha256": "b519aa1f0cd79511bd77a88493434d0a7eb0255625adb0f30b7cce343c6cbb36"
     }
   ]
 }

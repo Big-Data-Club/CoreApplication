@@ -18,12 +18,15 @@ import logging
 from contextvars import ContextVar
 from typing import Optional
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+WORKSPACE_READ = "workspace:read"
+WORKSPACE_CREATE = "workspace:create"
+WORKSPACE_SCOPES = {WORKSPACE_READ, WORKSPACE_CREATE}
 
 
 def _parse_api_keys() -> dict[str, int]:
@@ -130,7 +133,9 @@ async def _resolve_db_key(token: str) -> Optional[tuple[int, frozenset[str]]]:
         cached = await redis.get(f"mcp:key:{token_hash}")
         if cached is not None:
             payload = json.loads(cached)
-            return int(payload["user_id"]), frozenset(payload.get("scopes") or ["read"])
+            scopes = frozenset(payload.get("scopes") or ["read"])
+            if not scopes & WORKSPACE_SCOPES:
+                return int(payload["user_id"]), scopes
     except Exception:
         pass
 
@@ -147,17 +152,19 @@ async def _resolve_db_key(token: str) -> Optional[tuple[int, frozenset[str]]]:
             if row:
                 uid = int(row["user_id"])
                 scopes = frozenset(row["scopes"] or ["read"])
-                # Cache in Redis for 5 minutes
-                try:
-                    from app.core.cache import get_cache
-                    redis = await get_cache()
-                    await redis.set(
-                        f"mcp:key:{token_hash}",
-                        json.dumps({"user_id": uid, "scopes": sorted(scopes)}),
-                        ex=300,
-                    )
-                except Exception:
-                    pass
+                # Workspace credentials are checked against the database on each
+                # call so a revoked or expired publishing key stops immediately.
+                if not scopes & WORKSPACE_SCOPES:
+                    try:
+                        from app.core.cache import get_cache
+                        redis = await get_cache()
+                        await redis.set(
+                            f"mcp:key:{token_hash}",
+                            json.dumps({"user_id": uid, "scopes": sorted(scopes)}),
+                            ex=300,
+                        )
+                    except Exception:
+                        pass
                 # Async touch last_used_at
                 await conn.execute(
                     "UPDATE mcp_api_keys SET last_used_at = NOW() WHERE id = $1", row["id"]
@@ -171,6 +178,7 @@ async def _resolve_db_key(token: str) -> Optional[tuple[int, frozenset[str]]]:
 
 async def get_mcp_user_id(
     authorization: Optional[str] = Header(default=None),
+    request: Request = None,
 ) -> int:
     """
     FastAPI dependency: validate MCP API key (from static env or DB) and return user_id.
@@ -206,6 +214,11 @@ async def get_mcp_user_id(
             detail={"error": "Invalid API key", "code": "MCP_INVALID_KEY"},
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if request is not None:
+        workspace_route = request.url.path.rstrip("/") == "/mcp/workspace"
+        if workspace_route != (WORKSPACE_READ in scopes):
+            raise HTTPException(403, "This MCP key is not valid for this endpoint")
 
     await _check_rate_limit(token)
     _CURRENT_SCOPES.set(scopes)

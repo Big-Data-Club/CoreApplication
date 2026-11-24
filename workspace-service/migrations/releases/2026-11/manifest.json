@@ -40,6 +40,10 @@
     {
       "name": "010_notebook_destinations.sql",
       "sha256": "3c5e425c5c68ea2f97ec6a4e69556a8a5529970f94bd04a5fc1758fa345a7e73"
+    },
+    {
+      "name": "011_mcp_page_requests.sql",
+      "sha256": "d8311c92c52f21d127f49f8cb9183042341bcebc95ea3c116fc355499a2d51fd"
     }
   ]
 }

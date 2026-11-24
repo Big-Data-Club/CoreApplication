@@ -41,9 +41,13 @@
     {
       "path": "migrations/releases/2026-11/010_notebook_destinations.sql",
       "sha256": "3c5e425c5c68ea2f97ec6a4e69556a8a5529970f94bd04a5fc1758fa345a7e73"
+    },
+    {
+      "path": "migrations/releases/2026-11/011_mcp_page_requests.sql",
+      "sha256": "d8311c92c52f21d127f49f8cb9183042341bcebc95ea3c116fc355499a2d51fd"
     }
   ],
-  "current_sha256": "1450055eba5d3dde204015e2123ea52f1da5aee89f677687633f5d7e5fb76119",
+  "current_sha256": "89f47b5a7b8c5d4eb996ad47c96dc201804e22dd13136120c0ea079c22dc2282",
   "requires_jpa_organizations": false,
   "adjustments": []
 }

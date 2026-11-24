@@ -103,11 +103,15 @@
       "sha256": "473b1a57aeb185d825cb42f18f50a19dee994c4f515ea96e3cda54d079417630"
     },
     {
+      "path": "migrations/releases/2026-11/V026__workspace_mcp_key_scopes.sql",
+      "sha256": "b519aa1f0cd79511bd77a88493434d0a7eb0255625adb0f30b7cce343c6cbb36"
+    },
+    {
       "path": "migrations/releases/2026-11/004_graphrag_indexes.sql",
       "sha256": "9d918db194ef4c07e0f9be09eda9ea5ff136f11d485e3cb9ade0f6578f115b74"
     }
   ],
-  "current_sha256": "a0c186ba5a51cd113d29c4185a7c99ea69415b604238ca7f1c113f5e935ff0a5",
+  "current_sha256": "d1d6eca3262c86a5b5be0082f5a61a462edf9251757f9b2eb0d1fe81c0974484",
   "requires_jpa_organizations": false,
   "adjustments": [
     "idx_sr_student_due_today: replace volatile CURRENT_DATE predicate with IS NOT NULL"

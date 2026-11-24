@@ -234,6 +234,9 @@ class Settings(BaseSettings):
     mcp_max_body_bytes: int = 2097152
     mcp_max_batch_size: int = 20
     mcp_tool_timeout_seconds: int = 120
+    workspace_service_url: str = "http://workspace-service:8088"
+    workspace_mcp_secret: str = ""
+    workspace_mcp_public_url: str = "https://bdc.hpcc.vn"
 
     def __init__(self, **values):
         super().__init__(**values)

@@ -12,6 +12,7 @@ import { HttpError } from "../src/errors.mjs";
 import { jwtIdentity } from "../src/auth.mjs";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
+const mcpSecret = "workspace-mcp-integration-test-secret";
 let pool, server, services, base, closeRealtime;
 const users = {
   alice: { id: "901", email: "alice@workspace.test", name: "Alice" },
@@ -34,6 +35,7 @@ before(async () => {
   await migrate(pool);
   services = createApplication({
     pool,
+    mcpSecret,
     origins: ["http://workspace.test"],
     identity: async (req) => {
       const user = users[req.headers.authorization?.replace("Bearer ", "")];
@@ -116,6 +118,52 @@ function change(text) {
   return update;
 }
 const only = enabled ? test : test.skip;
+
+only("Workspace MCP creates one owned page under concurrent retries", async () => {
+  const aliceSpace = (await home()).spaces.find((space) => space.kind === "personal");
+  const bobSpace = (await home("bob")).spaces.find((space) => space.kind === "personal");
+  const mcpBase = new URL("/internal/mcp/workspace/", base);
+  const payload = {
+    destination_id: aliceSpace.id,
+    request_id: randomUUID(),
+    title: "Ghi chú đọc bài",
+    markdown: "# Tóm tắt\n\n```python\nprint('example')\n```",
+    source_url: "https://example.test/article",
+  };
+  async function mcp(path, body, { secret = mcpSecret, scope = body ? "workspace:create" : "workspace:read" } = {}) {
+    const response = await fetch(new URL(path, mcpBase), {
+      method: body ? "POST" : "GET",
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "X-Workspace-Actor": users.alice.id,
+        "X-Workspace-Scope": scope,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: response.status, data: await response.json() };
+  }
+
+  assert.equal((await mcp("destinations", null, { secret: "wrong-key" })).status, 401);
+  assert.deepEqual((await mcp("destinations")).data.destinations.map(({ id }) => id), [aliceSpace.id]);
+  assert.equal((await mcp("pages", payload, { scope: "workspace:read" })).status, 403);
+  assert.equal((await mcp("pages", { ...payload, destination_id: bobSpace.id })).status, 404);
+  assert.equal((await mcp("pages", { ...payload, source_url: "javascript:alert(1)" })).status, 400);
+
+  const replies = await Promise.all([mcp("pages", payload), mcp("pages", payload)]);
+  assert.deepEqual(replies.map(({ status }) => status).sort(), [200, 201]);
+  const pageId = replies[0].data.page_id;
+  assert.equal(replies[1].data.page_id, pageId);
+  assert.equal((await mcp("pages", { ...payload, title: "Different content" })).status, 409);
+  const page = await request("alice", `/pages/${pageId}`);
+  assert.equal(page.status, 200);
+  assert.equal(page.data.initial_markdown, payload.markdown);
+  assert.equal(page.data.sources[0].url, payload.source_url);
+  assert.equal((await request("bob", `/pages/${pageId}`)).status, 404);
+  assert.equal((await request("alice", `/pages/${pageId}/archive`, "POST")).status, 200);
+  assert.equal((await request("alice", `/pages/${pageId}`, "DELETE")).status, 200);
+  assert.equal((await mcp("pages", payload)).status, 404);
+});
 
 only(
   "pre-migrated runtime accepts the current schema and rejects missing migrations",

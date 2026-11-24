@@ -862,6 +862,24 @@ SET row_security = off;
 
 SELECT pg_catalog.setval('public.page_visits_id_seq', 1, false);
 
+CREATE TABLE public.workspace_mcp_page_requests (
+    user_id text NOT NULL,
+    request_id uuid NOT NULL,
+    payload_hash text NOT NULL,
+    page_id uuid
+);
+
+ALTER TABLE ONLY public.workspace_mcp_page_requests
+    ADD CONSTRAINT workspace_mcp_page_requests_pkey PRIMARY KEY (user_id, request_id);
+
+CREATE INDEX workspace_mcp_page_requests_page_idx ON public.workspace_mcp_page_requests USING btree (page_id);
+
+ALTER TABLE ONLY public.workspace_mcp_page_requests
+    ADD CONSTRAINT workspace_mcp_page_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.workspace_users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.workspace_mcp_page_requests
+    ADD CONSTRAINT workspace_mcp_page_requests_page_id_fkey FOREIGN KEY (page_id) REFERENCES public.pages(id) ON DELETE SET NULL;
+
 -- Record the historical identities covered by this fresh baseline.
 CREATE TABLE public.workspace_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());
 INSERT INTO public.workspace_migrations (name) VALUES
@@ -874,4 +892,5 @@ INSERT INTO public.workspace_migrations (name) VALUES
 ('007_page_cover_image.sql'),
 ('008_library.sql'),
 ('009_bounded_versions.sql'),
-('010_notebook_destinations.sql');
+('010_notebook_destinations.sql'),
+('011_mcp_page_requests.sql');
