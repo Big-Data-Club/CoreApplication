@@ -1,0 +1,13 @@
+FROM python:3.12-slim
+WORKDIR /app
+
+COPY requirements.txt .
+RUN grep -Ei '^(fastapi|uvicorn|pydantic|pydantic-settings|asyncpg|psycopg2-binary|redis|groq|cryptography|orjson|httpx|prometheus-client)(\[[^]]+\])?==' requirements.txt > /tmp/mcp-requirements.txt \
+    && pip install --no-cache-dir -r /tmp/mcp-requirements.txt
+
+COPY app ./app
+COPY mcp ./mcp
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+USER 10001:10001
+CMD ["uvicorn", "mcp.workspace_local:app", "--host", "0.0.0.0", "--port", "8000"]

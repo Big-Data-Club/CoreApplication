@@ -27,8 +27,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from mcp.tool_adapter import call_mcp_tool, get_mcp_tool_list
+from mcp.tool_adapter import call_mcp_tool, current_profile, get_mcp_tool_list
 from mcp.resources import list_mcp_resources, read_mcp_resource
+from mcp.workspace import GUIDE as WORKSPACE_GUIDE, GUIDE_URI as WORKSPACE_GUIDE_URI
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ def _handle_initialize(request_id: Any, params: dict) -> dict:
             "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": MCP_SERVER_CAPABILITIES,
             "serverInfo": MCP_SERVER_INFO,
-            "instructions": MCP_INSTRUCTIONS,
+            "instructions": WORKSPACE_GUIDE if current_profile.get() == "workspace" else MCP_INSTRUCTIONS,
         },
     )
 
@@ -175,6 +176,10 @@ async def _handle_tools_call(request_id: Any, params: dict, user_id: int) -> dic
 
 
 async def _handle_resources_list(request_id: Any, user_id: int) -> dict:
+    if current_profile.get() == "workspace":
+        return _ok(request_id, {"resources": [{
+            "uri": WORKSPACE_GUIDE_URI, "name": "Workspace guide", "mimeType": "text/markdown",
+        }]})
     resources = await list_mcp_resources(user_id)
     return _ok(request_id, {"resources": resources})
 
@@ -183,6 +188,13 @@ async def _handle_resources_read(request_id: Any, params: dict, user_id: int) ->
     uri: str | None = params.get("uri")
     if not uri:
         return _invalid_params(request_id, "Missing 'uri' in params")
+
+    if current_profile.get() == "workspace":
+        if uri != WORKSPACE_GUIDE_URI:
+            return _invalid_params(request_id, "This resource is outside the Workspace profile")
+        return _ok(request_id, {"contents": [{
+            "uri": uri, "mimeType": "text/markdown", "text": WORKSPACE_GUIDE,
+        }]})
 
     try:
         result = await read_mcp_resource(uri, user_id)

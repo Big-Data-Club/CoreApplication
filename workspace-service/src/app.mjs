@@ -14,11 +14,13 @@ import { Fields } from "./fields.mjs";
 import { Analytics } from "./analytics.mjs";
 import { Trash } from "./trash.mjs";
 import { Library } from "./library.mjs";
+import { workspaceMcpRouter } from "./mcp.mjs";
 
 export function createApplication({
   pool,
   identity = jwtIdentity(process.env.JWT_SECRET),
   origins = [],
+  mcpSecret = process.env.WORKSPACE_MCP_SECRET,
 }) {
   const app = express(),
     store = new Store(pool),
@@ -54,6 +56,7 @@ export function createApplication({
       res.status(503).json({ status: "unavailable" });
     }
   });
+  app.use("/internal/mcp/workspace", workspaceMcpRouter(store, pages, mcpSecret));
   const api = express.Router();
   app.use("/api/v1/workspace", api);
   const limits = new Map();

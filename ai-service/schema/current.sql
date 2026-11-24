@@ -704,7 +704,7 @@ CREATE TABLE public.mcp_api_keys (
     expires_at timestamp with time zone,
     last_used_at timestamp with time zone,
     revoked_at timestamp with time zone,
-    CONSTRAINT mcp_api_keys_scopes_valid CHECK ((scopes <@ ARRAY['read'::text, 'write'::text]))
+    CONSTRAINT mcp_api_keys_scopes_valid CHECK (((scopes <@ ARRAY['read'::text, 'write'::text]) OR ((scopes <@ ARRAY['workspace:read'::text, 'workspace:create'::text]) AND ('workspace:read'::text = ANY (scopes)))))
 );
 
 

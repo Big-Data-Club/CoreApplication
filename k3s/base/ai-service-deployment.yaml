@@ -135,6 +135,12 @@ spec:
               optional: true
         - name: MCP_RATE_LIMIT_RPM
           value: "100"
+        - name: MCP_ALLOWED_TOOLS
+          valueFrom:
+            configMapKeyRef: {name: bdc-config, key: MCP_ALLOWED_TOOLS}
+        - name: WORKSPACE_MCP_SECRET
+          valueFrom:
+            secretKeyRef: {name: bdc-secrets, key: WORKSPACE_MCP_SECRET, optional: true}
         resources:
           limits:
             cpu: "1.5"

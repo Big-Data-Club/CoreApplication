@@ -43,6 +43,7 @@ from app.agents.tools.registry import (
     get_tool_by_name,
 )
 from app.core.config import get_settings
+from mcp import auth, workspace
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -64,6 +65,7 @@ SAFE_DEFAULT_TOOLS = {
     "mcp_course_knowledge_read",
     "mcp_save_course_knowledge",
     "mcp_studio_read", "mcp_studio_write", "mcp_flashcards_read", "mcp_flashcards_write",
+    *workspace.TOOLS,
 }
 WRITE_TOOLS = {
     "mcp_studio_write", "mcp_flashcards_write",
@@ -107,6 +109,7 @@ def _build_allowed_set() -> set[str]:
 
 _ALLOWED_TOOLS: set[str] = _build_allowed_set()
 TOOL_PROFILES = {
+    "workspace": set(workspace.TOOLS),
     "studio": {"list_accessible_courses", "list_my_courses", "mcp_studio_read", "mcp_studio_write"},
     "flashcards": {"list_accessible_courses", "mcp_flashcards_read", "mcp_flashcards_write"},
     "authoring": {"list_accessible_courses", "list_my_courses", "mcp_studio_read", "mcp_studio_write", "mcp_flashcards_read", "mcp_flashcards_write"},
@@ -116,6 +119,12 @@ current_profile: ContextVar[str | None] = ContextVar("mcp_tool_profile", default
 
 def _is_allowed(tool_name: str) -> bool:
     profile = current_profile.get()
+    if tool_name in workspace.TOOLS:
+        scope = workspace.TOOLS[tool_name][0]
+        return (
+            profile == "workspace" and workspace.enabled()
+            and tool_name in _ALLOWED_TOOLS and scope in auth.get_current_scopes()
+        )
     return tool_name in _ALLOWED_TOOLS and (profile is None or tool_name in TOOL_PROFILES[profile])
 
 
@@ -130,6 +139,9 @@ def get_mcp_tool_list() -> list[dict]:
     Aggregates teacher + mentor tools, de-duplicates shared tools,
     and applies the MCP_ALLOWED_TOOLS whitelist.
     """
+    if current_profile.get() == "workspace":
+        return [tool for tool in workspace.descriptors() if _is_allowed(tool["name"])]
+
     seen: set[str] = set()
     mcp_tools: list[dict] = []
 
@@ -246,9 +258,7 @@ async def call_mcp_tool(
             )
         )
 
-    from mcp.auth import get_current_scopes
-
-    if tool_name in WRITE_TOOLS and "write" not in get_current_scopes():
+    if tool_name in WRITE_TOOLS and "write" not in auth.get_current_scopes():
         return _tool_result_to_mcp(ToolResult(
             status="error",
             data={"error": "write_scope_required"},
@@ -261,6 +271,15 @@ async def call_mcp_tool(
             data={"error": "reserved_argument"},
             message="Arguments beginning with '_' are reserved by the server.",
         ))
+
+    if tool_name in workspace.TOOLS:
+        result = await workspace.call(
+            tool_name, arguments, user_id, can_create=_is_allowed("workspace_create_page"),
+        )
+        await _audit(user_id, tool_name, result.status != "error", {
+            "page_id": result.data.get("page_id") if result.data else None,
+        })
+        return _tool_result_to_mcp(result)
 
     from mcp.authoring import MODELS, call as call_authoring
     if tool_name in MODELS:
@@ -330,7 +349,7 @@ async def call_mcp_tool(
                 arguments=dict(arguments),
                 user_id=user_id,
                 agent_type="teacher",
-                mcp_write_authorized=tool_name in WRITE_TOOLS and "write" in get_current_scopes(),
+                mcp_write_authorized=tool_name in WRITE_TOOLS and "write" in auth.get_current_scopes(),
             ),
             timeout=settings.mcp_tool_timeout_seconds,
         )

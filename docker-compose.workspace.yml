@@ -1,5 +1,16 @@
 # Merge with docker-compose.yml. Secrets come from the existing local environment.
 services:
+  ai-service:
+    environment:
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      WORKSPACE_MCP_SECRET: ${WORKSPACE_MCP_SECRET:-}
+      WORKSPACE_MCP_PUBLIC_URL: ${WORKSPACE_MCP_PUBLIC_URL:-http://localhost:3000}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.workspace-mcp.entrypoints=web
+      - traefik.http.routers.workspace-mcp.rule=Path(`/mcp/workspace`)
+      - traefik.http.routers.workspace-mcp.priority=100
+      - traefik.http.services.workspace-mcp.loadbalancer.server.port=8000
   frontend:
     environment:
       WORKSPACE_SERVICE_URL: http://workspace-service:8088
@@ -30,6 +41,7 @@ services:
       WORKSPACE_MIGRATE_ON_START: 'true'
       DATABASE_URL: postgresql://workspace:${WORKSPACE_POSTGRES_PASSWORD}@postgres-workspace:5432/workspace
       JWT_SECRET: ${JWT_SECRET:?Use the same JWT signing secret as Auth}
+      WORKSPACE_MCP_SECRET: ${WORKSPACE_MCP_SECRET:-}
       WORKSPACE_ALLOWED_ORIGINS: ${WORKSPACE_ALLOWED_ORIGINS:?Set exact browser origins including scheme and port}
     depends_on:
       postgres-workspace:

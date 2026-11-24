@@ -159,6 +159,39 @@ remember, 5–7 understand/apply, 8–10 analyze/calculate); advanced questions
 retain lesson `source_refs` for review. A write-scoped key and course ownership
 are required.
 
+## Workspace with your own agent
+
+Use **My Account → MCP → Workspace cá nhân** to create an isolated Workspace
+key and copy the configuration for Codex, Claude Code or OpenCode. Connect to
+`/mcp/workspace`. A read key can discover `workspace_list_destinations`; a key
+with **Cho phép tạo trang mới** also exposes `workspace_create_page`. The keys
+issued for LMS and Workspace each work only on their designated profiles.
+Read `bdc://workspace/guide` for tool usage.
+
+Sample request. “Read this article, keep the relevant code examples, and save a
+Vietnamese Markdown note to my personal BDC Workspace. Include the source URL.”
+The client's own browsing and model capabilities read and prepare the content.
+After the user approves the draft and destination, the tool persists the Markdown
+and returns the page link. BDC neither fetches the source URL nor invokes its LLM.
+Reuse the same `request_id` and payload when a create response is lost. Existing
+documents, team spaces, sharing, updates, and deletion are outside this profile.
+
+To enable, apply `V026__workspace_mcp_key_scopes.sql` in AI and
+`011_mcp_page_requests.sql` in Workspace, then configure the same
+dedicated random `WORKSPACE_MCP_SECRET` (at least 32 bytes) for AI and Workspace.
+Only the AI service should call the private Workspace bridge. Use HTTPS for
+external clients. Set `MCP_ENABLED=true` locally and configure
+`WORKSPACE_MCP_PUBLIC_URL` as the browser-facing BDC origin if needed. The
+Workspace Compose overlay routes `/mcp/workspace` through the same local origin.
+For Workspace-only testing, include `docker-compose.workspace-mcp-local.yml`
+after that overlay. Run `docker compose build ai-service workspace-service frontend`
+with the selected Compose files, then `docker compose up -d --no-build ai-service
+workspace-service frontend traefik` with those same files. The lightweight AI
+image serves the Workspace MCP and key-management routes with PostgreSQL and
+Redis. Use the regular AI image for Mentor and Studio.
+If creating a Workspace key outside the account UI, open Workspace once to
+initialize the personal space first.
+
 ## Tests
 
 ```bash

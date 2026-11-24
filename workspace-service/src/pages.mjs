@@ -11,57 +11,58 @@ export class Pages {
     this.store = store;
   }
   async create(user, spaceId, input) {
-    return this.store.tx(async (client) => {
-      await this.store.space(client, spaceId, user, 3);
-      if (input.parent_id) {
-        const parent = await this.store.page(client, input.parent_id, user, 3);
-        assert(
-          parent.space_id === spaceId &&
-            parent.kind !== "record" &&
-            parent.kind !== "database",
-          400,
-          "Trang cha không hợp lệ.",
-        );
-      }
-      const page = await this.store.insertPage(client, user, spaceId, input);
-      if (input.template && templates[input.template]) {
-        page.initial_markdown = templates[input.template];
-        await client.query("UPDATE pages SET initial_markdown=$2 WHERE id=$1", [
-          page.id,
-          page.initial_markdown,
-        ]);
-      }
-      if (input.markdown) {
-        page.initial_markdown = input.markdown;
-        await client.query("UPDATE pages SET initial_markdown=$2 WHERE id=$1", [
-          page.id,
-          input.markdown,
-        ]);
-      }
-      if (page.kind === "database") {
+    return this.store.tx((client) => this.createInTransaction(client, user, spaceId, input));
+  }
+  async createInTransaction(client, user, spaceId, input) {
+    await this.store.space(client, spaceId, user, 3);
+    if (input.parent_id) {
+      const parent = await this.store.page(client, input.parent_id, user, 3);
+      assert(
+        parent.space_id === spaceId &&
+          parent.kind !== "record" &&
+          parent.kind !== "database",
+        400,
+        "Trang cha không hợp lệ.",
+      );
+    }
+    const page = await this.store.insertPage(client, user, spaceId, input);
+    if (input.template && templates[input.template]) {
+      page.initial_markdown = templates[input.template];
+      await client.query("UPDATE pages SET initial_markdown=$2 WHERE id=$1", [
+        page.id,
+        page.initial_markdown,
+      ]);
+    }
+    if (input.markdown) {
+      page.initial_markdown = input.markdown;
+      await client.query("UPDATE pages SET initial_markdown=$2 WHERE id=$1", [
+        page.id,
+        input.markdown,
+      ]);
+    }
+    if (page.kind === "database") {
+      await client.query(
+        "INSERT INTO database_schemas(page_id,fields) VALUES($1,$2)",
+        [page.id, JSON.stringify(defaultFields)],
+      );
+      for (const [name, type] of [
+        ["Bảng", "table"],
+        ["Kanban", "board"],
+        ["Lịch", "calendar"],
+      ])
         await client.query(
-          "INSERT INTO database_schemas(page_id,fields) VALUES($1,$2)",
-          [page.id, JSON.stringify(defaultFields)],
+          "INSERT INTO database_views(id,page_id,name,type,config) VALUES($1,$2,$3,$4,$5)",
+          [
+            randomUUID(),
+            page.id,
+            name,
+            type,
+            { group_by: "status", date_field: "date" },
+          ],
         );
-        for (const [name, type] of [
-          ["Bảng", "table"],
-          ["Kanban", "board"],
-          ["Lịch", "calendar"],
-        ])
-          await client.query(
-            "INSERT INTO database_views(id,page_id,name,type,config) VALUES($1,$2,$3,$4,$5)",
-            [
-              randomUUID(),
-              page.id,
-              name,
-              type,
-              { group_by: "status", date_field: "date" },
-            ],
-          );
-      }
-      await this.store.event(client, user, spaceId, page.id, "page.created");
-      return page;
-    });
+    }
+    await this.store.event(client, user, spaceId, page.id, "page.created");
+    return page;
   }
   async patch(user, id, input) {
     return this.store.tx(async (client) => {
