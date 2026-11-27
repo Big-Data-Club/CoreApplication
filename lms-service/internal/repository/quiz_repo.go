@@ -1014,9 +1014,14 @@ func (r *QuizRepository) CreateStudentAnswer(ctx context.Context, answer *models
 	return err
 }
 
+// Keep the positional Scan contract independent of additive database migrations.
+const quizStudentAnswerColumns = `id, attempt_id, question_id, answer_data,
+ points_earned, is_correct, grader_feedback, graded_by, graded_at,
+ answered_at, time_spent_seconds, created_at, updated_at`
+
 // GetStudentAnswer retrieves a student answer
 func (r *QuizRepository) GetStudentAnswer(ctx context.Context, answerID int64) (*models.QuizStudentAnswer, error) {
-	query := `SELECT * FROM quiz_student_answers WHERE id = $1`
+	query := `SELECT ` + quizStudentAnswerColumns + ` FROM quiz_student_answers WHERE id = $1`
 
 	var answer models.QuizStudentAnswer
 	err := r.db.QueryRowContext(ctx, query, answerID).Scan(
@@ -1047,7 +1052,7 @@ func (r *QuizRepository) GetStudentAnswer(ctx context.Context, answerID int64) (
 // GetStudentAnswerByQuestion retrieves student answer for a specific question in an attempt
 func (r *QuizRepository) GetStudentAnswerByQuestion(ctx context.Context, attemptID, questionID int64) (*models.QuizStudentAnswer, error) {
 	query := `
-		SELECT * FROM quiz_student_answers
+		SELECT ` + quizStudentAnswerColumns + ` FROM quiz_student_answers
 		WHERE attempt_id = $1 AND question_id = $2
 	`
 
@@ -1101,7 +1106,7 @@ func (r *QuizRepository) UpdateStudentAnswer(ctx context.Context, answer *models
 // ListAttemptAnswers lists all answers for an attempt
 func (r *QuizRepository) ListAttemptAnswers(ctx context.Context, attemptID int64) ([]models.QuizStudentAnswer, error) {
 	query := `
-		SELECT * FROM quiz_student_answers
+		SELECT ` + quizStudentAnswerColumns + ` FROM quiz_student_answers
 		WHERE attempt_id = $1
 		ORDER BY answered_at
 	`
