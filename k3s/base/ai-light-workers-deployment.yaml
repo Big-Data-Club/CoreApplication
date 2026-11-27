@@ -136,6 +136,8 @@ spec:
           value: 'false'
         - name: AI_DB_MAX_CONNECTIONS
           value: '4'
+        - name: AI_DB_MIN_CONNECTIONS
+          value: '1'
         resources:
           requests:
             cpu: 100m
@@ -326,6 +328,8 @@ spec:
           value: 'false'
         - name: AI_DB_MAX_CONNECTIONS
           value: '4'
+        - name: AI_DB_MIN_CONNECTIONS
+          value: '1'
         resources:
           requests:
             cpu: 100m

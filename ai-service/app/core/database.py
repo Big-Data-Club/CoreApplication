@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncpg
+import logging
 import psycopg2
 import psycopg2.extras
 from contextlib import asynccontextmanager, contextmanager
@@ -9,6 +10,7 @@ from typing import AsyncIterator, Iterator
 from app.core.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 # ── Async pools (FastAPI + Kafka worker) ──────────────────────────────────────
@@ -18,13 +20,25 @@ _ai_pool: asyncpg.Pool | None = None
 
 async def init_ai_pool() -> None:
     global _ai_pool
+    # A workload may lower only its maximum while inheriting the shared
+    # minimum. Respect its connection cap without failing before connecting.
+    minimum = min(settings.ai_db_min_connections, settings.ai_db_max_connections)
+    if minimum != settings.ai_db_min_connections:
+        logger.warning(
+            "AI database pool minimum capped to workload maximum",
+            extra={
+                "requested_min": settings.ai_db_min_connections,
+                "effective_min": minimum,
+                "max_size": settings.ai_db_max_connections,
+            },
+        )
     _ai_pool = await asyncpg.create_pool(
         host=settings.ai_db_host,
         port=settings.ai_db_port,
         user=settings.ai_db_user,
         password=settings.ai_db_password,
         database=settings.ai_db_name,
-        min_size=settings.ai_db_min_connections,
+        min_size=minimum,
         max_size=settings.ai_db_max_connections,
         statement_cache_size=100,
         max_inactive_connection_lifetime=300,
@@ -48,11 +62,20 @@ async def get_ai_conn() -> AsyncIterator[asyncpg.Connection]:
 
 # ── Sync connections (used by migration scripts only) ─────────────────────────
 
+
 def _make_sync_conn(
-    host: str, port: int, user: str, password: str, dbname: str,
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    dbname: str,
 ) -> psycopg2.extensions.connection:
     conn = psycopg2.connect(
-        host=host, port=port, user=user, password=password, dbname=dbname,
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        dbname=dbname,
     )
     conn.autocommit = False
     return conn
@@ -62,8 +85,11 @@ def _make_sync_conn(
 def get_sync_ai_conn() -> Iterator[psycopg2.extensions.connection]:
     """Sync context manager for AI tables - use in migration scripts only."""
     conn = _make_sync_conn(
-        settings.ai_db_host, settings.ai_db_port,
-        settings.ai_db_user, settings.ai_db_password, settings.ai_db_name,
+        settings.ai_db_host,
+        settings.ai_db_port,
+        settings.ai_db_user,
+        settings.ai_db_password,
+        settings.ai_db_name,
     )
     try:
         yield conn

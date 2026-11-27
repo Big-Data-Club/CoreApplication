@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     ai_db_password: str = "ai_password"
     ai_db_name: str = "ai_db"
     ai_db_ssl: str = "require"  # None | disable | require | verify-ca | verify-full
-    ai_db_min_connections: int = 5
-    ai_db_max_connections: int = 20
+    ai_db_min_connections: int = Field(default=5, ge=0)
+    ai_db_max_connections: int = Field(default=20, ge=1)
 
     # ── Qdrant Vector Store ────────────────────────────────────────────────────
     qdrant_url: str | None = None  # Full URL: https://...:6333

@@ -14,6 +14,10 @@
 
 ## 1. Purpose and operating principles
 
+AI workers explicitly set `AI_DB_MIN_CONNECTIONS=1` with maxima 8 (batch)
+and 4 (memory/interactive). Pool initialization caps an inherited minimum to the
+configured maximum, with a warning; invalid negative/zero bounds are rejected.
+
 AI worker stabilization (2026-11-27): apply additive AI V027 after V026 before
 releasing the new image. The production workflow performs this in the AI owner
 database. Topic provisioning adds `lms.ai.memory.v1` and `ai.worker.failed.v1`;

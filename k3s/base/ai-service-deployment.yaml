@@ -321,6 +321,8 @@ spec:
           value: 'false'
         - name: AI_DB_MAX_CONNECTIONS
           value: '8'
+        - name: AI_DB_MIN_CONNECTIONS
+          value: '1'
         resources:
           limits:
             cpu: '2.5'
