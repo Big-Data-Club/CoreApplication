@@ -66,6 +66,12 @@ class ReleaseRoutingTests(unittest.TestCase):
         self.assertEqual(result["services"], "")
         self.assertEqual(result["should_build"], "false")
 
+    def test_manual_worker_release_selects_migrations_and_consumers_first(self):
+        result = self.select(GITHUB_EVENT_NAME="workflow_dispatch", MANUAL_IMAGE_TAG="compatible-sha",
+                             MANUAL_SERVICES="ai-worker")
+        self.assertEqual(result["services"], "ai-memory-worker,ai-interactive-worker,ai-worker,ai-service")
+        self.assertEqual(result["should_build"], "false")
+
     def test_manual_frontend_rollback_uses_requested_tag(self):
         result = self.select(GITHUB_EVENT_NAME="workflow_dispatch", MANUAL_IMAGE_TAG="previous-sha",
                              MANUAL_SERVICES="frontend", FRONTEND_CHANGED="true", LMS_CHANGED="true")

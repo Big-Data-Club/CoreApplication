@@ -11,6 +11,16 @@ requester and fetches canonical LMS sources through the service-only endpoint
 `GET /api/v1/internal/quizzes/:quizId/index-source`. LMS rechecks current
 ownership/co-teaching/admin roles for every source page.
 
+Operational route: browser -> LMS authorization -> AI HTTP queue ->
+`lms.ai.command` (minimum 3 partitions) -> `ai-worker-group` -> durable quiz job
+claim. The producer logs broker acknowledgement coordinates; worker logs matching
+job/topic/partition/offset at INFO. Ready/processing reuse is logged separately.
+No raw quiz text is logged. V027 adds a bounded background recovery sweep for
+lost notifications, expired leases and retryable failures; maximum 3 claims per
+job. Each claim has its own generation, heartbeat and fenced ready publication.
+Permission/source changes fail terminally; an authorized manual retry starts a
+new job. See [delivery ADR](adr/2026-11-27-ai-worker-delivery.md).
+
 Source pages use a 100-question keyset; embeddings use batches of at most 16.
 Each question has one logical chunk/vector. Long stems use pooled, overlapping
 embedding windows, up to 48,000 characters. Only question/option text is indexed;
@@ -43,12 +53,12 @@ node attempts are excluded from score buckets. Edits do not rewrite history.
 
 ## Agent memory consolidation (2026-11)
 
-AI HTTP produces the existing `CONSOLIDATE_SESSION` command on `lms.ai.command`;
-AI worker owns the consumer and AI's PostgreSQL/Redis/Qdrant memory data. Payloads
-continue to carry session/user IDs and small context hints, without raw dialogue.
-The purpose is bounded conversation continuity and sourced preference recall.
-The worker verifies the persisted session owner and agent role before loading
-messages; persisted session course scope overrides queued course hints.
+AI HTTP produces `CONSOLIDATE_SESSION` on `lms.ai.memory.v1`, keyed by
+session ID; the dedicated memory worker consumes as `ai-worker-memory-v1`.
+The batch worker forwards legacy memory commands from `lms.ai.command` with
+identity preserved, acknowledging only after the new topic accepts the envelope.
+Payloads contain session/user IDs and small context hints, without raw dialogue.
+The worker verifies persisted ownership/agent/course scope before loading data.
 
 The existing message-ID cursor bounds each batch. Its compare-and-set update
 prevents competing workers from overwriting newer summaries. Episodes use a UUID
@@ -60,21 +70,20 @@ relevance or automatic index repair. Deleted/foreign vector hits are filtered by
 PostgreSQL hydration. Source-session deletion cascades its messages and episodes;
 vector payloads may remain until separately cleaned, but are not recall authority.
 
-Invalid LLM JSON is retried once with a larger completion budget (2048 then
-4096 tokens, subject to gateway limits). If both attempts fail, the command is
-reported failed and acknowledged so it cannot restart the shared batch and
-interactive worker lanes or block quiz indexing. No summary cursor advances and
-no transcript is trimmed; the next scheduled consolidation reads the same
-unconsolidated messages. This does not guarantee another attempt for an inactive
-session. Storage failures still propagate for Kafka replay. JSON parse errors
-contain no raw learner dialogue.
+Invalid LLM JSON is retried once within compression (2048 then 4096 output
+tokens subject to gateway limits). The memory consumer then applies bounded
+handler retries and durable quarantine. Cursor/transcript remain unchanged on
+failure; the next scheduled consolidation still reads unconsolidated messages.
+After retry exhaustion inactive sessions require reviewed quarantine replay.
+JSON parse errors contain no raw dialogue. See the delivery ADR for retention,
+manual replay restrictions and topology-compatible rollback.
 
-No wire schema, topic, group, or migration changes. Deploy the shared AI image to
-HTTP and worker; rollback remains payload-compatible but restores the older, weaker
-memory guards. Access/retention restrictions for learner conversations also apply
-to compressed preferences, episodes and their indexes. See the
-[developer guide](DEVELOPER_GUIDE.md#layered-memory-and-recall) for tier limits and
-the distinction between session deletion and account-wide erasure.
+Deploy the shared image to the independent memory, interactive and batch
+consumers before updating HTTP producers. Topic/group identities for existing
+batch and interactive work are preserved; no offset reset is required.
+Access/retention restrictions for learner conversations also apply to compressed
+preferences, episodes and indexes. See the [developer guide](DEVELOPER_GUIDE.md#layered-memory-and-recall)
+for tier limits and session deletion versus account-wide erasure.
 
 ## LMS reliable consumers and quiz effects (2026-11)
 
@@ -383,7 +392,9 @@ approved Parquet snapshots or a read-only DuckDB copy through `BDC_GOLD_DIR` or
 |---|---|---|---|
 | `lms.analytics.interactions` | LMS | Personalize, LMS | Implemented micro-interaction pipeline |
 | `lms.document.uploaded` | LMS | AI worker | Implemented document processing command |
-| `lms.ai.command` | LMS and AI worker | AI worker | Implemented async AI command/job pipeline |
+| `lms.ai.command` | LMS, AI HTTP | Batch AI worker (`ai-worker-group`) | Quiz/index commands; legacy memory envelopes forwarded |
+| `lms.ai.memory.v1` | AI HTTP; legacy batch forwarder | Memory worker (`ai-worker-memory-v1`) | Session-keyed consolidation, no raw dialogue |
+| `ai.worker.failed.v1` | AI partition consumers | Manual reviewed replay only | Private failed envelopes; 7 days, 64 MiB/partition target |
 | `lms.ai.interactive` | LMS | AI worker (dedicated group) | Latency-sensitive jobs a learner is waiting on, currently wrong-answer diagnosis. Separate consumer group so batch work cannot block it |
 | `ai.job.status` | AI worker | LMS | Implemented AI job status pipeline |
 | `ai.document.processed.status` | AI worker | LMS | Implemented document indexing status |
@@ -440,10 +451,10 @@ request; the worker owns processing status. Consumers must accept status updates
 in a safe, repeatable way.
 
 `DIAGNOSE_ERROR` is published to `lms.ai.interactive` instead, because a student
-is waiting on that answer. The worker runs a second consumer in group
+is waiting on that answer. The dedicated interactive deployment consumes in group
 `ai-worker-interactive` with bounded concurrency (`AI_INTERACTIVE_CONCURRENCY`,
-default 6). Messages from one partition are serialised so offsets stay ordered,
-while six partitions allow six diagnoses in parallel. `k3s/base/kafka-ai-topics-job.yaml`
+default 2). Messages from one partition are serialised so offsets stay ordered,
+while the configured concurrency limit bounds active diagnoses across partitions. `k3s/base/kafka-ai-topics-job.yaml`
 creates the topic with 6 partitions and raises `lms.ai.command` to 3 on every AI
 rollout. The payload shape is identical to `lms.ai.command`; only the topic and
 consumer group differ.

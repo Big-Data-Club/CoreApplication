@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from typing import TypeVar
 
 from app.core.config import get_settings
@@ -10,8 +11,9 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-_embed_model    = None
+_embed_model = None
 _reranker_model = None
+_model_lock = threading.RLock()
 T = TypeVar("T")
 
 _CACHE_DIR = os.getenv("SENTENCE_TRANSFORMERS_HOME", "/app/.cache/models")
@@ -19,34 +21,39 @@ _CACHE_DIR = os.getenv("SENTENCE_TRANSFORMERS_HOME", "/app/.cache/models")
 
 # ── Model loaders ─────────────────────────────────────────────────────────────
 
+
 def get_embed_model():
-    global _embed_model
-    if _embed_model is None:
-        from sentence_transformers import SentenceTransformer
-        logger.info("Loading embedding model: %s", settings.embedding_model)
-        _embed_model = SentenceTransformer(
-            settings.embedding_model,
-            cache_folder=_CACHE_DIR,
-        )
-        logger.info("Embedding model ready.")
-    return _embed_model
+    with _model_lock:
+        global _embed_model
+        if _embed_model is None:
+            from sentence_transformers import SentenceTransformer
+
+            logger.info("Loading embedding model: %s", settings.embedding_model)
+            _embed_model = SentenceTransformer(
+                settings.embedding_model,
+                cache_folder=_CACHE_DIR,
+            )
+            logger.info("Embedding model ready.")
+        return _embed_model
 
 
 def get_reranker():
-    global _reranker_model
-    if _reranker_model is None:
-        try:
-            from sentence_transformers.cross_encoder import CrossEncoder
-            logger.info("Loading reranker: %s", settings.reranker_model)
-            _reranker_model = CrossEncoder(
-                settings.reranker_model,
-                cache_dir=_CACHE_DIR,
-            )
-            logger.info("Reranker ready.")
-        except Exception as exc:
-            logger.warning("Reranker load failed (%s). Reranking disabled.", exc)
-            _reranker_model = None
-    return _reranker_model
+    with _model_lock:
+        global _reranker_model
+        if _reranker_model is None:
+            try:
+                from sentence_transformers.cross_encoder import CrossEncoder
+
+                logger.info("Loading reranker: %s", settings.reranker_model)
+                _reranker_model = CrossEncoder(
+                    settings.reranker_model,
+                    cache_dir=_CACHE_DIR,
+                )
+                logger.info("Reranker ready.")
+            except Exception as exc:
+                logger.warning("Reranker load failed (%s). Reranking disabled.", exc)
+                _reranker_model = None
+        return _reranker_model
 
 
 def warm_up_models() -> None:
@@ -59,6 +66,7 @@ def warm_up_models() -> None:
 
 # ── Prefix helper ─────────────────────────────────────────────────────────────
 
+
 def _apply_prefix(text: str, role: str) -> str:
     """BGE convention: 'query: ...' for search, 'passage: ...' for indexing."""
     mode = getattr(settings, "embedding_prefix_mode", "none")
@@ -69,10 +77,12 @@ def _apply_prefix(text: str, role: str) -> str:
 
 # ── Sync compute (runs in thread pool, never blocks the event loop) ───────────
 
+
 def _embed_sync(texts: list[str]) -> list[list[float]]:
-    model = get_embed_model()
-    vecs  = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
-    return [v.tolist() for v in vecs]
+    with _model_lock:
+        model = get_embed_model()
+        vecs = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        return [v.tolist() for v in vecs]
 
 
 async def _run_in_thread(fn, *args):
@@ -81,6 +91,7 @@ async def _run_in_thread(fn, *args):
 
 
 # ── Public API (with Redis cache layer) ───────────────────────────────────────
+
 
 async def create_embedding(text: str) -> list[float]:
     """
@@ -127,13 +138,15 @@ async def create_embeddings_batch(texts: list[str]) -> list[list[float]]:
     """
     from app.core.cache import embedding_cache
 
-    cleans  = [_apply_prefix(t.replace("\n", " ").strip() or " ", "query") for t in texts]
-    cached  = await embedding_cache.get_batch(cleans)
+    cleans = [
+        _apply_prefix(t.replace("\n", " ").strip() or " ", "query") for t in texts
+    ]
+    cached = await embedding_cache.get_batch(cleans)
 
     miss_indices = [i for i, c in enumerate(cached) if c is None]
     if miss_indices:
         miss_texts = [cleans[i] for i in miss_indices]
-        computed   = await _run_in_thread(_embed_sync, miss_texts)
+        computed = await _run_in_thread(_embed_sync, miss_texts)
         await embedding_cache.set_batch(miss_texts, computed)
         for idx, vec in zip(miss_indices, computed):
             cached[idx] = vec
@@ -147,13 +160,15 @@ async def create_passage_embeddings_batch(texts: list[str]) -> list[list[float]]
     """
     from app.core.cache import embedding_cache
 
-    cleans  = [_apply_prefix(t.replace("\n", " ").strip() or " ", "passage") for t in texts]
-    cached  = await embedding_cache.get_batch(cleans)
+    cleans = [
+        _apply_prefix(t.replace("\n", " ").strip() or " ", "passage") for t in texts
+    ]
+    cached = await embedding_cache.get_batch(cleans)
 
     miss_indices = [i for i, c in enumerate(cached) if c is None]
     if miss_indices:
         miss_texts = [cleans[i] for i in miss_indices]
-        computed   = await _run_in_thread(_embed_sync, miss_texts)
+        computed = await _run_in_thread(_embed_sync, miss_texts)
         await embedding_cache.set_batch(miss_texts, computed)
         for idx, vec in zip(miss_indices, computed):
             cached[idx] = vec
@@ -163,17 +178,19 @@ async def create_passage_embeddings_batch(texts: list[str]) -> list[list[float]]
 
 # ── Reranking ─────────────────────────────────────────────────────────────────
 
+
 def _rerank_sync(query: str, passages: list[str]) -> list[float]:
-    reranker = get_reranker()
-    if reranker is None:
-        return [0.0] * len(passages)
-    try:
-        pairs  = [(query, p) for p in passages]
-        scores = reranker.predict(pairs, show_progress_bar=False)
-        return [float(s) for s in scores]
-    except Exception as exc:
-        logger.warning("Reranking failed (%s), using original order.", exc)
-        return [0.0] * len(passages)
+    with _model_lock:
+        reranker = get_reranker()
+        if reranker is None:
+            return [0.0] * len(passages)
+        try:
+            pairs = [(query, p) for p in passages]
+            scores = reranker.predict(pairs, show_progress_bar=False)
+            return [float(s) for s in scores]
+        except Exception as exc:
+            logger.warning("Reranking failed (%s), using original order.", exc)
+            return [0.0] * len(passages)
 
 
 async def rerank_chunks(
@@ -189,6 +206,6 @@ async def rerank_chunks(
     if not settings.use_reranker:
         return chunks[:top_k]
     passages = [text_fn(c) for c in chunks]
-    scores   = await _run_in_thread(_rerank_sync, query, passages)
-    ranked   = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)
+    scores = await _run_in_thread(_rerank_sync, query, passages)
+    ranked = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)
     return [c for _, c in ranked[:top_k]]

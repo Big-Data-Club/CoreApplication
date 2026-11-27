@@ -9,6 +9,7 @@ resources:
 - lab-service-deployment.yaml
 - chat-service-deployment.yaml
 - ai-service-deployment.yaml
+- ai-light-workers-deployment.yaml
 - ai-gateway-deployment.yaml
 - ai-gateway-info.yaml
 - ai-lab-authoring-worker-deployment.yaml

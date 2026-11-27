@@ -290,8 +290,10 @@ async def test_bad_memory_json_does_not_prevent_the_next_quiz_job():
         patch("app.worker.kafka_worker.publish_ai_job_status", new=AsyncMock()) as status,
         patch("app.services.quiz_index_service.process", new=AsyncMock(return_value={"status": "ready"})) as index,
     ):
-        await process_ai_command({"job_id": "bad-memory", "command_type": "CONSOLIDATE_SESSION",
-                                  "payload": {"session_id": "own", "user_id": 42}})
+        # The partition runner owns bounded retries/quarantine; failures must propagate.
+        with pytest.raises(JSONOutputError):
+            await process_ai_command({"job_id": "bad-memory", "command_type": "CONSOLIDATE_SESSION",
+                                      "payload": {"session_id": "own", "user_id": 42}})
         assert status.await_args.kwargs["status"] == "failed"
         await process_ai_command({"job_id": "quiz-job", "command_type": "INDEX_QUIZ", "payload": {"quiz_id": 109}})
         save.assert_not_awaited()

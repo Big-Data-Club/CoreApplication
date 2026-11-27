@@ -1,0 +1,380 @@
+# Dedicated processes; shared image/model cache, independent consumer groups.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-memory-worker
+  labels:
+    app: ai-memory-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-memory-worker
+  template:
+    metadata:
+      labels:
+        app: ai-memory-worker
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+      - name: ai-memory-worker
+        image: phucnhan2809/bdc-ai:fix-index-vlmguard-20260728
+        imagePullPolicy: Always
+        command:
+        - python
+        - -m
+        - app.worker.kafka_worker
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        - name: AI_DB_HOST
+          value: $(AI_POSTGRES_HOST)
+        - name: AI_DB_PORT
+          value: '5432'
+        - name: AI_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_USER
+        - name: AI_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_PASSWORD
+        - name: AI_DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_DB
+        - name: AI_DB_SSL
+          value: $(AI_DB_SSL)
+        - name: QDRANT_URL
+          value: $(QDRANT_URL)
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: QDRANT_API_KEY
+        - name: NEO4J_URI
+          value: $(NEO4J_URI)
+        - name: NEO4J_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEO4J_USERNAME
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEO4J_PASSWORD
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: REDIS_PASSWORD
+        - name: REDIS_DB
+          value: '1'
+        - name: MINIO_ENDPOINT
+          value: $(R2_ENDPOINT)
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_USER
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_PASSWORD
+        - name: MINIO_USE_SSL
+          value: $(MINIO_USE_SSL)
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: GROQ_API_KEY
+              optional: true
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: OPENAI_API_KEY
+              optional: true
+        - name: AI_GATEWAY_BASE_URL
+          value: https://bdc.hpcc.vn/aimodels/v1
+        - name: AI_GATEWAY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_GATEWAY_API_KEY
+              optional: true
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_SERVICE_SECRET
+        - name: AI_KEY_ENCRYPTION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_KEY_ENCRYPTION_SECRET
+        - name: AI_WORKER_MODE
+          value: memory
+        - name: AI_INTERACTIVE_TOPIC
+          value: lms.ai.interactive
+        - name: AI_INTERACTIVE_GROUP
+          value: ai-worker-interactive
+        - name: AI_INTERACTIVE_CONCURRENCY
+          value: '2'
+        - name: OMP_NUM_THREADS
+          value: "1"
+        - name: MKL_NUM_THREADS
+          value: "1"
+        - name: USE_RERANKER
+          value: 'false'
+        - name: AI_DB_MAX_CONNECTIONS
+          value: '4'
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 750m
+            memory: 3Gi
+        securityContext:
+          runAsUser: 1001
+          runAsGroup: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+        - name: ai-model-cache
+          mountPath: /app/.cache/models
+        ports:
+        - name: worker-health
+          containerPort: 8091
+        startupProbe:
+          httpGet:
+            path: /ready
+            port: worker-health
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 120
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: worker-health
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: worker-health
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 6
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi
+      - name: ai-model-cache
+        persistentVolumeClaim:
+          claimName: ai-model-cache
+      terminationGracePeriodSeconds: 60
+  strategy:
+    type: Recreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-interactive-worker
+  labels:
+    app: ai-interactive-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-interactive-worker
+  template:
+    metadata:
+      labels:
+        app: ai-interactive-worker
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+      - name: ai-interactive-worker
+        image: phucnhan2809/bdc-ai:fix-index-vlmguard-20260728
+        imagePullPolicy: Always
+        command:
+        - python
+        - -m
+        - app.worker.kafka_worker
+        envFrom:
+        - configMapRef:
+            name: bdc-config
+        env:
+        - name: AI_DB_HOST
+          value: $(AI_POSTGRES_HOST)
+        - name: AI_DB_PORT
+          value: '5432'
+        - name: AI_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_USER
+        - name: AI_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_PASSWORD
+        - name: AI_DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_POSTGRES_DB
+        - name: AI_DB_SSL
+          value: $(AI_DB_SSL)
+        - name: QDRANT_URL
+          value: $(QDRANT_URL)
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: QDRANT_API_KEY
+        - name: NEO4J_URI
+          value: $(NEO4J_URI)
+        - name: NEO4J_USER
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEO4J_USERNAME
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: NEO4J_PASSWORD
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: REDIS_PASSWORD
+        - name: REDIS_DB
+          value: '1'
+        - name: MINIO_ENDPOINT
+          value: $(R2_ENDPOINT)
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_USER
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: MINIO_ROOT_PASSWORD
+        - name: MINIO_USE_SSL
+          value: $(MINIO_USE_SSL)
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: GROQ_API_KEY
+              optional: true
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: OPENAI_API_KEY
+              optional: true
+        - name: AI_GATEWAY_BASE_URL
+          value: https://bdc.hpcc.vn/aimodels/v1
+        - name: AI_GATEWAY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_GATEWAY_API_KEY
+              optional: true
+        - name: AI_SERVICE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_SERVICE_SECRET
+        - name: AI_KEY_ENCRYPTION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bdc-secrets
+              key: AI_KEY_ENCRYPTION_SECRET
+        - name: AI_WORKER_MODE
+          value: interactive
+        - name: AI_INTERACTIVE_TOPIC
+          value: lms.ai.interactive
+        - name: AI_INTERACTIVE_GROUP
+          value: ai-worker-interactive
+        - name: AI_INTERACTIVE_CONCURRENCY
+          value: '2'
+        - name: OMP_NUM_THREADS
+          value: "1"
+        - name: MKL_NUM_THREADS
+          value: "1"
+        - name: USE_RERANKER
+          value: 'false'
+        - name: AI_DB_MAX_CONNECTIONS
+          value: '4'
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 3Gi
+        securityContext:
+          runAsUser: 1001
+          runAsGroup: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+        - name: ai-model-cache
+          mountPath: /app/.cache/models
+        ports:
+        - name: worker-health
+          containerPort: 8091
+        startupProbe:
+          httpGet:
+            path: /ready
+            port: worker-health
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 120
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: worker-health
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: worker-health
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 6
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi
+      - name: ai-model-cache
+        persistentVolumeClaim:
+          claimName: ai-model-cache
+      terminationGracePeriodSeconds: 60
+  strategy:
+    type: Recreate

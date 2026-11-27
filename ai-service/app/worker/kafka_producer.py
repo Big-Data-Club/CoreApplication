@@ -4,6 +4,8 @@ import asyncio
 from aiokafka import AIOKafkaProducer
 import os
 from datetime import date, datetime
+from app.worker.contracts import MEMORY_TOPIC
+
 
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -11,21 +13,37 @@ class DateTimeEncoder(json.JSONEncoder):
             return obj.isoformat()
         return super().default(obj)
 
+
 logger = logging.getLogger(__name__)
 
 _producer: AIOKafkaProducer | None = None
+_producer_lock = asyncio.Lock()
+
 
 async def get_kafka_producer() -> AIOKafkaProducer:
     global _producer
     if _producer is None:
-        brokers = os.getenv("KAFKA_BROKERS", "kafka:9092")
-        _producer = AIOKafkaProducer(
-            bootstrap_servers=brokers,
-            value_serializer=lambda v: json.dumps(v, cls=DateTimeEncoder).encode('utf-8')
-        )
-        await _producer.start()
-        logger.info("Kafka Producer started")
+        async with _producer_lock:
+            if _producer is None:
+                producer = AIOKafkaProducer(
+                    bootstrap_servers=os.getenv("KAFKA_BROKERS", "kafka:9092"),
+                    enable_idempotence=True,
+                    # Base64 quarantine envelopes can exceed the source's
+                    # default 1 MiB limit. Only the DLQ topic allows 2 MiB.
+                    max_request_size=2 * 1024 * 1024,
+                    value_serializer=lambda v: json.dumps(
+                        v, cls=DateTimeEncoder
+                    ).encode("utf-8"),
+                )
+                try:
+                    await producer.start()
+                except BaseException:
+                    await producer.stop()
+                    raise
+                _producer = producer
+                logger.info("Kafka Producer started")
     return _producer
+
 
 async def close_kafka_producer():
     global _producer
@@ -34,19 +52,22 @@ async def close_kafka_producer():
         _producer = None
         logger.info("Kafka Producer stopped")
 
-async def publish_status_event(content_id: int, status: str, chunks_created: int = 0, error: str = ""):
+
+async def publish_status_event(
+    content_id: int, status: str, chunks_created: int = 0, error: str = ""
+):
     producer = await get_kafka_producer()
     payload = {
         "content_id": content_id,
         "status": status,
         "chunks_created": chunks_created,
         "error": error,
-        "job_id": 0
+        "job_id": 0,
     }
-    
+
     topic = "ai.document.processed.status"
     key = str(content_id).encode("utf-8")
-    
+
     await producer.send_and_wait(topic, value=payload, key=key)
     logger.info(f"Published status to {topic} for content {content_id}: {status}")
 
@@ -66,10 +87,10 @@ async def publish_graph_event(
     """
     producer = await get_kafka_producer()
     payload: dict = {
-        "command":      command,
-        "status":       status,
+        "command": command,
+        "status": status,
         "result_count": result_count,
-        "error":        error,
+        "error": error,
     }
     if course_id is not None:
         payload["course_id"] = course_id
@@ -81,7 +102,11 @@ async def publish_graph_event(
     await producer.send_and_wait(topic, value=payload, key=key)
     logger.info(
         "Published graph event to %s: %s -> %s (course=%s job=%s)",
-        topic, command, status, course_id, job_id,
+        topic,
+        command,
+        status,
+        course_id,
+        job_id,
     )
 
 
@@ -96,20 +121,25 @@ async def publish_node_merged_event(
         return
     producer = await get_kafka_producer()
     payload = {
-        "course_id":    course_id,
-        "survivor_id":  survivor_id,
+        "course_id": course_id,
+        "survivor_id": survivor_id,
         "absorbed_ids": absorbed_ids,
     }
     topic = "ai.graph.node_merged"
-    key   = str(survivor_id).encode("utf-8")
+    key = str(survivor_id).encode("utf-8")
     await producer.send_and_wait(topic, value=payload, key=key)
     logger.info(
         "Published %s for course=%d survivor=%d (absorbed=%d)",
-        topic, course_id, survivor_id, len(absorbed_ids),
+        topic,
+        course_id,
+        survivor_id,
+        len(absorbed_ids),
     )
 
 
-async def publish_ai_job_status(job_id: str, status: str, result: dict | list | None = None, error: str = ""):
+async def publish_ai_job_status(
+    job_id: str, status: str, result: dict | list | None = None, error: str = ""
+):
     """Send feedback about an async AI job (Quiz, Flashcard, Diagnosis)."""
     producer = await get_kafka_producer()
     payload = {
@@ -120,10 +150,10 @@ async def publish_ai_job_status(job_id: str, status: str, result: dict | list | 
         payload["result"] = result
     if error:
         payload["error"] = error
-        
+
     topic = "ai.job.status"
     key = str(job_id).encode("utf-8")
-    
+
     await producer.send_and_wait(topic, value=payload, key=key)
     logger.info(f"Published AI job status to {topic} for job {job_id}: {status}")
 
@@ -137,16 +167,16 @@ async def publish_consolidation_request(
     """Queue memory work by identity; never put raw chat in Kafka."""
     producer = await get_kafka_producer()
     payload = {
+        "schema_version": 1,
         "job_id": job_id,
         "command_type": "CONSOLIDATE_SESSION",
         "payload": {
             "user_id": user_id,
             "session_id": session_id,
             "context": context,
-        }
+        },
     }
-    topic = "lms.ai.command"
+    topic = MEMORY_TOPIC
     key = str(session_id).encode("utf-8")
     await producer.send_and_wait(topic, value=payload, key=key)
     logger.info(f"Published consolidation request to {topic} for session {session_id}")
-

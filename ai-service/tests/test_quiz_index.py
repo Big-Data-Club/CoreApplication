@@ -12,6 +12,40 @@ from app.services import quiz_index_service as service
 from app.api.endpoints.quiz_index import IndexRequest, handle
 
 
+@pytest.mark.asyncio
+async def test_dispatch_logs_broker_coordinates_only_after_ack(caplog):
+    producer = SimpleNamespace(
+        send_and_wait=AsyncMock(
+            return_value=SimpleNamespace(
+                topic="lms.ai.command", partition=2, offset=123
+            ),
+        )
+    )
+    job_id = uuid4()
+    with patch(
+        "app.worker.kafka_producer.get_kafka_producer", AsyncMock(return_value=producer)
+    ):
+        with caplog.at_level("INFO", logger=service.__name__):
+            await service.dispatch({"job_id": job_id, "quiz_id": 109})
+        record = next(
+            r for r in caplog.records if r.message == "Quiz index command published"
+        )
+        assert (record.job_id, record.quiz_id, record.partition, record.offset) == (
+            str(job_id),
+            109,
+            2,
+            123,
+        )
+        assert producer.send_and_wait.await_args.kwargs["key"] == b"109"
+        caplog.clear()
+        producer.send_and_wait.side_effect = RuntimeError("broker unavailable")
+        with pytest.raises(RuntimeError, match="broker unavailable"):
+            await service.dispatch({"job_id": job_id, "quiz_id": 109})
+        assert not any(
+            r.message == "Quiz index command published" for r in caplog.records
+        )
+
+
 def test_chunks_do_not_include_answer_keys_or_explanation():
     question = {
         "question_text": "**MPI**?",

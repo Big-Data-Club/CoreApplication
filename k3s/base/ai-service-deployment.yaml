@@ -206,16 +206,18 @@ spec:
       - name: ai-worker
         image: phucnhan2809/bdc-ai:fix-index-vlmguard-20260728
         imagePullPolicy: Always
-        command: ["python", "-m", "app.worker.kafka_worker"]
+        command:
+        - python
+        - -m
+        - app.worker.kafka_worker
         envFrom:
         - configMapRef:
             name: bdc-config
         env:
-        # DB connection variables
         - name: AI_DB_HOST
-          value: "$(AI_POSTGRES_HOST)"
+          value: $(AI_POSTGRES_HOST)
         - name: AI_DB_PORT
-          value: "5432"
+          value: '5432'
         - name: AI_DB_USER
           valueFrom:
             secretKeyRef:
@@ -232,17 +234,16 @@ spec:
               name: bdc-secrets
               key: AI_POSTGRES_DB
         - name: AI_DB_SSL
-          value: "$(AI_DB_SSL)"
-        # Vector / Graph DB connections
+          value: $(AI_DB_SSL)
         - name: QDRANT_URL
-          value: "$(QDRANT_URL)"
+          value: $(QDRANT_URL)
         - name: QDRANT_API_KEY
           valueFrom:
             secretKeyRef:
               name: bdc-secrets
               key: QDRANT_API_KEY
         - name: NEO4J_URI
-          value: "$(NEO4J_URI)"
+          value: $(NEO4J_URI)
         - name: NEO4J_USER
           valueFrom:
             secretKeyRef:
@@ -253,17 +254,15 @@ spec:
             secretKeyRef:
               name: bdc-secrets
               key: NEO4J_PASSWORD
-        # Redis connection variables
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
               name: bdc-secrets
               key: REDIS_PASSWORD
         - name: REDIS_DB
-          value: "1"
-        # MinIO/R2 Storage setup
+          value: '1'
         - name: MINIO_ENDPOINT
-          value: "$(R2_ENDPOINT)"
+          value: $(R2_ENDPOINT)
         - name: MINIO_ACCESS_KEY
           valueFrom:
             secretKeyRef:
@@ -275,8 +274,7 @@ spec:
               name: bdc-secrets
               key: MINIO_ROOT_PASSWORD
         - name: MINIO_USE_SSL
-          value: "$(MINIO_USE_SSL)"
-        # API Keys & Secrets
+          value: $(MINIO_USE_SSL)
         - name: GROQ_API_KEY
           valueFrom:
             secretKeyRef:
@@ -289,10 +287,8 @@ spec:
               name: bdc-secrets
               key: OPENAI_API_KEY
               optional: true
-        # Self-hosted BDC AI Gateway (aimodels). Optional: admins can add the
-        # key in the Gateway UI instead of the cluster secret.
         - name: AI_GATEWAY_BASE_URL
-          value: "https://bdc.hpcc.vn/aimodels/v1"
+          value: https://bdc.hpcc.vn/aimodels/v1
         - name: AI_GATEWAY_API_KEY
           valueFrom:
             secretKeyRef:
@@ -309,26 +305,28 @@ spec:
             secretKeyRef:
               name: bdc-secrets
               key: AI_KEY_ENCRYPTION_SECRET
-        # Interactive lane: consume lms.ai.interactive in a separate consumer
-        # group with bounded concurrency, so wrong-answer diagnosis never waits
-        # behind a document index or blueprint job on lms.ai.command.
         - name: AI_WORKER_MODE
-          value: "all"
+          value: batch
         - name: AI_INTERACTIVE_TOPIC
-          value: "lms.ai.interactive"
+          value: lms.ai.interactive
         - name: AI_INTERACTIVE_GROUP
-          value: "ai-worker-interactive"
+          value: ai-worker-interactive
         - name: AI_INTERACTIVE_CONCURRENCY
-          value: "6"
+          value: '2'
+        - name: OMP_NUM_THREADS
+          value: "2"
+        - name: MKL_NUM_THREADS
+          value: "2"
+        - name: USE_RERANKER
+          value: 'false'
+        - name: AI_DB_MAX_CONNECTIONS
+          value: '8'
         resources:
-          # bge-m3 + reranker already use ~1.45Gi before PDF extraction.
-          # Keep one replica until lms.document.uploaded has more partitions;
-          # scaling replicas now would only amplify upstream LLM rate limits.
           limits:
-            cpu: "2.5"
+            cpu: '2.5'
             memory: 6Gi
           requests:
-            cpu: "1"
+            cpu: '1'
             memory: 2.5Gi
         securityContext:
           runAsUser: 1001
@@ -340,15 +338,41 @@ spec:
           mountPath: /dev/shm
         - name: ai-model-cache
           mountPath: /app/.cache/models
+        ports:
+        - name: worker-health
+          containerPort: 8091
+        startupProbe:
+          httpGet:
+            path: /ready
+            port: worker-health
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 120
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: worker-health
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: worker-health
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 6
       volumes:
       - name: dshm
         emptyDir:
           medium: Memory
-          sizeLimit: "1Gi"
+          sizeLimit: 1Gi
       - name: ai-model-cache
         persistentVolumeClaim:
           claimName: ai-model-cache
-
+      terminationGracePeriodSeconds: 60
+  strategy:
+    type: Recreate
 ---
 apiVersion: v1
 kind: Service

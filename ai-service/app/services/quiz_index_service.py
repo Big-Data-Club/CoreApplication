@@ -42,13 +42,25 @@ async def dispatch(job: dict) -> None:
     from app.worker.kafka_producer import get_kafka_producer
 
     producer = await get_kafka_producer()
-    await producer.send_and_wait(
+    metadata = await producer.send_and_wait(
         "lms.ai.command",
         key=str(job["quiz_id"]).encode(),
         value={
+            "schema_version": 1,
             "job_id": str(job["job_id"]),
             "command_type": "INDEX_QUIZ",
             "payload": {"quiz_id": job["quiz_id"]},
+        },
+    )
+    logger.info(
+        "Quiz index command published",
+        extra={
+            "job_id": str(job["job_id"]),
+            "quiz_id": job["quiz_id"],
+            "command_type": "INDEX_QUIZ",
+            "topic": metadata.topic,
+            "partition": metadata.partition,
+            "offset": metadata.offset,
         },
     )
 
@@ -62,6 +74,14 @@ async def queue(body) -> dict:
             body.revision,
         )
         if cached and not body.force:
+            logger.info(
+                "Quiz index reused",
+                extra={
+                    "quiz_id": body.quiz_id,
+                    "job_id": str(cached["job_id"]),
+                    "status": "ready",
+                },
+            )
             return {"status": "ready", "job_id": str(cached["job_id"])}
         # One active job per quiz. Expired leases can be recovered by a retry;
         # generation-specific vector IDs fence off a delayed old worker.
@@ -70,10 +90,11 @@ async def queue(body) -> dict:
           (quiz_id,course_id,requester_id,job_id,status,revision,total)
           VALUES($1,$2,$3,$4,'pending',$5,$6)
           ON CONFLICT(quiz_id) DO UPDATE SET job_id=EXCLUDED.job_id,
-          requester_id=EXCLUDED.requester_id,status='pending',revision=EXCLUDED.revision,
-          total=EXCLUDED.total,processed=0,lease_until=NULL,updated_at=now()
+          requester_id=EXCLUDED.requester_id,course_id=EXCLUDED.course_id,status='pending',revision=EXCLUDED.revision,
+          total=EXCLUDED.total,processed=0,lease_until=NULL,claim_id=NULL,
+          attempts=0,retry_at=NULL,last_error_code=NULL,updated_at=now()
           WHERE quiz_index_jobs.status IN ('ready','failed')
-          OR quiz_index_jobs.lease_until<now() OR quiz_index_jobs.status='pending' AND quiz_index_jobs.updated_at<now()-interval '3 minutes'
+          OR COALESCE(quiz_index_jobs.lease_until,quiz_index_jobs.updated_at+interval '3 minutes')<now() OR quiz_index_jobs.status='pending' AND quiz_index_jobs.updated_at<now()-interval '3 minutes'
           RETURNING *""",
             body.quiz_id,
             body.course_id,
@@ -89,6 +110,15 @@ async def queue(body) -> dict:
     job = dict(row)
     if job["status"] == "pending":
         await dispatch(job)  # Persisted first; a failed send is safe to retry.
+    else:
+        logger.info(
+            "Quiz index reused",
+            extra={
+                "quiz_id": job["quiz_id"],
+                "job_id": str(job["job_id"]),
+                "status": job["status"],
+            },
+        )
     return {"status": job["status"], "job_id": str(job["job_id"])}
 
 
@@ -159,9 +189,12 @@ async def process(job_id: str, quiz_id: int) -> dict:
     async with get_ai_conn() as conn:
         row = await conn.fetchrow(
             """UPDATE quiz_index_jobs SET status='processing',
-          lease_until=now()+interval '3 minutes',claim_id=$3,updated_at=now()
+          lease_until=now()+interval '3 minutes',claim_id=$3,attempts=attempts+1,
+          retry_at=NULL,last_error_code=NULL,updated_at=now()
           WHERE quiz_id=$1 AND job_id=$2 AND
-          (status='pending' OR status='processing' AND lease_until<now()) RETURNING *""",
+          attempts<3 AND (retry_at IS NULL OR retry_at<=now()) AND
+          (status='pending' OR status='processing' AND COALESCE(lease_until,updated_at+interval '3 minutes')<now()
+           OR status='failed' AND retry_at IS NOT NULL) RETURNING *""",
             quiz_id,
             token,
             claim,
@@ -169,6 +202,25 @@ async def process(job_id: str, quiz_id: int) -> dict:
     if not row:
         return {"status": "already_claimed"}
     job = dict(row)
+    # A new generation per claim fences late vector/chunk writes from a worker
+    # whose lease expired. job_id stays stable for Kafka correlation.
+    generation = claim
+
+    async def heartbeat():
+        while True:
+            await asyncio.sleep(30)
+            async with get_ai_conn() as conn:
+                owned = await conn.fetchval(
+                    """UPDATE quiz_index_jobs SET lease_until=now()+interval '3 minutes',updated_at=now()
+                    WHERE quiz_id=$1 AND job_id=$2 AND claim_id=$3 AND status='processing' RETURNING quiz_id""",
+                    quiz_id,
+                    token,
+                    claim,
+                )
+            if not owned:
+                return
+
+    heartbeat_task = asyncio.create_task(heartbeat(), name=f"quiz-heartbeat:{quiz_id}")
     try:
         async with asyncio.timeout(600):
             await ensure_collection()
@@ -245,7 +297,7 @@ async def process(job_id: str, quiz_id: int) -> dict:
                         records.append(
                             (
                                 quiz_id,
-                                token,
+                                generation,
                                 q["id"],
                                 job["course_id"],
                                 q["source_hash"],
@@ -257,12 +309,12 @@ async def process(job_id: str, quiz_id: int) -> dict:
                         )
                         points.append(
                             models.PointStruct(
-                                id=point_id(quiz_id, token, q["id"]),
+                                id=point_id(quiz_id, generation, q["id"]),
                                 vector=vector,
                                 payload={
                                     "quiz_id": quiz_id,
                                     "course_id": job["course_id"],
-                                    "generation": job_id,
+                                    "generation": str(generation),
                                     "question_id": q["id"],
                                 },
                             )
@@ -301,22 +353,23 @@ async def process(job_id: str, quiz_id: int) -> dict:
             async with get_ai_conn() as conn:
                 async with conn.transaction():
                     owned = await conn.fetchval(
-                        """UPDATE quiz_index_jobs SET status='ready',generation=$2,processed=$3,
+                        """UPDATE quiz_index_jobs SET status='ready',generation=$5,processed=$3,
                       lease_until=NULL,updated_at=now() WHERE quiz_id=$1 AND job_id=$2 AND status='processing' AND claim_id=$4 RETURNING quiz_id""",
                         quiz_id,
                         token,
                         processed,
                         claim,
+                        generation,
                     )
                     if not owned:
                         raise ValueError("Index job superseded")
                     await conn.execute(
                         "DELETE FROM quiz_question_chunks WHERE quiz_id=$1 AND generation<>$2",
                         quiz_id,
-                        token,
+                        generation,
                     )
             try:
-                if job["generation"] and str(job["generation"]) != job_id:
+                if job["generation"] and job["generation"] != generation:
                     await qdrant_service._get_client().delete(
                         COLLECTION,
                         points_selector=models.FilterSelector(
@@ -343,15 +396,84 @@ async def process(job_id: str, quiz_id: int) -> dict:
                 )
                 # Stale vectors are fenced by generation and never returned.
             return {"status": "ready", "chunks": processed}
-    except Exception:
+    except Exception as exc:
+        terminal = isinstance(exc, ValueError) or (
+            isinstance(exc, httpx.HTTPStatusError)
+            and 400 <= exc.response.status_code < 500
+            and exc.response.status_code not in (408, 429)
+        )
         async with get_ai_conn() as conn:
             await conn.execute(
-                "UPDATE quiz_index_jobs SET status='failed',lease_until=NULL,updated_at=now() WHERE quiz_id=$1 AND job_id=$2 AND claim_id=$3",
+                """UPDATE quiz_index_jobs SET status='failed',lease_until=NULL,updated_at=now(),
+                last_error_code=$4,retry_at=CASE WHEN NOT $5 AND attempts<3
+                  THEN now()+interval '60 seconds' ELSE NULL END
+                WHERE quiz_id=$1 AND job_id=$2 AND claim_id=$3""",
                 quiz_id,
                 token,
                 claim,
+                type(exc).__name__,
+                terminal,
             )
         raise
+    finally:
+        heartbeat_task.cancel()
+        await asyncio.gather(heartbeat_task, return_exceptions=True)
+
+
+async def recover_due(limit: int = 10):
+    """Bounded scan, atomic claims, no automatic reindex of completed/stale quizzes."""
+    async with get_ai_conn() as conn:
+        await conn.execute(
+            """UPDATE quiz_index_jobs SET status='failed',retry_at=NULL,
+            lease_until=NULL,last_error_code='recovery_exhausted',updated_at=now()
+            WHERE attempts>=3 AND (status='pending' OR status='processing' AND COALESCE(lease_until,updated_at+interval '3 minutes')<now())"""
+        )
+        rows = await conn.fetch(
+            """SELECT quiz_id,job_id FROM quiz_index_jobs WHERE attempts<3 AND
+            (status='pending' AND updated_at<now()-interval '30 seconds'
+             OR status='processing' AND COALESCE(lease_until,updated_at+interval '3 minutes')<now()
+             OR status='failed' AND retry_at<=now())
+            ORDER BY updated_at LIMIT $1""",
+            min(max(limit, 1), 10),
+        )
+    for row in rows:
+        try:
+            await process_serialized(str(row["job_id"]), row["quiz_id"])
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Quiz recovery attempt failed",
+                extra={
+                    "quiz_id": row["quiz_id"],
+                    "job_id": str(row["job_id"]),
+                    "error_type": type(exc).__name__,
+                },
+            )
+
+
+_execution_lock: asyncio.Lock | None = None
+
+
+async def process_serialized(job_id: str, quiz_id: int):
+    global _execution_lock
+    if _execution_lock is None:
+        _execution_lock = asyncio.Lock()
+    async with _execution_lock:
+        return await process(job_id, quiz_id)
+
+
+async def serve_recovery():
+    while True:
+        try:
+            await recover_due()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Quiz recovery sweep failed", extra={"error_type": type(exc).__name__}
+            )
+        await asyncio.sleep(30)
 
 
 async def state(body) -> dict:
@@ -365,7 +487,7 @@ async def state(body) -> dict:
             return {"status": "not_indexed", "items": []}
         job = dict(row)
         expired = await conn.fetchval(
-            "SELECT (status='processing' AND lease_until<now()) OR (status='pending' AND updated_at<now()-interval '3 minutes') FROM quiz_index_jobs WHERE quiz_id=$1",
+            "SELECT (status='processing' AND COALESCE(lease_until,updated_at+interval '3 minutes')<now()) OR (status='pending' AND updated_at<now()-interval '3 minutes') FROM quiz_index_jobs WHERE quiz_id=$1",
             body.quiz_id,
         )
         stale = job["revision"] != body.revision
@@ -384,7 +506,19 @@ async def state(body) -> dict:
             )
         )
     return {
-        "status": "stale" if stale else "interrupted" if expired else job["status"],
+        "status": (
+            "stale"
+            if stale
+            else (
+                "interrupted"
+                if expired
+                else (
+                    "pending"
+                    if job["status"] == "failed" and job.get("retry_at")
+                    else job["status"]
+                )
+            )
+        ),
         "job_id": str(job["job_id"]),
         "processed": job["processed"],
         "total": job["total"],

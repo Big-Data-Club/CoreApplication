@@ -14,6 +14,25 @@
 
 ## 1. Purpose and operating principles
 
+AI worker stabilization (2026-11-27): apply additive AI V027 after V026 before
+releasing the new image. The production workflow performs this in the AI owner
+database. Topic provisioning adds `lms.ai.memory.v1` and `ai.worker.failed.v1`;
+existing group IDs and offsets remain unchanged. Release memory, interactive,
+batch, then AI HTTP. Worker selections expand to this family automatically;
+API-only manual releases require the memory deployment to be ready already.
+
+Verify active consumers in `ai-worker-group`, `ai-worker-interactive` and
+`ai-worker-memory-v1`, falling oldest-job age/lag, stable restart counts, and a
+quiz reaching ready. Readiness now checks the consumer loop at port 8091.
+Inspect typed retry/quarantine logs before replay; never reset offsets to skip a
+failed command. Quarantine contains private envelopes, retains 7 days with a 64 MiB/partition retention target (8 MiB segments), and requires the same restricted broker access as sources.
+
+Automatic deployment rollback restores the previous full Deployment spec.
+A manual rollback to an arbitrary old worker without memory mode needs care. Keep compatible memory consumers until new-topic backlog
+is drained and producers have been switched back. Preserve V027 on rollback.
+See [the delivery/recovery ADR](../adr/2026-11-27-ai-worker-delivery.md) for
+limits, failure semantics and staged acceptance checks.
+
 LMS safety rollout (2026-11): apply
 [`AI V025`](../../ai-service/migrations/releases/2026-11/V025__review_delivery_receipts.sql) and
 [`LMS V022`](../../lms-service/migrations/releases/2026-11/V022__lms_request_safety.sql) to their

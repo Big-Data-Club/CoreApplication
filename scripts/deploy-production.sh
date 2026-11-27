@@ -31,8 +31,10 @@ deployments=(
   lms-service
   lab-service
   chat-service
-  ai-service
+  ai-memory-worker
+  ai-interactive-worker
   ai-worker
+  ai-service
   course-blueprint-worker
   ai-lab-authoring-worker
   personalize-service
@@ -55,6 +57,8 @@ declare -A containers=(
   [lab-service]=lab-service
   [chat-service]=chat-service
   [ai-service]=ai-service
+  [ai-memory-worker]=ai-memory-worker
+  [ai-interactive-worker]=ai-interactive-worker
   [ai-worker]=ai-worker
   [course-blueprint-worker]=course-blueprint-worker
   [ai-lab-authoring-worker]=ai-lab-authoring-worker
@@ -73,6 +77,8 @@ declare -A images=(
   [lab-service]=bdc-lab
   [chat-service]=bdc-chat
   [ai-service]=bdc-ai
+  [ai-memory-worker]=bdc-ai
+  [ai-interactive-worker]=bdc-ai
   [ai-worker]=bdc-ai
   [course-blueprint-worker]=bdc-ai
   [ai-lab-authoring-worker]=bdc-ai
@@ -91,6 +97,8 @@ declare -A images=(
 declare -A manifests=(
   [auth-service]=k3s/base/auth-service-deployment.yaml
   [ai-service]=k3s/base/ai-service-deployment.yaml
+  [ai-memory-worker]=k3s/base/ai-light-workers-deployment.yaml
+  [ai-interactive-worker]=k3s/base/ai-light-workers-deployment.yaml
   [ai-worker]=k3s/base/ai-service-deployment.yaml
   [chat-service]=k3s/base/chat-service-deployment.yaml
   [course-blueprint-worker]=k3s/base/course-blueprint-worker-deployment.yaml
@@ -103,9 +111,26 @@ declare -A manifests=(
   [workspace-service]=k3s/workspace/deployment.yaml
 )
 
+if [[ " ${deployments[*]} " == *" ai-worker "* || " ${deployments[*]} " == *" ai-memory-worker "* || " ${deployments[*]} " == *" ai-interactive-worker "* ]]; then
+  ai_family=(ai-memory-worker ai-interactive-worker ai-worker ai-service)
+  for selected in "${deployments[@]}"; do
+    case "$selected" in
+      ai-service|ai-worker|ai-memory-worker|ai-interactive-worker) ;;
+      *) ai_family+=("$selected") ;;
+    esac
+  done
+  deployments=("${ai_family[@]}")
+fi
+
 for deployment in "${deployments[@]}"; do
   [[ -n "${images[$deployment]:-}" ]] || { echo "Unknown deployment: ${deployment}" >&2; exit 2; }
 done
+
+# API-only manual releases require the dedicated consumer already deployed.
+if [[ " ${deployments[*]} " == *" ai-service "* && " ${deployments[*]} " != *" ai-worker "* ]]; then
+  kubectl get deployment ai-memory-worker --namespace "$DEPLOY_NAMESPACE" >/dev/null
+  kubectl rollout status deployment/ai-memory-worker --namespace "$DEPLOY_NAMESPACE" --timeout=90s
+fi
 
 # ai-gateway shares one pod between the gateway proxy and the Autossh tunnel;
 # both container images must be patched on the same rollout.
@@ -120,6 +145,7 @@ updated=()
 created=()
 declare -A previous_images=()
 declare -A previous_sidecars=()
+declare -A previous_specs=()
 rollback_on_error() {
   exit_code=$?
   if (( exit_code == 0 )); then
@@ -134,6 +160,15 @@ rollback_on_error() {
     # A newly-created workload has no meaningful previous image.  It is
     # removed below instead of being pointed back at the manifest placeholder.
     [[ " ${created[*]} " == *" ${deployment} "* ]] && continue
+    if [[ -n "${previous_specs[$deployment]:-}" ]]; then
+      # Lane separation changes env/probes as well as images. Restore the full
+      # previous spec so rollback cannot strand a batch-only old image after
+      # removing newly-created interactive/memory Deployments.
+      printf '%s\n' "${previous_specs[$deployment]}" |
+        kubectl patch "deployment/${deployment}" --type=json \
+          --patch-file=/dev/stdin --namespace "$DEPLOY_NAMESPACE" || true
+      continue
+    fi
     kubectl set image "deployment/${deployment}" \
       "${containers[$deployment]}=${previous_images[$deployment]}" \
       --namespace "$DEPLOY_NAMESPACE" || true
@@ -254,6 +289,9 @@ for deployment in "${deployments[@]}"; do
   image="${REGISTRY_NAMESPACE}/${images[$deployment]}:${tag}"
   existing="$(kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" --ignore-not-found -o name)"
   if [[ -n "$existing" ]]; then
+    previous_specs[$deployment]="$(kubectl get "deployment/${deployment}" \
+      --namespace "$DEPLOY_NAMESPACE" -o json |
+      python3 -c 'import json,sys; print(json.dumps([{"op":"replace","path":"/spec","value":json.load(sys.stdin)["spec"]}]))')"
     previous_images[$deployment]="$(
       kubectl get "deployment/${deployment}" --namespace "$DEPLOY_NAMESPACE" \
         -o "jsonpath={.spec.template.spec.containers[?(@.name=='${containers[$deployment]}')].image}"

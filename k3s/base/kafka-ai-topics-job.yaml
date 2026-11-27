@@ -52,6 +52,13 @@ spec:
 
           ensure_topic lms.ai.interactive 6
           ensure_topic lms.ai.command 3
+          ensure_topic lms.ai.memory.v1 3
+          ensure_topic ai.worker.failed.v1 3
+          # Private failed command envelopes are retained for seven days,
+          # capped at 64 MiB per partition; replay is an explicit operation.
+          /opt/bitnami/kafka/bin/kafka-configs.sh --bootstrap-server "$KAFKA_BOOTSTRAP" \
+            --entity-type topics --entity-name ai.worker.failed.v1 --alter \
+            --add-config retention.ms=604800000,retention.bytes=67108864,max.message.bytes=2097152,segment.bytes=8388608,segment.ms=3600000
         resources:
           requests:
             cpu: 50m

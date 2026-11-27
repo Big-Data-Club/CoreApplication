@@ -4,6 +4,10 @@
     {
       "name": "V026__quiz_question_index.sql",
       "sha256": "cf44c73285d110e9d7414146b13f0d3f31322a27c8584758da428cb44911a03f"
+    },
+    {
+      "name": "V027__quiz_index_recovery.sql",
+      "sha256": "ac888bc527694c7020491f45772465bad242e610bb84025cc81cf1701b852249"
     }
   ]
 }

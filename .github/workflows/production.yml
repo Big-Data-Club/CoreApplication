@@ -70,6 +70,7 @@ jobs:
               - 'scripts/apply-flashcard-migrations.py'
               - 'scripts/flashcard-migration-runner.py'
               - 'k3s/base/ai-service-deployment.yaml'
+              - 'k3s/base/ai-light-workers-deployment.yaml'
               - 'k3s/base/ai-lab-authoring-worker-deployment.yaml'
               - 'k3s/base/course-blueprint-worker-deployment.yaml'
               - 'k3s/base/kafka-ai-topics-job.yaml'
@@ -139,6 +140,19 @@ jobs:
               echo "services is required when deploying an existing image tag" >&2
               exit 1
             fi
+            if [[ ",${MANUAL_SERVICES}," == *",ai-worker,"* || ",${MANUAL_SERVICES}," == *",ai-memory-worker,"* || ",${MANUAL_SERVICES}," == *",ai-interactive-worker,"* ]]; then
+              # Expose dependencies before schema/image verification, matching
+              # deploy-production.sh's compatible worker-family expansion.
+              IFS=',' read -r -a manual_requested <<< "$MANUAL_SERVICES"
+              manual_family=(ai-memory-worker ai-interactive-worker ai-worker ai-service)
+              for selected in "${manual_requested[@]}"; do
+                case "$selected" in
+                  ai-service|ai-worker|ai-memory-worker|ai-interactive-worker) ;;
+                  *) manual_family+=("$selected") ;;
+                esac
+              done
+              MANUAL_SERVICES="$(IFS=,; echo "${manual_family[*]}")"
+            fi
             echo 'should_build=false' >> "$GITHUB_OUTPUT"
             echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
             echo "services=${MANUAL_SERVICES}" >> "$GITHUB_OUTPUT"
@@ -150,7 +164,7 @@ jobs:
 
           if [[ "${AI_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-ai","context":"ai-service"}')
-            services+=(ai-service ai-worker course-blueprint-worker ai-lab-authoring-worker)
+            services+=(ai-memory-worker ai-interactive-worker ai-worker ai-service course-blueprint-worker ai-lab-authoring-worker)
           fi
           if [[ "${RECOMMENDER_CHANGED}" == "true" ]]; then
             items+=('{"image":"bdc-recommender","context":"recommender-service"}')
@@ -493,7 +507,7 @@ jobs:
           asyncio.run(main())
           ' < ai-service/migrations/releases/2026-11/V014__mcp_api_keys.sql
           echo "Applying course knowledge map and private quiz index schemas"
-          cat ai-service/migrations/releases/2026-11/V023__course_knowledge_map.sql ai-service/migrations/releases/2026-11-27/V026__quiz_question_index.sql | kubectl exec -i -n "$DEPLOY_NAMESPACE" "$POD" -- python -c '
+          cat ai-service/migrations/releases/2026-11/V023__course_knowledge_map.sql ai-service/migrations/releases/2026-11-27/V026__quiz_question_index.sql ai-service/migrations/releases/2026-11-27/V027__quiz_index_recovery.sql | kubectl exec -i -n "$DEPLOY_NAMESPACE" "$POD" -- python -c '
           import asyncio, os, sys, asyncpg
           SQL = sys.stdin.read()
           async def main():

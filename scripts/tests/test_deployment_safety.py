@@ -80,7 +80,7 @@ import json, os, sys
 from pathlib import Path
 import yaml
 a = sys.argv[1:]
-payload = sys.stdin.read() if a[:3] == ['apply', '-f', '-'] else None
+payload = sys.stdin.read() if a[:3] == ['apply', '-f', '-'] or a[:1] == ['patch'] else None
 with open(os.environ['CALLS'], 'a') as out:
     out.write(json.dumps({'args': a, 'payload': json.loads(payload) if payload else None}) + '\\n')
 if a[:1] == ['create'] and '--dry-run=client' in a:
@@ -98,7 +98,10 @@ elif a[:1] == ['get']:
     if target == 'deployment': pass  # suspended gateways do not exist
     elif target.startswith('deployment/'):
         if target != os.environ.get('NEW_DEPLOYMENT'):
-            print('test/bdc-ai:old-sha' if any('jsonpath=' in x for x in a) else target)
+            if '-o' in a and a[a.index('-o')+1] == 'json':
+                print(json.dumps({'spec': {'template': {'spec': {'containers': [{'name': target.split('/')[-1], 'image': 'test/bdc-ai:old-sha', 'env': [{'name':'AI_WORKER_MODE','value':'all'}]}]}}}}))
+            else:
+                print('test/bdc-ai:old-sha' if any('jsonpath=' in x for x in a) else target)
     elif target == 'pods' and any('jsonpath=' in x for x in a): print('old-running-pod')
     elif target == 'pod' and os.environ.get('HAS_PREVIOUS') == '1': print('ai-service')
 elif a[:2] == ['rollout', 'status'] and a[2] == os.environ.get('FAIL_ROLLOUT'):
@@ -109,7 +112,7 @@ elif a[:2] == ['rollout', 'status'] and a[2] == os.environ.get('FAIL_ROLLOUT'):
         self.setup_deployment()
         result = self.run_script("deploy-production.sh", SERVICES="ai-service")
         self.assertEqual(result.returncode, 0, result.stderr)
-        applied = [c['payload'] for c in self.commands() if c['payload']]
+        applied = [c['payload'] for c in self.commands() if c['payload'] and c['args'][:1] == ['apply']]
         self.assertEqual(len(applied), 1)
         deployments = [d for d in applied[0]['items'] if d['kind'] == 'Deployment']
         self.assertEqual([d['metadata']['name'] for d in deployments], ['ai-service'])
@@ -120,16 +123,29 @@ elif a[:2] == ['rollout', 'status'] and a[2] == os.environ.get('FAIL_ROLLOUT'):
         result = self.run_script("deploy-production.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.commands()
-        apply_indices = [i for i, c in enumerate(calls) if c['payload']]
-        first_wait = next(i for i, c in enumerate(calls) if c['args'][:3] == ['rollout', 'status', 'deployment/ai-service'])
+        apply_indices = [i for i, c in enumerate(calls) if c['payload'] and c['args'][:1] == ['apply']]
+        first_wait = next(i for i, c in enumerate(calls) if c['args'][:3] == ['rollout', 'status', 'deployment/ai-memory-worker'])
         self.assertLess(apply_indices[0], first_wait)
         self.assertLess(first_wait, apply_indices[1])
+
+    def test_consumers_roll_out_before_memory_producer_and_use_independent_modes(self):
+        self.setup_deployment()
+        result = self.run_script("deploy-production.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        applied = [c['payload'] for c in self.commands() if c['payload'] and c['args'][:1] == ['apply']]
+        deployments = [next(d for d in item['items'] if d['kind'] == 'Deployment') for item in applied]
+        self.assertEqual([d['metadata']['name'] for d in deployments],
+                         ['ai-memory-worker', 'ai-interactive-worker', 'ai-worker', 'ai-service'])
+        for deployment, mode in zip(deployments, ['memory', 'interactive', 'batch']):
+            container = deployment['spec']['template']['spec']['containers'][0]
+            self.assertEqual(next(e['value'] for e in container['env'] if e['name'] == 'AI_WORKER_MODE'), mode)
+            self.assertEqual(container['readinessProbe']['httpGet']['path'], '/ready')
 
     def test_kubectl_list_output_is_also_supported(self):
         self.setup_deployment()
         result = self.run_script("deploy-production.sh", SERVICES="ai-service", RENDER_LIST="1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        applied = [c['payload'] for c in self.commands() if c['payload']]
+        applied = [c['payload'] for c in self.commands() if c['payload'] and c['args'][:1] == ['apply']]
         self.assertEqual(len(applied), 1)
         self.assertEqual([d['metadata']['name'] for d in applied[0]['items'] if d['kind'] == 'Deployment'], ['ai-service'])
 
@@ -138,19 +154,22 @@ elif a[:2] == ['rollout', 'status'] and a[2] == os.environ.get('FAIL_ROLLOUT'):
         result = self.run_script("deploy-production.sh", FAIL_RENDER_AT="2")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stderr.count('Deployment failed; rolling back'), 1)
-        self.assertEqual(sum(bool(c['payload']) for c in self.commands()), 1)
-        restored = [c for c in self.commands() if c['args'][:3] == ['set', 'image', 'deployment/ai-service']]
+        self.assertEqual(sum(bool(c['payload']) and c['args'][:1] == ['apply'] for c in self.commands()), 1)
+        restored = [c for c in self.commands() if c['args'][:3] == ['patch', 'deployment/ai-memory-worker', '--type=json']]
         self.assertEqual(len(restored), 1)
-        self.assertIn('ai-service=test/bdc-ai:old-sha', restored[0]['args'])
+        self.assertEqual(restored[0]['payload'][0]['path'], '/spec')
+        container = restored[0]['payload'][0]['value']['template']['spec']['containers'][0]
+        self.assertEqual(container['image'], 'test/bdc-ai:old-sha')
+        self.assertEqual(container['env'][0]['value'], 'all')
 
     def test_failed_rollout_restores_image_and_does_not_start_next_workload(self):
         self.setup_deployment()
-        result = self.run_script("deploy-production.sh", FAIL_ROLLOUT="deployment/ai-service")
+        result = self.run_script("deploy-production.sh", FAIL_ROLLOUT="deployment/ai-memory-worker")
         self.assertNotEqual(result.returncode, 0)
         calls = self.commands()
-        self.assertEqual(sum(bool(c['payload']) for c in calls), 1)
-        self.assertTrue(any(c['args'][:3] == ['set', 'image', 'deployment/ai-service']
-                            and 'ai-service=test/bdc-ai:old-sha' in c['args'] for c in calls))
+        self.assertEqual(sum(bool(c['payload']) and c['args'][:1] == ['apply'] for c in calls), 1)
+        self.assertTrue(any(c['args'][:3] == ['patch', 'deployment/ai-memory-worker', '--type=json']
+                            and c['payload'][0]['value']['template']['spec']['containers'][0]['image'] == 'test/bdc-ai:old-sha' for c in calls))
         self.assertFalse(any('--previous' in c['args'] or '--force' in c['args'] for c in calls))
 
     def test_disk_gate_prevents_deployment_changes(self):

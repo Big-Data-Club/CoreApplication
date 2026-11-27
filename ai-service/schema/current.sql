@@ -861,6 +861,9 @@ CREATE TABLE public.quiz_index_jobs (
     lease_until timestamp with time zone,
     claim_id uuid,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    retry_at timestamp with time zone,
+    last_error_code text,
     CONSTRAINT quiz_index_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'ready'::text, 'failed'::text])))
 );
 
@@ -1967,6 +1970,10 @@ CREATE INDEX personal_flashcards_student_id_deck_id_due_at_idx ON public.persona
 
 
 CREATE INDEX quiz_chunks_course_node ON public.quiz_question_chunks USING btree (course_id, node_id);
+
+
+
+CREATE INDEX quiz_index_recovery_due ON public.quiz_index_jobs USING btree (status, retry_at, updated_at) WHERE (status = ANY (ARRAY['pending'::text, 'processing'::text, 'failed'::text]));
 
 
 
