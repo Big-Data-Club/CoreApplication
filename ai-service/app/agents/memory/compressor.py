@@ -16,11 +16,28 @@ from __future__ import annotations
 
 import logging
 
-from app.core.llm import chat_complete_json
+from app.core.llm import JSONOutputError, chat_complete_json
 from app.core.llm_gateway import TASK_MEMORY_COMPRESS, get_gateway
 from app.core.llm_gateway.token_budget import estimate_tokens, split_text_preserving_content
 
 logger = logging.getLogger(__name__)
+
+
+async def _compress_segment(messages: list[dict]) -> dict | list:
+    for attempt in range(2):
+        try:
+            return await chat_complete_json(
+                messages=messages,
+                temperature=0.1,
+                max_tokens=2048 if attempt == 0 else 4096,
+                min_completion_tokens=1024,
+                task=TASK_MEMORY_COMPRESS,
+            )
+        except JSONOutputError:
+            if attempt:
+                raise
+            logger.warning("Invalid memory JSON; retrying once with a larger output budget")
+    raise RuntimeError("unreachable")
 
 _SUMMARY_KEYS = frozenset({"decisions_made", "content_created", "identified_gaps",
                            "student_progress", "pending_actions", "key_facts", "memory_items"})
@@ -158,7 +175,7 @@ async def compress_conversation(
                 + json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 if result else ""
             )
-            next_result = await chat_complete_json(
+            next_result = await _compress_segment(
                 messages=[
                     {"role": "system", "content": COMPRESS_SYSTEM_PROMPT},
                     {"role": "user", "content": (
@@ -166,9 +183,6 @@ async def compress_conversation(
                         f"{existing_section}\nCONVERSATION TO COMPRESS:\n{segment}"
                     )},
                 ],
-                temperature=0.1,
-                max_tokens=512,
-                task=TASK_MEMORY_COMPRESS,
             )
             if not isinstance(next_result, dict):
                 raise ValueError("Memory compressor returned a non-object response")

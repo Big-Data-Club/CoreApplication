@@ -268,3 +268,33 @@ async def test_worker_boundary_does_not_acknowledge_transient_memory_failure(ter
             with pytest.raises(RuntimeError, match="storage unavailable"):
                 await process_ai_command(job)
     assert status.await_args.kwargs["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_bad_memory_json_does_not_prevent_the_next_quiz_job():
+    from app.core.llm import JSONOutputError
+    with patch("app.core.logging_config.configure_logging"):
+        from app.worker.kafka_worker import process_ai_command
+    with (
+        patch("app.agents.memory.consolidation_pipeline.mtm.get_session", new=AsyncMock(
+            return_value={"user_id": 42, "agent_type": "mentor", "context": {}, "course_id": None},
+        )),
+        patch("app.agents.memory.consolidation_pipeline.message_store.get_unconsolidated", new=AsyncMock(
+            return_value=[{"id": 1, "role": "user", "content": "private conversation"}],
+        )),
+        patch("app.agents.memory.consolidation_pipeline.compress_conversation", new=AsyncMock(
+            side_effect=JSONOutputError("invalid JSON"),
+        )),
+        patch("app.agents.memory.consolidation_pipeline.mtm.save_compressed", new=AsyncMock()) as save,
+        patch("app.agents.memory.consolidation_pipeline.stm.trim_to_recent", new=AsyncMock()) as trim,
+        patch("app.worker.kafka_worker.publish_ai_job_status", new=AsyncMock()) as status,
+        patch("app.services.quiz_index_service.process", new=AsyncMock(return_value={"status": "ready"})) as index,
+    ):
+        await process_ai_command({"job_id": "bad-memory", "command_type": "CONSOLIDATE_SESSION",
+                                  "payload": {"session_id": "own", "user_id": 42}})
+        assert status.await_args.kwargs["status"] == "failed"
+        await process_ai_command({"job_id": "quiz-job", "command_type": "INDEX_QUIZ", "payload": {"quiz_id": 109}})
+        save.assert_not_awaited()
+        trim.assert_not_awaited()
+        index.assert_awaited_once_with("quiz-job", 109)
+        assert status.await_args.kwargs["status"] == "completed"

@@ -60,6 +60,15 @@ relevance or automatic index repair. Deleted/foreign vector hits are filtered by
 PostgreSQL hydration. Source-session deletion cascades its messages and episodes;
 vector payloads may remain until separately cleaned, but are not recall authority.
 
+Invalid LLM JSON is retried once with a larger completion budget (2048 then
+4096 tokens, subject to gateway limits). If both attempts fail, the command is
+reported failed and acknowledged so it cannot restart the shared batch and
+interactive worker lanes or block quiz indexing. No summary cursor advances and
+no transcript is trimmed; the next scheduled consolidation reads the same
+unconsolidated messages. This does not guarantee another attempt for an inactive
+session. Storage failures still propagate for Kafka replay. JSON parse errors
+contain no raw learner dialogue.
+
 No wire schema, topic, group, or migration changes. Deploy the shared AI image to
 HTTP and worker; rollback remains payload-compatible but restores the older, weaker
 memory guards. Access/retention restrictions for learner conversations also apply

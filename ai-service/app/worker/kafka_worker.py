@@ -343,7 +343,16 @@ async def process_ai_command(payload: dict):
         await publish_ai_job_status(job_id=job_id, status="failed", error=str(exc))
         if command_type == "CONSOLIDATE_SESSION":
             from app.agents.memory.consolidation_pipeline import ConsolidationRejected
-            if not isinstance(exc, ConsolidationRejected):
+            from app.core.llm import JSONOutputError
+            if isinstance(exc, JSONOutputError):
+                # This attempt exhausted its bounded JSON retries. Preserve the
+                # transcript/cursor for the next scheduled consolidation, but
+                # do not replay a poison completion and crash every worker lane.
+                logger.warning(
+                    "Memory consolidation deferred until the next scheduled request",
+                    extra={"job_id": job_id},
+                )
+            elif not isinstance(exc, ConsolidationRejected):
                 # Batch consumer must not commit lost memory on transient storage,
                 # compression or cursor-conflict failures. Kafka replays the range.
                 raise

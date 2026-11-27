@@ -10,9 +10,30 @@ from app.agents.core.react_loop import _trigger_post_turn_consolidation
 from app.agents.memory.compressor import compress_conversation
 from app.agents.memory.consolidation_pipeline import consolidate_session_job
 from app.core.llm_gateway.token_budget import estimate_messages_tokens
+from app.core.llm import JSONOutputError
 
 
 class MemoryConsolidationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invalid_json_is_retried_once_with_more_output_room(self) -> None:
+        with patch("app.agents.memory.compressor.chat_complete_json", new=AsyncMock(
+            side_effect=[JSONOutputError("invalid JSON"), {"key_facts": {"current_topic": "RL"}}],
+        )) as call:
+            result = await compress_conversation(
+                [{"id": 1, "role": "user", "content": "Explain RL"}], "mentor", strict=True,
+            )
+        self.assertEqual(result["key_facts"]["current_topic"], "RL")
+        self.assertEqual([c.kwargs["max_tokens"] for c in call.await_args_list], [2048, 4096])
+
+    async def test_invalid_json_retries_are_bounded(self) -> None:
+        with patch("app.agents.memory.compressor.chat_complete_json", new=AsyncMock(
+            side_effect=JSONOutputError("invalid JSON"),
+        )) as call:
+            with self.assertRaises(JSONOutputError):
+                await compress_conversation(
+                    [{"id": 1, "role": "user", "content": "Explain RL"}], "mentor", strict=True,
+                )
+        self.assertEqual(call.await_count, 2)
+
     async def test_turn_interval_publishes_identity_without_raw_chat(self) -> None:
         fake_producer = ModuleType("app.worker.kafka_producer")
         fake_producer.publish_consolidation_request = AsyncMock()

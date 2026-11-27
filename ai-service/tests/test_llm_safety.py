@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.core.llm import ensure_dict
+from app.core.llm import JSONOutputError, _extract_json, ensure_dict
 from app.agents.tools.base_tool import sanitize_query
 
 
@@ -22,6 +22,12 @@ class EnsureDictTest(unittest.TestCase):
     def test_scalars_and_none_become_empty(self) -> None:
         for bad in ("text", 42, None, 3.14, True):
             self.assertEqual(ensure_dict(bad), {})
+
+    def test_invalid_json_error_does_not_expose_private_output(self) -> None:
+        with self.assertRaises(JSONOutputError) as failure:
+            _extract_json('{"private_student_note": "sensitive unfinished')
+        self.assertNotIn("private_student_note", str(failure.exception))
+        self.assertNotIn("sensitive", str(failure.exception))
 
 
 class SanitizeQueryTest(unittest.TestCase):

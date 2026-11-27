@@ -59,6 +59,10 @@ logger = logging.getLogger(__name__)
 M = TypeVar("M", bound=BaseModel)
 
 
+class JSONOutputError(ValueError):
+    """A completion was not valid JSON; never include private output in errors."""
+
+
 def reset_async_clients() -> None:
     """
     Reset async clients when entering a new event loop.
@@ -160,7 +164,7 @@ async def chat_complete_json(
     try:
         return _extract_json(raw)
     except ValueError as exc:
-        logger.error("JSON parse error: %s\nRaw: %s", exc, raw[:300])
+        logger.error("JSON parse error for task=%s: %s", task, exc)
         raise
 
 
@@ -273,7 +277,7 @@ def ensure_dict(value: dict | list | str | None) -> dict:
 def _extract_json(raw: str) -> dict | list:
     raw = (raw or "").strip()
     if not raw:
-        raise ValueError("empty LLM response")
+        raise JSONOutputError("empty LLM response")
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -291,7 +295,7 @@ def _extract_json(raw: str) -> dict | list:
                 return json.loads(match.group())
             except json.JSONDecodeError:
                 continue
-    raise ValueError(f"LLM returned non-JSON output:\n{raw[:400]}")
+    raise JSONOutputError("LLM returned invalid JSON")
 
 
 def _is_native_json_rejection(exc: ProviderError) -> bool:
