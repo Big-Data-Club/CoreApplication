@@ -43,3 +43,5 @@ Thay đổi mới: thêm SQL trong release tiếp theo (ví dụ `releases/2026-
 giữ tên migration duy nhất trong service và thứ tự version hiện có. Không sửa
 file đã chạy hoặc chèn SQL của một service vào database của service khác.
 Xem [quy ước chung](../../docs/operations/SQL_RELEASES.md).
+
+New additive release: [V026__quiz_question_index.sql](releases/2026-11-27/V026__quiz_question_index.sql), quiz indexing / historical assessment attribution.

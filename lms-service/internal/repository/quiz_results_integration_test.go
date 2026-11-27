@@ -51,6 +51,13 @@ func TestQuizResultsIntegration(t *testing.T) {
 			ID    int64
 			Focus json.RawMessage `json:"focus_summary"`
 		}
+		Nodes []struct {
+			NodeID       int64   `json:"node_id"`
+			Graded       int     `json:"graded_attempts"`
+			Pending      int     `json:"pending_answers"`
+			Average      float64 `json:"average_percentage"`
+			Distribution []int   `json:"distribution"`
+		}
 		Questions []struct {
 			ID                         int64
 			Answered, Correct, Pending int
@@ -77,6 +84,22 @@ func TestQuizResultsIntegration(t *testing.T) {
 	}
 	if string(actual.Attempts[1].Focus) != "null" {
 		t.Fatalf("missing browser data fabricated: %s", report)
+	}
+	if len(actual.Nodes) != 1 || actual.Nodes[0].NodeID != 101 || actual.Nodes[0].Graded != 1 || actual.Nodes[0].Pending != 1 || actual.Nodes[0].Average != 100 || actual.Nodes[0].Distribution[4] != 1 {
+		t.Fatalf("node score/pending attribution incorrect: %s", report)
+	}
+	if _, err = db.ExecContext(ctx, `UPDATE quiz_questions SET node_id=999,points=50 WHERE id IN(1,2)`); err != nil {
+		t.Fatal(err)
+	}
+	report, err = NewQuizRepository(db).GetQuizResults(ctx, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(report, &actual); err != nil {
+		t.Fatal(err)
+	}
+	if actual.Nodes[0].NodeID != 101 || actual.Nodes[0].Average != 100 {
+		t.Fatalf("question edit rewrote historical assessment: %s", report)
 	}
 	if _, err = db.ExecContext(ctx, `INSERT INTO quiz_attempts SELECT 1000+g,42,100+g,1,now(),now(),'GRADED',g%101,30,15,true,30,NULL FROM generate_series(1,1000) g`); err != nil {
 		t.Fatal(err)

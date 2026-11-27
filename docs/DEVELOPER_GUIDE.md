@@ -548,3 +548,29 @@ Migration history is grouped by release under each service's
 areas. Released SQL is immutable and its historical basename remains the ledger
 identity. See [SQL release conventions](operations/SQL_RELEASES.md) for the
 service catalogue, compatibility rules and the next-release workflow.
+
+
+### Quiz indexing and node analytics
+
+Teacher UI: open a quiz's **Results & analysis** page, then **Quiz & bản đồ kiến thức**.
+Choose **Index quiz**, search indexed question text, and review node proposals.
+Indexing alone never changes question attribution. New reviewed nodes appear in
+its course graph; new graph edges are not fabricated. Existing submissions keep
+their original/backfilled node attribution, even after a link is approved.
+
+Deployment includes forward-only migrations:
+
+- AI `migrations/releases/2026-11-27/V026__quiz_question_index.sql` (production
+  workflow applies it before AI rollout; required for AI HTTP and batch worker).
+- LMS `migrations/releases/2026-11-27/V024__quiz_assessment_snapshot.sql` (startup
+  installs only when absent, under an advisory lock). For a large answers table,
+  apply it manually before rollout to avoid exceeding startup's 30-second budget.
+
+Use the existing migration console/secret-based tooling with the service's own
+DB. Do not replay `schema/current.sql` against an existing Neon database.
+Roll out AI HTTP/worker and LMS before publishing the frontend controls.
+
+Validation uses `ai-service/tests/test_quiz_index.py`, optional isolated-Postgres
+`test_quiz_index_postgres.py` (`QUIZ_INDEX_TEST_DSN`), LMS repository integration
+checks (`QUIZ_RESULTS_TEST_DSN`), and frontend `tests/quiz-index.test.cjs`.
+No production load or provider accuracy benchmark is implied by these checks.

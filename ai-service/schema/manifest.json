@@ -103,11 +103,15 @@
       "sha256": "473b1a57aeb185d825cb42f18f50a19dee994c4f515ea96e3cda54d079417630"
     },
     {
+      "path": "migrations/releases/2026-11-27/V026__quiz_question_index.sql",
+      "sha256": "cf44c73285d110e9d7414146b13f0d3f31322a27c8584758da428cb44911a03f"
+    },
+    {
       "path": "migrations/releases/2026-11/004_graphrag_indexes.sql",
       "sha256": "9d918db194ef4c07e0f9be09eda9ea5ff136f11d485e3cb9ade0f6578f115b74"
     }
   ],
-  "current_sha256": "a0c186ba5a51cd113d29c4185a7c99ea69415b604238ca7f1c113f5e935ff0a5",
+  "current_sha256": "5457821af1ac94ae77e2920beb8e460cc43b6010a595d445a58d06cfd4d88a8d",
   "requires_jpa_organizations": false,
   "adjustments": [
     "idx_sr_student_due_today: replace volatile CURRENT_DATE predicate with IS NOT NULL"

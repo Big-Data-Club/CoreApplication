@@ -29,7 +29,10 @@ func (r *QuizRepository) GetQuizResults(ctx context.Context, quizID int64, optio
  ), answers AS MATERIALIZED (
  SELECT s.attempt_id,s.question_id,s.points_earned,s.is_correct,s.time_spent_seconds,
  s.answer_data->'selected_option_id' AS selected_option_id,
- s.answer_data->'selected_option_ids' AS selected_option_ids
+ s.answer_data->'selected_option_ids' AS selected_option_ids,
+ s.assessed_node_id,s.assessed_max_points,s.assessment_snapshot_origin,
+ CASE WHEN s.points_earned IS NOT NULL AND s.assessed_max_points>0 THEN
+ LEAST(100.0,GREATEST(0.0,100.0*s.points_earned/s.assessed_max_points)) END AS score_percentage
  FROM quiz_student_answers s JOIN base a ON a.id=s.attempt_id WHERE a.submitted_at IS NOT NULL
  ), pending AS (
  SELECT attempt_id,COUNT(*) FILTER(WHERE points_earned IS NULL) AS count FROM answers GROUP BY attempt_id
@@ -58,7 +61,12 @@ func (r *QuizRepository) GetQuizResults(ctx context.Context, quizID int64, optio
  ), question_stats AS (
  SELECT question_id,COUNT(*) AS answered,COUNT(*) FILTER(WHERE is_correct=true) AS correct,
  COUNT(*) FILTER(WHERE is_correct=false) AS incorrect,COUNT(*) FILTER(WHERE points_earned IS NULL) AS pending,
- AVG(points_earned) AS average_points,AVG(time_spent_seconds) AS average_seconds
+ AVG(points_earned) AS average_points,AVG(time_spent_seconds) AS average_seconds,
+ jsonb_build_array(COUNT(*) FILTER(WHERE score_percentage>=0 AND score_percentage<20),
+ COUNT(*) FILTER(WHERE score_percentage>=20 AND score_percentage<40),
+ COUNT(*) FILTER(WHERE score_percentage>=40 AND score_percentage<60),
+ COUNT(*) FILTER(WHERE score_percentage>=60 AND score_percentage<80),
+ COUNT(*) FILTER(WHERE score_percentage>=80)) AS score_distribution
  FROM answers GROUP BY question_id
  ), options AS (
  SELECT o.question_id,jsonb_agg(jsonb_build_object('id',o.id,'option_text',o.option_text,
@@ -69,12 +77,28 @@ func (r *QuizRepository) GetQuizResults(ctx context.Context, quizID int64, optio
  SELECT c.question_id,jsonb_agg(jsonb_build_object('answer_text',c.answer_text,'blank_id',c.blank_id) ORDER BY c.id) AS items
  FROM quiz_correct_answers c JOIN quiz_questions q ON q.id=c.question_id AND q.quiz_id=$1 GROUP BY c.question_id
  ), questions AS (
- SELECT q.id,q.question_text,q.question_type,q.points,q.order_index,
+ SELECT q.id,q.question_text,q.question_type,q.points,q.order_index,q.node_id,
  COALESCE(o.items,'[]'::jsonb) AS answer_options,COALESCE(c.items,'[]'::jsonb) AS correct_answers,
  COALESCE(s.answered,0) AS answered,COALESCE(s.correct,0) AS correct,COALESCE(s.incorrect,0) AS incorrect,
- COALESCE(s.pending,0) AS pending,s.average_points,s.average_seconds
+ COALESCE(s.pending,0) AS pending,s.average_points,s.average_seconds,COALESCE(s.score_distribution,'[0,0,0,0,0]'::jsonb) AS score_distribution
  FROM quiz_questions q LEFT JOIN question_stats s ON s.question_id=q.id
  LEFT JOIN options o ON o.question_id=q.id LEFT JOIN correct_answers c ON c.question_id=q.id WHERE q.quiz_id=$1
+ ), node_attempts AS (
+ SELECT s.assessed_node_id AS node_id,s.attempt_id,COUNT(DISTINCT s.question_id) AS question_count,
+ COUNT(*) FILTER(WHERE s.points_earned IS NULL) AS pending,
+ COUNT(*) FILTER(WHERE s.assessment_snapshot_origin='backfill_current') AS backfilled,
+ 100.0*SUM(s.points_earned)/NULLIF(SUM(s.assessed_max_points) FILTER(WHERE s.points_earned IS NOT NULL),0) AS percentage
+ FROM answers s GROUP BY s.assessed_node_id,s.attempt_id
+ ), node_stats AS (
+ SELECT n.node_id,COUNT(*) AS attempted,COUNT(*) FILTER(WHERE n.pending=0 AND n.percentage IS NOT NULL) AS graded_attempts,
+ COUNT(DISTINCT a.student_id) AS students,SUM(n.pending) AS pending_answers,SUM(n.backfilled) AS backfilled_answers,
+ AVG(n.percentage) FILTER(WHERE n.pending=0) AS average_percentage,
+ jsonb_build_array(COUNT(*) FILTER(WHERE n.pending=0 AND n.percentage>=0 AND n.percentage<20),
+ COUNT(*) FILTER(WHERE n.pending=0 AND n.percentage>=20 AND n.percentage<40),
+ COUNT(*) FILTER(WHERE n.pending=0 AND n.percentage>=40 AND n.percentage<60),
+ COUNT(*) FILTER(WHERE n.pending=0 AND n.percentage>=60 AND n.percentage<80),
+ COUNT(*) FILTER(WHERE n.pending=0 AND n.percentage>=80)) AS distribution
+ FROM node_attempts n JOIN base a ON a.id=n.attempt_id GROUP BY n.node_id
  ), summary AS (
  SELECT COUNT(*) AS total_attempts,COUNT(DISTINCT student_id) AS unique_students,
  COUNT(*) FILTER(WHERE submitted_at IS NOT NULL) AS submitted_attempts,
@@ -102,6 +126,7 @@ func (r *QuizRepository) GetQuizResults(ctx context.Context, quizID int64, optio
  'students',COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.student_id) FROM (SELECT * FROM learners ORDER BY student_id LIMIT 50 OFFSET $4) s),'[]'::jsonb),
  'attempts_total',(SELECT COUNT(*) FROM matched),'students_total',(SELECT COUNT(*) FROM learner_stats),
  'attempt_page',$5::int,'student_page',$6::int,'page_size',50,
+ 'nodes',COALESCE((SELECT jsonb_agg(to_jsonb(n) ORDER BY n.node_id NULLS LAST) FROM node_stats n),'[]'::jsonb),
  'questions',COALESCE((SELECT jsonb_agg(to_jsonb(q) ORDER BY q.order_index,q.id) FROM questions q),'[]'::jsonb))`,
 		quizID, query.Search, (query.AttemptPage-1)*50, (query.StudentPage-1)*50, query.AttemptPage, query.StudentPage).Scan(&report)
 	return json.RawMessage(report), err

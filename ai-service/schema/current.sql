@@ -848,10 +848,51 @@ ALTER SEQUENCE public.personal_flashcards_id_seq OWNED BY public.personal_flashc
 
 
 
+CREATE TABLE public.quiz_index_jobs (
+    quiz_id bigint NOT NULL,
+    course_id bigint NOT NULL,
+    requester_id bigint NOT NULL,
+    job_id uuid NOT NULL,
+    status text NOT NULL,
+    revision text NOT NULL,
+    generation uuid,
+    processed integer DEFAULT 0 NOT NULL,
+    total integer DEFAULT 0 NOT NULL,
+    lease_until timestamp with time zone,
+    claim_id uuid,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT quiz_index_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'ready'::text, 'failed'::text])))
+);
+
+
+
 CREATE TABLE public.quiz_insight_results (
     job_id text NOT NULL,
     result jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+
+CREATE TABLE public.quiz_node_approvals (
+    quiz_id bigint NOT NULL,
+    question_id bigint NOT NULL,
+    source_hash text NOT NULL,
+    node_id bigint NOT NULL
+);
+
+
+
+CREATE TABLE public.quiz_question_chunks (
+    quiz_id bigint NOT NULL,
+    generation uuid NOT NULL,
+    question_id bigint NOT NULL,
+    course_id bigint NOT NULL,
+    source_hash text NOT NULL,
+    content text NOT NULL,
+    node_id bigint,
+    suggested_node_id bigint,
+    suggestion_score double precision
 );
 
 
@@ -1408,8 +1449,28 @@ ALTER TABLE ONLY public.personal_flashcards
 
 
 
+ALTER TABLE ONLY public.quiz_index_jobs
+    ADD CONSTRAINT quiz_index_jobs_job_id_key UNIQUE (job_id);
+
+
+
+ALTER TABLE ONLY public.quiz_index_jobs
+    ADD CONSTRAINT quiz_index_jobs_pkey PRIMARY KEY (quiz_id);
+
+
+
 ALTER TABLE ONLY public.quiz_insight_results
     ADD CONSTRAINT quiz_insight_results_pkey PRIMARY KEY (job_id);
+
+
+
+ALTER TABLE ONLY public.quiz_node_approvals
+    ADD CONSTRAINT quiz_node_approvals_pkey PRIMARY KEY (quiz_id, question_id, source_hash);
+
+
+
+ALTER TABLE ONLY public.quiz_question_chunks
+    ADD CONSTRAINT quiz_question_chunks_pkey PRIMARY KEY (quiz_id, generation, question_id);
 
 
 
@@ -1905,6 +1966,10 @@ CREATE INDEX personal_flashcards_student_id_deck_id_due_at_idx ON public.persona
 
 
 
+CREATE INDEX quiz_chunks_course_node ON public.quiz_question_chunks USING btree (course_id, node_id);
+
+
+
 CREATE INDEX speech_pending_jobs ON public.speech_jobs USING btree (status, lease_until);
 
 
@@ -2100,6 +2165,21 @@ ALTER TABLE ONLY public.personal_flashcards
 
 
 
+ALTER TABLE ONLY public.quiz_node_approvals
+    ADD CONSTRAINT quiz_node_approvals_node_id_fkey FOREIGN KEY (node_id) REFERENCES public.knowledge_nodes(id) ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY public.quiz_question_chunks
+    ADD CONSTRAINT quiz_question_chunks_node_id_fkey FOREIGN KEY (node_id) REFERENCES public.knowledge_nodes(id) ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY public.quiz_question_chunks
+    ADD CONSTRAINT quiz_question_chunks_suggested_node_id_fkey FOREIGN KEY (suggested_node_id) REFERENCES public.knowledge_nodes(id) ON DELETE SET NULL;
+
+
+
 ALTER TABLE ONLY public.spaced_repetitions
     ADD CONSTRAINT spaced_repetitions_node_id_fkey FOREIGN KEY (node_id) REFERENCES public.knowledge_nodes(id) ON DELETE CASCADE;
 
@@ -2144,6 +2224,15 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+
+
+
+
+
+
+
+
 
 
 

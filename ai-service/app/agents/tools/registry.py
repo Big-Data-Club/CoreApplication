@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 from app.agents.tools.teacher.recommend_review import RecommendReviewTool
 from app.agents.tools.teacher.generate_content_draft import GenerateContentDraftTool
 from app.agents.tools.teacher.trigger_auto_index import TriggerAutoIndexTool
+from app.agents.tools.teacher.search_quiz_questions import SearchQuizQuestionsTool
 from app.agents.tools.teacher.analyze_performance import AnalyzePerformanceTool
 from app.agents.tools.teacher.generate_quiz_draft import GenerateQuizDraftTool
 from app.agents.tools.teacher.generate_quiz_from_source import GenerateQuizFromSourceTool
@@ -70,6 +71,7 @@ _SHARED_TOOLS: list[BaseTool] = [
 ]
 
 _TEACHER_ONLY_TOOLS: list[BaseTool] = [
+    SearchQuizQuestionsTool(),
     ListMyCoursesTool(),
     GenerateQuizDraftTool(),
     GenerateQuizFromSourceTool(),

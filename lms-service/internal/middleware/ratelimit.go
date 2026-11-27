@@ -113,7 +113,7 @@ func RateLimitByUser(redis *cache.RedisCache, limit, costlyLimit int64, window t
 			return
 		}
 		path := c.FullPath()
-		if (strings.Contains(path, "generate") || strings.Contains(path, "upload") || strings.Contains(path, "insights")) && c.Request.Method != "GET" {
+		if (strings.Contains(path, "generate") || strings.Contains(path, "upload") || strings.Contains(path, "insights") || isQuizIndexWork(c.Request.Method, path)) && c.Request.Method != "GET" {
 			if !l.allow(c, fmt.Sprintf("ratelimit:costly:%d", id), costlyLimit, time.Minute) {
 				return
 			}

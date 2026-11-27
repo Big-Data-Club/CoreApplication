@@ -1,5 +1,46 @@
 # BDC Hub Data Platform: Lakehouse and Kafka
 
+## Private quiz indexing (2026-11-27)
+
+LMS authorizes quiz managers before forwarding index/state/search/node-review
+requests. AI persists one recoverable job per quiz, then publishes `INDEX_QUIZ`
+on the existing **batch** topic `lms.ai.command`, keyed by quiz ID. The envelope
+contains `job_id`, `command_type`, and `payload.quiz_id`; no answer keys or
+student submissions are sent through Kafka. The worker reloads the persisted
+requester and fetches canonical LMS sources through the service-only endpoint
+`GET /api/v1/internal/quizzes/:quizId/index-source`. LMS rechecks current
+ownership/co-teaching/admin roles for every source page.
+
+Source pages use a 100-question keyset; embeddings use batches of at most 16.
+Each question has one logical chunk/vector. Long stems use pooled, overlapping
+embedding windows, up to 48,000 characters. Only question/option text is indexed;
+image OCR, answer keys, explanations, rubrics and student responses are excluded.
+Qdrant collection `quiz_questions_private` is separate from shared course RAG.
+Search filters quiz/course/generation and hydrates from scoped AI PostgreSQL
+rows. LMS checks current ownership and source revision before each search.
+Student agents never receive `search_quiz_questions`; that teacher tool also
+rechecks LMS authority and course scope at execution time.
+
+Trigger-maintained quiz revisions make freshness/count checks O(1), including
+changes made by import/MCP. Generation UUIDs, leases/claim IDs and start/end revisions fence
+stale jobs. Only complete generations become readable. Pending sends can be
+retried safely; expired work is retryable in the UI. Unchanged, ready quizzes
+reuse their index unless explicitly forced. Changed quizzes fail closed until manually reindexed.
+Superseded vectors are not retrieval authority; cleanup failures are logged.
+Physical cleanup of orphan quiz data remains an operational responsibility:
+quiz deletion immediately revokes LMS access, but is not a synchronous vector purge.
+
+Similarity creates a proposal only. Managers approve an existing course node or
+review a new concept. Exact names and approval receipts prevent duplicate node
+creation on retry. Reviewed nodes mirror to Qdrant/Neo4j; LMS applies attribution
+only if the question fingerprint still matches. A mirror/link failure can leave
+an unlinked reviewed node; retry reuses it. Concepts are never silently merged.
+
+LMS V024 preserves node/max-points when an answer is first saved. Existing
+answers use `backfill_current`, not a claim of verified historical attribution.
+Per-node SQL statistics use submitted attempts and answered questions; pending
+node attempts are excluded from score buckets. Edits do not rewrite history.
+
 ## Agent memory consolidation (2026-11)
 
 AI HTTP produces the existing `CONSOLIDATE_SESSION` command on `lms.ai.command`;

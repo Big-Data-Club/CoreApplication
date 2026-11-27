@@ -97,9 +97,13 @@
     {
       "path": "migrations/releases/2026-11/V023__always_publish_learning_resources.sql",
       "sha256": "1bb7178a3987e39ec1149b56e7ebf755016dd9e9b19ca5efb80447dbe7bb4e00"
+    },
+    {
+      "path": "migrations/releases/2026-11-27/V024__quiz_assessment_snapshot.sql",
+      "sha256": "e62984ef28b2a29e5c75003d90795318fd8958cf4cfbf739bd2ecdb338885020"
     }
   ],
-  "current_sha256": "3bdca0d145f4e655021fe99b44a6f97394636711386f2400e09dcb9abc847850",
+  "current_sha256": "029a91f4667588989445818e867060f5539a89872124d08eec94d995ec763bcc",
   "requires_jpa_organizations": false,
   "adjustments": []
 }

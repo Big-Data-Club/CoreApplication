@@ -18,6 +18,7 @@ from app.core.database import init_ai_pool, close_ai_pool
 from app.api.endpoints.process    import router as process_router
 from app.api.endpoints.diagnose   import router as diagnose_router, nodes_router
 from app.api.endpoints.quiz_gen   import router as quiz_router, sr_router
+from app.api.endpoints.quiz_index import router as quiz_index_router
 from app.api.endpoints.studio     import router as studio_router
 from app.api.endpoints.speech     import router as speech_router
 from app.api.endpoints.flashcards import router as flashcards_router
@@ -174,6 +175,7 @@ app.include_router(process_router,    prefix="/ai")
 app.include_router(diagnose_router,   prefix="/ai")
 app.include_router(nodes_router,      prefix="/ai")
 app.include_router(quiz_router,       prefix="/ai")
+app.include_router(quiz_index_router, prefix="/ai")
 app.include_router(studio_router,    prefix="/ai")
 app.include_router(speech_router,    prefix="/ai")
 app.include_router(sr_router,         prefix="/ai")

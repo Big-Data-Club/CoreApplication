@@ -118,6 +118,19 @@ END $$;
 
 
 
+CREATE FUNCTION public.capture_quiz_assessment_snapshot() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    SELECT node_id,points INTO NEW.assessed_node_id,NEW.assessed_max_points
+    FROM quiz_questions WHERE id=NEW.question_id;
+    NEW.assessment_snapshot_origin := 'at_answer';
+    RETURN NEW;
+END;
+$$;
+
+
+
 CREATE FUNCTION public.capture_quiz_learning_notification() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -199,6 +212,53 @@ BEGIN
         NEW.ai_indexed_at := CURRENT_TIMESTAMP;
     END IF;
     RETURN NEW;
+END;
+$$;
+
+
+
+CREATE FUNCTION public.touch_quiz_index(quiz bigint, delta integer) RETURNS void
+    LANGUAGE sql
+    AS $$
+ INSERT INTO quiz_index_versions(quiz_id,question_count)
+ SELECT id,GREATEST(0,delta) FROM quizzes WHERE id=quiz
+ ON CONFLICT(quiz_id) DO UPDATE SET revision=quiz_index_versions.revision+1,
+ question_count=GREATEST(0,quiz_index_versions.question_count+delta);
+$$;
+
+
+
+CREATE FUNCTION public.track_quiz_option_index() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE quiz BIGINT;
+BEGIN
+ IF TG_OP<>'INSERT' THEN
+  SELECT quiz_id INTO quiz FROM quiz_questions WHERE id=OLD.question_id;
+  IF quiz IS NOT NULL THEN PERFORM touch_quiz_index(quiz,0); END IF;
+ END IF;
+ IF TG_OP='INSERT' OR (TG_OP='UPDATE' AND NEW.question_id IS DISTINCT FROM OLD.question_id) THEN
+  SELECT quiz_id INTO quiz FROM quiz_questions WHERE id=NEW.question_id;
+  IF quiz IS NOT NULL THEN PERFORM touch_quiz_index(quiz,0); END IF;
+ END IF;
+ RETURN NULL;
+END;
+$$;
+
+
+
+CREATE FUNCTION public.track_quiz_question_index() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+ IF TG_OP='INSERT' THEN PERFORM touch_quiz_index(NEW.quiz_id,1);
+ ELSIF TG_OP='DELETE' THEN PERFORM touch_quiz_index(OLD.quiz_id,-1);
+ ELSIF NEW.quiz_id IS DISTINCT FROM OLD.quiz_id THEN
+  PERFORM touch_quiz_index(OLD.quiz_id,-1); PERFORM touch_quiz_index(NEW.quiz_id,1);
+ ELSIF ROW(NEW.question_text,NEW.points,NEW.node_id) IS DISTINCT FROM ROW(OLD.question_text,OLD.points,OLD.node_id) THEN
+  PERFORM touch_quiz_index(NEW.quiz_id,0);
+ END IF;
+ RETURN NULL;
 END;
 $$;
 
@@ -1223,6 +1283,15 @@ ALTER SEQUENCE public.quiz_correct_answers_id_seq OWNED BY public.quiz_correct_a
 
 
 
+CREATE TABLE public.quiz_index_versions (
+    quiz_id bigint NOT NULL,
+    revision bigint DEFAULT 1 NOT NULL,
+    question_count bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT quiz_index_versions_question_count_check CHECK ((question_count >= 0))
+);
+
+
+
 CREATE TABLE public.quiz_questions (
     id bigint NOT NULL,
     quiz_id bigint NOT NULL,
@@ -1271,7 +1340,10 @@ CREATE TABLE public.quiz_student_answers (
     answered_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     time_spent_seconds integer,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    assessed_node_id bigint,
+    assessed_max_points numeric,
+    assessment_snapshot_origin text
 );
 
 
@@ -2135,6 +2207,11 @@ ALTER TABLE ONLY public.quiz_correct_answers
 
 
 
+ALTER TABLE ONLY public.quiz_index_versions
+    ADD CONSTRAINT quiz_index_versions_pkey PRIMARY KEY (quiz_id);
+
+
+
 ALTER TABLE ONLY public.quiz_questions
     ADD CONSTRAINT quiz_questions_pkey PRIMARY KEY (id);
 
@@ -2861,6 +2938,10 @@ CREATE INDEX idx_users_email ON public.users USING btree (email);
 
 
 
+CREATE INDEX quiz_questions_index_cursor ON public.quiz_questions USING btree (quiz_id, id);
+
+
+
 CREATE UNIQUE INDEX uq_competency_frameworks_global_code ON public.competency_frameworks USING btree (code) WHERE (organization_id IS NULL);
 
 
@@ -2944,6 +3025,18 @@ CREATE TRIGGER enforce_learning_publication BEFORE INSERT OR UPDATE ON public.qu
 
 
 CREATE TRIGGER enforce_learning_publication BEFORE INSERT OR UPDATE ON public.section_content FOR EACH ROW EXECUTE FUNCTION public.enforce_learning_publication();
+
+
+
+CREATE TRIGGER quiz_answer_assessment_snapshot BEFORE INSERT ON public.quiz_student_answers FOR EACH ROW EXECUTE FUNCTION public.capture_quiz_assessment_snapshot();
+
+
+
+CREATE TRIGGER quiz_option_index_version AFTER INSERT OR DELETE OR UPDATE ON public.quiz_answer_options FOR EACH ROW EXECUTE FUNCTION public.track_quiz_option_index();
+
+
+
+CREATE TRIGGER quiz_question_index_version AFTER INSERT OR DELETE OR UPDATE ON public.quiz_questions FOR EACH ROW EXECUTE FUNCTION public.track_quiz_question_index();
 
 
 
@@ -3395,6 +3488,11 @@ ALTER TABLE ONLY public.quiz_correct_answers
 
 
 
+ALTER TABLE ONLY public.quiz_index_versions
+    ADD CONSTRAINT quiz_index_versions_quiz_id_fkey FOREIGN KEY (quiz_id) REFERENCES public.quizzes(id) ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY public.quiz_questions
     ADD CONSTRAINT quiz_questions_quiz_id_fkey FOREIGN KEY (quiz_id) REFERENCES public.quizzes(id) ON DELETE CASCADE;
 
@@ -3524,7 +3622,7 @@ SET row_security = off;
 
 
 
-INSERT INTO public.organizations VALUES (1, 'Big Data Club', 'bdc', 'Default organization', NULL, true, '{"allow_cross_org_courses": true, "default_course_visibility": "PUBLIC"}', NULL, '2026-11-22 16:44:44.351658', '2026-11-22 16:44:44.351658');
+INSERT INTO public.organizations VALUES (1, 'Big Data Club', 'bdc', 'Default organization', NULL, true, '{"allow_cross_org_courses": true, "default_course_visibility": "PUBLIC"}', NULL, '2026-11-27 05:57:44.985991', '2026-11-27 05:57:44.985991');
 
 
 
@@ -3627,21 +3725,21 @@ INSERT INTO public.organizations VALUES (1, 'Big Data Club', 'bdc', 'Default org
 
 
 
-INSERT INTO public.permissions VALUES (1, 'COURSE_VIEW', 'COURSE', 'View course details and content', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (2, 'COURSE_CREATE', 'COURSE', 'Create new courses', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (3, 'COURSE_EDIT', 'COURSE', 'Edit existing courses', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (4, 'COURSE_DELETE', 'COURSE', 'Delete courses', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (5, 'COURSE_PUBLISH', 'COURSE', 'Publish or unpublish courses', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (6, 'QUIZ_CREATE', 'QUIZ', 'Create quizzes and questions', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (7, 'QUIZ_EDIT', 'QUIZ', 'Edit existing quizzes', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (8, 'QUIZ_DELETE', 'QUIZ', 'Delete quizzes', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (9, 'QUIZ_GRADE', 'QUIZ', 'Grade quiz attempts', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (10, 'ENROLLMENT_MANAGE', 'ENROLLMENT', 'Approve or reject enrollments', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (11, 'ENROLLMENT_BULK', 'ENROLLMENT', 'Bulk enroll students', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (12, 'AI_INDEX', 'AI', 'Trigger document AI indexing', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (13, 'AI_GENERATE', 'AI', 'Generate AI content (lessons, quizzes)', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (14, 'ROLE_MANAGE', 'SYSTEM', 'Manage roles and permissions', '2026-11-22 16:44:44.242313');
-INSERT INTO public.permissions VALUES (15, 'ANALYTICS_VIEW', 'SYSTEM', 'View analytics and reports', '2026-11-22 16:44:44.242313');
+INSERT INTO public.permissions VALUES (1, 'COURSE_VIEW', 'COURSE', 'View course details and content', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (2, 'COURSE_CREATE', 'COURSE', 'Create new courses', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (3, 'COURSE_EDIT', 'COURSE', 'Edit existing courses', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (4, 'COURSE_DELETE', 'COURSE', 'Delete courses', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (5, 'COURSE_PUBLISH', 'COURSE', 'Publish or unpublish courses', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (6, 'QUIZ_CREATE', 'QUIZ', 'Create quizzes and questions', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (7, 'QUIZ_EDIT', 'QUIZ', 'Edit existing quizzes', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (8, 'QUIZ_DELETE', 'QUIZ', 'Delete quizzes', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (9, 'QUIZ_GRADE', 'QUIZ', 'Grade quiz attempts', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (10, 'ENROLLMENT_MANAGE', 'ENROLLMENT', 'Approve or reject enrollments', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (11, 'ENROLLMENT_BULK', 'ENROLLMENT', 'Bulk enroll students', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (12, 'AI_INDEX', 'AI', 'Trigger document AI indexing', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (13, 'AI_GENERATE', 'AI', 'Generate AI content (lessons, quizzes)', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (14, 'ROLE_MANAGE', 'SYSTEM', 'Manage roles and permissions', '2026-11-27 05:57:44.877094');
+INSERT INTO public.permissions VALUES (15, 'ANALYTICS_VIEW', 'SYSTEM', 'View analytics and reports', '2026-11-27 05:57:44.877094');
 
 
 
@@ -3663,40 +3761,43 @@ INSERT INTO public.permissions VALUES (15, 'ANALYTICS_VIEW', 'SYSTEM', 'View ana
 
 
 
-INSERT INTO public.role_definitions VALUES (1, 'STUDENT', 'Student', NULL, true, '2026-11-22 16:44:44.033701');
-INSERT INTO public.role_definitions VALUES (2, 'TEACHER', 'Teacher', NULL, true, '2026-11-22 16:44:44.033701');
-INSERT INTO public.role_definitions VALUES (3, 'ADMIN', 'Administrator', NULL, true, '2026-11-22 16:44:44.033701');
 
 
 
-INSERT INTO public.role_permissions VALUES (3, 1, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 2, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 3, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 4, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 5, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 6, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 7, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 8, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 9, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 10, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 11, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 12, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 13, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 14, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (3, 15, '2026-11-22 16:44:44.24472');
-INSERT INTO public.role_permissions VALUES (2, 1, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 2, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 3, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 5, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 6, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 7, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 9, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 10, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 11, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 12, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 13, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (2, 15, '2026-11-22 16:44:44.249202');
-INSERT INTO public.role_permissions VALUES (1, 1, '2026-11-22 16:44:44.251923');
+INSERT INTO public.role_definitions VALUES (1, 'STUDENT', 'Student', NULL, true, '2026-11-27 05:57:44.665632');
+INSERT INTO public.role_definitions VALUES (2, 'TEACHER', 'Teacher', NULL, true, '2026-11-27 05:57:44.665632');
+INSERT INTO public.role_definitions VALUES (3, 'ADMIN', 'Administrator', NULL, true, '2026-11-27 05:57:44.665632');
+
+
+
+INSERT INTO public.role_permissions VALUES (3, 1, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 2, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 3, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 4, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 5, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 6, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 7, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 8, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 9, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 10, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 11, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 12, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 13, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 14, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (3, 15, '2026-11-27 05:57:44.879334');
+INSERT INTO public.role_permissions VALUES (2, 1, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 2, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 3, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 5, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 6, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 7, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 9, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 10, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 11, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 12, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 13, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (2, 15, '2026-11-27 05:57:44.8847');
+INSERT INTO public.role_permissions VALUES (1, 1, '2026-11-27 05:57:44.887595');
 
 
 

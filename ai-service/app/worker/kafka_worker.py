@@ -264,6 +264,10 @@ async def process_ai_command(payload: dict):
                 questions_per_level=job_payload.get("questions_per_level", 1),
             )
 
+        elif command_type == "INDEX_QUIZ":
+            from app.services.quiz_index_service import process
+            result = await process(job_id, int(job_payload["quiz_id"]))
+
         elif command_type == "ANALYZE_QUIZ_RESULTS":
             from app.services.quiz_insights_service import process_quiz_insights
             result = await process_quiz_insights(job_id, job_payload)

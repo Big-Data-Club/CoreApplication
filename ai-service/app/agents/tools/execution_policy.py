@@ -12,6 +12,7 @@ DIRECT_WRITE_TOOLS = frozenset({
     "mcp_create_lesson", "mcp_batch_generate_quiz", "mcp_save_course_knowledge",
 })
 COURSE_REQUIRED_TOOLS = frozenset({
+    "search_quiz_questions",
     "list_knowledge_nodes", "search_course_materials", "explain_concept",
     "generate_quiz_draft", "analyze_student_performance", "recommend_review",
     "diagnose_knowledge_gap", "prepare_course_materials", "create_course_section",
@@ -19,6 +20,7 @@ COURSE_REQUIRED_TOOLS = frozenset({
     "mcp_create_lesson", "mcp_save_course_knowledge", "mcp_course_knowledge_read",
 })
 READ_ONLY_COURSE_TOOLS = frozenset({
+    "search_quiz_questions",
     "list_knowledge_nodes", "search_course_materials", "explain_concept", "mcp_course_knowledge_read",
 })
 

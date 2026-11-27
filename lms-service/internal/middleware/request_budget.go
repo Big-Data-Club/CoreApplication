@@ -12,6 +12,11 @@ import (
 	"example/hello/internal/config"
 )
 
+func isQuizIndexWork(method, path string) bool {
+	return method == http.MethodPost && strings.HasPrefix(path, "/api/v1/quizzes/") &&
+		(strings.HasSuffix(path, "/index") || strings.Contains(path, "/index/"))
+}
+
 // RequestBudget is an admission limit, not a waiting queue. Full capacity sheds load
 // before HTTP handlers allocate uploads or wait for database connections.
 func RequestBudget(uploadBytes int64, limits config.RequestLimits) gin.HandlerFunc {
@@ -45,7 +50,7 @@ func RequestBudget(uploadBytes int64, limits config.RequestLimits) gin.HandlerFu
 			bodyLimit = 16 << 20
 			timeout = 30 * time.Second
 		case (c.Request.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/quizzes/") && strings.HasSuffix(path, "/questions/batch")) ||
-			strings.Contains(path, "generate") || strings.Contains(path, "/ai/") || strings.Contains(path, "bulk-grade"):
+			strings.Contains(path, "generate") || strings.Contains(path, "/ai/") || strings.Contains(path, "bulk-grade") || isQuizIndexWork(c.Request.Method, path):
 			slots = costly
 			timeout = 2 * time.Minute
 		case strings.Contains(path, "/files/"):

@@ -88,13 +88,13 @@ func (h *QuizResultsHandler) loadReport(c *gin.Context, id int64, query dto.Quiz
 	ctx := c.Request.Context()
 	user := c.MustGet("user_id").(int64)
 	role := c.GetString("user_role")
-	global, err := h.cached(ctx, fmt.Sprintf("quiz_results:v3:%d:overview", id), func(ctx context.Context) (json.RawMessage, error) {
+	global, err := h.cached(ctx, fmt.Sprintf("quiz_results:v4:%d:overview", id), func(ctx context.Context) (json.RawMessage, error) {
 		return h.service.GetQuizResults(ctx, id, user, role)
 	})
 	if err != nil || query.Search == "" && query.AttemptPage == 1 && query.StudentPage == 1 {
 		return global, err
 	}
-	key := fmt.Sprintf("quiz_results:v3:%d:%d:%d:%x", id, query.AttemptPage, query.StudentPage, sha256.Sum256([]byte(query.Search)))
+	key := fmt.Sprintf("quiz_results:v4:%d:%d:%d:%x", id, query.AttemptPage, query.StudentPage, sha256.Sum256([]byte(query.Search)))
 	rows, err := h.cached(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
 		return h.service.GetQuizResultRows(ctx, id, user, role, query)
 	})

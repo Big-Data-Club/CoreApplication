@@ -10,3 +10,6 @@ var LearningNotifications string
 
 //go:embed releases/2026-11/V023__always_publish_learning_resources.sql
 var AlwaysPublishLearningResources string
+
+//go:embed releases/2026-11-27/V024__quiz_assessment_snapshot.sql
+var QuizAssessmentSnapshot string

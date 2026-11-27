@@ -23,6 +23,8 @@ func TestQuestionBatchUsesBoundedImportBudgetOnly(t *testing.T) {
 	}{
 		{"/api/v1/quizzes/:quizId/questions/batch", 2 * time.Minute},
 		{"/api/v1/quizzes/:quizId/questions", 15 * time.Second},
+		{"/api/v1/quizzes/:quizId/index/suggest", 2 * time.Minute},
+		{"/api/v1/quizzes/:quizId/index/search", 2 * time.Minute},
 	} {
 		t.Run(route.path, func(t *testing.T) {
 			r := gin.New()

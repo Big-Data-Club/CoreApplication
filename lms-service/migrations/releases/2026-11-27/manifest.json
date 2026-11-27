@@ -1,0 +1,9 @@
+{
+  "release": "2026-11-27",
+  "files": [
+    {
+      "name": "V024__quiz_assessment_snapshot.sql",
+      "sha256": "e62984ef28b2a29e5c75003d90795318fd8958cf4cfbf739bd2ecdb338885020"
+    }
+  ]
+}

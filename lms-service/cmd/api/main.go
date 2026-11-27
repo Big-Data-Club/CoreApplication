@@ -84,6 +84,13 @@ func main() {
 	}
 	cancelNoticeSchema()
 
+	assessmentCtx, cancelAssessment := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := database.EnsureQuizAssessmentSchema(assessmentCtx, db); err != nil {
+		cancelAssessment()
+		logger.Fatal("Apply LMS V024 quiz assessment migration before starting this image", err)
+	}
+	cancelAssessment()
+
 	safetyCtx, cancelSafety := context.WithTimeout(context.Background(), 5*time.Second)
 	var safetyReady bool
 	err = db.QueryRowContext(safetyCtx, `SELECT to_regclass('lms_file_assets') IS NOT NULL AND to_regclass('lms_quiz_effects') IS NOT NULL AND to_regclass('lms_processed_interactions') IS NOT NULL AND to_regclass('lms_callback_receipts') IS NOT NULL`).Scan(&safetyReady)
@@ -654,6 +661,12 @@ func main() {
 				quizzes.GET("/:quizId/my-attempts", quizHandler.GetMyQuizAttempts)
 				quizzes.GET("/:quizId/focus-report", quizHandler.GetFocusReport)
 				quizResultsHandler := handler.NewQuizResultsHandler(quizService, redisClient)
+				quizIndexHandler := handler.NewQuizIndexHandler(quizService)
+				quizzes.POST("/:quizId/index", quizIndexHandler.Action("queue"))
+				quizzes.GET("/:quizId/index", quizIndexHandler.Action("state"))
+				quizzes.POST("/:quizId/index/search", quizIndexHandler.Action("search"))
+				quizzes.POST("/:quizId/index/suggest", quizIndexHandler.Action("suggest"))
+				quizzes.POST("/:quizId/index/link", quizIndexHandler.Action("link"))
 				quizzes.GET("/:quizId/results", quizResultsHandler.Get)
 				quizzes.GET("/:quizId/results/attempts/:attemptId", quizResultsHandler.Answers)
 				quizzes.POST("/:quizId/results/insights", quizResultsHandler.Analyze)
@@ -940,6 +953,7 @@ func main() {
 		{
 			internalAI.GET("/sections/:sectionId/contents", courseHandler.InternalGetSectionContents)
 			internalAI.GET("/contents/:contentId/hierarchy", courseHandler.InternalGetContentHierarchy)
+			internalAI.GET("/quizzes/:quizId/index-source", handler.NewQuizIndexHandler(quizService).Source)
 
 			// Skill-based personalization payload for recommender-service
 			internalAI.GET("/students/:studentId/skill-profile", personalizedLearningHandler.InternalGetStudentSkillProfile)
